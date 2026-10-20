@@ -16,6 +16,7 @@ struct player_packet {
     unsigned int magic;
     unsigned int seq;
     unsigned char has_state;    /* 0: no player yet (title, loading), events only */
+    unsigned char level;        /* sender's level: a state from another level is ignored */
     short player_type;          /* OBJ type of the sender's player (Kurt, Max, Doc, Hyde) */
     struct snap state;
     unsigned int ack;           /* highest event id received in order from the peer */
@@ -406,6 +407,7 @@ void net_send_player(BYTE *gob)
     memset(&p, 0, sizeof(p));
     p.magic = PLAYER_MAGIC;
     p.seq = ++send_seq;
+    p.level = (unsigned char)cur_level;
     if (gob) {
         p.has_state = 1;
         p.player_type = (short)gob_type(gob);
@@ -426,7 +428,9 @@ static void accept_player(const struct player_packet *p, double arrived)
     if (have_remote && p->seq <= recv_seq)
         return;                         /* late or duplicate snapshot */
     recv_seq = p->seq;
-    if (p->has_state) {
+    /* around a level change the peer still sends where it was in the old level: drawn here,
+     * the puppet would stand there and wake that part of our level (room scripts run early) */
+    if (p->has_state && p->level == (unsigned char)cur_level) {
         peer_player_type = p->player_type;
         clock_sample(p->state.time, arrived);
         track_add(&player_track, &p->state);

@@ -39,7 +39,7 @@ It forwards DirectInput to the system DLL and adds Lua functions to the game:
 - `coop_init()` registers the others and opens a UDP socket (ports from `<game dir>\coop\coop.ini`,
   see `dist/coop.ini.example`)
 - `coop_send(gob)` sends the gob's position and orientation to the peer
-- `coop_recv()` returns the peer's latest `x, y, z`, or nil before the first packet
+- `coop_recv()` returns the peer's latest `x, y, z`, or nil until the peer has sent one in this level
 - `coop_log(msg)` writes a line to bridge.log
 - `coop_gob(name)` returns the gob for an `n<id>` network name; `coop_role()` returns "host" or "client"
 - `coop_event()` returns the next damage event from the peer (`kind, name, damage, type, part`) or nil

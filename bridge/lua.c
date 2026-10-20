@@ -125,7 +125,7 @@ static void l_coop_send(void)
         ents_host_tick();
 }
 
-/* coop_recv() -> x, y, z of the peer for this frame, or nil before the first packet.
+/* coop_recv() -> x, y, z of the peer for this frame, or nil until the peer has sent one in this level.
  * On the client this also moves the mirrored actors. */
 static void l_coop_recv(void)
 {
@@ -138,6 +138,11 @@ static void l_coop_recv(void)
     }
     shots_frame();
     doors_frame();
+    /* nothing from the peer in this level yet: the view still holds where it was before the
+     * level change, and a puppet put there wakes that part of the level (level 2's gun room
+     * ran its OnCreate on the host only) */
+    if (!player_track.n)
+        return;
     track_update(&player_track);
     smooth_track(player_track.view.pos);
     lua_pushnumber(player_track.view.pos[0]);
