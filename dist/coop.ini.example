@@ -1,5 +1,7 @@
 ; copy to <game dir>\coop\coop.ini
 [net]
+; host runs the world; client forwards its hits to the host
+role=host
 listen_port=27900
 peer_host=127.0.0.1
 peer_port=27901

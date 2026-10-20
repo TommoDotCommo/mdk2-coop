@@ -19,8 +19,14 @@
 typedef void (*lua_CFunction)(void);
 
 static void (*const lua_pushnumber)(double) = (void *)0x476bb0;
+static void (*const lua_pushstring)(const char *) = (void *)0x476c40;
+static unsigned int (*const lua_getparam)(int) = (void *)0x476690;
+static int (*const lua_isnumber)(unsigned int) = (void *)0x476a20;
+static double (*const lua_getnumber)(unsigned int) = (void *)0x476a60;
 /* luaL_check_lstr(narg, &len): string argument, raises a Lua error if missing */
 static const char *(*const luaL_check_lstr)(int, long *) = (void *)0x478100;
+/* lua_dobuffer(buf, len, chunkname): run Lua source, 0 on success */
+static int (*const lua_dobuffer)(const char *, int, const char *) = (void *)0x478de0;
 /* tolua_getusertype(narg, def): C object behind a Lua argument */
 static void *(*const tolua_getusertype)(int, void *) = (void *)0x475700;
 /* tolua_function(module, name, fn): module NULL registers a global */
@@ -30,9 +36,18 @@ static void (*const tolua_function)(const char *, const char *, lua_CFunction) =
 static DWORD *(*const om_anim_state)(void *, int) = (void *)0x44c640;
 #define ANIM_ID_MAX     160     /* exe names 146 ANIM_* constants */
 
+/* Central damage function: every hit, from scripts and from shots, goes through it.
+ * deal_damage(from, target, damage, damagetype, part); first 5 bytes are
+ * push ebp; mov ebp,[esp+0xc], a clean place for a jump. */
+#define DEAL_DAMAGE_ADDR    0x40d590
+static const BYTE deal_damage_prologue[5] = { 0x55, 0x8b, 0x6c, 0x24, 0x0c };
+typedef void (*deal_damage_t)(void *, void *, int, int, int);
+static deal_damage_t deal_damage_orig;   /* trampoline into the original */
+
 /* OMGOB layout, from the tolua position/orientation accessors at 0x437af0/0x437ba0 */
 #define GOB_POSITION    0x18    /* float x, y, z */
 #define GOB_ORIENTATION 0x24    /* float quaternion[4]; engine setter copies it raw */
+#define GOB_NAME        0x04    /* char[], name given to mdkCreateObjectLua / mdkRegisterObject */
 #define GOB_ANIM        0x60    /* anim controller: +0x24 state array, +0x28/+0x2c current/previous state */
 
 /* Lua builtin table {name, fn} entry for "copytagmethods", unused by the
@@ -59,7 +74,7 @@ static void logmsg(const char *fmt, ...)
 
 /* ---- network: UDP to one peer, latest packet wins ---- */
 
-#define PACKET_MAGIC 0x334b444d     /* "MDK3": v3 adds sender time */
+#define PACKET_MAGIC 0x344b444d     /* "MDK4": v4 adds reliable events */
 
 #define ANIM_STATE_DWORDS 10   /* flags, mode, times, rate, weight: plain data, no pointers */
 #define ANIM_TIME0        3    /* [3] and [4]: normalised play position, 0..1 */
@@ -73,6 +88,20 @@ struct anim_entry {
     DWORD state[ANIM_STATE_DWORDS];
 };
 
+/* Reliable events ride along in every packet until the peer acks them */
+enum { EV_HIT = 1, EV_APPLY, EV_HURT };
+#define EV_NAME       32
+#define PACKET_EVENTS 8
+
+struct event {
+    unsigned int id;
+    unsigned char kind;
+    signed char part;
+    short damage;
+    int type;
+    char name[EV_NAME];         /* target gob name; "@player" = the receiver's own player */
+};
+
 struct packet {
     unsigned int magic;
     unsigned int seq;
@@ -81,6 +110,9 @@ struct packet {
     float quat[4];              /* w, x, y, z */
     unsigned char cur, prev, nanims;
     struct anim_entry anims[PACKET_ANIMS];
+    unsigned int ack;           /* highest event id received in order from the peer */
+    unsigned char nevents;
+    struct event events[PACKET_EVENTS];
 };
 
 /* settings from coop.ini */
@@ -91,6 +123,8 @@ static int extrap_ms = 150;     /* [sync] extrap_ms: max extrapolation when pack
 static int sim_latency_ms;      /* [sim] latency_ms, jitter_ms, loss_pct: fake a bad network */
 static int sim_jitter_ms;
 static int sim_loss_pct;
+
+static int role_host = 1;       /* [net] role: host runs the world, client forwards its hits */
 
 static SOCKET sock = INVALID_SOCKET;
 static struct sockaddr_in peer;
@@ -110,7 +144,7 @@ static double now_ms(void)
 
 static void net_open(void)
 {
-    char ini[MAX_PATH], host[64];
+    char ini[MAX_PATH], host[64], role[16];
     int listen_port, peer_port;
     struct sockaddr_in local;
     u_long nonblock = 1;
@@ -120,6 +154,8 @@ static void net_open(void)
     listen_port = GetPrivateProfileIntA("net", "listen_port", 27900, ini);
     peer_port = GetPrivateProfileIntA("net", "peer_port", 27901, ini);
     GetPrivateProfileStringA("net", "peer_host", "127.0.0.1", host, sizeof(host), ini);
+    GetPrivateProfileStringA("net", "role", "host", role, sizeof(role), ini);
+    role_host = _stricmp(role, "client") != 0;
     sync_anim = GetPrivateProfileIntA("sync", "anim", 1, ini);
     send_hz = GetPrivateProfileIntA("sync", "send_hz", 30, ini);
     interp_ms = GetPrivateProfileIntA("sync", "interp_ms", 100, ini);
@@ -153,7 +189,7 @@ static void net_open(void)
     peer.sin_family = AF_INET;
     peer.sin_port = htons((u_short)peer_port);
     peer.sin_addr.s_addr = inet_addr(host);
-    logmsg("udp listen %d, peer %s:%d", listen_port, host, peer_port);
+    logmsg("udp listen %d, peer %s:%d, role %s", listen_port, host, peer_port, role_host ? "host" : "client");
 }
 
 /* ---- snapshot buffer ---- */
@@ -191,10 +227,65 @@ static void snap_add(const struct packet *p, double arrived)
 static struct { struct packet p; double due; } simq[SIM_QUEUE];
 static int nsimq;
 
+/* ---- reliable events: outbox resent until acked, inbox handed to Lua in order ---- */
+
+#define OUTBOX 256
+#define INBOX  64
+
+static struct event outbox[OUTBOX];
+static unsigned int out_next = 1, out_acked;   /* outbox holds ids out_acked+1 .. out_next-1 */
+static struct event inbox[INBOX];
+static int inbox_head, inbox_count;
+static unsigned int in_next = 1;               /* next event id expected from the peer */
+
+static void event_queue(int kind, const char *name, int damage, int type, int part)
+{
+    struct event *e;
+
+    if (out_next - out_acked > OUTBOX) {
+        logmsg("event outbox full, dropping kind %d %s", kind, name);
+        return;
+    }
+    e = &outbox[out_next % OUTBOX];
+    memset(e, 0, sizeof(*e));
+    e->id = out_next++;
+    e->kind = (unsigned char)kind;
+    e->damage = (short)damage;
+    e->type = type;
+    e->part = (signed char)part;
+    snprintf(e->name, EV_NAME, "%s", name);
+}
+
+static void events_fill(struct packet *p)
+{
+    unsigned int id;
+
+    p->ack = in_next - 1;
+    p->nevents = 0;
+    for (id = out_acked + 1; id < out_next && p->nevents < PACKET_EVENTS; id++)
+        p->events[p->nevents++] = outbox[id % OUTBOX];
+}
+
+static void events_receive(const struct packet *p)
+{
+    int i;
+
+    if (p->ack > out_acked && p->ack < out_next)
+        out_acked = p->ack;
+    for (i = 0; i < p->nevents && i < PACKET_EVENTS; i++) {
+        if (p->events[i].id != in_next || inbox_count == INBOX)
+            continue;               /* duplicate, or a gap: wait for the resend */
+        inbox[(inbox_head + inbox_count) % INBOX] = p->events[i];
+        inbox_count++;
+        in_next++;
+    }
+}
+
 static void accept_packet(const struct packet *p, double now)
 {
+    events_receive(p);
     if (have_remote && p->seq <= recv_seq)
-        return;                         /* late or duplicate */
+        return;                         /* late or duplicate snapshot */
     snap_add(p, now);
     recv_seq = p->seq;
     if (p->seq % 300 == 0)
@@ -214,7 +305,7 @@ static void net_poll(void)
     if (sock == INVALID_SOCKET)
         return;
     while ((n = recv(sock, (char *)&p, sizeof(p), 0)) == sizeof(p)) {
-        if (p.magic != PACKET_MAGIC || p.nanims > PACKET_ANIMS)
+        if (p.magic != PACKET_MAGIC || p.nanims > PACKET_ANIMS || p.nevents > PACKET_EVENTS)
             continue;
         if (!sim_latency_ms && !sim_jitter_ms && !sim_loss_pct) {
             accept_packet(&p, now);
@@ -239,6 +330,8 @@ static void net_poll(void)
 /* ---- interpolation ---- */
 
 static struct packet view;      /* what the puppet shows this frame */
+static BYTE *local_player;      /* last gob passed to coop_send */
+static BYTE *puppet;            /* last gob passed to coop_face */
 
 static float lerpf(float a, float b, float t)
 {
@@ -453,6 +546,8 @@ static void l_coop_send(void)
     memcpy(p.pos, gob + GOB_POSITION, sizeof(p.pos));
     memcpy(p.quat, gob + GOB_ORIENTATION, sizeof(p.quat));
     anim_capture(gob, &p);
+    events_fill(&p);
+    local_player = gob;
     sendto(sock, (const char *)&p, sizeof(p), 0, (struct sockaddr *)&peer, sizeof(peer));
     if (p.seq % 300 == 0)
         logmsg("send #%u pos (%.2f, %.2f, %.2f) quat (%.3f, %.3f, %.3f, %.3f) anim cur %d n %d", p.seq,
@@ -479,6 +574,7 @@ static void l_coop_face(void)
 
     if (!gob || !have_remote)
         return;
+    puppet = gob;
     memcpy(gob + GOB_ORIENTATION, view.quat, sizeof(view.quat));
     if (sync_anim)
         anim_apply(gob, &view);
@@ -511,11 +607,184 @@ static void l_coop_animdump(void)
     }
 }
 
+static double num_param(int n)
+{
+    unsigned int o = lua_getparam(n);
+    return (o && lua_isnumber(o)) ? lua_getnumber(o) : 0.0;
+}
+
+/* ---- damage hook ---- */
+
+static const char *gob_name(BYTE *gob)
+{
+    static char buf[32];
+    int i;
+
+    if (!gob || IsBadReadPtr(gob + GOB_NAME, sizeof(buf)))
+        return "?";
+    for (i = 0; i < (int)sizeof(buf) - 1 && gob[GOB_NAME + i]; i++)
+        buf[i] = (gob[GOB_NAME + i] >= 32 && gob[GOB_NAME + i] < 127) ? gob[GOB_NAME + i] : '.';
+    buf[i] = 0;
+    return buf;
+}
+
+static int gob_hp(BYTE *gob)
+{
+    BYTE *info;
+
+    if (!gob || IsBadReadPtr(gob + 0x84, 4) || !(info = *(BYTE **)(gob + 0x84)) || IsBadReadPtr(info + 0x12, 2))
+        return -1;
+    return *(short *)(info + 0x12);
+}
+
+/* Host: applies everything, tells the client what it applied, and turns hits on the
+ * client's puppet into HURT for the client's own player.
+ * Client: only its own player takes damage locally; its hits on anything else go to
+ * the host as HIT and come back as APPLY. */
+static void deal_damage_hook(void *from, void *target, int damage, int type, int part)
+{
+    char fromname[32], name[32];
+
+    snprintf(fromname, sizeof(fromname), "%s", gob_name(from));
+    snprintf(name, sizeof(name), "%s", gob_name(target));
+    logmsg("damage %s -> %s %d type 0x%x part %d", fromname, name, damage, type, part);
+
+    if (sock == INVALID_SOCKET || !have_remote) {
+        deal_damage_orig(from, target, damage, type, part);
+        return;
+    }
+    if (role_host) {
+        if (target == puppet) {
+            event_queue(EV_HURT, "@player", damage, type, part);
+            return;
+        }
+        deal_damage_orig(from, target, damage, type, part);
+        if (target != local_player && name[0])
+            event_queue(EV_APPLY, name, damage, type, part);
+        return;
+    }
+    if (target == local_player) {
+        deal_damage_orig(from, target, damage, type, part);
+        return;
+    }
+    if (from == local_player && target != puppet && name[0])
+        event_queue(EV_HIT, name, damage, type, part);
+}
+
+/* Redirect fn to hook with a 5-byte jmp; returns a trampoline that runs the
+ * saved prologue and jumps back, or NULL if the bytes are not what we expect. */
+static void *hook5(BYTE *fn, const BYTE *expect, void *hook)
+{
+    BYTE *tramp;
+    DWORD old;
+
+    if (memcmp(fn, expect, 5) != 0)
+        return NULL;
+    tramp = VirtualAlloc(NULL, 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!tramp)
+        return NULL;
+    memcpy(tramp, fn, 5);
+    tramp[5] = 0xe9;
+    *(DWORD *)(tramp + 6) = (DWORD)(fn + 5) - (DWORD)(tramp + 10);
+    VirtualProtect(fn, 5, PAGE_EXECUTE_READWRITE, &old);
+    fn[0] = 0xe9;
+    *(DWORD *)(fn + 1) = (DWORD)hook - (DWORD)(fn + 5);
+    VirtualProtect(fn, 5, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), fn, 5);
+    return tramp;
+}
+
+/* coop_findstr(gob, s): log offsets in the gob's first 1 KB holding s, directly or via one pointer */
+static void l_coop_findstr(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL);
+    long len;
+    const char *str = luaL_check_lstr(2, &len);
+    int off;
+
+    if (!gob)
+        return;
+    for (off = 0; off < 1024; off++) {
+        BYTE *ptr;
+        if (IsBadReadPtr(gob + off, len + 1))
+            break;
+        if (memcmp(gob + off, str, len + 1) == 0)
+            logmsg("findstr '%s': inline at +0x%x", str, off);
+        if ((off & 3) == 0 && (ptr = *(BYTE **)(gob + off)) && !IsBadReadPtr(ptr, len + 1) &&
+            memcmp(ptr, str, len + 1) == 0)
+            logmsg("findstr '%s': pointer at +0x%x -> %p", str, off, (void *)ptr);
+    }
+}
+
+/* coop_event() -> kind, name, damage, type, part  for the next event from the peer, or nil */
+static void l_coop_event(void)
+{
+    struct event *e;
+
+    if (!inbox_count)
+        return;
+    e = &inbox[inbox_head];
+    inbox_head = (inbox_head + 1) % INBOX;
+    inbox_count--;
+    lua_pushnumber(e->kind);
+    lua_pushstring(e->name);
+    lua_pushnumber(e->damage);
+    lua_pushnumber(e->type);
+    lua_pushnumber(e->part);
+}
+
+/* coop_apply(kind, gob, damage, type, part): carry out an event on the gob Lua found by name */
+static void l_coop_apply(void)
+{
+    int kind = (int)num_param(1);
+    BYTE *gob = tolua_getusertype(2, NULL);
+    int damage = (int)num_param(3), type = (int)num_param(4), part = (int)num_param(5);
+
+    if (!gob)
+        return;
+    switch (kind) {
+    case EV_HIT:        /* host: the client's Kurt hit this; goes through the hook so the client gets APPLY */
+        deal_damage_hook(puppet, gob, damage, type, part);
+        break;
+    case EV_APPLY:      /* client: the host applied this */
+    case EV_HURT:       /* client: the host's world hurt our player */
+        deal_damage_orig(NULL, gob, damage, type, part);
+        break;
+    }
+    logmsg("event %d on %s: %d type 0x%x part %d -> hp %d", kind, gob_name(gob), damage, type, part, gob_hp(gob));
+}
+
 /* coop_log(msg): write a line to bridge.log */
 static void l_coop_log(void)
 {
     long len;
     logmsg("lua: %s", luaL_check_lstr(1, &len));
+}
+
+/* Run <game dir>\coop\coop.lua. The game reads settings.lua into an 8 KB stack
+ * buffer (overflowing it kills the game), so settings.lua only calls coop_init()
+ * and the mod's Lua lives here. */
+static void run_mod_script(void)
+{
+    char path[MAX_PATH], *buf;
+    FILE *f;
+    long len;
+
+    snprintf(path, MAX_PATH, "%s\\coop.lua", coop_dir);
+    if (!(f = fopen(path, "rb"))) {
+        logmsg("no %s", path);
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buf = malloc(len + 1);
+    if (buf && fread(buf, 1, len, f) == (size_t)len) {
+        buf[len] = 0;
+        logmsg("running coop.lua (%ld bytes): %d", len, lua_dobuffer(buf, (int)len, "coop.lua"));
+    }
+    free(buf);
+    fclose(f);
 }
 
 /* coop_init(): called once from Lua; registers the rest and opens the socket */
@@ -531,8 +800,13 @@ static void l_coop_init(void)
     tolua_function(NULL, "coop_face", l_coop_face);
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
     tolua_function(NULL, "coop_log", l_coop_log);
+    tolua_function(NULL, "coop_event", l_coop_event);
+    tolua_function(NULL, "coop_apply", l_coop_apply);
+    tolua_function(NULL, "coop_findstr", l_coop_findstr);
     net_open();
-    logmsg("coop_init: lua functions registered");
+    deal_damage_orig = hook5((BYTE *)DEAL_DAMAGE_ADDR, deal_damage_prologue, deal_damage_hook);
+    logmsg("coop_init: lua functions registered, damage hook %s", deal_damage_orig ? "installed" : "NOT installed");
+    run_mod_script();
 }
 
 static void install_lua_hook(void)

@@ -1,8 +1,9 @@
 -------------------------------------------------------------------------------
 --  coop_dev.lua
 --
---  Dev harness for MDK2 HD co-op. Appended to %LOCALAPPDATA%\MDK2HD\settings.lua
---  by tools/inject.sh; runs after mdk2.lua so every game function is defined.
+--  Dev harness for MDK2 HD co-op. Installed as <game dir>\coop\coop.lua and run by
+--  dinput8.dll from coop_init(), which a one-line hook in settings.lua calls after
+--  mdk2.lua, so every game function is defined. Needs the bridge DLL.
 --  Lua 3.1: no 'local function', closures need %upvalues.
 -------------------------------------------------------------------------------
 
@@ -38,9 +39,24 @@ omMakeCommand(COM_TOGL4, "F11", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGLG, "F4", CON_BUTTON_FALL, 0, 0)
 
 
--- bridge functions come from dinput8.dll; without it the puppet just follows locally --
-if (coop_init) then
-    coop_init()
+
+-- carry out damage events from the peer; targets are found by gob name --
+function coop.HandleEvents()
+    local kind, name, damage, dtype, part = coop_event()
+    while (kind) do
+        local target
+        if (name == "@player") then
+            target = mdkGetPlayerGob()
+        else
+            target = getglobal(name)
+        end
+        if (target and type(target) ~= "number" and type(target) ~= "string") then
+            coop_apply(kind, target, damage, dtype, part)
+        else
+            coop_log(format("event %d: no gob named '%s'", kind, name))
+        end
+        kind, name, damage, dtype, part = coop_event()
+    end
 end
 
 -- each frame: send our position, put the puppet where the peer says its player is --
@@ -56,6 +72,7 @@ function coop.PuppetOnUpdate(gob)
     if (coop_send) then
         coop_send(p)
         x, y, z = coop_recv()
+        coop.HandleEvents()
     end
     if (x) then
         mdkGobSetPositionXYZ(gob, x, y, z + coop.mirror)
@@ -90,10 +107,18 @@ comfuncs.fkey[COM_TOGL4] = function()
     if (coop_animdump) then
         coop_animdump(mdkGetPlayerGob())
         if (coop.p2) then coop_animdump(coop.p2) end
+        if (coop_findstr) then coop_findstr(mdkGetPlayerGob(), "bob") end
     end
 end
 
 -- F4: teleport the player to level 1 checkpoint 3's spot (another room), for room tests --
 comfuncs.fkey[COM_TOGLG] = function()
     mdkGobSetPositionXYZ(mdkGetPlayerGob(), 133, 46, -40)
+end
+
+-- F5 (was debug.lua's next-section): spawn a Doganboy 6 units ahead, for combat tests --
+coop.enemies = 0
+comfuncs.fkey[COM_NEXTSECTION] = function()
+    coop.enemies = coop.enemies + 1
+    make(format("coop_dog%d", coop.enemies), OBJ_DOGANBOY)
 end
