@@ -47,6 +47,10 @@ if [ -n "${MDK2_START:-}" ]; then
     printf '\r\ncoop.autostart = { %d, %d }\r\ncoop.autostart_players = %d\r\n' "$start_level" "$start_cp" \
         $((MDK2_N - 1)) >> "$(mdk_wsl "$(mdk_dir 1)")/coop/coop.lua"
 fi
+# MDK2_SAVE_INTERVAL=<seconds>: co-op saves that often (default 120)
+if [ -n "${MDK2_SAVE_INTERVAL:-}" ]; then
+    printf '\r\ncoop.save_interval = %d\r\n' "$MDK2_SAVE_INTERVAL" >> "$(mdk_wsl "$(mdk_dir 1)")/coop/coop.lua"
+fi
 # background test mode: mute all (settings.lua has set the volumes by the time coop.lua runs;
 # the games are killed, not quit, so they never write these back)
 if [ "${MDK2_BACKGROUND:-0}" = 1 ]; then

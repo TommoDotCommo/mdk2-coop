@@ -36,6 +36,7 @@ EV_APPLY = 2
 EV_HURT = 3
 EV_SPAWN = 4
 EV_LEVEL = 8
+EV_SAVE = 11
 
 -- BioWare debug menu (F9 in game), normally behind '$if features' --
 dofile('debug')
@@ -104,24 +105,15 @@ function coop.Spawn(name, netid, objtype, x, y, z, hp)
     end
 end
 
--- carry out events from the peer --
+-- carry out events from the others --
 function coop.HandleEvents()
-    local kind, name, damage, dtype, part, netid, objtype, x, y, z = coop_event()
+    local kind, name, damage, dtype, part, netid, objtype, x, y, z, extra1, extra2 = coop_event()
     while (kind) do
         if (kind == EV_LEVEL) then
-            -- the host started level dtype at checkpoint damage: follow, unless our own copy
-            -- of the script already took us there --
-            if (damage < 0) then
-                -- a reload from the host's autosave: ours does not match, and loading it
-                -- crashed the client (mdkGobCreateInstant) --
-                coop_log(format("host reloaded level %d from its save: not followed", dtype))
-            elseif (coop.level == dtype and coop.cp == damage) then
-                coop_log(format("host started level %d checkpoint %d: already here", dtype, damage))
-            else
-                coop_log(format("host started level %d checkpoint %d: following", dtype, damage))
-                coop.following = dtype * 1000 + damage
-                mdkNewGame(dtype, damage)
-            end
+            coop.FollowLevel(dtype, damage, part, extra1, extra2)
+        elseif (kind == EV_SAVE) then
+            -- the host is saving: save this game under the same number --
+            coop.MakeSave(extra2, netid, dtype, damage)
         elseif (kind == EV_SPAWN) then
             coop.Spawn(name, netid, objtype, x, y, z, damage)
         else
@@ -132,7 +124,40 @@ function coop.HandleEvents()
                 coop_log(format("event %d: no gob named '%s'", kind, name))
             end
         end
-        kind, name, damage, dtype, part, netid, objtype, x, y, z = coop_event()
+        kind, name, damage, dtype, part, netid, objtype, x, y, z, extra1, extra2 = coop_event()
+    end
+end
+
+-- The host is in level l at checkpoint cp: get there. same: 2 = we are in that very level
+-- already (our link dropped and came back), 1 = the host restarted (load even if we seem to be
+-- there). save: the co-op save to load, from host hostid's session: our own copy of it has our
+-- inventory, hp and position; without it, the checkpoint. --
+function coop.FollowLevel(l, cp, same, save, hostid)
+    if (same == 2) then
+        coop_log(format("host is in level %d checkpoint %d: we are still there", l, cp))
+        return
+    end
+    if (save > 0) then
+        -- only that very save: an older one of the same level may be from another playthrough --
+        local file, no, slevel, scp = coop_save_find(hostid, save, 0)
+        if (file and slevel == l and mdkSaveFileExists(file) == 1) then
+            coop_log(format("host is in level %d checkpoint %d: loading our co-op save %d", l, cp, no))
+            coop.loading = { no = no, level = slevel, cp = scp }
+            mdkStartInstantLoad(file)
+            return
+        end
+        coop_log(format("no co-op save %d here: following to the checkpoint", save))
+    end
+    if (cp < 0) then
+        -- a reload from the host's autosave: ours does not match, and loading it
+        -- crashed the client (mdkGobCreateInstant) --
+        coop_log(format("host reloaded level %d from its save: not followed", l))
+    elseif (coop.level == l and coop.cp == cp and same ~= 1) then
+        coop_log(format("host started level %d checkpoint %d: already here", l, cp))
+    else
+        coop_log(format("host started level %d checkpoint %d: following", l, cp))
+        coop.following = l * 1000 + cp
+        mdkNewGame(l, cp)
     end
 end
 
@@ -160,6 +185,9 @@ function coop.Tick()
     coop_send(p)
     coop_recv()
     coop.HandleEvents()
+    coop.WaitTick()
+    coop.PendingSaveTick()
+    if (coop_role() == "host") then coop.SaveTick() end
     if (not p or not coop.level or coop.level < 1) then return end
     local me = coop_slot()
     local _, slots = coop_players()
@@ -252,6 +280,22 @@ function level(l, cp, sec)
     -- loads (new game: 0 -> 1,9 -> 1,12 -> 1,1) happen on both and must not echo --
     local announce = 0
     if (coop_role() == "host" and l >= 1) then announce = 1 end
+    local save = 0
+    local loaded = coop.loading
+    coop.loading = nil
+    if (mdkLoadLevelIsInstant() == 1) then
+        -- an instant load brings back the puppets that were in the save, beside the new ones
+        -- we are about to make --
+        local n = coop_purge_puppets()
+        if (n > 0) then coop_log(format("%d puppets from the save removed", n)) end
+    end
+    if (loaded and l == loaded.level) then
+        -- one of our co-op saves (mdkGetCurrentCheckPoint says -1 after an instant load); the
+        -- host asks the clients to load their copies of it --
+        cp = loaded.cp
+        save = loaded.no
+        coop_log(format("co-op save %d loaded (level %d checkpoint %d)", save, l, cp))
+    end
     -- checkpoint -1 is a reload from the autosave (after a death): tell the client which
     -- checkpoint that is instead; it cannot load our save --
     if (cp < 0) then cp = mdkGetCurrentCheckPoint() end
@@ -260,7 +304,161 @@ function level(l, cp, sec)
     coop.puppets = {}
     coop.level = l
     coop.cp = cp
-    coop_level(l, cp, announce)
+    coop_level(l, cp, announce, save)
+    -- a client that loaded a save has a world from back then: the host sends its own again --
+    if (save > 0 and coop_role() ~= "host") then coop_ready() end
+    coop.ScheduleSave(10)
+end
+
+-- ---------------------------------------------------------------------------------------
+-- Co-op saves (bridge/saves.c). The host calls one every coop.save_interval seconds and a
+-- few seconds after each checkpoint; every game in the level makes its own full save under
+-- the same number. Load Game on the host's title screen offers "Resume co-op".
+-- ---------------------------------------------------------------------------------------
+
+coop.save_interval = 120
+
+-- host: save in `secs` seconds (sooner than any save already due) --
+function coop.ScheduleSave(secs)
+    if (coop_role() ~= "host") then return end
+    local due = coop_time() + secs
+    if (not coop.save_due or due < coop.save_due) then coop.save_due = due end
+end
+
+-- host, every frame: save when due, the game allows it and every player is in this level --
+function coop.SaveTick()
+    if (not coop.level or coop.level < 1) then return end
+    local cp = mdkGetCurrentCheckPoint()
+    if (cp >= 0 and cp ~= coop.cp) then
+        coop_log(format("checkpoint %d reached", cp))
+        coop.cp = cp
+        coop.ScheduleSave(3)
+    end
+    local now = coop_time()
+    if (not coop.save_due or now < coop.save_due) then return end
+    if (not CanSaveGameNow() or not coop_all_ready()) then
+        coop.save_due = now + 2
+        return
+    end
+    coop.save_due = now + coop.save_interval
+    coop.SaveNow()
+end
+
+-- host: make co-op save N now, in every game --
+function coop.SaveNow()
+    local no = coop_save_next()
+    coop_save_announce(no, coop.level, coop.cp)
+    coop.MakeSave(coop_id(), no, coop.level, coop.cp)
+end
+
+-- make our copy of save no of host hostid's session; recorded a second later, once the game
+-- has written it --
+function coop.MakeSave(hostid, no, l, cp)
+    if (not CanSaveGameNow()) then
+        coop_log(format("co-op save %d skipped here: the game cannot save right now", no))
+        return
+    end
+    local file = coop_save_file(no)
+    mdkStartInstantSave(file, format("Co-op %d-%d", l, cp))
+    coop.pending_save = { host = hostid, no = no, level = l, cp = cp, file = file, at = coop_time() + 1 }
+end
+
+function coop.PendingSaveTick()
+    local ps = coop.pending_save
+    if (not ps or coop_time() < ps.at) then return end
+    coop.pending_save = nil
+    if (mdkSaveFileExists(ps.file) == 1) then
+        coop_saved(ps.host, ps.no, ps.level, ps.cp, ps.file)
+    else
+        coop_log(format("co-op save %d: %s was not written", ps.no, ps.file))
+    end
+end
+
+-- host: load co-op save `no` (level l, checkpoint cp) from file; level() then asks every client
+-- to load its copy --
+function coop.Resume(file, no, l, cp)
+    coop_log(format("resuming co-op save %d (level %d checkpoint %d)", no, l, cp))
+    coop.loading = { no = no, level = l, cp = cp }
+    mdkStartInstantLoad(file)
+end
+
+function coop.ResumeLatest()
+    local file, no, l, cp = coop_save_find(coop_id(), 0, 0)
+    if (file and mdkSaveFileExists(file) == 1) then
+        coop.Resume(file, no, l, cp)
+    else
+        coop_log("no co-op save to resume")
+    end
+end
+
+-- Load Game (title screen and pause menu): the host's newest co-op save comes first --
+coop.addpcload_orig = AddPCLoadMenuItem
+function AddPCLoadMenuItem(filename, descoverride)
+    if (coop.addresume) then
+        coop.addresume = nil
+        coop.AddResumeItem()
+    end
+    return coop.addpcload_orig(filename, descoverride)
+end
+
+coop.buildpcload_orig = BuildPCLoadMenu
+function BuildPCLoadMenu()
+    coop.addresume = (coop_role() == "host")
+    coop.buildpcload_orig()
+end
+
+function coop.AddResumeItem()
+    local file, no, l, cp = coop_save_find(coop_id(), 0, 0)
+    if (not file or mdkSaveFileExists(file) ~= 1) then return end
+    local item = mdkCreateMenuItem(menu.pcload, format("Resume co-op %d-%d", l, cp))
+    item.save = { file = file, no = no, level = l, cp = cp }
+    item.Select = function(self)
+        mdkHideInstantSaveScreenShot()
+        coop.Resume(self.save.file, self.save.no, self.save.level, self.save.cp)
+        menu.pause.Cancel()
+    end
+    item.Highlight = function(self)
+        mdkShowInstantSaveScreenShot(self.save.file)
+    end
+end
+
+-- ---------------------------------------------------------------------------------------
+-- Client: lost the host. Nothing in our world moves without the host, so the game waits
+-- behind a message (input goes to the menu) until the host is back in a level; a host that
+-- restarted asks us to load our copy of the save it resumes.
+-- ---------------------------------------------------------------------------------------
+
+menu.coopwait = mdkCreateMenu(0.5, 0.42, 0.05, 0.05, 0, JUSTIFY_CENTER, 1)
+menu.coopwait.Cancel = function() end      -- Esc does not close it
+
+function coop.WaitTick()
+    if (coop_role() == "host" or not coop.level or coop.level < 1) then
+        if (coop.waiting) then coop.StopWaiting() end
+        return
+    end
+    local silent, hlevel = coop_host_status()
+    local why = nil
+    if (silent > 2000) then
+        why = "Connection to the host lost - reconnecting"
+    elseif (hlevel < 1) then
+        why = "The host left the level - waiting for the host"
+    end
+    if (why and why ~= coop.waiting) then
+        coop_log(format("waiting: %s", why))
+        mdkClearMenu(menu.coopwait)
+        mdkCreateMenuItem(menu.coopwait, why)
+        mdkCreateMenuItem(menu.coopwait, "Your game is kept and resumes by itself")
+        ShowMenu("coopwait")
+        coop.waiting = why
+    elseif (not why and coop.waiting) then
+        coop.StopWaiting()
+    end
+end
+
+function coop.StopWaiting()
+    coop_log("host is back: playing again")
+    coop.waiting = nil
+    if (menu.current == "coopwait") then HideMenu() end
 end
 
 -- Checkpoints in play order, from the debug menu's own list (debug.lua): { {level, cp}, ... } --

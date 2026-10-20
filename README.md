@@ -90,6 +90,22 @@ taken. Level epochs: the host counts the level loads it announces; states and ev
 epoch are old-level leftovers and are dropped, and a client holds events back while it is still
 loading the level they belong to.
 
+Dropping out (no progress lost): every game copy has a player id (`coop\player.ini`, made on first
+run) and the host remembers each id's number, also across its own restarts, so a player who comes back
+is the same player. Co-op saves: 10 s into each level, a few seconds after each checkpoint and every
+2 minutes (`coop.save_interval`), the host calls a save and every game in the level makes a full instant
+save of its own world (the game's quicksave: inventory, hp, position, every object) under the same
+number, in two alternating files (`save\c<id><a|b>.sav`, recorded in `coop\saves.ini`).
+- A client whose game crashes comes back as the same player and loads its own copy of the newest save
+  of that level; the host then sends its world again (enemies with hp, taken items).
+- A client whose connection drops sees "Connection to the host lost - reconnecting" (input goes to
+  that message, nothing moves in its world without the host) and plays on when the host is heard
+  again, without reloading anything; after 10 s the host drops its puppet and takes it back when it
+  returns.
+- When the host's game crashes, the clients wait the same way. The host's Load Game menu (title
+  screen or pause) then offers "Resume co-op <level>-<checkpoint>", and every client loads its copy of
+  that save.
+
 Damage authority (`[net] role=host|client`): the bridge hooks the game's central damage function
 (0x40d590). The host applies everything and tells the client (APPLY); the client applies damage to its own
 player only and sends its hits on anything else to the host (HIT), which applies them as if the client's
@@ -142,11 +158,13 @@ take focus. `tools/mdk.sh` has the helpers (start, keys, mouse, window screensho
 More players: `MDK2_N=8 tools/qa_n.sh` (default 3) runs a host and N-1 clients: everyone joins and
 follows, puppets for all in every game, enemies and hp everywhere, a client's shots, pickup and door
 seen by the other clients, damage reaching the right client, a client leaving and joining again
-mid-level, checkpoint keys, level 2. `tools/copies.sh` makes the extra game copies (mdk2.tar
+mid-level, checkpoint keys, level 2. `MDK2_N=3 tools/qa_save.sh` checks dropping out: co-op saves in every game, a client crash
+(back with its saved hp, position and number), a 15 s network cut (`coop_netblock`), a host crash
+and resume, and a level change after it. `tools/copies.sh` makes the extra game copies (mdk2.tar
 hard-linked, ~2 MB each). Folders and ports are set by `MDK2_DIR_BASE` / `MDK2_DIR<i>` and
 `MDK2_PORT` (see `tools/mdk.sh`), so two sets of copies can run side by side; `mdk_kill` only stops
 games running from its own copies. 2026-10-21: qa.sh 30/30, qa_n.sh 38/38 with 3 players and 53/53
-with 8 (~370 MB per game).
+with 8 (~370 MB per game), qa_save.sh 31/31 with 3 and 41/41 with 8.
 
 Last runs (2026-10-20, Steam build 3902, level 1 cp 2): 21/21 on plain localhost (after the first
 manual session's client crash was fixed); earlier 17/17 with `[sim] latency_ms=120 jitter_ms=40

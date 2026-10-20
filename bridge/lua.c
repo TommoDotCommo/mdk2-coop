@@ -187,8 +187,11 @@ static void l_coop_face(void)
 
 /* ---- events ---- */
 
-/* coop_event() -> kind, name, damage, type, part, netid, objtype, x, y, z
- * for the next event from the peer, or nil. DESPAWN, FIRE and PICKUP are handled here. */
+/* coop_event() -> kind, name, damage, type, part, netid, objtype, x, y, z, extra1, extra2
+ * for the next event from the others, or nil. DESPAWN, FIRE, PICKUP, MARK, STATE and READY
+ * are handled here. LEVEL: part 1 = the host restarted (load it even if we seem to be there
+ * already), 2 = we are in that very level already (same epoch: a link that dropped and came
+ * back), extra1 = co-op save to load (0 none), extra2 = the host's player id. */
 static void l_coop_event(void)
 {
     struct event e;
@@ -212,6 +215,11 @@ static void l_coop_event(void)
             logmsg("lua: MARK %d (from player %d)", e.damage, from + 1);
         else if (e.kind == EV_STATE)
             state_dump(e.name);     /* whatever level we are in: a mismatch is what it is for */
+        else if (e.kind == EV_READY && role_host) {
+            logmsg("player %d loaded a save: sending the world again", from + 1);
+            ents_resend(from);
+            pickups_resend(from);
+        }
         else if (e.epoch != cur_epoch && e.kind != EV_LEVEL)
             logmsg("event %d %s from epoch %u dropped (we are in %u)", e.kind, e.name, e.epoch, cur_epoch);
         else if (e.kind == EV_PICKUP)
@@ -219,8 +227,11 @@ static void l_coop_event(void)
         else
             break;
     }
-    if (e.kind == EV_LEVEL)
+    if (e.kind == EV_LEVEL) {
+        int same = cur_epoch == (unsigned short)e.netid && cur_level == e.type;
         net_level_event(&e);
+        e.part = host_changed_take() ? 1 : same ? 2 : 0;
+    }
     apply_slot = from;
     memcpy(apply_from, e.from, sizeof(apply_from));
     apply_from[EV_NAME - 1] = 0;
@@ -234,6 +245,8 @@ static void l_coop_event(void)
     lua_pushnumber(e.pos[0]);
     lua_pushnumber(e.pos[1]);
     lua_pushnumber(e.pos[2]);
+    lua_pushnumber(e.extra[0]);
+    lua_pushnumber(e.extra[1]);
 }
 
 /* The attacker of the event being applied: what the host named, else the sender's puppet
@@ -308,15 +321,18 @@ static void l_coop_gob(void)
     push_gob(role_host ? gob_by_handle(id) : ent_gob(id));
 }
 
-/* coop_level(level, checkpoint, announce): a level has started here. Resets everything
- * that pointed into the old level; with announce (host), asks the clients to load it too. */
+/* coop_level(level, checkpoint, announce, save): a level has started here. Resets
+ * everything that pointed into the old level; with announce (host), asks the clients to load
+ * it too, from their copy of co-op save `save` if that is not 0. */
 static void l_coop_level(void)
 {
     int level = (int)num_param(1), cp = (int)num_param(2), announce = (int)num_param(3);
+    unsigned int save = (unsigned int)num_param(4);
     struct event e;
 
     cur_level = level;
     cur_cp = cp;
+    gob_sets_clear();
     ents_reset();
     shots_reset();
     doors_reset();
@@ -331,7 +347,11 @@ static void l_coop_level(void)
         e.damage = (short)cp;
         e.type = level;
         e.netid = cur_epoch;
+        e.extra[0] = save;
+        e.extra[1] = my_id;
         event_send(&e, TO_ALL);
+        if (save)
+            net_set_last_save(save);
     }
     logmsg("level %d checkpoint %d started (epoch %u)%s", level, cp, cur_epoch, announce ? ", peer asked to follow" : "");
 }
@@ -570,5 +590,6 @@ void l_coop_init(void)
     pickups_init();
     rooms_init();
     frame_init();
+    saves_lua_init();
     run_mod_script();
 }

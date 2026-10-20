@@ -288,6 +288,36 @@ static void set_put(BYTE **set, BYTE *gob, int on)
     }
 }
 
+/* New level: every gob of the old one is gone, and a new gob at a freed address must not
+ * inherit its flags (an enemy taking an old puppet's address would not think) */
+void gob_sets_clear(void)
+{
+    memset(mirror_set, 0, sizeof(mirror_set));
+    memset(foreign_set, 0, sizeof(foreign_set));
+}
+
+/* Delete every gob whose name starts with prefix and continues with digits ("coop_p" ->
+ * coop_p1, coop_p2...: puppets an instant load brought back from the save); returns how many */
+int gob_purge_named(const char *prefix)
+{
+    size_t n = strlen(prefix);
+    int i, count = 0;
+
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *g = (BYTE *)GOB_TABLE[i * 2];
+        const char *name;
+        if (!g)
+            continue;
+        name = (const char *)g + GOB_NAME;
+        if (strncmp(name, prefix, n) == 0 && name[n] && strspn(name + n, "0123456789") == strlen(name + n)) {
+            logmsg("purge %s (from the save)", name);
+            gob_delete(g);
+            count++;
+        }
+    }
+    return count;
+}
+
 int gob_is_mirrored(BYTE *gob)
 {
     return set_has(mirror_set, gob);

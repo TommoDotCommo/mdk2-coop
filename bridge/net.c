@@ -5,9 +5,12 @@
  * the other clients (relayed packets: state only). Entity snapshots have their own packet
  * (entities.c), host to clients.
  *
- * Clients get their slot from the host's packets ("you"). Every process has a random
- * nonce: a new one from a known address means that game restarted, and the link starts
- * over. A player silent for PLAYER_TIMEOUT_MS has left.
+ * Clients get their slot from the host's packets ("you"). Every game copy has a player
+ * id (coop\player.ini) and the host keeps each id's slot, so a player who drops out
+ * gets the same number back. Every process has a random nonce: a new one means that game
+ * restarted, and the link starts over; the host also numbers each link it opens (gen),
+ * so a client whose link timed out on the host starts its side over too. A player silent
+ * for PLAYER_TIMEOUT_MS has left.
  *
  * Level epochs: the host counts the level loads it announces; a client takes the epoch
  * from the LEVEL event once it is in that level. States and events from another epoch
@@ -21,7 +24,7 @@
 #include <math.h>
 #include "bridge.h"
 
-#define PLAYER_MAGIC    0x364b444d      /* "MDK6" */
+#define PLAYER_MAGIC    0x374b444d      /* "MDK7" */
 #define PACKET_EVENTS   7      /* 7 x 128-byte events + player state fit in one datagram */
 #define MAX_DATAGRAM    1400
 #define PLAYER_TIMEOUT_MS 10000.0
@@ -33,6 +36,9 @@
 struct player_packet {
     unsigned int magic;
     unsigned int nonce;         /* sender process */
+    unsigned int id;            /* sender's player id */
+    unsigned short gen;         /* host to client: which link this is */
+    unsigned short pad;
     unsigned int seq;           /* state number of player `slot` */
     unsigned char slot;         /* whose state; NO_SLOT from a client that has no slot yet */
     unsigned char you;          /* host to client: the receiver's slot */
@@ -58,6 +64,7 @@ static int sim_jitter_ms;
 static int sim_loss_pct;
 
 int role_host = 1;              /* [net] role: host runs the world, clients mirror it */
+unsigned int my_id;
 int my_slot = -1;
 int cur_level = -1;
 int cur_cp;
@@ -69,6 +76,10 @@ BYTE *puppets[MAX_PLAYERS];
 
 static unsigned int nonce;
 static unsigned short pending_epoch;    /* client: from the last LEVEL event, taken on loading it */
+static double block_until;              /* net_block: drop all traffic until then (tests) */
+static unsigned int last_save_no;       /* host: newest co-op save, and the epoch it was made in */
+static unsigned short last_save_epoch;
+static int host_changed;                /* client: the host restarted since the last LEVEL */
 
 /* ---- links: the host has one per client (by the client's slot), a client one to the host (0) ---- */
 
@@ -79,6 +90,8 @@ struct link {
     int used;
     struct sockaddr_in addr;
     unsigned int nonce;
+    unsigned int id;                    /* host: the client's player id */
+    unsigned short gen;
     double last_heard;
     struct event outbox[OUTBOX];
     unsigned int out_next, out_acked;   /* outbox holds ids out_acked+1 .. out_next-1 */
@@ -88,12 +101,18 @@ struct link {
 };
 
 static struct link links[MAX_PLAYERS];
+static unsigned int slot_id[MAX_PLAYERS];  /* host: player id each slot belongs to, kept after they leave */
+static unsigned short next_gen = 1;
+static void slots_load(void);
 
 /* ---- other players, by slot ---- */
 
 struct player {
     int connected;
     double last_heard;
+    unsigned int id;
+    int level;                  /* where their latest packet says they are */
+    unsigned short epoch;
     unsigned int seq;           /* latest state number */
     int type;                   /* OBJ type of their character, 0 if unknown */
     double clock_offset;        /* their clock - ours, least-delayed estimate */
@@ -127,6 +146,24 @@ static void link_reset(struct link *l)
     l->in_next = 1;
 }
 
+/* This copy's player id: made once, kept in coop\player.ini (install.sh rewrites coop.ini) */
+static void load_player_id(void)
+{
+    char path[MAX_PATH], buf[16];
+
+    snprintf(path, MAX_PATH, "%s\\player.ini", coop_dir);
+    GetPrivateProfileStringA("player", "id", "", buf, sizeof(buf), path);
+    my_id = strtoul(buf, NULL, 16);
+    if (!my_id) {
+        my_id = (nonce * 2654435761u) ^ GetTickCount();
+        if (!my_id)
+            my_id = 1;
+        snprintf(buf, sizeof(buf), "%08x", my_id);
+        WritePrivateProfileStringA("player", "id", buf, path);
+    }
+    logmsg("player id %08x", my_id);
+}
+
 void net_open(const char *ini)
 {
     char host[64], role[16];
@@ -156,8 +193,14 @@ void net_open(const char *ini)
     logmsg("sync: send %d Hz, ents %d Hz, interp %d ms, extrap %d ms, anim %d; sim: latency %d ms, jitter %d ms, loss %d%%",
            send_hz, ent_hz, interp_ms, extrap_ms, sync_anim, sim_latency_ms, sim_jitter_ms, sim_loss_pct);
     nonce = GetTickCount() ^ (GetCurrentProcessId() << 16) ^ (DWORD)(now_ms() * 1000.0);
-    if (role_host)
+    load_player_id();
+    if (role_host) {
         my_slot = 0;
+        /* a restarted host must not reuse the epochs of its last run: clients still in that
+         * level would take its new loads for the one they are in */
+        cur_epoch = (unsigned short)(nonce & 0xfff0);
+        slots_load();
+    }
 
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
         logmsg("WSAStartup failed");
@@ -194,6 +237,8 @@ void net_open(const char *ini)
 
 static void send_to(int slot, const void *buf, int len)
 {
+    if (block_until > now_ms())
+        return;
     if (sock != INVALID_SOCKET && links[slot].used)
         sendto(sock, (const char *)buf, len, 0, (struct sockaddr *)&links[slot].addr, sizeof(links[slot].addr));
 }
@@ -212,6 +257,50 @@ void net_send(const void *buf, int len)
 int player_connected(int slot)
 {
     return slot >= 0 && slot < MAX_PLAYERS && slot != my_slot && players[slot].connected;
+}
+
+/* that player's latest packet says it is in our level and epoch */
+int player_in_level(int slot)
+{
+    return player_connected(slot) && players[slot].level == cur_level && players[slot].epoch == cur_epoch;
+}
+
+/* Client: the host's player id, and how long since anything came from the host */
+unsigned int host_id(void)
+{
+    return role_host ? my_id : players[0].id;
+}
+
+double host_silent_ms(void)
+{
+    return links[0].last_heard ? now_ms() - links[0].last_heard : 0.0;
+}
+
+int host_level(void)
+{
+    return players[0].connected ? players[0].level : -1;
+}
+
+/* Client: the host restarted since the last LEVEL event (once) */
+int host_changed_take(void)
+{
+    int c = host_changed;
+    host_changed = 0;
+    return c;
+}
+
+/* Tests: cut this game off the network for ms */
+void net_block(int ms)
+{
+    block_until = now_ms() + ms;
+    logmsg("network blocked for %d ms (test)", ms);
+}
+
+/* Host: the newest co-op save, offered to players who join in this epoch */
+void net_set_last_save(unsigned int no)
+{
+    last_save_no = no;
+    last_save_epoch = cur_epoch;
 }
 
 int player_type(int slot)
@@ -600,6 +689,7 @@ void net_send_player(BYTE *gob)
     memset(&p, 0, PACKET_HEAD);
     p.magic = PLAYER_MAGIC;
     p.nonce = nonce;
+    p.id = my_id;
     p.seq = ++seq;
     p.slot = my_slot >= 0 ? (unsigned char)my_slot : NO_SLOT;
     p.level = (unsigned char)cur_level;
@@ -614,6 +704,7 @@ void net_send_player(BYTE *gob)
         if (!l->used)
             continue;
         p.you = (unsigned char)s;
+        p.gen = l->gen;
         p.ack = l->in_next - 1;
         p.nevents = 0;
         for (id = l->out_acked + 1; id < l->out_next && p.nevents < PACKET_EVENTS; id++)
@@ -644,6 +735,9 @@ static void accept_state(int slot, const struct player_packet *p, double arrived
 
     if (slot == my_slot || slot >= MAX_PLAYERS)
         return;
+    pl->id = p->id;
+    pl->level = p->level;
+    pl->epoch = p->epoch;
     if (!pl->connected) {
         logmsg("player %d connected", slot + 1);
         pl->connected = 1;
@@ -661,23 +755,106 @@ static void accept_state(int slot, const struct player_packet *p, double arrived
     }
 }
 
-/* Host: a client's packet; its link is found (or made) by address */
+/* Host: which player id had which slot, in coop\player.ini [slots]: a restarted host gives
+ * everyone their old number back */
+static void slots_load(void)
+{
+    char path[MAX_PATH], key[8], buf[16];
+    int s;
+
+    snprintf(path, MAX_PATH, "%s\\player.ini", coop_dir);
+    for (s = 1; s < MAX_PLAYERS; s++) {
+        snprintf(key, sizeof(key), "p%d", s + 1);
+        GetPrivateProfileStringA("slots", key, "", buf, sizeof(buf), path);
+        slot_id[s] = strtoul(buf, NULL, 16);
+    }
+}
+
+static void slot_keep(int s, unsigned int id)
+{
+    char path[MAX_PATH], key[8], buf[16];
+
+    if (slot_id[s] == id)
+        return;
+    slot_id[s] = id;
+    snprintf(path, MAX_PATH, "%s\\player.ini", coop_dir);
+    snprintf(key, sizeof(key), "p%d", s + 1);
+    snprintf(buf, sizeof(buf), "%08x", id);
+    WritePrivateProfileStringA("slots", key, buf, path);
+}
+
+/* Host: the slot for a player id: the one it had before if that is free, else a free one
+ * nobody has had, else any free one */
+static int slot_for(unsigned int id)
+{
+    int s;
+
+    for (s = 1; s < MAX_PLAYERS; s++)
+        if (!links[s].used && slot_id[s] == id)
+            return s;
+    for (s = 1; s < MAX_PLAYERS; s++)
+        if (!links[s].used && !slot_id[s])
+            return s;
+    for (s = 1; s < MAX_PLAYERS; s++)
+        if (!links[s].used)
+            return s;
+    return -1;
+}
+
+/* Host: a new link (or a restarted game): bring it into the level we are in, with every
+ * enemy there, the items already taken, and the newest co-op save of this level to load */
+static void host_welcome(int s)
+{
+    struct link *l = &links[s];
+    struct event e;
+
+    link_reset(l);
+    l->gen = next_gen++;
+    if (cur_level < 1)
+        return;
+    event_init(&e, EV_LEVEL);
+    e.damage = (short)cur_cp;
+    e.type = cur_level;
+    e.netid = cur_epoch;
+    e.extra[0] = last_save_epoch == cur_epoch ? last_save_no : 0;
+    e.extra[1] = my_id;
+    event_put(l, &e);
+    ents_resend(s);
+    pickups_resend(s);
+    logmsg("player %d asked to join level %d checkpoint %d (save %u)", s + 1, cur_level, cur_cp,
+           (unsigned)e.extra[0]);
+}
+
+/* Host: a client's packet; its link is found by player id (else address), or made */
 static void host_accept(const struct player_packet *p, const struct sockaddr_in *from, double arrived)
 {
     struct player_packet relay;
     struct link *l = NULL;
-    int s, fresh = 0;
+    int s;
 
-    for (s = 1; s < MAX_PLAYERS; s++)
-        if (links[s].used && links[s].addr.sin_addr.s_addr == from->sin_addr.s_addr &&
-            links[s].addr.sin_port == from->sin_port) {
+    for (s = 1; s < MAX_PLAYERS && !l; s++)
+        if (links[s].used && links[s].id == p->id)
             l = &links[s];
-            break;
+    for (s = 1; s < MAX_PLAYERS && !l; s++)
+        if (links[s].used && links[s].addr.sin_addr.s_addr == from->sin_addr.s_addr &&
+            links[s].addr.sin_port == from->sin_port)
+            l = &links[s];
+    if (l) {
+        s = (int)(l - links);
+        if (l->addr.sin_addr.s_addr != from->sin_addr.s_addr || l->addr.sin_port != from->sin_port) {
+            logmsg("player %d now at %s:%d", s + 1, inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+            l->addr = *from;
         }
-    if (!l) {
-        for (s = 1; s < MAX_PLAYERS && links[s].used; s++)
-            ;
-        if (s == MAX_PLAYERS) {
+        if (l->nonce != p->nonce) {
+            logmsg("player %d restarted its game", s + 1);
+            player_left(s, "restarted");
+            l->nonce = p->nonce;
+            l->id = p->id;
+            slot_keep(s, p->id);
+            host_welcome(s);
+        }
+    } else {
+        if ((s = slot_for(p->id)) < 0) {
             static double next_log;
             if (arrived > next_log) {
                 logmsg("game full: ignoring %s:%d", inet_ntoa(from->sin_addr), ntohs(from->sin_port));
@@ -689,28 +866,12 @@ static void host_accept(const struct player_packet *p, const struct sockaddr_in 
         memset(l, 0, sizeof(*l));
         l->used = 1;
         l->addr = *from;
-        fresh = 1;
-        logmsg("player %d joined from %s:%d", s + 1, inet_ntoa(from->sin_addr), ntohs(from->sin_port));
-    } else if (l->nonce != p->nonce) {
-        logmsg("player %d restarted its game", s + 1);
-        player_left(s, "restarted");
-        fresh = 1;
-    }
-    if (fresh) {
-        link_reset(l);
         l->nonce = p->nonce;
-        /* bring it into the level we are in, with every enemy there */
-        if (cur_level >= 1) {
-            struct event e;
-            event_init(&e, EV_LEVEL);
-            e.damage = (short)cur_cp;
-            e.type = cur_level;
-            e.netid = cur_epoch;
-            event_put(l, &e);
-            ents_resend(s);
-            pickups_resend(s);
-            logmsg("player %d asked to join level %d checkpoint %d", s + 1, cur_level, cur_cp);
-        }
+        l->id = p->id;
+        logmsg("player %d joined from %s:%d (id %08x%s)", s + 1, inet_ntoa(from->sin_addr), ntohs(from->sin_port),
+               p->id, slot_id[s] == p->id ? ", back again" : "");
+        slot_keep(s, p->id);
+        host_welcome(s);
     }
     l->last_heard = arrived;
     events_receive(l, p);
@@ -728,6 +889,7 @@ static void host_accept(const struct player_packet *p, const struct sockaddr_in 
         if (!links[s].used || &links[s] == l)
             continue;
         relay.you = (unsigned char)s;
+        relay.gen = links[s].gen;
         send_to(s, &relay, PACKET_HEAD);
     }
 }
@@ -739,13 +901,21 @@ static void client_accept(const struct player_packet *p, double arrived)
     int s;
 
     if (l->nonce != p->nonce) {
-        if (l->nonce)
+        if (l->nonce) {
             logmsg("the host restarted its game");
+            host_changed = 1;
+        }
         for (s = 0; s < MAX_PLAYERS; s++)
             player_left(s, "host restarted");
         link_reset(l);
         l->nonce = p->nonce;
+        l->gen = p->gen;
         my_slot = -1;
+    } else if (l->gen != p->gen) {
+        /* the host timed our link out and opened a new one: its event numbers start over */
+        logmsg("the host opened a new link (%u -> %u): events start over", l->gen, p->gen);
+        link_reset(l);
+        l->gen = p->gen;
     }
     if (p->you != my_slot && p->you < MAX_PLAYERS) {
         my_slot = p->you;
@@ -852,6 +1022,8 @@ void net_poll(void)
             continue;
         if (n <= 0)
             break;
+        if (block_until > now)
+            continue;
         if (!sim_latency_ms && !sim_jitter_ms && !sim_loss_pct) {
             accept_datagram(buf, n, &from, now);
             continue;

@@ -85,6 +85,8 @@ int gob_is_projectile(BYTE *gob);
 int gob_is_mirrored(BYTE *gob);
 void gob_set_mirrored(BYTE *gob, int on);
 int gob_is_foreign(BYTE *gob);
+void gob_sets_clear(void);
+int gob_purge_named(const char *prefix);
 void gob_set_foreign(BYTE *gob, int on);
 int gob_slot(BYTE *gob);
 unsigned int gob_handle(int slot);
@@ -124,7 +126,7 @@ struct track {
     struct snap view;                   /* interpolated state for this frame */
 };
 
-enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE };
+enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY };
 #define EV_NAME 32
 
 struct event {
@@ -138,7 +140,8 @@ struct event {
     unsigned short epoch;       /* sender's level epoch; events from another one are dropped */
     float pos[3];               /* SPAWN / FIRE: where it is */
     float quat[4];              /* FIRE: rotation */
-    DWORD extra[4];             /* FIRE: create_object's last four arguments */
+    DWORD extra[4];             /* FIRE: create_object's last four arguments;
+                                   LEVEL: [0] co-op save to load (0 none), [1] host's player id */
     char name[EV_NAME];         /* target gob name; "@p<n>" = player n's character */
     char from[EV_NAME];         /* APPLY / HURT: attacker, "@p<n>" or gob name */
 };
@@ -149,6 +152,7 @@ struct event {
 #define TO_ALL              (-1)
 
 extern int role_host;
+extern unsigned int my_id;      /* this game copy's player id (coop\player.ini), kept across restarts */
 extern int my_slot;             /* our slot; -1 on a client until the host has told us */
 extern int cur_level;           /* level this game is in (coop_level) */
 extern int cur_cp;
@@ -168,6 +172,13 @@ void net_level_reset(int announce);
 void net_level_event(const struct event *e);
 void net_send(const void *buf, int len);
 int player_connected(int slot);
+int player_in_level(int slot);
+unsigned int host_id(void);
+double host_silent_ms(void);
+int host_level(void);
+int host_changed_take(void);
+void net_block(int ms);
+void net_set_last_save(unsigned int no);
 int player_type(int slot);
 int players_connected(void);
 struct snap *player_view(int slot, int update);
@@ -216,6 +227,10 @@ void shots_init(void);
 void shots_frame(void);
 void shots_replay(const struct event *e);
 void shots_reset(void);
+
+/* ---- saves.c ---- */
+
+void saves_lua_init(void);
 
 /* ---- frame.c ---- */
 
