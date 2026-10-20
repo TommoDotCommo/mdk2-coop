@@ -306,12 +306,12 @@ int gob_purge_named(const char *prefix)
     for (i = 0; i < GOB_SLOTS; i++) {
         BYTE *g = (BYTE *)GOB_TABLE[i * 2];
         const char *name;
-        if (!g)
+        if (!g || gob_doomed(g))
             continue;
         name = (const char *)g + GOB_NAME;
         if (strncmp(name, prefix, n) == 0 && name[n] && strspn(name + n, "0123456789") == strlen(name + n)) {
             logmsg("purge %s (from the save)", name);
-            gob_delete(g);
+            gob_kill(g);
             count++;
         }
     }
