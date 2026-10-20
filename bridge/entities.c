@@ -221,6 +221,17 @@ void ents_client_frame(void)
     }
 }
 
+/* OBJ_DOGANBOYGENERATOR (511), OBJ_SPAWNER (540) */
+static int is_spawner(BYTE *gob)
+{
+    int t;
+
+    if (!*(BYTE **)(gob + GOB_INFO))
+        return 0;
+    t = gob_type(gob);
+    return t == 511 || t == 540;
+}
+
 /* Delete actors the host never announced (the client's own spawners and scripts) */
 void ents_client_cleanup(void)
 {
@@ -237,6 +248,12 @@ void ents_client_cleanup(void)
         BYTE *gob = (BYTE *)GOB_TABLE[slot * 2];
         unsigned int h = gob_handle(slot);
 
+        if (gob && is_spawner(gob) && !gob_is_mirrored(gob)) {
+            /* the host's spawners make the real enemies; ours would only make orphans */
+            gob_set_mirrored(gob, 1);
+            class_filter_think(gob_class(gob));
+            logmsg("spawner %s (type %d) switched off here", gob_name(gob), gob_type(gob));
+        }
         if (!gob || !gob_is_actor(gob)) {
             seen_handle[slot] = 0;
             continue;

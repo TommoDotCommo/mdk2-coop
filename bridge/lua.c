@@ -90,6 +90,8 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         deal_damage_orig(from, target, damage, type, part);
         if (target != local_player && name[0])
             event_queue_from(EV_APPLY, name, from, damage, type, part);
+        if (name[0] && gob_is_actor(target))
+            logmsg("hp %s %d", name, gob_hp(target));
         return;
     }
     if (target == local_player) {
@@ -283,6 +285,33 @@ static void l_coop_level(void)
     logmsg("level %d checkpoint %d started%s", level, cp, announce ? ", peer asked to follow" : "");
 }
 
+/* coop_nearest_enemy() -> the actor nearest our player (on the client: a mirrored one), or nil */
+static void l_coop_nearest_enemy(void)
+{
+    BYTE *best = NULL;
+    float bestd = 0.0f, *me;
+    int i;
+
+    if (!gob_alive(local_player)) {
+        lua_pushnil();
+        return;
+    }
+    me = (float *)(local_player + GOB_POSITION);
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *g = (BYTE *)GOB_TABLE[i * 2];
+        float *p, d;
+        if (!g || !gob_is_actor(g) || gob_hp(g) <= 0 || (!role_host && !gob_is_mirrored(g)))
+            continue;
+        p = (float *)(g + GOB_POSITION);
+        d = (p[0] - me[0]) * (p[0] - me[0]) + (p[1] - me[1]) * (p[1] - me[1]) + (p[2] - me[2]) * (p[2] - me[2]);
+        if (!best || d < bestd) {
+            best = g;
+            bestd = d;
+        }
+    }
+    push_gob(best);
+}
+
 /* coop_alive(gob) -> 1 if the gob still exists (a Lua global can outlive its gob) */
 static void l_coop_alive(void)
 {
@@ -410,6 +439,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_peer_type", l_coop_peer_type);
     tolua_function(NULL, "coop_mark", l_coop_mark);
     tolua_function(NULL, "coop_alive", l_coop_alive);
+    tolua_function(NULL, "coop_nearest_enemy", l_coop_nearest_enemy);
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
     tolua_function(NULL, "coop_listgobs", l_coop_listgobs);
     tolua_function(NULL, "coop_log", l_coop_log);

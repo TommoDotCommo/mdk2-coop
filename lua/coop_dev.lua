@@ -14,6 +14,14 @@ coop = {
     enemies = 0,        -- Doganboys spawned with F5
 }
 
+-- Lua errors also go to bridge.log (the game only prints them on screen); the game's own
+-- error method still runs --
+function coop.OnLuaError(msg)
+    coop_log(format("LUA ERROR: %s", tostring(msg)))
+    if (coop.olderror) then coop.olderror(msg) end
+end
+coop.olderror = seterrormethod(coop.OnLuaError)
+
 -- event kinds, as in bridge.h --
 EV_HIT = 1
 EV_APPLY = 2
@@ -187,6 +195,7 @@ function coop.SpawnPuppet()
     coop.p2 = mdkCreateObjectLua("coop_p2", ptype, mdkGetScene(), nil, nil, 0,0,0, 1,0,0,0, nil,0,0,0,0)
     mdkGobSetPositionXYZ(coop.p2, p.position.x + coop.offset, p.position.y, p.position.z)
     mdkSetLuaEvent(coop.p2, "OnUpdate", coop.PuppetOnUpdate)
+    coop_log(format("puppet spawned (type %d)", ptype))
 
 end
 
@@ -349,17 +358,25 @@ comfuncs.fkey[COM_CLEARCONSOLE] = function()
 end
 
 -- F1 (was debug.lua's bars): host spawns a Poopsy ahead, always named "coop_spawn" like a
--- spawner's spawns, to test duplicate names; the client hits coop_dog1 ten times for 2 with
--- its gun's damage type, through the normal damage function (as if shot, without aiming) --
+-- spawner's spawns, to test duplicate names; the client hits coop_dog1 (else the nearest
+-- synced enemy) ten times for 2 with its gun's damage type, through the normal damage
+-- function (as if shot, without aiming) --
 comfuncs.fkey[COM_SHOWBARS] = function()
     if (coop_role() == "host") then
         make("coop_spawn", OBJ_POOPSY)
         return
     end
-    local dog = coop.FindGob("coop_dog1")
+    local dog = coop.FindGob("coop_dog1") or coop_nearest_enemy()
     local i = 0
     while (dog and i < 10) do
         mdkDealDamage(mdkGetPlayerGob(), dog, 2, 1, -1)
         i = i + 1
     end
+end
+
+-- F12 is Steam's screenshot key; F10: raise a Lua error on purpose, to check error logging --
+omMakeCommand(COM_PRINTCOL, "F10", CON_BUTTON_FALL, 0, 0)   -- a debug.lua command we unbound above
+comfuncs.fkey[COM_PRINTCOL] = function()
+    coop_log("raising a test error")
+    coop.no_such_function()
 end
