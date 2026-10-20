@@ -17,4 +17,4 @@ after its own scripts.
 In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn player 2 puppet (follows you),
 F8 hand the puppet to the game's Kurt AI.
 
-Note: changing options in game rewrites settings.lua and drops the injection; rerun the script.
+Untested: changing options in game probably rewrites settings.lua and drops the injection; if so, rerun the script.
