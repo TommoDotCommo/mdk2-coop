@@ -16,7 +16,8 @@ after its own scripts.
 
 In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn the player 2 puppet,
 F8 toggle drawing the puppet 3 units up (with `peer_port` = `listen_port` in coop.ini the puppet mirrors
-your own Kurt, handy for checking sync with one instance), F11 log anim states to bridge.log.
+your own Kurt, handy for checking sync with one instance), F11 log anim states to bridge.log, F4 teleport to level 1 checkpoint 3's room.
+Room changes are logged to bridge.log as they happen.
 
 ## Bridge (dinput8.dll)
 
@@ -27,6 +28,7 @@ It forwards DirectInput to the system DLL and adds Lua functions to the game:
   see `dist/coop.ini.example`)
 - `coop_send(gob)` sends the gob's position and orientation to the peer
 - `coop_recv()` returns the peer's latest `x, y, z`, or nil before the first packet
+- `coop_log(msg)` writes a line to bridge.log
 - `coop_face(gob)` gives the gob the peer's latest orientation and animation state
 
 Log: `<game dir>\coop\bridge.log`. Only Steam build 3902 is supported; on any other build the bridge

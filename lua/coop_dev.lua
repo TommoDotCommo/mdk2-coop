@@ -35,6 +35,7 @@ omMakeCommand(COM_TOGL1, "F6", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGL2, "F7", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGL3, "F8", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGL4, "F11", CON_BUTTON_FALL, 0, 0)
+omMakeCommand(COM_TOGLG, "F4", CON_BUTTON_FALL, 0, 0)
 
 
 -- bridge functions come from dinput8.dll; without it the puppet just follows locally --
@@ -46,6 +47,11 @@ end
 function coop.PuppetOnUpdate(gob)
     local p = mdkGetPlayerGob()
     if (not p or p == gob) then return end
+    local room = mdkGetCurrentRoom()
+    if (room ~= coop.room and coop_log) then
+        coop_log(format("room %s at (%.1f, %.1f, %.1f)", tostring(room), p.position.x, p.position.y, p.position.z))
+        coop.room = room
+    end
     local x, y, z
     if (coop_send) then
         coop_send(p)
@@ -85,4 +91,9 @@ comfuncs.fkey[COM_TOGL4] = function()
         coop_animdump(mdkGetPlayerGob())
         if (coop.p2) then coop_animdump(coop.p2) end
     end
+end
+
+-- F4: teleport the player to level 1 checkpoint 3's spot (another room), for room tests --
+comfuncs.fkey[COM_TOGLG] = function()
+    mdkGobSetPositionXYZ(mdkGetPlayerGob(), 133, 46, -40)
 end

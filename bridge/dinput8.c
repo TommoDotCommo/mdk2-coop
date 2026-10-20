@@ -17,6 +17,8 @@
 typedef void (*lua_CFunction)(void);
 
 static void (*const lua_pushnumber)(double) = (void *)0x476bb0;
+/* luaL_check_lstr(narg, &len): string argument, raises a Lua error if missing */
+static const char *(*const luaL_check_lstr)(int, long *) = (void *)0x478100;
 /* tolua_getusertype(narg, def): C object behind a Lua argument */
 static void *(*const tolua_getusertype)(int, void *) = (void *)0x475700;
 /* tolua_function(module, name, fn): module NULL registers a global */
@@ -269,6 +271,13 @@ static void l_coop_animdump(void)
     }
 }
 
+/* coop_log(msg): write a line to bridge.log */
+static void l_coop_log(void)
+{
+    long len;
+    logmsg("lua: %s", luaL_check_lstr(1, &len));
+}
+
 /* coop_init(): called once from Lua; registers the rest and opens the socket */
 static void l_coop_init(void)
 {
@@ -281,6 +290,7 @@ static void l_coop_init(void)
     tolua_function(NULL, "coop_recv", l_coop_recv);
     tolua_function(NULL, "coop_face", l_coop_face);
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
+    tolua_function(NULL, "coop_log", l_coop_log);
     net_open();
     logmsg("coop_init: lua functions registered");
 }
