@@ -17,4 +17,19 @@ after its own scripts.
 In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn player 2 puppet (follows you),
 F8 hand the puppet to the game's Kurt AI.
 
+## Bridge (dinput8.dll)
+
+`bridge/` builds a dinput8.dll proxy (mingw-w64, `make -C bridge install GAME_DIR=/mnt/c/coop/mdk2-test`).
+It forwards DirectInput to the system DLL and adds Lua functions to the game:
+
+- `coop_init()` registers the others and opens a UDP socket (ports from `<game dir>\coop\coop.ini`,
+  see `dist/coop.ini.example`)
+- `coop_send(x, y, z, yaw)` sends local player state to the peer
+- `coop_recv()` returns the peer's latest `x, y, z, yaw`, or nil before the first packet
+
+Log: `<game dir>\coop\bridge.log`. Only Steam build 3902 is supported; on any other build the bridge
+logs "unknown game build" and only forwards DirectInput.
+
+UDP on localhost/LAN is a stand-in; Steam relay networking comes later.
+
 Untested: changing options in game probably rewrites settings.lua and drops the injection; if so, rerun the script.

@@ -14,13 +14,26 @@ omMakeCommand(COM_TOGL2, "F7", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGL3, "F8", CON_BUTTON_FALL, 0, 0)
 
 coop = {
-    offset = 3,         -- puppet sits this far from the player on x
+    offset = 3,         -- puppet sits this far from the player on x until the peer is heard
 }
 
--- puppet follows the local player: stand-in for remote player positions --
+-- bridge functions come from dinput8.dll; without it the puppet just follows locally --
+if (coop_init) then
+    coop_init()
+end
+
+-- each frame: send our position, put the puppet where the peer says its player is --
 function coop.PuppetOnUpdate(gob)
     local p = mdkGetPlayerGob()
-    if (p and p ~= gob) then
+    if (not p or p == gob) then return end
+    local x, y, z, yaw
+    if (coop_send) then
+        coop_send(p.position.x, p.position.y, p.position.z, 0)   -- TODO orientation: p.orientation is nil
+        x, y, z, yaw = coop_recv()
+    end
+    if (x) then
+        mdkGobSetPositionXYZ(gob, x, y, z)
+    else
         mdkGobSetPositionXYZ(gob, p.position.x + coop.offset, p.position.y, p.position.z)
     end
 end

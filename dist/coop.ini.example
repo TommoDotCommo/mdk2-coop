@@ -1,0 +1,5 @@
+; copy to <game dir>\coop\coop.ini
+[net]
+listen_port=27900
+peer_host=127.0.0.1
+peer_port=27901
