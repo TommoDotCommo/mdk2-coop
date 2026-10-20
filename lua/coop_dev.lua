@@ -166,15 +166,19 @@ comfuncs.fkey[COM_TOGL4] = function()
     if (not coop.typeslogged) then coop.LogObjTypes() coop.typeslogged = 1 end
 end
 
--- F4: teleport the player onto coop.tpname (level 1's decoy item by default: next room, and
--- standing on it picks it up), for room and pickup tests --
-coop.tpname = "l1_r3dummy"
+-- F4: teleport the player onto the next test spot: level 1's decoy item (next room, standing
+-- on it picks it up), then door dr1_03 (another room) --
+coop.tpspots = { "l1_r3dummy", "dr1_03" }
+coop.ntpspots = 2      -- Lua 3.1 has no getn
+coop.tpnext = 1
 comfuncs.fkey[COM_TOGLG] = function()
-    local g = getglobal(coop.tpname)
+    local name = coop.tpspots[coop.tpnext]
+    local g = getglobal(name)
+    coop.tpnext = coop.tpnext + 1
+    if (coop.tpnext > coop.ntpspots) then coop.tpnext = 1 end
     if (g) then
         mdkGobSetPositionXYZ(mdkGetPlayerGob(), g.position.x, g.position.y, g.position.z)
-    else
-        mdkGobSetPositionXYZ(mdkGetPlayerGob(), 133, 46, -40)
+        coop_log(format("teleported to %s", name))
     end
 end
 

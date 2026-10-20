@@ -17,7 +17,7 @@ small: the game reads it into an 8 KB stack buffer and crashes (0xc0000409) if i
 
 In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn another puppet (every level start adds one),
 F8 toggle drawing the puppet 3 units up (with `peer_port` = `listen_port` in coop.ini the puppet mirrors
-your own Kurt, handy for checking sync with one instance), F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 damage to yourself, F4 teleport onto coop.tpname (level 1's decoy item, in another room).
+your own Kurt, handy for checking sync with one instance), F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 damage to yourself, F4 teleport to the next test spot (level 1's decoy item, then door dr1_03).
 Room changes are logged to bridge.log as they happen.
 
 ## Bridge (dinput8.dll)
@@ -82,3 +82,15 @@ lower is smoother).
 UDP on localhost/LAN is a stand-in; Steam relay networking comes later.
 
 Untested: changing options in game probably rewrites settings.lua and drops the injection; if so, rerun the script.
+
+## Automated checks
+
+`tools/qa.sh` runs two real game instances on this PC (host + client over localhost UDP), drives them
+with key and mouse input and checks each side's bridge.log: level following, enemy binding, damage
+through the host with identical enemy hp, HURT-only damage on the client, shots both ways, pickups,
+doors opening for the puppet, reviving at the partner, no crash. About 2 minutes; the game windows
+take focus. `tools/mdk.sh` has the helpers (start, keys, mouse, window screenshots).
+
+Last runs (2026-10-20, Steam build 3902, level 1 cp 2): 17/17 on plain localhost, 17/17 with
+`[sim] latency_ms=120 jitter_ms=40 loss_pct=5` on both sides. The enemy-attack and shot-replay checks
+depend on the Doganboy acting during the window; in the lossy run it did not (0/0).

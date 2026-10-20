@@ -32,38 +32,28 @@ static int door_open(BYTE *door)
     return state ? (int)state[0] : 0;
 }
 
-/* log open/close transitions */
-static void door_log(BYTE *door, int for_puppet)
+/* log open/close transitions across one think */
+static void door_log(BYTE *door, int was_open, int for_puppet)
 {
-    static BYTE *doors[32];
-    static int open[32], ndoors;
-    int i, now_open = door_open(door);
+    int now_open = door_open(door);
 
-    for (i = 0; i < ndoors && doors[i] != door; i++)
-        ;
-    if (i == ndoors) {
-        if (ndoors == 32)
-            return;
-        doors[ndoors++] = door;
-        open[i] = now_open;
-        return;
-    }
-    if (open[i] != now_open)
+    if (was_open != now_open)
         logmsg("door %s %s (nearer player: %s)", gob_name(door), now_open ? "opening" : "closing",
                for_puppet ? "puppet" : "ours");
-    open[i] = now_open;
 }
 
 static void __cdecl door_think(BYTE *door)
 {
     DWORD saved = PLAYER_HANDLE;
     BYTE *player = gob_by_handle(saved);
+    int was_open;
 
     if (puppet && puppet_handle && gob_by_handle(puppet_handle) == puppet && player &&
         dist2(door, puppet) < dist2(door, player))
         PLAYER_HANDLE = puppet_handle;
+    was_open = door_open(door);
     ((void (*)(BYTE *))door_think_orig)(door);
-    door_log(door, PLAYER_HANDLE != saved);
+    door_log(door, was_open, PLAYER_HANDLE != saved);
     PLAYER_HANDLE = saved;
 }
 
