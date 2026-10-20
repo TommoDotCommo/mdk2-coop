@@ -117,7 +117,7 @@ struct track {
     struct snap view;                   /* interpolated state for this frame */
 };
 
-enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE };
+enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP };
 #define EV_NAME 32
 
 struct event {
@@ -174,6 +174,11 @@ int ent_count(void);
 void shots_init(void);
 void shots_frame(void);
 void shots_replay(const struct event *e);
+
+/* ---- pickups.c ---- */
+
+void pickups_init(void);
+void pickups_remove(const char *name);
 
 /* ---- damage (lua.c) ---- */
 

@@ -136,9 +136,16 @@ comfuncs.fkey[COM_TOGL4] = function()
     if (not coop.typeslogged) then coop.LogObjTypes() coop.typeslogged = 1 end
 end
 
--- F4: teleport the player to level 1 checkpoint 3's spot (another room), for room tests --
+-- F4: teleport the player onto coop.tpname (level 1's decoy item by default: next room, and
+-- standing on it picks it up), for room and pickup tests --
+coop.tpname = "l1_r3dummy"
 comfuncs.fkey[COM_TOGLG] = function()
-    mdkGobSetPositionXYZ(mdkGetPlayerGob(), 133, 46, -40)
+    local g = getglobal(coop.tpname)
+    if (g) then
+        mdkGobSetPositionXYZ(mdkGetPlayerGob(), g.position.x, g.position.y, g.position.z)
+    else
+        mdkGobSetPositionXYZ(mdkGetPlayerGob(), 133, 46, -40)
+    end
 end
 
 -- F5 (was debug.lua's next-section): host spawns a Doganboy 6 units ahead, for combat tests;

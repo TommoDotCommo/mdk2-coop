@@ -17,7 +17,7 @@ small: the game reads it into an 8 KB stack buffer and crashes (0xc0000409) if i
 
 In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn the player 2 puppet,
 F8 toggle drawing the puppet 3 units up (with `peer_port` = `listen_port` in coop.ini the puppet mirrors
-your own Kurt, handy for checking sync with one instance), F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F4 teleport to level 1 checkpoint 3's room.
+your own Kurt, handy for checking sync with one instance), F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F4 teleport onto coop.tpname (level 1's decoy item, in another room).
 Room changes are logged to bridge.log as they happen.
 
 ## Bridge (dinput8.dll)
@@ -45,6 +45,10 @@ bridge hooks. Creating a shot sends a reliable FIRE event (the host announces ev
 Kurt's); the peer replays it through the same function, with the target and owner translated, so it flies
 with the game's own physics. Replayed shots are only for show: their damage is dropped and the real hits
 travel as HIT/APPLY/HURT.
+
+Pickups (`OBJ` types 300-399): every pickup path asks the engine whether the item has an OnPickedUp
+handler (0x40cf60, event 15), which the bridge hooks. The picker keeps the item and sends PICKUP; the
+peer deletes its copy. Items are matched by name, so only level-placed items are synced so far.
 
 Damage authority (`[net] role=host|client`): the bridge hooks the game's central damage function
 (0x40d590). The host applies everything and tells the client (APPLY); the client applies damage to its own

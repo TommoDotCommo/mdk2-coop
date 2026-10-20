@@ -125,7 +125,7 @@ static void l_coop_face(void)
 /* ---- events ---- */
 
 /* coop_event() -> kind, name, damage, type, part, netid, objtype, x, y, z
- * for the next event from the peer, or nil. DESPAWN and FIRE are handled here. */
+ * for the next event from the peer, or nil. DESPAWN, FIRE and PICKUP are handled here. */
 static void l_coop_event(void)
 {
     struct event e;
@@ -137,6 +137,8 @@ static void l_coop_event(void)
             ent_despawn(e.netid);
         else if (e.kind == EV_FIRE)
             shots_replay(&e);
+        else if (e.kind == EV_PICKUP)
+            pickups_remove(e.name);
         else
             break;
     }
@@ -311,5 +313,6 @@ void l_coop_init(void)
     deal_damage_orig = hook_code((BYTE *)DEAL_DAMAGE_ADDR, deal_damage_prologue, 5, deal_damage_hook);
     logmsg("coop_init: lua functions registered, damage hook %s", deal_damage_orig ? "installed" : "NOT installed");
     shots_init();
+    pickups_init();
     run_mod_script();
 }
