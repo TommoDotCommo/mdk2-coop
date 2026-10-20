@@ -12,6 +12,7 @@
 #define DEAL_DAMAGE_ADDR    0x40d590
 static const BYTE deal_damage_prologue[5] = { 0x55, 0x8b, 0x6c, 0x24, 0x0c };
 deal_damage_t deal_damage_orig;     /* trampoline into the original */
+static int max_hp;                  /* our player's highest hp seen this level: revive to this */
 static int applying_hit;            /* host: inside EV_HIT, damage from the puppet is real */
 
 static double num_param(int n)
@@ -21,6 +22,29 @@ static double num_param(int n)
 }
 
 /* ---- damage ---- */
+
+/* Damage to our own player. With a partner, a hit that would kill revives us at the
+ * partner instead: dying would reload the checkpoint in this game only. */
+static void damage_local_player(void *from, int damage, int type, int part)
+{
+    int hp = gob_hp(local_player);
+    BYTE *info;
+
+    if (damage >= hp && hp > 0 && (!have_remote || !puppet))
+        logmsg("lethal hit, no revive: remote %d puppet %p", have_remote, (void *)puppet);
+    if (!have_remote || !puppet || hp <= 0 || damage < hp) {
+        deal_damage_orig(from, local_player, damage, type, part);
+        return;
+    }
+    if (hp > 1)
+        deal_damage_orig(from, local_player, hp - 1, type, part);
+    info = *(BYTE **)(local_player + GOB_INFO);
+    if (info && max_hp > 0)
+        *(short *)(info + 0x12) = (short)max_hp;
+    gob_set_position(local_player, ((float *)(puppet + GOB_POSITION))[0], ((float *)(puppet + GOB_POSITION))[1],
+                     ((float *)(puppet + GOB_POSITION))[2]);
+    logmsg("down: %d damage on %d hp; revived at the partner with %d hp", damage, hp, max_hp);
+}
 
 /* Client: is this attacker one of the host's (an actor or a projectile)? */
 static int from_host_world(BYTE *from)
@@ -58,6 +82,10 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
             event_queue(EV_HURT, "@player", damage, type, part);
             return;
         }
+        if (target == local_player) {
+            damage_local_player(from, damage, type, part);
+            return;
+        }
         deal_damage_orig(from, target, damage, type, part);
         if (target != local_player && name[0])
             event_queue(EV_APPLY, name, damage, type, part);
@@ -67,7 +95,7 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         /* enemies and their shots are mirrors of the host's; the host sends their hits as HURT */
         if (from_host_world(from))
             return;
-        deal_damage_orig(from, target, damage, type, part);
+        damage_local_player(from, damage, type, part);
         return;
     }
     /* our gun, or a shot we fired (grenades, sniper rounds); mirrored shots are the host's */
@@ -77,16 +105,18 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
 
 /* ---- per frame ---- */
 
-/* coop_send(gob): send our player (send_hz) and, on the host, the actors (ent_hz) */
+/* coop_send(gob or nil): send our player (or, with no player yet, just events) at
+ * send_hz and, on the host, the actors at ent_hz */
 static void l_coop_send(void)
 {
     BYTE *gob = tolua_getusertype(1, NULL);
+    int hp;
 
-    if (!gob)
-        return;
     local_player = gob;
+    if (gob && (hp = gob_hp(gob)) > max_hp)
+        max_hp = hp;
     net_send_player(gob);
-    if (role_host)
+    if (gob && role_host)
         ents_host_tick();
 }
 
@@ -138,6 +168,8 @@ static void l_coop_event(void)
             ent_despawn(e.netid);
         else if (e.kind == EV_FIRE)
             shots_replay(&e);
+        else if (e.level != (unsigned char)cur_level && e.kind != EV_LEVEL)
+            logmsg("event %d %s from level %d dropped (we are in %d)", e.kind, e.name, e.level, cur_level);
         else if (e.kind == EV_PICKUP)
             pickups_remove(e.name);
         else
@@ -172,8 +204,11 @@ static void l_coop_apply(void)
         applying_hit = 0;
         break;
     case EV_APPLY:      /* client: the host applied this */
-    case EV_HURT:       /* client: the host's world hurt our player */
         deal_damage_orig(NULL, gob, damage, type, part);
+        break;
+    case EV_HURT:       /* client: the host's world hurt our player */
+        if (gob == local_player)
+            damage_local_player(NULL, damage, type, part);
         break;
     case EV_SPAWN:
         ent_bind((unsigned int)num_param(3), gob);
@@ -201,6 +236,25 @@ static void l_coop_gob(void)
         return;
     }
     push_gob(role_host ? gob_by_handle(id) : ent_gob(id));
+}
+
+/* coop_level(level, checkpoint, announce): a level has started here. Resets everything
+ * that pointed into the old level; with announce, asks the peer to load it too. */
+static void l_coop_level(void)
+{
+    int level = (int)num_param(1), cp = (int)num_param(2), announce = (int)num_param(3);
+
+    cur_level = level;
+    ents_reset();
+    shots_reset();
+    doors_reset();
+    net_level_reset();
+    puppet = NULL;
+    local_player = NULL;
+    max_hp = 0;
+    if (announce)
+        event_queue(EV_LEVEL, "", cp, level, 0);
+    logmsg("level %d checkpoint %d started%s", level, cp, announce ? ", peer asked to follow" : "");
 }
 
 /* coop_role() -> "host" or "client" */
@@ -306,6 +360,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_apply", l_coop_apply);
     tolua_function(NULL, "coop_gob", l_coop_gob);
     tolua_function(NULL, "coop_role", l_coop_role);
+    tolua_function(NULL, "coop_level", l_coop_level);
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
     tolua_function(NULL, "coop_listgobs", l_coop_listgobs);
     tolua_function(NULL, "coop_log", l_coop_log);
@@ -316,5 +371,6 @@ void l_coop_init(void)
     shots_init();
     pickups_init();
     rooms_init();
+    frame_init();
     run_mod_script();
 }

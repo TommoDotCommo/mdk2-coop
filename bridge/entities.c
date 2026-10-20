@@ -26,6 +26,7 @@ struct ent_state {
 struct ent_packet {
     unsigned int magic;
     unsigned char count;
+    unsigned char level;        /* host's level: dropped by a client in another level */
     struct ent_state ents[ENT_PER_PACKET];
 };
 
@@ -67,6 +68,17 @@ BYTE *ent_gob(unsigned int netid)
     if (!e)
         return NULL;
     return gob_by_handle(e->local) == e->gob ? e->gob : NULL;
+}
+
+/* New level: every gob is gone */
+void ents_reset(void)
+{
+    int i;
+
+    for (i = 0; i < nents; i++)
+        if (ents[i].gob)
+            gob_set_mirrored(ents[i].gob, 0);
+    nents = 0;
 }
 
 /* ---- host ---- */
@@ -119,6 +131,7 @@ void ents_host_tick(void)
 
     memset(&p, 0, sizeof(p));
     p.magic = ENT_MAGIC;
+    p.level = (unsigned char)cur_level;
     for (i = 0; i < nents; i++) {
         p.ents[p.count].id = ents[i].id;
         snap_capture(ents[i].gob, &p.ents[p.count].state);
@@ -175,7 +188,8 @@ void ents_receive(const void *buf, int len)
     const struct ent_packet *p = buf;
     int i;
 
-    if (role_host || len != sizeof(*p) || p->magic != ENT_MAGIC || p->count > ENT_PER_PACKET)
+    if (role_host || len != sizeof(*p) || p->magic != ENT_MAGIC || p->count > ENT_PER_PACKET ||
+        p->level != (unsigned char)cur_level)
         return;
     for (i = 0; i < p->count; i++) {
         struct ent *e = ent_find(p->ents[i].id);

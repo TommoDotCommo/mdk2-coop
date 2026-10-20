@@ -67,6 +67,12 @@ static void __cdecl door_think(BYTE *door)
     PLAYER_HANDLE = saved;
 }
 
+void doors_reset(void)
+{
+    puppet_handle = 0;
+    puppet_handle_for = NULL;
+}
+
 /* Per frame: install the wrapper once a door exists, track the puppet's handle */
 void doors_frame(void)
 {

@@ -61,6 +61,12 @@ void shots_frame(void)
     }
 }
 
+void shots_reset(void)
+{
+    while (nforeign)
+        gob_set_foreign(foreign[--nforeign].gob, 0);
+}
+
 /* ---- host: announce ---- */
 
 static BYTE *create_hook(const char *name, int type, void *scene, BYTE *parent, int slot, float *pos,

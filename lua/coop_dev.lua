@@ -18,6 +18,7 @@ EV_HIT = 1
 EV_APPLY = 2
 EV_HURT = 3
 EV_SPAWN = 4
+EV_LEVEL = 8
 
 -- BioWare debug menu (F9 in game), normally behind '$if features' --
 dofile('debug')
@@ -74,7 +75,12 @@ end
 function coop.HandleEvents()
     local kind, name, damage, dtype, part, netid, objtype, x, y, z = coop_event()
     while (kind) do
-        if (kind == EV_SPAWN) then
+        if (kind == EV_LEVEL) then
+            -- the peer started level dtype at checkpoint damage: follow without echoing --
+            coop_log(format("peer started level %d checkpoint %d: following", dtype, damage))
+            coop.following = dtype * 1000 + damage
+            mdkNewGame(dtype, damage)
+        elseif (kind == EV_SPAWN) then
             coop.Spawn(name, netid, objtype, x, y, z)
         else
             local target = coop.FindGob(name)
@@ -88,18 +94,19 @@ function coop.HandleEvents()
     end
 end
 
--- each frame: send our position, put the puppet where the peer says its player is --
-function coop.PuppetOnUpdate(gob)
+-- every frame, called by the bridge after the scene update (menus and title included):
+-- send our player, apply the peer's events, put the puppet where the peer's player is --
+function coop.Tick()
     local p = mdkGetPlayerGob()
-    if (not p or p == gob) then return end
-    local room = mdkGetCurrentRoom()
-    if (room ~= coop.room) then
-        coop_log(format("room %s at (%.1f, %.1f, %.1f)", tostring(room), p.position.x, p.position.y, p.position.z))
-        coop.room = room
-    end
+    if (p == coop.p2) then p = nil end
     coop_send(p)
     local x, y, z = coop_recv()
     coop.HandleEvents()
+    if (p and not coop.p2 and coop.level and coop.level >= 1) then
+        coop.SpawnPuppet()      -- the player only exists a little after level() returns
+    end
+    local gob = coop.p2
+    if (not gob or not p) then return end
     if (x) then
         mdkGobSetPositionXYZ(gob, x, y, z + coop.mirror)
         coop_face(gob)
@@ -108,13 +115,36 @@ function coop.PuppetOnUpdate(gob)
     end
 end
 
--- F6: spawn player 2 puppet next to the player (starts sync) --
-comfuncs.fkey[COM_TOGL1] = function()
+-- the puppet has an empty OnUpdate: a gob with a Lua OnUpdate skips its class think,
+-- so the game's Kurt logic leaves it alone --
+function coop.PuppetOnUpdate(gob)
+end
+
+function coop.SpawnPuppet()
     local p = mdkGetPlayerGob()
     if (not p) then return end
     coop.p2 = mdkCreateObjectLua("coop_p2", OBJ_KURT, mdkGetScene(), nil, nil, 0,0,0, 1,0,0,0, nil,0,0,0,0)
     mdkGobSetPositionXYZ(coop.p2, p.position.x + coop.offset, p.position.y, p.position.z)
     mdkSetLuaEvent(coop.p2, "OnUpdate", coop.PuppetOnUpdate)
+end
+
+-- every level load (menu, script, save, debug) ends in level(): reset the bridge for the
+-- new level and ask the peer to follow (unless we are following them); Tick adds the puppet --
+coop.level_orig = level
+function level(l, cp, sec)
+    coop.level_orig(l, cp, sec)
+    local announce = 1
+    if (l < 1) then announce = 0 end   -- title screen
+    if (coop.following == l * 1000 + cp) then announce = 0 end
+    coop.following = nil
+    coop.p2 = nil
+    coop.level = l
+    coop_level(l, cp, announce)
+end
+
+-- F6: spawn another puppet by hand (one comes with every level) --
+comfuncs.fkey[COM_TOGL1] = function()
+    coop.SpawnPuppet()
 end
 
 -- F7: jump to level 1 checkpoint 2 (on foot, skips the skydive) --
@@ -168,4 +198,9 @@ function coop.LogObjTypes()
         end
         n, v = nextvar(n)
     end
+end
+
+-- F3 (was debug.lua's clear console): deal 200 damage to our player, to test going down --
+comfuncs.fkey[COM_CLEARCONSOLE] = function()
+    mdkDealDamage(nil, mdkGetPlayerGob(), 200, DAMAGE_BADGUY, -1)
 end

@@ -15,6 +15,7 @@
 struct player_packet {
     unsigned int magic;
     unsigned int seq;
+    unsigned char has_state;    /* 0: no player yet (title, loading), events only */
     struct snap state;
     unsigned int ack;           /* highest event id received in order from the peer */
     unsigned char nevents;
@@ -32,6 +33,7 @@ static int sim_jitter_ms;
 static int sim_loss_pct;
 
 int role_host = 1;              /* [net] role: host runs the world, client mirrors it */
+int cur_level = -1;
 int have_remote;
 SOCKET sock = INVALID_SOCKET;
 BYTE *local_player;             /* last gob passed to coop_send */
@@ -134,6 +136,7 @@ struct event *event_new(int kind)
     memset(e, 0, sizeof(*e));
     e->id = out_next++;
     e->kind = (unsigned char)kind;
+    e->level = (unsigned char)cur_level;
     return e;
 }
 
@@ -388,12 +391,15 @@ void net_send_player(BYTE *gob)
     memset(&p, 0, sizeof(p));
     p.magic = PLAYER_MAGIC;
     p.seq = ++send_seq;
-    snap_capture(gob, &p.state);
+    if (gob) {
+        p.has_state = 1;
+        snap_capture(gob, &p.state);
+    }
     p.ack = in_next - 1;
     for (id = out_acked + 1; id < out_next && p.nevents < PACKET_EVENTS; id++)
         p.events[p.nevents++] = outbox[id % OUTBOX];
     net_send(&p, sizeof(p));
-    if (p.seq % 300 == 0)
+    if (p.seq % 900 == 0)
         logmsg("send #%u pos (%.2f, %.2f, %.2f) anim cur %d n %d, events %d unacked", p.seq,
                p.state.pos[0], p.state.pos[1], p.state.pos[2], p.state.cur, p.state.nanims, out_next - 1 - out_acked);
 }
@@ -403,9 +409,11 @@ static void accept_player(const struct player_packet *p, double arrived)
     events_receive(p);
     if (have_remote && p->seq <= recv_seq)
         return;                         /* late or duplicate snapshot */
-    clock_sample(p->state.time, arrived);
-    track_add(&player_track, &p->state);
     recv_seq = p->seq;
+    if (p->has_state) {
+        clock_sample(p->state.time, arrived);
+        track_add(&player_track, &p->state);
+    }
     if (!have_remote)
         logmsg("first packet from peer (seq %u)", p->seq);
     have_remote = 1;
@@ -420,6 +428,12 @@ static void accept_datagram(const BYTE *buf, int len, double arrived)
     } else if (have_remote) {
         ents_receive(buf, len);
     }
+}
+
+/* New level: old snapshots of the peer would make the puppet jump */
+void net_level_reset(void)
+{
+    player_track.n = 0;
 }
 
 /* ---- simulated network: hold datagrams back, drop some ---- */

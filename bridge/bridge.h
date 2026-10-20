@@ -117,7 +117,7 @@ struct track {
     struct snap view;                   /* interpolated state for this frame */
 };
 
-enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP };
+enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL };
 #define EV_NAME 32
 
 struct event {
@@ -128,6 +128,7 @@ struct event {
     int type;
     unsigned int netid;         /* SPAWN / DESPAWN: host handle of the gob */
     short objtype;              /* SPAWN / FIRE: OBJ_* type */
+    unsigned char level;        /* sender's level; events from another level are dropped */
     float pos[3];               /* SPAWN / FIRE: where it is */
     float quat[4];              /* FIRE: rotation */
     DWORD extra[4];             /* FIRE: create_object's last four arguments */
@@ -135,6 +136,7 @@ struct event {
 };
 
 extern int role_host;
+extern int cur_level;           /* level this game is in (coop_level) */
 extern int have_remote;
 extern int sync_anim;
 extern int ent_hz;
@@ -147,6 +149,7 @@ double now_ms(void);
 void net_open(const char *ini);
 void net_poll(void);
 void net_send_player(BYTE *gob);
+void net_level_reset(void);
 void net_send(const void *buf, int len);
 void event_queue(int kind, const char *name, int damage, int type, int part);
 void event_queue_spawn(int kind, unsigned int netid, int objtype, const float *pos, const char *name);
@@ -168,12 +171,18 @@ void ent_bind(unsigned int netid, BYTE *gob);
 void ent_despawn(unsigned int netid);
 BYTE *ent_gob(unsigned int netid);
 int ent_count(void);
+void ents_reset(void);
 
 /* ---- shots.c ---- */
 
 void shots_init(void);
 void shots_frame(void);
 void shots_replay(const struct event *e);
+void shots_reset(void);
+
+/* ---- frame.c ---- */
+
+void frame_init(void);
 
 /* ---- rooms.c ---- */
 
@@ -182,6 +191,7 @@ void rooms_init(void);
 /* ---- doors.c ---- */
 
 void doors_frame(void);
+void doors_reset(void);
 
 /* ---- pickups.c ---- */
 

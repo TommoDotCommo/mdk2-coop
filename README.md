@@ -15,9 +15,9 @@ small: the game reads it into an 8 KB stack buffer and crashes (0xc0000409) if i
     tools/inject.sh         # install (backs up settings.lua once to settings.lua.coop-backup)
     tools/inject.sh --off   # remove the settings.lua line
 
-In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn the player 2 puppet,
+In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn another puppet (every level start adds one),
 F8 toggle drawing the puppet 3 units up (with `peer_port` = `listen_port` in coop.ini the puppet mirrors
-your own Kurt, handy for checking sync with one instance), F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F4 teleport onto coop.tpname (level 1's decoy item, in another room).
+your own Kurt, handy for checking sync with one instance), F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 damage to yourself, F4 teleport onto coop.tpname (level 1's decoy item, in another room).
 Room changes are logged to bridge.log as they happen.
 
 ## Bridge (dinput8.dll)
@@ -54,6 +54,15 @@ Rooms: the engine only runs rooms around the camera (others go into stasis, flag
 redirects the room manager's call at 0x430314 so the rooms around the other player's puppet stay active
 too (enemies, doors and scripts keep running where either player is). Proximity doors only check the
 local player; their think is wrapped to use whichever player is nearer.
+
+Levels: the bridge runs `coop.Tick()` after every scene update (0x402638, menus and title included), so
+sync no longer depends on the puppet. Every level load ends in the Lua `level()` function, which the harness
+wraps: it resets the bridge's per-level state, asks the peer to follow with a LEVEL event (not for the title
+screen, and not when the load was itself following the peer) and the next tick adds the puppet. Events and
+enemy packets carry the sender's level and are dropped by a game in another level.
+
+Going down: with a partner connected, a hit that would kill your Kurt revives him at the partner with the
+health he started the level with, instead of reloading the checkpoint in one game only.
 
 Damage authority (`[net] role=host|client`): the bridge hooks the game's central damage function
 (0x40d590). The host applies everything and tells the client (APPLY); the client applies damage to its own
