@@ -50,6 +50,11 @@ Pickups (`OBJ` types 300-399): every pickup path asks the engine whether the ite
 handler (0x40cf60, event 15), which the bridge hooks. The picker keeps the item and sends PICKUP; the
 peer deletes its copy. Items are matched by name, so only level-placed items are synced so far.
 
+Rooms: the engine only runs rooms around the camera (others go into stasis, flag 0x8). The bridge
+redirects the room manager's call at 0x430314 so the rooms around the other player's puppet stay active
+too (enemies, doors and scripts keep running where either player is). Proximity doors only check the
+local player; their think is wrapped to use whichever player is nearer.
+
 Damage authority (`[net] role=host|client`): the bridge hooks the game's central damage function
 (0x40d590). The host applies everything and tells the client (APPLY); the client applies damage to its own
 player only and sends its hits on anything else to the host (HIT), which applies them as if the client's

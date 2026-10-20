@@ -175,6 +175,14 @@ void shots_init(void);
 void shots_frame(void);
 void shots_replay(const struct event *e);
 
+/* ---- rooms.c ---- */
+
+void rooms_init(void);
+
+/* ---- doors.c ---- */
+
+void doors_frame(void);
+
 /* ---- pickups.c ---- */
 
 void pickups_init(void);

@@ -102,6 +102,7 @@ static void l_coop_recv(void)
         ents_client_cleanup();
     }
     shots_frame();
+    doors_frame();
     track_update(&player_track);
     smooth_track(player_track.view.pos);
     lua_pushnumber(player_track.view.pos[0]);
@@ -314,5 +315,6 @@ void l_coop_init(void)
     logmsg("coop_init: lua functions registered, damage hook %s", deal_damage_orig ? "installed" : "NOT installed");
     shots_init();
     pickups_init();
+    rooms_init();
     run_mod_script();
 }
