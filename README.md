@@ -14,8 +14,9 @@ after its own scripts.
     tools/inject.sh         # inject (backs up settings.lua once to settings.lua.coop-backup)
     tools/inject.sh --off   # remove
 
-In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn player 2 puppet (follows you),
-F8 hand the puppet to the game's Kurt AI.
+In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn the player 2 puppet,
+F8 toggle drawing the puppet 3 units up (with `peer_port` = `listen_port` in coop.ini the puppet mirrors
+your own Kurt, handy for checking sync with one instance), F11 log anim states to bridge.log.
 
 ## Bridge (dinput8.dll)
 
@@ -24,8 +25,9 @@ It forwards DirectInput to the system DLL and adds Lua functions to the game:
 
 - `coop_init()` registers the others and opens a UDP socket (ports from `<game dir>\coop\coop.ini`,
   see `dist/coop.ini.example`)
-- `coop_send(x, y, z, yaw)` sends local player state to the peer
-- `coop_recv()` returns the peer's latest `x, y, z, yaw`, or nil before the first packet
+- `coop_send(gob)` sends the gob's position and orientation to the peer
+- `coop_recv()` returns the peer's latest `x, y, z`, or nil before the first packet
+- `coop_face(gob)` gives the gob the peer's latest orientation and animation state
 
 Log: `<game dir>\coop\bridge.log`. Only Steam build 3902 is supported; on any other build the bridge
 logs "unknown game build" and only forwards DirectInput.
