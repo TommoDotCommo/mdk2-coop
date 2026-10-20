@@ -34,6 +34,11 @@ It forwards DirectInput to the system DLL and adds Lua functions to the game:
 Log: `<game dir>\coop\bridge.log`. Only Steam build 3902 is supported; on any other build the bridge
 logs "unknown game build" and only forwards DirectInput.
 
+Updates go out at `send_hz` (30) and the other player is drawn `interp_ms` (100) in the past, blended
+between the two updates either side; `[sim]` fakes latency, jitter and loss for testing. While the other
+player moves, bridge.log gets a `smooth:` line every 2 s (step size mean/sd/max, stalled frames, cv = sd/mean;
+lower is smoother).
+
 UDP on localhost/LAN is a stand-in; Steam relay networking comes later.
 
 Untested: changing options in game probably rewrites settings.lua and drops the injection; if so, rerun the script.

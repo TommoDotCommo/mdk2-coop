@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <stdlib.h>
+#include <math.h>
 
 /* ---- game Lua 3.1 API (cdecl, statically linked in mdk2hd.exe) ---- */
 
@@ -40,26 +42,29 @@ static DWORD *(*const om_anim_state)(void *, int) = (void *)0x44c640;
 
 /* ---- log ---- */
 
-static FILE *logf;
+static FILE *log_file;
 static char coop_dir[MAX_PATH];
 
 static void logmsg(const char *fmt, ...)
 {
     va_list ap;
-    if (!logf)
+    if (!log_file)
         return;
     va_start(ap, fmt);
-    vfprintf(logf, fmt, ap);
+    vfprintf(log_file, fmt, ap);
     va_end(ap);
-    fputc('\n', logf);
-    fflush(logf);
+    fputc('\n', log_file);
+    fflush(log_file);
 }
 
 /* ---- network: UDP to one peer, latest packet wins ---- */
 
-#define PACKET_MAGIC 0x324b444d     /* "MDK2" */
+#define PACKET_MAGIC 0x334b444d     /* "MDK3": v3 adds sender time */
 
 #define ANIM_STATE_DWORDS 10   /* flags, mode, times, rate, weight: plain data, no pointers */
+#define ANIM_TIME0        3    /* [3] and [4]: normalised play position, 0..1 */
+#define ANIM_TIME1        4
+#define ANIM_WEIGHT       6
 #define PACKET_ANIMS      8
 #define NO_ANIM           0xff
 
@@ -71,18 +76,37 @@ struct anim_entry {
 struct packet {
     unsigned int magic;
     unsigned int seq;
+    unsigned int time;          /* sender clock, ms */
     float pos[3];
-    float quat[4];
+    float quat[4];              /* w, x, y, z */
     unsigned char cur, prev, nanims;
     struct anim_entry anims[PACKET_ANIMS];
 };
 
+/* settings from coop.ini */
+static int sync_anim = 1;       /* [sync] anim: 0 turns animation sync off */
+static int send_hz = 30;        /* [sync] send_hz */
+static int interp_ms = 100;     /* [sync] interp_ms: render the peer this far in the past; 0 = latest packet */
+static int extrap_ms = 150;     /* [sync] extrap_ms: max extrapolation when packets are late */
+static int sim_latency_ms;      /* [sim] latency_ms, jitter_ms, loss_pct: fake a bad network */
+static int sim_jitter_ms;
+static int sim_loss_pct;
+
 static SOCKET sock = INVALID_SOCKET;
 static struct sockaddr_in peer;
 static unsigned int send_seq, recv_seq;
-static struct packet remote;
 static int have_remote;
-static int sync_anim = 1;       /* coop.ini [sync] anim=0 turns animation sync off */
+
+static double now_ms(void)
+{
+    static LARGE_INTEGER freq;
+    LARGE_INTEGER c;
+
+    if (!freq.QuadPart)
+        QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&c);
+    return (double)c.QuadPart * 1000.0 / (double)freq.QuadPart;
+}
 
 static void net_open(void)
 {
@@ -97,6 +121,16 @@ static void net_open(void)
     peer_port = GetPrivateProfileIntA("net", "peer_port", 27901, ini);
     GetPrivateProfileStringA("net", "peer_host", "127.0.0.1", host, sizeof(host), ini);
     sync_anim = GetPrivateProfileIntA("sync", "anim", 1, ini);
+    send_hz = GetPrivateProfileIntA("sync", "send_hz", 30, ini);
+    interp_ms = GetPrivateProfileIntA("sync", "interp_ms", 100, ini);
+    extrap_ms = GetPrivateProfileIntA("sync", "extrap_ms", 150, ini);
+    sim_latency_ms = GetPrivateProfileIntA("sim", "latency_ms", 0, ini);
+    sim_jitter_ms = GetPrivateProfileIntA("sim", "jitter_ms", 0, ini);
+    sim_loss_pct = GetPrivateProfileIntA("sim", "loss_pct", 0, ini);
+    if (send_hz < 1)
+        send_hz = 1;
+    logmsg("sync: send %d Hz, interp %d ms, extrap %d ms, anim %d; sim: latency %d ms, jitter %d ms, loss %d%%",
+           send_hz, interp_ms, extrap_ms, sync_anim, sim_latency_ms, sim_jitter_ms, sim_loss_pct);
 
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
         logmsg("WSAStartup failed");
@@ -122,24 +156,224 @@ static void net_open(void)
     logmsg("udp listen %d, peer %s:%d", listen_port, host, peer_port);
 }
 
+/* ---- snapshot buffer ---- */
+
+#define SNAPS 32
+
+static struct packet snaps[SNAPS];     /* ordered by sender time, oldest first */
+static int nsnaps;
+static double clock_offset;            /* sender clock - local clock, least-delayed estimate */
+
+static void snap_add(const struct packet *p, double arrived)
+{
+    double o = (double)p->time - arrived;
+    int i;
+
+    if (!have_remote || o > clock_offset)
+        clock_offset = o;
+    else
+        clock_offset -= 0.01;          /* let the estimate follow slow clock drift */
+
+    if (nsnaps == SNAPS) {
+        memmove(snaps, snaps + 1, sizeof(snaps[0]) * (SNAPS - 1));
+        nsnaps--;
+    }
+    for (i = nsnaps; i > 0 && (int)(snaps[i - 1].time - p->time) > 0; i--)
+        snaps[i] = snaps[i - 1];
+    snaps[i] = *p;
+    nsnaps++;
+}
+
+/* ---- simulated network: hold packets back, drop some ---- */
+
+#define SIM_QUEUE 256
+
+static struct { struct packet p; double due; } simq[SIM_QUEUE];
+static int nsimq;
+
+static void accept_packet(const struct packet *p, double now)
+{
+    if (have_remote && p->seq <= recv_seq)
+        return;                         /* late or duplicate */
+    snap_add(p, now);
+    recv_seq = p->seq;
+    if (p->seq % 300 == 0)
+        logmsg("recv #%u pos (%.2f, %.2f, %.2f) quat (%.3f, %.3f, %.3f, %.3f) anim cur %d n %d", p->seq,
+               p->pos[0], p->pos[1], p->pos[2], p->quat[0], p->quat[1], p->quat[2], p->quat[3], p->cur, p->nanims);
+    if (!have_remote)
+        logmsg("first packet from peer (seq %u)", p->seq);
+    have_remote = 1;
+}
+
 static void net_poll(void)
 {
     struct packet p;
-    int n;
+    double now = now_ms();
+    int n, i;
 
     if (sock == INVALID_SOCKET)
         return;
     while ((n = recv(sock, (char *)&p, sizeof(p), 0)) == sizeof(p)) {
-        if (p.magic != PACKET_MAGIC || p.nanims > PACKET_ANIMS || (have_remote && p.seq <= recv_seq))
+        if (p.magic != PACKET_MAGIC || p.nanims > PACKET_ANIMS)
             continue;
-        remote = p;
-        recv_seq = p.seq;
-        if (p.seq % 300 == 0)
-            logmsg("recv #%u pos (%.2f, %.2f, %.2f) quat (%.3f, %.3f, %.3f, %.3f) anim cur %d n %d", p.seq,
-                   p.pos[0], p.pos[1], p.pos[2], p.quat[0], p.quat[1], p.quat[2], p.quat[3], p.cur, p.nanims);
-        if (!have_remote)
-            logmsg("first packet from peer (seq %u)", p.seq);
-        have_remote = 1;
+        if (!sim_latency_ms && !sim_jitter_ms && !sim_loss_pct) {
+            accept_packet(&p, now);
+            continue;
+        }
+        if (rand() % 100 < sim_loss_pct || nsimq == SIM_QUEUE)
+            continue;
+        simq[nsimq].p = p;
+        simq[nsimq].due = now + sim_latency_ms + (sim_jitter_ms ? rand() % (sim_jitter_ms + 1) : 0);
+        nsimq++;
+    }
+    for (i = 0; i < nsimq; ) {
+        if (simq[i].due <= now) {
+            accept_packet(&simq[i].p, simq[i].due);
+            simq[i] = simq[--nsimq];
+        } else {
+            i++;
+        }
+    }
+}
+
+/* ---- interpolation ---- */
+
+static struct packet view;      /* what the puppet shows this frame */
+
+static float lerpf(float a, float b, float t)
+{
+    return a + (b - a) * t;
+}
+
+/* lerp a 0..1 play position the short way round */
+static float lerp_phase(float a, float b, float t)
+{
+    float v;
+
+    if (b - a > 0.5f)
+        a += 1.0f;
+    else if (a - b > 0.5f)
+        b += 1.0f;
+    v = lerpf(a, b, t);
+    return v >= 1.0f ? v - 1.0f : v;
+}
+
+static void nlerp_quat(float *out, const float *a, const float *b, float t)
+{
+    float dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    float sign = dot < 0.0f ? -1.0f : 1.0f, len = 0.0f;
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        out[i] = lerpf(a[i], sign * b[i], t);
+        len += out[i] * out[i];
+    }
+    len = len > 0.0f ? 1.0f / sqrtf(len) : 1.0f;
+    for (i = 0; i < 4; i++)
+        out[i] *= len;
+}
+
+/* Blend two snapshots: position and rotation lerped, anims from the nearer one with
+ * play positions and weights blended where both have the same anim */
+static void blend(struct packet *out, const struct packet *a, const struct packet *b, float t)
+{
+    const struct packet *other = t < 0.5f ? b : a;
+    int i, j, k;
+
+    *out = t < 0.5f ? *a : *b;
+    for (k = 0; k < 3; k++)
+        out->pos[k] = lerpf(a->pos[k], b->pos[k], t);
+    nlerp_quat(out->quat, a->quat, b->quat, t);
+    for (i = 0; i < out->nanims; i++) {
+        for (j = 0; j < other->nanims && other->anims[j].id != out->anims[i].id; j++)
+            ;
+        if (j == other->nanims)
+            continue;
+        {
+            const DWORD *sa = t < 0.5f ? out->anims[i].state : other->anims[j].state;
+            const DWORD *sb = t < 0.5f ? other->anims[j].state : out->anims[i].state;
+            float *d = (float *)out->anims[i].state;
+            d[ANIM_TIME0] = lerp_phase(((const float *)sa)[ANIM_TIME0], ((const float *)sb)[ANIM_TIME0], t);
+            d[ANIM_TIME1] = lerp_phase(((const float *)sa)[ANIM_TIME1], ((const float *)sb)[ANIM_TIME1], t);
+            d[ANIM_WEIGHT] = lerpf(((const float *)sa)[ANIM_WEIGHT], ((const float *)sb)[ANIM_WEIGHT], t);
+        }
+    }
+}
+
+static void update_view(void)
+{
+    double render;
+    int i;
+
+    if (!nsnaps)
+        return;
+    if (interp_ms <= 0 || nsnaps == 1) {
+        view = snaps[nsnaps - 1];
+        return;
+    }
+    render = now_ms() + clock_offset - interp_ms;
+    for (i = nsnaps - 1; i > 0 && (double)snaps[i - 1].time > render; i--)
+        ;
+    /* snaps[i-1] .. snaps[i] bracket render, or render is outside the buffer */
+    if (i == 0) {
+        view = snaps[0];
+    } else if ((double)snaps[i].time >= render) {
+        const struct packet *a = &snaps[i - 1], *b = &snaps[i];
+        float span = (float)(b->time - a->time);
+        blend(&view, a, b, span > 0.0f ? (float)(render - a->time) / span : 1.0f);
+    } else {
+        /* newest packet is older than render time: extrapolate along the last step */
+        const struct packet *a = &snaps[nsnaps - 2], *b = &snaps[nsnaps - 1];
+        float span = (float)(b->time - a->time);
+        double ahead = render - b->time;
+        int k;
+
+        if (ahead > extrap_ms)
+            ahead = extrap_ms;
+        view = *b;
+        if (span > 0.0f)
+            for (k = 0; k < 3; k++)
+                view.pos[k] = b->pos[k] + (b->pos[k] - a->pos[k]) * (float)(ahead / span);
+    }
+}
+
+/* ---- smoothness stats: how evenly the puppet moves from frame to frame ---- */
+
+static struct {
+    float last[3];
+    int have_last, frames, stalls;
+    double sum, sumsq, max, window_start;
+} smooth;
+
+static void smooth_track(const float *pos)
+{
+    double now = now_ms(), step = 0.0;
+    int k;
+
+    if (smooth.have_last) {
+        for (k = 0; k < 3; k++)
+            step += (double)(pos[k] - smooth.last[k]) * (pos[k] - smooth.last[k]);
+        step = sqrt(step);
+        smooth.frames++;
+        smooth.sum += step;
+        smooth.sumsq += step * step;
+        if (step > smooth.max)
+            smooth.max = step;
+        if (step < 1e-4)
+            smooth.stalls++;
+    } else {
+        smooth.window_start = now;
+    }
+    memcpy(smooth.last, pos, sizeof(smooth.last));
+    smooth.have_last = 1;
+
+    if (now - smooth.window_start >= 2000.0 && smooth.frames) {
+        double mean = smooth.sum / smooth.frames;
+        double sd = sqrt(fmax(0.0, smooth.sumsq / smooth.frames - mean * mean));
+        if (mean > 0.005)       /* only report windows where the peer is moving */
+            logmsg("smooth: %d frames, step mean %.4f sd %.4f max %.4f, stalled %d%%, cv %.2f",
+                   smooth.frames, mean, sd, smooth.max, smooth.stalls * 100 / smooth.frames, sd / mean);
+        memset(&smooth, 0, sizeof(smooth));
     }
 }
 
@@ -202,16 +436,20 @@ static void anim_apply(BYTE *gob, const struct packet *p)
     *(DWORD **)(ctl + 0x2c) = p->prev != NO_ANIM ? om_anim_state(gob, p->prev) : NULL;
 }
 
-/* coop_send(gob): send the gob's position, orientation and animation to the peer */
+/* coop_send(gob): send the gob's position, orientation and animation, at most send_hz times a second */
 static void l_coop_send(void)
 {
+    static double next_send;
     struct packet p;
     BYTE *gob = tolua_getusertype(1, NULL);
+    double now = now_ms();
 
-    if (sock == INVALID_SOCKET || !gob)
+    if (sock == INVALID_SOCKET || !gob || now < next_send)
         return;
+    next_send = (now - next_send > 1000.0 / send_hz) ? now + 1000.0 / send_hz : next_send + 1000.0 / send_hz;
     p.magic = PACKET_MAGIC;
     p.seq = ++send_seq;
+    p.time = (unsigned int)now;
     memcpy(p.pos, gob + GOB_POSITION, sizeof(p.pos));
     memcpy(p.quat, gob + GOB_ORIENTATION, sizeof(p.quat));
     anim_capture(gob, &p);
@@ -221,27 +459,29 @@ static void l_coop_send(void)
                p.pos[0], p.pos[1], p.pos[2], p.quat[0], p.quat[1], p.quat[2], p.quat[3], p.cur, p.nanims);
 }
 
-/* coop_recv() -> x, y, z  or nil before the first packet */
+/* coop_recv() -> x, y, z of the peer for this frame, or nil before the first packet */
 static void l_coop_recv(void)
 {
     net_poll();
     if (!have_remote)
         return;
-    lua_pushnumber(remote.pos[0]);
-    lua_pushnumber(remote.pos[1]);
-    lua_pushnumber(remote.pos[2]);
+    update_view();
+    smooth_track(view.pos);
+    lua_pushnumber(view.pos[0]);
+    lua_pushnumber(view.pos[1]);
+    lua_pushnumber(view.pos[2]);
 }
 
-/* coop_face(gob): give the gob the peer's latest orientation and animation */
+/* coop_face(gob): give the gob the peer's orientation and animation for this frame */
 static void l_coop_face(void)
 {
     BYTE *gob = tolua_getusertype(1, NULL);
 
     if (!gob || !have_remote)
         return;
-    memcpy(gob + GOB_ORIENTATION, remote.quat, sizeof(remote.quat));
+    memcpy(gob + GOB_ORIENTATION, view.quat, sizeof(view.quat));
     if (sync_anim)
-        anim_apply(gob, &remote);
+        anim_apply(gob, &view);
 }
 
 /* coop_animdump(gob): log active anim states, for reverse engineering */
@@ -372,7 +612,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         strcat(coop_dir, "\\coop");
         CreateDirectoryA(coop_dir, NULL);
         snprintf(path, MAX_PATH, "%s\\bridge.log", coop_dir);
-        logf = fopen(path, "w");
+        log_file = fopen(path, "w");
         logmsg("mdk2-coop bridge attached");
         install_lua_hook();
     }
