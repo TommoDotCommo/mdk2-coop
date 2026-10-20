@@ -88,17 +88,48 @@ static int name_unique(BYTE *gob, const char *name)
 {
     int i;
 
+    /* gobs without object info don't count: a spawned soldier's (l8r5_sod01_spawn, type 240)
+     * two parts carry its name, and the client would then make a bare copy with 0 hp */
     for (i = 0; i < GOB_SLOTS; i++) {
         BYTE *g = (BYTE *)GOB_TABLE[i * 2];
-        if (g && g != gob && strncmp((const char *)g + GOB_NAME, name, 32) == 0)
+        if (g && g != gob && *(BYTE **)(g + GOB_INFO) && strncmp((const char *)g + GOB_NAME, name, 32) == 0)
             return 0;
     }
     return 1;
 }
 
+/* gob_delete only marks a gob: it stays in the table (and its Lua global keeps working)
+ * until the scene's cleanup, so a name lookup in the same frame would still find it.
+ * gob_kill remembers what it deleted until the slot holds something else. */
+#define MAX_DOOMED 32
+static struct { BYTE *gob; unsigned int handle; } doomed[MAX_DOOMED];
+static int ndoomed;         /* deletions so far; doomed[] holds the last MAX_DOOMED */
+
+int gob_doomed(BYTE *gob)
+{
+    int i;
+
+    for (i = 0; i < ndoomed && i < MAX_DOOMED; i++)
+        if (doomed[i].gob == gob && gob_by_handle(doomed[i].handle) == gob)
+            return 1;
+    return 0;
+}
+
+void gob_kill(BYTE *gob)
+{
+    int slot = gob_slot(gob);
+
+    if (slot < 0)
+        return;
+    doomed[ndoomed % MAX_DOOMED].gob = gob;
+    doomed[ndoomed % MAX_DOOMED].handle = gob_handle(slot);
+    ndoomed++;
+    gob_delete(gob);
+}
+
 int gob_alive(BYTE *gob)
 {
-    return gob && gob_slot(gob) >= 0;
+    return gob && gob_slot(gob) >= 0 && !gob_doomed(gob);
 }
 
 /* Name the peer knows the gob by: its own name if no other gob shares it, else (and for
@@ -140,6 +171,7 @@ void gob_peername(BYTE *gob, char *out, int size)
 /* The reverse, on the receiving side: NULL if we have nothing by that name */
 BYTE *gob_find_peername(const char *name)
 {
+    BYTE *part = NULL;
     int i;
 
     if (!name[0])
@@ -152,12 +184,17 @@ BYTE *gob_find_peername(const char *name)
         unsigned int id = strtoul(name + 1, NULL, 16);
         return role_host ? gob_by_handle(id) : ent_gob(id);
     }
+    /* a gob with object info first: parts without any can share their owner's name */
     for (i = 0; i < GOB_SLOTS; i++) {
         BYTE *g = (BYTE *)GOB_TABLE[i * 2];
-        if (g && strncmp((const char *)g + GOB_NAME, name, 32) == 0)
-            return g;
+        if (g && strncmp((const char *)g + GOB_NAME, name, 32) == 0 && !gob_doomed(g)) {
+            if (*(BYTE **)(g + GOB_INFO))
+                return g;
+            if (!part)
+                part = g;
+        }
     }
-    return NULL;
+    return part;
 }
 
 void push_gob(BYTE *gob)

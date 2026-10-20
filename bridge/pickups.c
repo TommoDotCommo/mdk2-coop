@@ -58,10 +58,11 @@ void pickups_remove(const char *name)
 
     for (i = 0; i < GOB_SLOTS; i++) {
         BYTE *gob = (BYTE *)GOB_TABLE[i * 2];
-        if (gob && strncmp((const char *)gob + GOB_NAME, name, EV_NAME) == 0 && is_item(gob)) {
+        if (gob && strncmp((const char *)gob + GOB_NAME, name, EV_NAME) == 0 && is_item(gob) &&
+            !gob_doomed(gob)) {
             logmsg("peer picked up %s: removed here", name);
             removing = 1;
-            gob_delete(gob);
+            gob_kill(gob);
             removing = 0;
             return;
         }

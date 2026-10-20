@@ -75,6 +75,8 @@ void gob_netname(BYTE *gob, char *out, int size);
 void gob_peername(BYTE *gob, char *out, int size);
 BYTE *gob_find_peername(const char *name);
 int gob_alive(BYTE *gob);
+int gob_doomed(BYTE *gob);
+void gob_kill(BYTE *gob);
 int gob_type(BYTE *gob);
 int gob_class(BYTE *gob);
 int gob_hp(BYTE *gob);

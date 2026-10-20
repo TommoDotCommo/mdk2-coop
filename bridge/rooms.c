@@ -5,7 +5,8 @@
  * into stasis (gob flag 0x8) and nothing in them runs. Redirecting that one call so it
  * also activates the rooms around the other player's puppet (without entering them:
  * no OnEnterRoom, music or current room change) keeps the world running where either
- * player is.
+ * player is. Each game also activates the rooms at its own player (the partner does,
+ * for the puppet), so both wake the same rooms.
  */
 #include <string.h>
 #include "bridge.h"
@@ -50,8 +51,14 @@ static void activate_rooms_at(float *pos)
 static void __cdecl mark_rooms_both(void *arg, BYTE *camera, int set_current)
 {
     ((mark_rooms_t)MARK_ROOMS_ADDR)(arg, camera, set_current);
-    if (puppet && have_remote && gob_slot(puppet) >= 0)
+    if (puppet && have_remote && gob_slot(puppet) >= 0) {
         activate_rooms_at((float *)(puppet + GOB_POSITION));
+        /* our own player's rooms too: the partner wakes rooms where our player stands,
+         * we by our camera; a room holding the player but not the camera (12-6, a step
+         * left at the start) only woke over there and made its items there only */
+        if (gob_alive(local_player))
+            activate_rooms_at((float *)(local_player + GOB_POSITION));
+    }
 }
 
 /* Lowest point of the level: min z over the room boxes (computed once per level) */

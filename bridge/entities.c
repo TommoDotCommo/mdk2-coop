@@ -34,7 +34,6 @@ struct ent {
     unsigned int id;            /* host gob handle */
     BYTE *gob;                  /* local gob */
     unsigned int local;         /* local gob handle, to notice when the gob goes away */
-    int seen;                   /* host: present in the latest scan */
     struct track track;         /* client */
 };
 
@@ -124,39 +123,38 @@ void ents_host_tick(void)
         return;
     next_tick = now + 1000.0 / ent_hz;
 
-    for (i = 0; i < nents; i++)
-        ents[i].seen = 0;
-    for (slot = 0; slot < GOB_SLOTS; slot++) {
-        BYTE *gob = (BYTE *)GOB_TABLE[slot * 2];
-        unsigned int id;
-        struct ent *e;
-
-        if (!gob || !gob_is_actor(gob))
-            continue;
-        id = gob_handle(slot);
-        if (!(e = ent_find(id))) {
-            char name[EV_NAME];
-            if (nents == MAX_ENTS)
-                continue;
-            e = &ents[nents++];
-            memset(e, 0, sizeof(*e));
-            e->id = id;
-            e->gob = gob;
-            e->local = id;
-            gob_netname(gob, name, sizeof(name));
-            event_queue_spawn(EV_SPAWN, id, gob_type(gob), (float *)(gob + GOB_POSITION), name);
-            logmsg("ent spawn %x %s type %d", id, name, gob_type(gob));
-        }
-        e->seen = 1;
-    }
+    /* despawns go first: a script that deletes an actor and makes a new one of the same
+     * name (ch2 in 9-7) would otherwise have the client bind the new id to its old gob,
+     * then delete that gob for the old id */
     for (i = 0; i < nents; ) {
-        if (!ents[i].seen) {
+        BYTE *gob = gob_by_handle(ents[i].id);
+        if (gob != ents[i].gob || !gob_is_actor(gob)) {
             event_queue_spawn(EV_DESPAWN, ents[i].id, 0, NULL, "");
             logmsg("ent despawn %x", ents[i].id);
             ent_remove(&ents[i]);
         } else {
             i++;
         }
+    }
+    for (slot = 0; slot < GOB_SLOTS; slot++) {
+        BYTE *gob = (BYTE *)GOB_TABLE[slot * 2];
+        unsigned int id;
+        struct ent *e;
+        char name[EV_NAME];
+
+        if (!gob || !gob_is_actor(gob))
+            continue;
+        id = gob_handle(slot);
+        if (ent_find(id) || nents == MAX_ENTS)
+            continue;
+        e = &ents[nents++];
+        memset(e, 0, sizeof(*e));
+        e->id = id;
+        e->gob = gob;
+        e->local = id;
+        gob_netname(gob, name, sizeof(name));
+        event_queue_spawn(EV_SPAWN, id, gob_type(gob), (float *)(gob + GOB_POSITION), name);
+        logmsg("ent spawn %x %s type %d", id, name, gob_type(gob));
     }
 
     memset(&p, 0, sizeof(p));
@@ -178,9 +176,17 @@ void ent_bind(unsigned int netid, BYTE *gob)
 {
     struct ent *e = ent_find(netid);
     int slot = gob_slot(gob);
+    int i;
 
     if (slot < 0)
         return;
+    /* one gob, one host actor: an older binding to it would delete it on its despawn */
+    for (i = 0; i < nents; i++)
+        if (ents[i].id != netid && ents[i].gob == gob) {
+            logmsg("ent %x lets go of %s", ents[i].id, gob_name(gob));
+            ents[i].gob = NULL;
+            ents[i].local = 0;
+        }
     if (!e) {
         if (nents == MAX_ENTS)
             return;
@@ -209,7 +215,7 @@ void ent_despawn(unsigned int netid)
     if (e->gob)
         gob_set_mirrored(e->gob, 0);
     if (gob)
-        gob_delete(gob);
+        gob_kill(gob);
     ent_remove(e);
 }
 
@@ -331,7 +337,7 @@ void ents_client_cleanup(void)
         } else if (now - first_seen[slot] > ORPHAN_GRACE_MS) {
             logmsg("ent orphan %s (type %d) deleted: host has no such actor", gob_name(gob), gob_type(gob));
             seen_handle[slot] = 0;
-            gob_delete(gob);
+            gob_kill(gob);
         }
     }
 }
