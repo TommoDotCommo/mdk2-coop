@@ -156,7 +156,7 @@ double now_ms(void);
 void net_open(const char *ini);
 void net_poll(void);
 void net_send_player(BYTE *gob);
-void net_level_reset(void);
+void net_level_reset(int peer_follows);
 void net_send(const void *buf, int len);
 void event_queue(int kind, const char *name, int damage, int type, int part);
 void event_queue_from(int kind, const char *name, BYTE *from, int damage, int type, int part);
@@ -181,6 +181,7 @@ BYTE *ent_gob(unsigned int netid);
 int ent_count(void);
 void ents_reset(void);
 int ent_is_synced(BYTE *gob);
+void ents_keep_spawner(BYTE *gob);
 void ents_dump(FILE *f);
 
 /* ---- state.c ---- */

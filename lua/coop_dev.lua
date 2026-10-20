@@ -22,6 +22,14 @@ function coop.OnLuaError(msg)
 end
 coop.olderror = seterrormethod(coop.OnLuaError)
 
+-- the client switches its spawners off (the host's make the real enemies), but some make
+-- items (health, ammo respawns: mdk2.lua's item spawners), which the client needs too --
+coop.setspawned_orig = mdkSpawnerSetSpawnedObject
+function mdkSpawnerSetSpawnedObject(spawner, objtype, a, b, c, d, e, f, g)
+    if (objtype and objtype >= 300 and objtype <= 399) then coop_keep_spawner(spawner) end
+    return coop.setspawned_orig(spawner, objtype, a, b, c, d, e, f, g)
+end
+
 -- event kinds, as in bridge.h --
 EV_HIT = 1
 EV_APPLY = 2
@@ -237,6 +245,14 @@ end
 function coop.CheckpointIndex()
     local l, cp = coop.level or 0, coop.cp or 0
     local i, found = 1, 0
+    -- the list is in play order, not number order (3-16, "3-6.5", sits between 3-6 and 3-7):
+    -- an exact match first --
+    while (i <= coop.ncheckpoints) do
+        local c = coop.checkpoints[i]
+        if (c[1] == l and c[2] == cp) then return i end
+        i = i + 1
+    end
+    i = 1
     while (i <= coop.ncheckpoints) do
         local c = coop.checkpoints[i]
         if (c[1] < l or (c[1] == l and c[2] <= cp)) then found = i end

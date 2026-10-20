@@ -262,6 +262,37 @@ static int is_spawner(BYTE *gob)
     return t == 511 || t == 540;
 }
 
+/* Spawners that make items (coop_keep_spawner): they stay on in the client, whose items
+ * only exist if it makes them itself. A ring of gob handles: never cleared, since a level's
+ * scripts register them before coop_level runs, and an old level's handles match no gob. */
+#define MAX_KEPT 128
+static unsigned int kept[MAX_KEPT];
+static int nkept;           /* registrations so far; kept[] holds the last MAX_KEPT */
+
+void ents_keep_spawner(BYTE *gob)
+{
+    int slot = gob_slot(gob);
+
+    if (slot < 0)
+        return;
+    kept[nkept++ % MAX_KEPT] = gob_handle(slot);
+    if (!role_host && gob_is_mirrored(gob)) {
+        gob_set_mirrored(gob, 0);
+        logmsg("spawner %s makes items: switched back on", gob_name(gob));
+    }
+}
+
+static int spawner_kept(int slot)
+{
+    unsigned int h = gob_handle(slot);
+    int i;
+
+    for (i = 0; i < nkept && i < MAX_KEPT; i++)
+        if (kept[i] == h)
+            return 1;
+    return 0;
+}
+
 /* Delete actors the host never announced (the client's own spawners and scripts) */
 void ents_client_cleanup(void)
 {
@@ -278,7 +309,7 @@ void ents_client_cleanup(void)
         BYTE *gob = (BYTE *)GOB_TABLE[slot * 2];
         unsigned int h = gob_handle(slot);
 
-        if (gob && is_spawner(gob) && !gob_is_mirrored(gob)) {
+        if (gob && is_spawner(gob) && !gob_is_mirrored(gob) && !spawner_kept(slot)) {
             /* the host's spawners make the real enemies; ours would only make orphans */
             gob_set_mirrored(gob, 1);
             class_filter_think(gob_class(gob));

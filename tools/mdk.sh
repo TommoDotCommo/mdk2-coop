@@ -56,7 +56,7 @@ mdk_state() { local A B d1 d2 i; read -r A B < "$MDK2_PIDS"
               mv "$d1/state_$1.txt" "$2/state_$1_host.txt" 2>/dev/null || { echo "state: no host dump"; return 1; }
               mv "$d2/state_$1.txt" "$2/state_$1_client.txt" 2>/dev/null || { echo "state: no client dump"; return 1; }
               python3 "$(dirname "${BASH_SOURCE[0]}")/statecheck.py" "$2/state_$1_host.txt" "$2/state_$1_client.txt"; }
-mdk_alive() { tasklist.exe /FI "PID eq $1" | grep -qi mdk2hd; }
+mdk_alive() { tasklist.exe /FI "PID eq $1" | grep -i mdk2hd >/dev/null; }   # no -q: SIGPIPE under pipefail
 mdk_kill()  { taskkill.exe /IM mdk2hd.exe /F >/dev/null 2>&1 || true; }   # fine when none is running
 # mdk_boot: start host and client and wait until the client has followed the host into a
 # level (install with MDK2_START so the host loads one by itself)

@@ -17,6 +17,7 @@ struct player_packet {
     unsigned int seq;
     unsigned char has_state;    /* 0: no player yet (title, loading), events only */
     unsigned char level;        /* sender's level: a state from another level is ignored */
+    unsigned char loads;        /* sender's level loads so far (checkpoints too) */
     short player_type;          /* OBJ type of the sender's player (Kurt, Max, Doc, Hyde) */
     struct snap state;
     unsigned int ack;           /* highest event id received in order from the peer */
@@ -46,6 +47,10 @@ struct track player_track;
 static struct sockaddr_in peer;
 static unsigned int send_seq, recv_seq;
 static double clock_offset;     /* sender clock - local clock, least-delayed estimate */
+static unsigned char loads;     /* our level loads (coop_level calls) */
+static int peer_loads = -1;     /* the peer's, from its latest packet */
+static int stale_loads = -1;    /* asked the peer to follow: its states with this count are from before */
+static double stale_until;
 
 double now_ms(void)
 {
@@ -408,6 +413,7 @@ void net_send_player(BYTE *gob)
     p.magic = PLAYER_MAGIC;
     p.seq = ++send_seq;
     p.level = (unsigned char)cur_level;
+    p.loads = loads;
     if (gob) {
         p.has_state = 1;
         p.player_type = (short)gob_type(gob);
@@ -430,7 +436,13 @@ static void accept_player(const struct player_packet *p, double arrived)
     recv_seq = p->seq;
     /* around a level change the peer still sends where it was in the old level: drawn here,
      * the puppet would stand there and wake that part of our level (room scripts run early) */
-    if (p->has_state && p->level == (unsigned char)cur_level) {
+    peer_loads = p->loads;
+    if (stale_loads >= 0 && (p->loads != stale_loads || arrived > stale_until)) {
+        logmsg(p->loads != stale_loads ? "peer has loaded too: drawing it again" :
+                                         "peer did not reload within 5 s: drawing it anyway");
+        stale_loads = -1;
+    }
+    if (p->has_state && p->level == (unsigned char)cur_level && stale_loads < 0) {
         peer_player_type = p->player_type;
         clock_sample(p->state.time, arrived);
         track_add(&player_track, &p->state);
@@ -451,11 +463,16 @@ static void accept_datagram(const BYTE *buf, int len, double arrived)
     }
 }
 
-/* New level: old snapshots of the peer would make the puppet jump */
-void net_level_reset(void)
+/* New level: old snapshots of the peer would make the puppet jump. With peer_follows (we
+ * asked it to load the same), its states stay stale until it has loaded: a checkpoint load
+ * keeps the level number, and the puppet put at the peer's old spot wakes rooms there. */
+void net_level_reset(int peer_follows)
 {
     player_track.n = 0;
     peer_player_type = 0;
+    loads++;
+    stale_loads = peer_follows ? peer_loads : -1;
+    stale_until = now_ms() + 5000.0;
 }
 
 /* ---- simulated network: hold datagrams back, drop some ---- */

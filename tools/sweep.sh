@@ -11,7 +11,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/mdk.sh"
 
 ALL="1-1 1-2 1-3 1-4 1-5 1-6 1-7 1-8 2-1 2-2 2-3 2-4 2-5 2-6 2-7 2-8 2-9 2-10
-3-1 3-2 3-3 3-4 3-5 3-6 3-7 3-8 3-9 3-10 3-11 4-1 4-2 4-3 4-4 4-5 4-6 4-7 4-8 4-9 4-10 4-11 4-14
+3-1 3-2 3-3 3-4 3-5 3-6 3-16 3-7 3-8 3-9 3-10 3-11 4-1 4-2 4-3 4-4 4-5 4-6 4-7 4-8 4-9 4-10 4-11 4-14
 5-1 5-2 5-3 5-4 5-5 5-6 5-7 5-8 5-9 5-10 6-1 6-2 6-3 6-4 6-5 6-6 6-7 7-1 7-2 7-3 7-4 7-5 7-6 7-7 7-8
 8-1 8-2 8-3 8-4 8-5 8-6 8-7 9-1 9-3 9-4 9-5 9-6 9-7 9-8 9-11 9-12 10-1 10-2 10-3 10-4 10-5 10-6 10-11
 11-1 11-6 11-11 12-1 12-6 12-11"
@@ -40,7 +40,8 @@ lines() { wc -l < "$1" 2>/dev/null || echo 0; }
 since() { tail -n +"$(( $2 + 1 ))" "$1" 2>/dev/null; }     # since <log> <line count before>
 wait_for() {   # wait_for <log> <offset> <regex> <seconds>
     local i
-    for i in $(seq 1 "$4"); do since "$1" "$2" | grep -qE "$3" && return 0; sleep 1; done
+    # grep reads to the end (no -q): with pipefail, tail killed by SIGPIPE would count as no match
+    for i in $(seq 1 "$4"); do since "$1" "$2" | grep -E "$3" >/dev/null && return 0; sleep 1; done
     return 1
 }
 alive_both() { read -r A B < "$MDK2_PIDS"; mdk_alive "$A" && mdk_alive "$B"; }

@@ -283,7 +283,7 @@ static void l_coop_level(void)
     shots_reset();
     doors_reset();
     rooms_level_reset();
-    net_level_reset();
+    net_level_reset(announce);
     puppet = NULL;
     local_player = NULL;
     max_hp = 0;
@@ -359,6 +359,14 @@ static void l_coop_state(void)
     state_dump(tag);
     if (role_host)
         event_queue(EV_STATE, tag, 0, 0, 0);
+}
+
+/* coop_keep_spawner(gob): this spawner makes items, the client keeps it running */
+static void l_coop_keep_spawner(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL);
+    if (gob)
+        ents_keep_spawner(gob);
 }
 
 /* coop_peer_type() -> OBJ type of the peer's player, or nil before it is known */
@@ -482,6 +490,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_press", l_coop_press);
     tolua_function(NULL, "coop_shot", l_coop_shot);
     tolua_function(NULL, "coop_state", l_coop_state);
+    tolua_function(NULL, "coop_keep_spawner", l_coop_keep_spawner);
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
     net_open(ini);
     deal_damage_orig = hook_code((BYTE *)DEAL_DAMAGE_ADDR, deal_damage_prologue, 5, deal_damage_hook);
