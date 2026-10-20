@@ -10,7 +10,14 @@
 coop = {
     offset = 3,         -- puppet sits this far from the player on x until the peer is heard
     mirror = 0,         -- height above the peer's position (F8), for loopback testing
+    enemies = 0,        -- Doganboys spawned with F5
 }
+
+-- event kinds, as in bridge.h --
+EV_HIT = 1
+EV_APPLY = 2
+EV_HURT = 3
+EV_SPAWN = 4
 
 -- BioWare debug menu (F9 in game), normally behind '$if features' --
 dofile('debug')
@@ -38,24 +45,46 @@ omMakeCommand(COM_TOGL3, "F8", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGL4, "F11", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGLG, "F4", CON_BUTTON_FALL, 0, 0)
 
+-- a gob by the name the peer uses: our player, a named gob, or an "n<id>" network name --
+function coop.FindGob(name)
+    if (name == "@player") then
+        return mdkGetPlayerGob()
+    end
+    local gob = getglobal(name)
+    if (gob and type(gob) ~= "number" and type(gob) ~= "string") then
+        return gob
+    end
+    return coop_gob(name)
+end
 
+-- client: bind a host actor to our gob of the same name, creating it if we lack one --
+function coop.Spawn(name, netid, objtype, x, y, z)
+    local gob = coop.FindGob(name)
+    if (not gob) then
+        gob = mdkCreateObjectLua(name, objtype, mdkGetScene(), nil, nil, x,y,z, 1,0,0,0, nil,0,0,0,0)
+    end
+    if (gob) then
+        coop_apply(EV_SPAWN, gob, netid)
+    else
+        coop_log(format("spawn %s type %d failed", name, objtype))
+    end
+end
 
--- carry out damage events from the peer; targets are found by gob name --
+-- carry out events from the peer --
 function coop.HandleEvents()
-    local kind, name, damage, dtype, part = coop_event()
+    local kind, name, damage, dtype, part, netid, objtype, x, y, z = coop_event()
     while (kind) do
-        local target
-        if (name == "@player") then
-            target = mdkGetPlayerGob()
+        if (kind == EV_SPAWN) then
+            coop.Spawn(name, netid, objtype, x, y, z)
         else
-            target = getglobal(name)
+            local target = coop.FindGob(name)
+            if (target) then
+                coop_apply(kind, target, damage, dtype, part)
+            else
+                coop_log(format("event %d: no gob named '%s'", kind, name))
+            end
         end
-        if (target and type(target) ~= "number" and type(target) ~= "string") then
-            coop_apply(kind, target, damage, dtype, part)
-        else
-            coop_log(format("event %d: no gob named '%s'", kind, name))
-        end
-        kind, name, damage, dtype, part = coop_event()
+        kind, name, damage, dtype, part, netid, objtype, x, y, z = coop_event()
     end
 end
 
@@ -64,16 +93,13 @@ function coop.PuppetOnUpdate(gob)
     local p = mdkGetPlayerGob()
     if (not p or p == gob) then return end
     local room = mdkGetCurrentRoom()
-    if (room ~= coop.room and coop_log) then
+    if (room ~= coop.room) then
         coop_log(format("room %s at (%.1f, %.1f, %.1f)", tostring(room), p.position.x, p.position.y, p.position.z))
         coop.room = room
     end
-    local x, y, z
-    if (coop_send) then
-        coop_send(p)
-        x, y, z = coop_recv()
-        coop.HandleEvents()
-    end
+    coop_send(p)
+    local x, y, z = coop_recv()
+    coop.HandleEvents()
     if (x) then
         mdkGobSetPositionXYZ(gob, x, y, z + coop.mirror)
         coop_face(gob)
@@ -82,7 +108,7 @@ function coop.PuppetOnUpdate(gob)
     end
 end
 
--- F6: spawn player 2 puppet next to the player --
+-- F6: spawn player 2 puppet next to the player (starts sync) --
 comfuncs.fkey[COM_TOGL1] = function()
     local p = mdkGetPlayerGob()
     if (not p) then return end
@@ -102,13 +128,12 @@ comfuncs.fkey[COM_TOGL3] = function()
     if (coop.mirror == 0) then coop.mirror = 3 else coop.mirror = 0 end
 end
 
--- F11: log the player's and puppet's active animation states (bridge.log) --
+-- F11: log anim states, every gob and the OBJ_* numbers (bridge.log) --
 comfuncs.fkey[COM_TOGL4] = function()
-    if (coop_animdump) then
-        coop_animdump(mdkGetPlayerGob())
-        if (coop.p2) then coop_animdump(coop.p2) end
-        if (coop_findstr) then coop_findstr(mdkGetPlayerGob(), "bob") end
-    end
+    coop_animdump(mdkGetPlayerGob())
+    if (coop.p2) then coop_animdump(coop.p2) end
+    coop_listgobs()
+    if (not coop.typeslogged) then coop.LogObjTypes() coop.typeslogged = 1 end
 end
 
 -- F4: teleport the player to level 1 checkpoint 3's spot (another room), for room tests --
@@ -116,9 +141,24 @@ comfuncs.fkey[COM_TOGLG] = function()
     mdkGobSetPositionXYZ(mdkGetPlayerGob(), 133, 46, -40)
 end
 
--- F5 (was debug.lua's next-section): spawn a Doganboy 6 units ahead, for combat tests --
-coop.enemies = 0
+-- F5 (was debug.lua's next-section): host spawns a Doganboy 6 units ahead, for combat tests;
+-- the client gets it through the bridge --
 comfuncs.fkey[COM_NEXTSECTION] = function()
+    if (coop_role() ~= "host") then
+        coop_log("F5: only the host spawns enemies")
+        return
+    end
     coop.enemies = coop.enemies + 1
     make(format("coop_dog%d", coop.enemies), OBJ_DOGANBOY)
+end
+
+-- log all OBJ_* constants once (type numbers in coop_listgobs output) --
+function coop.LogObjTypes()
+    local n, v = nextvar(nil)
+    while (n) do
+        if (strsub(n, 1, 4) == "OBJ_" and type(v) == "number") then
+            coop_log(format("objtype %d %s", v, n))
+        end
+        n, v = nextvar(n)
+    end
 end

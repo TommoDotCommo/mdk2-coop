@@ -9,6 +9,8 @@ peer_port=27901
 [sync]
 ; updates sent per second
 send_hz=30
+; enemy updates per second (host)
+ent_hz=15
 ; draw the other player this far in the past and blend between updates (0 = latest update)
 interp_ms=100
 ; how far to guess ahead when updates are late

@@ -17,7 +17,7 @@ small: the game reads it into an 8 KB stack buffer and crashes (0xc0000409) if i
 
 In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn the player 2 puppet,
 F8 toggle drawing the puppet 3 units up (with `peer_port` = `listen_port` in coop.ini the puppet mirrors
-your own Kurt, handy for checking sync with one instance), F11 log anim states to bridge.log, F5 spawn a Doganboy ahead (coop_dog1, 2, ...), F4 teleport to level 1 checkpoint 3's room.
+your own Kurt, handy for checking sync with one instance), F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F4 teleport to level 1 checkpoint 3's room.
 Room changes are logged to bridge.log as they happen.
 
 ## Bridge (dinput8.dll)
@@ -30,8 +30,15 @@ It forwards DirectInput to the system DLL and adds Lua functions to the game:
 - `coop_send(gob)` sends the gob's position and orientation to the peer
 - `coop_recv()` returns the peer's latest `x, y, z`, or nil before the first packet
 - `coop_log(msg)` writes a line to bridge.log
+- `coop_gob(name)` returns the gob for an `n<id>` network name; `coop_role()` returns "host" or "client"
 - `coop_event()` returns the next damage event from the peer (`kind, name, damage, type, part`) or nil
 - `coop_apply(kind, gob, damage, type, part)` carries one out on the gob Lua found by name
+
+Enemies (`OBJ` types 200-259): the host scans the engine's gob table and announces each actor with
+a reliable SPAWN (network id = its gob handle; unnamed ones are called `n<id>`), then sends position,
+rotation and animation `ent_hz` (15) times a second; DESPAWN when it goes away. The client binds each to
+its own gob of the same name, or creates one, skips the AI ("think" slot) of their classes, draws them
+from the host's snapshots, and deletes actors its own spawners make that the host never announced.
 
 Damage authority (`[net] role=host|client`): the bridge hooks the game's central damage function
 (0x40d590). The host applies everything and tells the client (APPLY); the client applies damage to its own

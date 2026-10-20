@@ -4,8 +4,10 @@ LDFLAGS = -shared -static-libgcc -Wl,--enable-stdcall-fixup -Wl,--kill-at -lws2_
 
 GAME_DIR ?= /mnt/c/coop/mdk2-test
 
-dinput8.dll: dinput8.c dinput8.def
-	$(CC) $(CFLAGS) -o $@ dinput8.c dinput8.def $(LDFLAGS)
+SRCS = dinput8.c game.c net.c entities.c lua.c
+
+dinput8.dll: $(SRCS) bridge.h dinput8.def
+	$(CC) $(CFLAGS) -o $@ $(SRCS) dinput8.def $(LDFLAGS)
 
 install: dinput8.dll
 	cp dinput8.dll $(GAME_DIR)/dinput8.dll
