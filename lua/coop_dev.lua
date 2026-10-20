@@ -41,6 +41,15 @@ while (i) do
     i, com = next(coop.debugkeys, i)
 end
 
+-- Controls: Space jumps (and works Max's jetpack and Kurt's parachute, which share the jump
+-- button), right mouse toggles Kurt's sniper mode. The game's defaults are the other way round
+-- (right mouse 1001 = jump/jet/chute, Space 57 = sniper toggle). Applied after settings.lua,
+-- so they win over the saved bindings; changing controls in the options menu saves them. --
+omBindCommandI(COM_JUMP, 57)
+omBindCommandI(COM_JET, 57)
+omBindCommandI(COM_CHUTE, 57)
+omBindCommandI(COM_SMTOGGLE, 1001)
+
 omMakeCommand(COM_TOGL1, "F6", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGL2, "F7", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGL3, "F8", CON_BUTTON_FALL, 0, 0)
@@ -107,6 +116,18 @@ end
 -- every frame, called by the bridge after the scene update (menus and title included):
 -- send our player, apply the peer's events, put the puppet where the peer's player is --
 function coop.Tick()
+    -- host autostart (tools/play.sh <level> <cp>): once the title screen has been up a while,
+    -- load the start checkpoint; retried until a level is running --
+    if (coop.autostart and coop.level == 0) then
+        coop.ticks = (coop.ticks or 0) + 1
+        if (coop.ticks >= (coop.nextstart or 600)) then
+            coop.nextstart = coop.ticks + 600
+            coop_log(format("autostart: level %d checkpoint %d", coop.autostart[1], coop.autostart[2]))
+            mdkNewGame(coop.autostart[1], coop.autostart[2])
+        end
+    elseif (coop.autostart and coop.level and coop.level >= 1) then
+        coop.autostart = nil
+    end
     local p = mdkGetPlayerGob()
     if (p == coop.p2) then p = nil end
     coop_send(p)
@@ -183,21 +204,67 @@ function level(l, cp, sec)
     coop_level(l, cp, announce)
 end
 
--- F6: spawn another puppet by hand (one comes with every level) --
-comfuncs.fkey[COM_TOGL1] = function()
-    coop.SpawnPuppet()
-end
-
--- F7: jump to level 1 checkpoint 2 (on foot, skips the skydive) --
-comfuncs.fkey[COM_TOGL2] = function()
-    mdkNewGame(1, 2)
-end
-
--- F8: start the next level (on the host the client follows) --
-comfuncs.fkey[COM_TOGL3] = function()
-    if (coop.level and coop.level >= 1) then
-        mdkNewGame(coop.level + 1, 1)
+-- Checkpoints in play order, from the debug menu's own list (debug.lua): { {level, cp}, ... } --
+coop.checkpoints = {}
+coop.ncheckpoints = 0
+local ln, lv = next(menu.debugload.checkpoints, nil)
+while (ln) do
+    local rn, rv = next(lv, nil)
+    while (rn) do
+        coop.ncheckpoints = coop.ncheckpoints + 1
+        coop.checkpoints[coop.ncheckpoints] = { rv[2], rv[3] }
+        rn, rv = next(lv, rn)
     end
+    ln, lv = next(menu.debugload.checkpoints, ln)
+end
+
+-- index of the checkpoint we are at (or the last one before it), 0 if none --
+function coop.CheckpointIndex()
+    local l, cp = coop.level or 0, coop.cp or 0
+    local i, found = 1, 0
+    while (i <= coop.ncheckpoints) do
+        local c = coop.checkpoints[i]
+        if (c[1] < l or (c[1] == l and c[2] <= cp)) then found = i end
+        i = i + 1
+    end
+    return found
+end
+
+-- host only: the client follows the host's loads; loading on its own would split the games --
+function coop.GoToCheckpoint(i)
+    if (coop_role() ~= "host") then
+        coop_log("checkpoint keys: only the host changes level")
+        return
+    end
+    if (i < 1) then i = coop.ncheckpoints end
+    if (i > coop.ncheckpoints) then i = 1 end
+    local c = coop.checkpoints[i]
+    coop_log(format("going to level %d checkpoint %d", c[1], c[2]))
+    mdkNewGame(c[1], c[2])
+end
+
+-- F6: next checkpoint (1-1 .. 1-8, 2-1, ...) --
+comfuncs.fkey[COM_TOGL1] = function()
+    coop.GoToCheckpoint(coop.CheckpointIndex() + 1)
+end
+
+-- F7: previous checkpoint --
+comfuncs.fkey[COM_TOGL2] = function()
+    local i = coop.CheckpointIndex()
+    -- between checkpoints (or at an intro section) "previous" is the one we are past --
+    if (i >= 1 and coop.checkpoints[i][1] == coop.level and coop.checkpoints[i][2] == coop.cp) then
+        i = i - 1
+    end
+    coop.GoToCheckpoint(i)
+end
+
+-- F8: first checkpoint of the next level --
+comfuncs.fkey[COM_TOGL3] = function()
+    local i = coop.CheckpointIndex() + 1
+    while (i <= coop.ncheckpoints and coop.checkpoints[i][1] <= (coop.level or 0)) do
+        i = i + 1
+    end
+    coop.GoToCheckpoint(i)
 end
 
 -- F2 (was debug.lua's status display): write a numbered marker to both games' logs, with
@@ -268,8 +335,17 @@ comfuncs.fkey[COM_CLEARCONSOLE] = function()
 end
 
 -- F1 (was debug.lua's bars): host spawns a Poopsy ahead, always named "coop_spawn" like a
--- spawner's spawns, to test duplicate names --
+-- spawner's spawns, to test duplicate names; the client hits coop_dog1 ten times for 2 with
+-- its gun's damage type, through the normal damage function (as if shot, without aiming) --
 comfuncs.fkey[COM_SHOWBARS] = function()
-    if (coop_role() ~= "host") then return end
-    make("coop_spawn", OBJ_POOPSY)
+    if (coop_role() == "host") then
+        make("coop_spawn", OBJ_POOPSY)
+        return
+    end
+    local dog = coop.FindGob("coop_dog1")
+    local i = 0
+    while (dog and i < 10) do
+        mdkDealDamage(mdkGetPlayerGob(), dog, 2, 1, -1)
+        i = i + 1
+    end
 end

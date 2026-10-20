@@ -7,7 +7,7 @@
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/mdk.sh"
-"$here/install.sh" >/dev/null       # always test what is in the repo
+MDK2_START="1 2" "$here/install.sh" >/dev/null   # always test what is in the repo; host autostarts 1-2
 
 pass=0; fail=0; results=()
 check() {   # check <name> <command...>
@@ -33,15 +33,17 @@ spawned=$(count $H "^ent spawn"); bound=$(count $C "^ent bind")
 check "host announced level enemies ($spawned)" test "$spawned" -gt 0
 check "client bound all of them ($bound)"       test "$bound" -eq "$spawned"
 
-# 2b. client sniper rounds (Space toggles sniper mode; fire before any enemy is attacking the
+# 2b. client sniper rounds (right mouse toggles sniper mode; fire before any enemy is attacking the
 #     client: hit reactions interrupt the switch)
-mdk_key "$B" 57; sleep 2; mdk_click "$B" 100 3; sleep 2; mdk_key "$B" 57; sleep 1
+mdk_rclick "$B"; sleep 2; mdk_click "$B" 100 3; sleep 2; mdk_rclick "$B"; sleep 1
 check "client sniper rounds replayed on host"   has $H "replay fire type 406"
 
 # 3. host-spawned enemy, client damage through the host
 mdk_key "$A" 63; sleep 3                                    # F5: host spawns coop_dog1
 check "client bound the host's new Doganboy"    has $C "ent bind .* -> coop_dog1"
-mdk_click "$B" 2500 1; sleep 2                              # client fires at it
+# the client hits it: F1 on the client deals 10 x 2 gun damage from its Kurt (aiming with the
+# mouse depends on where the Doganboy walks); the HIT path is the same as for real shots
+mdk_key "$B" 59; sleep 3
 host_hp=$(grep -E "^event 1 on coop_dog1" "$(mdk_log $H)" | sed 's/.*-> hp //' | tr '\n' ' ')
 client_hp=$(grep -E "^event 2 on coop_dog1" "$(mdk_log $C)" | sed 's/.*-> hp //' | tr '\n' ' ')
 check "client hits reached the host"            test -n "$host_hp"

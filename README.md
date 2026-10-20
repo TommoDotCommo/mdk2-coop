@@ -15,8 +15,8 @@ small: the game reads it into an 8 KB stack buffer and crashes (0xc0000409) if i
     tools/inject.sh         # install (backs up settings.lua once to settings.lua.coop-backup)
     tools/inject.sh --off   # remove the settings.lua line
 
-In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn another puppet (every level start adds one),
-F8 next level, F2 marker in both logs, F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 lava damage to yourself, F1 (host) spawn a Poopsy named coop_spawn (same name each time), F4 teleport to the next test spot (level 1's decoy item, then door dr1_03).
+In game: F9 BioWare debug menu, F6 / F7 next / previous checkpoint (host),
+F8 next level (host), F2 marker in both logs, F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 lava damage to yourself, F1 (host) spawn a Poopsy named coop_spawn (same name each time), F4 teleport to the next test spot (level 1's decoy item, then door dr1_03).
 Room changes are logged to bridge.log as they happen.
 
 ## Bridge (dinput8.dll)
@@ -88,7 +88,12 @@ Untested: changing options in game probably rewrites settings.lua and drops the 
     tools/play.sh          # install into both copies, start host (left) and client (right)
     tools/play.sh stop     # close both, remove the settings.lua line, save both logs to local/sessions/
 
-Play in the left window; the right one follows level loads by itself. F2 drops a numbered marker in
+Play in the left window; the right one follows level loads by itself. `tools/play.sh <level>
+<checkpoint>` starts both straight at a checkpoint; in game the host's F6 / F7 go to the next / previous
+checkpoint (the debug menu's list: 1-1 .. 1-8, 2-1 .. 2-10, ...) and F8 to the next level.
+
+Controls while the mod is on: Space jumps (jetpack, parachute), right mouse toggles Kurt's sniper mode
+(the game's defaults are the other way round). F2 drops a numbered marker in
 both logs, F8 skips to the next level.
 
 The puppet is never placed within 3 units of your own player (it is solid and moved every frame;
