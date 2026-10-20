@@ -50,6 +50,12 @@ omBindCommandI(COM_JET, 57)
 omBindCommandI(COM_CHUTE, 57)
 omBindCommandI(COM_SMTOGGLE, 1001)
 
+-- The game's quicksave (F6) and quickload (F7) are off in co-op: a quickload restores this
+-- game's own save, which the partner cannot follow (it showed up as level(l, -1) and the
+-- client crashed loading its own save); F6 / F7 are the checkpoint keys instead --
+omMakeCommand(COM_SAVEINSTANT, "", CON_BUTTON_FALL, 0, 0)
+omMakeCommand(COM_LOADINSTANT, "", CON_BUTTON_FALL, 0, 0)
+
 omMakeCommand(COM_TOGL1, "F6", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGL2, "F7", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGL3, "F8", CON_BUTTON_FALL, 0, 0)

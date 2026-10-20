@@ -92,7 +92,9 @@ Untested: changing options in game probably rewrites settings.lua and drops the 
 
 Play in the left window; the right one follows level loads by itself. `tools/play.sh <level>
 <checkpoint>` starts both straight at a checkpoint; in game the host's F6 / F7 go to the next / previous
-checkpoint (the debug menu's list: 1-1 .. 1-8, 2-1 .. 2-10, ...) and F8 to the next level.
+checkpoint (the debug menu's list: 1-1 .. 1-8, 2-1 .. 2-10, ...) and F8 to the next level. The game's own
+quicksave (F6) and quickload (F7) are switched off while the mod runs: a quickload restores a save the
+partner cannot follow.
 
 Controls while the mod is on: Space jumps (jetpack, parachute), right mouse toggles Kurt's sniper mode
 (the game's defaults are the other way round). F2 drops a numbered marker in

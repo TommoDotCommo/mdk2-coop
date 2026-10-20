@@ -21,6 +21,7 @@
 #define ROOM_INACTIVE   0x24
 #define point_in_box    ((int (*)(float *, float *, float *))0x453fc0)
 #define FALL_MARGIN     30.0f       /* this far below the lowest room counts as out of the world */
+#define FLOOR_DELAY_MS  5000.0      /* compute the level's lowest point this long after it starts */
 
 typedef void (*mark_rooms_t)(void *, BYTE *, int);
 
@@ -56,10 +57,12 @@ static void __cdecl mark_rooms_both(void *arg, BYTE *camera, int set_current)
 /* Lowest point of the level: min z over the room boxes (computed once per level) */
 static float level_floor;
 static int have_floor;
+static double level_started;
 
 void rooms_level_reset(void)
 {
     have_floor = 0;
+    level_started = now_ms();
 }
 
 static int compute_floor(void)
@@ -69,7 +72,7 @@ static int compute_floor(void)
     for (i = 0; i < ROOM_COUNT; i++) {
         BYTE *room = ROOM_ARRAY[i];
         float *bmin, *bmax;
-        if (!room)
+        if (!room || IsBadReadPtr(room, 0x44))
             continue;
         bmin = (float *)(room + 0x2c);
         bmax = (float *)(room + 0x38);
@@ -92,7 +95,10 @@ void rooms_check_fall(void)
 
     if (!local_player || !have_remote || !gob_alive(puppet))
         return;
-    if (!have_floor && !(have_floor = compute_floor()))
+    /* the room list is rebuilt while a level starts: reading it in the first frames of
+     * level 2 killed the client */
+    if (!have_floor && (now_ms() - level_started < FLOOR_DELAY_MS || ROOM_COUNT <= 0 || IsBadReadPtr(ROOM_ARRAY, 4) ||
+                        !(have_floor = compute_floor())))
         return;
     pos = (float *)(local_player + GOB_POSITION);
     if (pos[2] > level_floor - FALL_MARGIN)

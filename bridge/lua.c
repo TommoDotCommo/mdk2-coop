@@ -150,6 +150,11 @@ static void l_coop_face(void)
 
     if (!gob || !have_remote)
         return;
+    if (puppet != gob) {
+        /* the puppet is driven from the partner's game: skip its class logic like a mirror */
+        gob_set_mirrored(gob, 1);
+        class_filter_think(gob_class(gob));
+    }
     puppet = gob;
     memcpy(gob + GOB_ORIENTATION, player_track.view.quat, sizeof(player_track.view.quat));
     if (sync_anim)

@@ -90,6 +90,17 @@ check "client fell out of the world and came back" has $C "^fell out of the worl
 check "no checkpoint reload after going down"   bash -c "$(declare -f reload_after_down); ! reload_after_down '$(mdk_log $H)' && ! reload_after_down '$(mdk_log $C)'"
 
 check "both games still running"                bash -c "$(declare -f mdk_alive); mdk_alive $A && mdk_alive $B"
+
+# 7. checkpoint keys and level 2 (Max: his anim-loop handler deleted a held gob the puppet
+#    does not have, killing either game within ~16 s in 2 of 3 runs)
+mdk_key "$A" 65                                             # F7: previous checkpoint (1-1)
+for i in $(seq 1 30); do sleep 1; grep -q "^level 1 checkpoint 1 started" "$(mdk_log $C)" && break; done
+check "F7 took both games to checkpoint 1-1"    has $C "^level 1 checkpoint 1 started"
+mdk_key "$A" 66                                             # F8: next level (2-1)
+for i in $(seq 1 30); do sleep 1; grep -q "^level 2 checkpoint 1 started" "$(mdk_log $C)" && break; done
+check "F8 took both games to level 2"           has $C "^level 2 checkpoint 1 started"
+sleep 20
+check "both games survive 20 s of level 2 (Max)" bash -c "$(declare -f mdk_alive); mdk_alive $A && mdk_alive $B"
 mdk_kill
 
 printf '%s\n' "${results[@]}"

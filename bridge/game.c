@@ -174,7 +174,6 @@ void push_gob(BYTE *gob)
 
 static BYTE *mirror_set[GOB_SET];      /* drawn from host snapshots, think skipped */
 static BYTE *foreign_set[GOB_SET];     /* host shots replayed here: fly normally, deal no damage */
-static DWORD think_orig[64];
 
 static unsigned int set_hash(BYTE *gob)
 {
@@ -232,56 +231,80 @@ void gob_set_foreign(BYTE *gob, int on)
     set_put(foreign_set, gob, on);
 }
 
-/* Called by the think thunk: the original think for normal gobs, 0 to skip mirrors */
-static DWORD __cdecl think_filter(BYTE *gob)
+/* Class slots mirrored gobs skip: their logic runs in the peer's game, which sends the
+ * results. think (+0x4): AI, shot flight. anim loop (+0x2c, called when an animation
+ * loops, with the Lua OnAnimLoop): Max's deletes the gob an arm holds by handle, and the
+ * puppet Max holds nothing, so copying the partner's animations crashed level 2. */
+#define FILTER_SLOTS 2
+static const int filter_slot[FILTER_SLOTS] = { CLASS_THINK, CLASS_ANIMLOOP };
+static DWORD slot_orig[FILTER_SLOTS][64];
+
+/* Called by a slot thunk: the original for normal gobs, 0 to skip mirrors */
+static DWORD __cdecl slot_filter0(BYTE *gob)
 {
-    if (gob_is_mirrored(gob))
-        return 0;
-    return think_orig[gob_class(gob)];
+    return gob_is_mirrored(gob) ? 0 : slot_orig[0][gob_class(gob)];
 }
 
-/* Route a class's think slot through think_filter so mirrored gobs skip their AI.
- * Thunk: push [esp+4]; call think_filter; add esp,4; test eax,eax; jz +2; jmp eax;
- *        xor eax,eax; ret */
+static DWORD __cdecl slot_filter1(BYTE *gob)
+{
+    return gob_is_mirrored(gob) ? 0 : slot_orig[1][gob_class(gob)];
+}
+
+static void *const slot_filters[FILTER_SLOTS] = { (void *)slot_filter0, (void *)slot_filter1 };
+
+/* Thunk: push [esp+4]; call filter; add esp,4; test eax,eax; jz +2; jmp eax; xor eax,eax; ret
+ * (the slot's own arguments stay on the stack for the jmp) */
+static BYTE *make_thunk(void *filter)
+{
+    static const BYTE code[21] = {
+        0xff, 0x74, 0x24, 0x04,         /* push dword [esp+4] */
+        0xe8, 0, 0, 0, 0,               /* call filter */
+        0x83, 0xc4, 0x04,               /* add esp, 4 */
+        0x85, 0xc0,                     /* test eax, eax */
+        0x74, 0x02,                     /* jz skip */
+        0xff, 0xe0,                     /* jmp eax */
+        0x31, 0xc0,                     /* skip: xor eax, eax */
+        0xc3,                           /* ret */
+    };
+    BYTE *t = VirtualAlloc(NULL, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+
+    if (!t)
+        return NULL;
+    memcpy(t, code, sizeof(code));
+    *(DWORD *)(t + 5) = (DWORD)filter - (DWORD)(t + 9);
+    return t;
+}
+
+/* Route a class's filtered slots through the filters so mirrored gobs skip them */
 void class_filter_think(int cls)
 {
-    static BYTE *thunk;
+    static BYTE *thunks[FILTER_SLOTS];
     DWORD *desc, old;
+    int f, k;
 
-    if (cls <= 0 || cls >= 64 || think_orig[cls])
+    if (cls <= 0 || cls >= 64)
         return;
     desc = (DWORD *)CLASS_TABLE[cls];
-    if (!desc[CLASS_THINK])
-        return;
-    if (!thunk) {
-        static const BYTE code[21] = {
-            0xff, 0x74, 0x24, 0x04,         /* push dword [esp+4] */
-            0xe8, 0, 0, 0, 0,               /* call think_filter */
-            0x83, 0xc4, 0x04,               /* add esp, 4 */
-            0x85, 0xc0,                     /* test eax, eax */
-            0x74, 0x02,                     /* jz skip */
-            0xff, 0xe0,                     /* jmp eax */
-            0x31, 0xc0,                     /* skip: xor eax, eax */
-            0xc3,                           /* ret */
-        };
-        thunk = VirtualAlloc(NULL, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-        if (!thunk)
-            return;
-        memcpy(thunk, code, sizeof(code));
-        *(DWORD *)(thunk + 5) = (DWORD)think_filter - (DWORD)(thunk + 9);
-    }
-    /* classes can share a descriptor: give them all the original */
-    {
-        DWORD orig = desc[CLASS_THINK];
-        int k;
+    for (f = 0; f < FILTER_SLOTS; f++) {
+        int slot = filter_slot[f];
+        DWORD orig;
+
+        if (slot_orig[f][cls] || !desc[slot])
+            continue;
+        if (!thunks[f] && !(thunks[f] = make_thunk(slot_filters[f])))
+            continue;
+        orig = desc[slot];
+        if (orig == (DWORD)thunks[f])
+            continue;
+        /* classes can share a descriptor: give them all the original */
         for (k = 1; k < 64; k++)
             if (CLASS_TABLE[k] == (BYTE *)desc)
-                think_orig[k] = orig;
+                slot_orig[f][k] = orig;
+        VirtualProtect(desc, CLASS_SLOTS * 4, PAGE_READWRITE, &old);
+        desc[slot] = (DWORD)thunks[f];
+        VirtualProtect(desc, CLASS_SLOTS * 4, old, &old);
+        logmsg("class %d: slot +0x%x %lx filtered (mirrored gobs skip it)", cls, slot * 4, (unsigned long)orig);
     }
-    VirtualProtect(desc, CLASS_SLOTS * 4, PAGE_READWRITE, &old);
-    desc[CLASS_THINK] = (DWORD)thunk;
-    VirtualProtect(desc, CLASS_SLOTS * 4, old, &old);
-    logmsg("class %d: think %lx filtered (mirrored gobs skip it)", cls, (unsigned long)think_orig[cls]);
 }
 
 /* Redirect fn to hook with a jmp over its first len bytes (whole instructions with no
