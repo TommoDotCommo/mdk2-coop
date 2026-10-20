@@ -16,6 +16,7 @@ struct player_packet {
     unsigned int magic;
     unsigned int seq;
     unsigned char has_state;    /* 0: no player yet (title, loading), events only */
+    short player_type;          /* OBJ type of the sender's player (Kurt, Max, Doc, Hyde) */
     struct snap state;
     unsigned int ack;           /* highest event id received in order from the peer */
     unsigned char nevents;
@@ -34,6 +35,7 @@ static int sim_loss_pct;
 
 int role_host = 1;              /* [net] role: host runs the world, client mirrors it */
 int cur_level = -1;
+int peer_player_type;
 int have_remote;
 SOCKET sock = INVALID_SOCKET;
 BYTE *local_player;             /* last gob passed to coop_send */
@@ -393,6 +395,7 @@ void net_send_player(BYTE *gob)
     p.seq = ++send_seq;
     if (gob) {
         p.has_state = 1;
+        p.player_type = (short)gob_type(gob);
         snap_capture(gob, &p.state);
     }
     p.ack = in_next - 1;
@@ -411,6 +414,7 @@ static void accept_player(const struct player_packet *p, double arrived)
         return;                         /* late or duplicate snapshot */
     recv_seq = p->seq;
     if (p->has_state) {
+        peer_player_type = p->player_type;
         clock_sample(p->state.time, arrived);
         track_add(&player_track, &p->state);
     }
@@ -434,6 +438,7 @@ static void accept_datagram(const BYTE *buf, int len, double arrived)
 void net_level_reset(void)
 {
     player_track.n = 0;
+    peer_player_type = 0;
 }
 
 /* ---- simulated network: hold datagrams back, drop some ---- */

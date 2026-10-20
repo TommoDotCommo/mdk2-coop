@@ -168,6 +168,8 @@ static void l_coop_event(void)
             ent_despawn(e.netid);
         else if (e.kind == EV_FIRE)
             shots_replay(&e);
+        else if (e.kind == EV_MARK)
+            logmsg("lua: MARK %d (from the partner)", e.damage);
         else if (e.level != (unsigned char)cur_level && e.kind != EV_LEVEL)
             logmsg("event %d %s from level %d dropped (we are in %d)", e.kind, e.name, e.level, cur_level);
         else if (e.kind == EV_PICKUP)
@@ -255,6 +257,19 @@ static void l_coop_level(void)
     if (announce)
         event_queue(EV_LEVEL, "", cp, level, 0);
     logmsg("level %d checkpoint %d started%s", level, cp, announce ? ", peer asked to follow" : "");
+}
+
+/* coop_mark(n): put marker n in the partner's log too */
+static void l_coop_mark(void)
+{
+    event_queue(EV_MARK, "", (int)num_param(1), 0, 0);
+}
+
+/* coop_peer_type() -> OBJ type of the peer's player, or nil before it is known */
+static void l_coop_peer_type(void)
+{
+    if (peer_player_type)
+        lua_pushnumber(peer_player_type);
 }
 
 /* coop_role() -> "host" or "client" */
@@ -361,6 +376,8 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_gob", l_coop_gob);
     tolua_function(NULL, "coop_role", l_coop_role);
     tolua_function(NULL, "coop_level", l_coop_level);
+    tolua_function(NULL, "coop_peer_type", l_coop_peer_type);
+    tolua_function(NULL, "coop_mark", l_coop_mark);
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
     tolua_function(NULL, "coop_listgobs", l_coop_listgobs);
     tolua_function(NULL, "coop_log", l_coop_log);

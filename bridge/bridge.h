@@ -117,7 +117,7 @@ struct track {
     struct snap view;                   /* interpolated state for this frame */
 };
 
-enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL };
+enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK };
 #define EV_NAME 32
 
 struct event {
@@ -137,6 +137,7 @@ struct event {
 
 extern int role_host;
 extern int cur_level;           /* level this game is in (coop_level) */
+extern int peer_player_type;    /* OBJ type of the peer's player, 0 if unknown */
 extern int have_remote;
 extern int sync_anim;
 extern int ent_hz;

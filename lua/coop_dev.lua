@@ -9,7 +9,8 @@
 
 coop = {
     offset = 3,         -- puppet sits this far from the player on x until the peer is heard
-    mirror = 0,         -- height above the peer's position (F8), for loopback testing
+    mirror = 0,         -- height above the peer's position, for loopback testing
+    marks = 0,          -- F2 markers written to bridge.log
     enemies = 0,        -- Doganboys spawned with F5
 }
 
@@ -120,10 +121,17 @@ end
 function coop.PuppetOnUpdate(gob)
 end
 
+-- the puppet is the same character as our player: each level fixes who you play and only
+-- loads that model, so another type could be missing --
 function coop.SpawnPuppet()
     local p = mdkGetPlayerGob()
     if (not p) then return end
-    coop.p2 = mdkCreateObjectLua("coop_p2", OBJ_KURT, mdkGetScene(), nil, nil, 0,0,0, 1,0,0,0, nil,0,0,0,0)
+    local ptype = mdkGetGobType(p)
+    local peer = coop_peer_type()
+    if (peer and peer ~= ptype) then
+        coop_log(format("partner plays type %d, we play %d: puppet uses ours", peer, ptype))
+    end
+    coop.p2 = mdkCreateObjectLua("coop_p2", ptype, mdkGetScene(), nil, nil, 0,0,0, 1,0,0,0, nil,0,0,0,0)
     mdkGobSetPositionXYZ(coop.p2, p.position.x + coop.offset, p.position.y, p.position.z)
     mdkSetLuaEvent(coop.p2, "OnUpdate", coop.PuppetOnUpdate)
 end
@@ -152,10 +160,19 @@ comfuncs.fkey[COM_TOGL2] = function()
     mdkNewGame(1, 2)
 end
 
--- F8: toggle drawing the puppet 3 units above the peer's position (z is up); with coop.ini
--- looped back to our own port the puppet then mirrors the local player, always on camera --
+-- F8: start the next level (the partner follows) --
 comfuncs.fkey[COM_TOGL3] = function()
-    if (coop.mirror == 0) then coop.mirror = 3 else coop.mirror = 0 end
+    if (coop.level and coop.level >= 1) then
+        mdkNewGame(coop.level + 1, 1)
+    end
+end
+
+-- F2 (was debug.lua's status display): write a numbered marker to both games' logs, so a
+-- tester can say "it went wrong around mark 3" --
+comfuncs.fkey[COM_SHOWSTATUS] = function()
+    coop.marks = coop.marks + 1
+    coop_log(format("MARK %d", coop.marks))
+    coop_mark(coop.marks)
 end
 
 -- F11: log anim states, every gob and the OBJ_* numbers (bridge.log) --
