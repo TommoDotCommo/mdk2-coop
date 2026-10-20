@@ -100,33 +100,14 @@ static BYTE *create_hook(const char *name, int type, void *scene, BYTE *parent, 
     e->extra[1] = a9;
     e->extra[2] = a10;
     e->extra[3] = a11;
-    /* the target as the client knows it: our Kurt is their puppet, our puppet is their Kurt */
-    if (!parent)
-        e->name[0] = 0;
-    else if (parent == local_player)
-        snprintf(e->name, EV_NAME, "@puppet");
-    else if (parent == puppet)
-        snprintf(e->name, EV_NAME, "@player");
-    else
-        gob_netname(parent, e->name, EV_NAME);
+    /* the target as the peer knows it: our Kurt is their puppet, our puppet is their Kurt */
+    gob_peername(parent, e->name, EV_NAME);
     logmsg("fire type %d at (%.1f, %.1f, %.1f) target '%s' slot %d extra %lx %lx %lx %lx", type, pos[0], pos[1], pos[2],
            e->name, slot, (unsigned long)a8, (unsigned long)a9, (unsigned long)a10, (unsigned long)a11);
     return gob;
 }
 
-/* ---- client: replay ---- */
-
-static BYTE *find_named(const char *name)
-{
-    int i;
-
-    for (i = 0; i < GOB_SLOTS; i++) {
-        BYTE *gob = (BYTE *)GOB_TABLE[i * 2];
-        if (gob && strncmp((const char *)gob + GOB_NAME, name, EV_NAME) == 0)
-            return gob;
-    }
-    return NULL;
-}
+/* ---- replay ---- */
 
 /* Sender's owner handle -> our handle for the same shooter, or 0 */
 static DWORD owner_local(DWORD host)
@@ -153,14 +134,7 @@ void shots_replay(const struct event *e)
 
     if (!create_orig)
         return;
-    if (!strcmp(e->name, "@player"))
-        target = local_player;
-    else if (!strcmp(e->name, "@puppet"))
-        target = puppet;
-    else if (e->name[0] == 'n' && strspn(e->name + 1, "0123456789abcdef") == strlen(e->name + 1) && e->name[1])
-        target = ent_gob(strtoul(e->name + 1, NULL, 16));
-    else if (e->name[0])
-        target = find_named(e->name);
+    target = gob_find_peername(e->name);
     memcpy(pos, e->pos, sizeof(pos));
     memcpy(quat, e->quat, sizeof(quat));
     owner = owner_local(e->extra[0]);

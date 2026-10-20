@@ -9,7 +9,7 @@
 #include "bridge.h"
 
 #define PLAYER_MAGIC    0x354b444d      /* "MDK5" */
-#define PACKET_EVENTS   8
+#define PACKET_EVENTS   7      /* 7 x 128-byte events + player state fit in one datagram */
 #define MAX_DATAGRAM    1400
 
 struct player_packet {
@@ -152,6 +152,19 @@ void event_queue(int kind, const char *name, int damage, int type, int part)
     e->type = type;
     e->part = (signed char)part;
     snprintf(e->name, EV_NAME, "%s", name);
+}
+
+void event_queue_from(int kind, const char *name, BYTE *from, int damage, int type, int part)
+{
+    struct event *e = event_new(kind);
+
+    if (!e)
+        return;
+    e->damage = (short)damage;
+    e->type = type;
+    e->part = (signed char)part;
+    snprintf(e->name, EV_NAME, "%s", name);
+    gob_peername(from, e->from, EV_NAME);
 }
 
 void event_queue_spawn(int kind, unsigned int netid, int objtype, const float *pos, const char *name)

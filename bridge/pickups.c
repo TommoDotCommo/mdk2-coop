@@ -36,6 +36,8 @@ static int is_item(BYTE *gob)
 
 static int has_event_hook(BYTE *gob, int event)
 {
+    if (!gob)
+        return 0;       /* the original reads gob+0x84 */
     if (event == EVENT_ONPICKEDUP && !removing && have_remote && is_item(gob)) {
         char name[EV_NAME];
         gob_netname(gob, name, sizeof(name));

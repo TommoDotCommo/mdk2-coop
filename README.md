@@ -16,7 +16,7 @@ small: the game reads it into an 8 KB stack buffer and crashes (0xc0000409) if i
     tools/inject.sh --off   # remove the settings.lua line
 
 In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn another puppet (every level start adds one),
-F8 next level, F2 marker in both logs, F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 damage to yourself, F4 teleport to the next test spot (level 1's decoy item, then door dr1_03).
+F8 next level, F2 marker in both logs, F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 damage to yourself, F1 (host) spawn a Poopsy named coop_spawn (same name each time), F4 teleport to the next test spot (level 1's decoy item, then door dr1_03).
 Room changes are logged to bridge.log as they happen.
 
 ## Bridge (dinput8.dll)
@@ -54,9 +54,9 @@ redirects the room manager's call at 0x430314 so the rooms around the other play
 too (enemies, doors and scripts keep running where either player is). Proximity doors only check the
 local player; their think is wrapped to use whichever player is nearer.
 
-Levels: the bridge runs `coop.Tick()` after every scene update (0x402638, menus and title included), so
+Levels (the host decides): the bridge runs `coop.Tick()` after every scene update (0x402638, menus and title included), so
 sync no longer depends on the puppet. Every level load ends in the Lua `level()` function, which the harness
-wraps: it resets the bridge's per-level state, asks the peer to follow with a LEVEL event (not for the title
+wraps: it resets the bridge's per-level state and, on the host, asks the client to follow with a LEVEL event (not for the title
 screen, and not when the load was itself following the peer) and the next tick adds the puppet. Events and
 enemy packets carry the sender's level and are dropped by a game in another level.
 
@@ -101,6 +101,9 @@ through the host with identical enemy hp, HURT-only damage on the client, shots 
 doors opening for the puppet, reviving at the partner, no crash. About 2 minutes; the game windows
 take focus. `tools/mdk.sh` has the helpers (start, keys, mouse, window screenshots).
 
-Last runs (2026-10-20, Steam build 3902, level 1 cp 2): 17/17 on plain localhost, 17/17 with
-`[sim] latency_ms=120 jitter_ms=40 loss_pct=5` on both sides. The enemy-attack and shot-replay checks
-depend on the Doganboy acting during the window; in the lossy run it did not (0/0).
+`tools/qa.sh` installs the current build first (`tools/install.sh`), so it always tests the repo.
+
+Last runs (2026-10-20, Steam build 3902, level 1 cp 2): 21/21 on plain localhost (after the first
+manual session's client crash was fixed); earlier 17/17 with `[sim] latency_ms=120 jitter_ms=40
+loss_pct=5` on both sides. The enemy-attack and shot-replay checks depend on the Doganboy acting during
+the window; in the lossy run it did not (0/0).

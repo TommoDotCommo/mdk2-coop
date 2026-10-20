@@ -21,21 +21,7 @@ if [ "${1:-}" = "stop" ]; then
     exit 0
 fi
 
-make -s -C "$here/bridge"
-mdk_kill            # running copies keep dinput8.dll locked
-sleep 2
-mdk_tools_install
-for i in 1 2; do
-    d="$(mdk_wsl "$(mdk_dir $i)")"
-    [ -f "$d/mdk2hd.exe" ] || { echo "no game in $d"; exit 1; }
-    mkdir -p "$d/coop"
-    cp "$here/bridge/dinput8.dll" "$d/"
-done
-printf '[net]\r\nrole=host\r\nlisten_port=27900\r\npeer_host=127.0.0.1\r\npeer_port=27901\r\n' \
-    > "$(mdk_wsl "$(mdk_dir 1)")/coop/coop.ini"
-printf '[net]\r\nrole=client\r\nlisten_port=27901\r\npeer_host=127.0.0.1\r\npeer_port=27900\r\n' \
-    > "$(mdk_wsl "$(mdk_dir 2)")/coop/coop.ini"
-GAME_DIRS="$(mdk_wsl "$(mdk_dir 1)") $(mdk_wsl "$(mdk_dir 2)")" "$here/tools/inject.sh"
+"$here/tools/install.sh"
 
 A=$(mdk_start 1); sleep 3; B=$(mdk_start 2)
 echo "$A $B" > "$MDK2_PIDS"

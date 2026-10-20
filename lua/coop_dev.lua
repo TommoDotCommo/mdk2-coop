@@ -53,7 +53,7 @@ function coop.FindGob(name)
         return mdkGetPlayerGob()
     end
     local gob = getglobal(name)
-    if (gob and type(gob) ~= "number" and type(gob) ~= "string") then
+    if (gob and type(gob) ~= "number" and type(gob) ~= "string" and coop_alive(gob)) then
         return gob
     end
     return coop_gob(name)
@@ -77,10 +77,15 @@ function coop.HandleEvents()
     local kind, name, damage, dtype, part, netid, objtype, x, y, z = coop_event()
     while (kind) do
         if (kind == EV_LEVEL) then
-            -- the peer started level dtype at checkpoint damage: follow without echoing --
-            coop_log(format("peer started level %d checkpoint %d: following", dtype, damage))
-            coop.following = dtype * 1000 + damage
-            mdkNewGame(dtype, damage)
+            -- the host started level dtype at checkpoint damage: follow, unless our own copy
+            -- of the script already took us there --
+            if (coop.level == dtype and coop.cp == damage) then
+                coop_log(format("host started level %d checkpoint %d: already here", dtype, damage))
+            else
+                coop_log(format("host started level %d checkpoint %d: following", dtype, damage))
+                coop.following = dtype * 1000 + damage
+                mdkNewGame(dtype, damage)
+            end
         elseif (kind == EV_SPAWN) then
             coop.Spawn(name, netid, objtype, x, y, z)
         else
@@ -137,16 +142,18 @@ function coop.SpawnPuppet()
 end
 
 -- every level load (menu, script, save, debug) ends in level(): reset the bridge for the
--- new level and ask the peer to follow (unless we are following them); Tick adds the puppet --
+-- new level and, on the host, ask the client to follow; Tick adds the puppet --
 coop.level_orig = level
 function level(l, cp, sec)
     coop.level_orig(l, cp, sec)
-    local announce = 1
-    if (l < 1) then announce = 0 end   -- title screen
-    if (coop.following == l * 1000 + cp) then announce = 0 end
+    -- only the host's level changes count: both games run the same scripts, so script-driven
+    -- loads (new game: 0 -> 1,9 -> 1,12 -> 1,1) happen on both and must not echo --
+    local announce = 0
+    if (coop_role() == "host" and l >= 1) then announce = 1 end
     coop.following = nil
     coop.p2 = nil
     coop.level = l
+    coop.cp = cp
     coop_level(l, cp, announce)
 end
 
@@ -160,7 +167,7 @@ comfuncs.fkey[COM_TOGL2] = function()
     mdkNewGame(1, 2)
 end
 
--- F8: start the next level (the partner follows) --
+-- F8: start the next level (on the host the client follows) --
 comfuncs.fkey[COM_TOGL3] = function()
     if (coop.level and coop.level >= 1) then
         mdkNewGame(coop.level + 1, 1)
@@ -224,4 +231,11 @@ end
 -- F3 (was debug.lua's clear console): deal 200 damage to our player, to test going down --
 comfuncs.fkey[COM_CLEARCONSOLE] = function()
     mdkDealDamage(nil, mdkGetPlayerGob(), 200, DAMAGE_BADGUY, -1)
+end
+
+-- F1 (was debug.lua's bars): host spawns a Poopsy ahead, always named "coop_spawn" like a
+-- spawner's spawns, to test duplicate names --
+comfuncs.fkey[COM_SHOWBARS] = function()
+    if (coop_role() ~= "host") then return end
+    make("coop_spawn", OBJ_POOPSY)
 end

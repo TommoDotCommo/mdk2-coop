@@ -13,6 +13,7 @@
 static const BYTE deal_damage_prologue[5] = { 0x55, 0x8b, 0x6c, 0x24, 0x0c };
 deal_damage_t deal_damage_orig;     /* trampoline into the original */
 static int max_hp;                  /* our player's highest hp seen this level: revive to this */
+static char apply_from[EV_NAME];    /* attacker named in the event coop_event last returned */
 static int applying_hit;            /* host: inside EV_HIT, damage from the puppet is real */
 
 static double num_param(int n)
@@ -79,7 +80,7 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         if ((from == puppet && !applying_hit) || gob_is_foreign(from))
             return;
         if (target == puppet) {
-            event_queue(EV_HURT, "@player", damage, type, part);
+            event_queue_from(EV_HURT, "@player", from, damage, type, part);
             return;
         }
         if (target == local_player) {
@@ -88,7 +89,7 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         }
         deal_damage_orig(from, target, damage, type, part);
         if (target != local_player && name[0])
-            event_queue(EV_APPLY, name, damage, type, part);
+            event_queue_from(EV_APPLY, name, from, damage, type, part);
         return;
     }
     if (target == local_player) {
@@ -177,6 +178,8 @@ static void l_coop_event(void)
         else
             break;
     }
+    memcpy(apply_from, e.from, sizeof(apply_from));
+    apply_from[EV_NAME - 1] = 0;
     lua_pushnumber(e.kind);
     lua_pushstring(e.name);
     lua_pushnumber(e.damage);
@@ -189,6 +192,17 @@ static void l_coop_event(void)
     lua_pushnumber(e.pos[2]);
 }
 
+/* The attacker of the event being applied: what the host named, else the puppet (some
+ * damage handlers look at the attacker and crash on NULL) */
+static BYTE *apply_attacker(void)
+{
+    BYTE *from = gob_find_peername(apply_from);
+
+    if (!gob_alive(from))
+        from = gob_alive(puppet) ? puppet : local_player;
+    return from;
+}
+
 /* coop_apply(kind, gob, damage, type, part) carries out a damage event on the gob Lua found;
  * coop_apply(EV_SPAWN, gob, netid) binds the gob to the host's actor */
 static void l_coop_apply(void)
@@ -197,8 +211,10 @@ static void l_coop_apply(void)
     BYTE *gob = tolua_getusertype(2, NULL);
     int damage = (int)num_param(3), type = (int)num_param(4), part = (int)num_param(5);
 
-    if (!gob)
+    if (!gob_alive(gob)) {
+        logmsg("event %d: gob %p is gone", kind, (void *)gob);
         return;
+    }
     switch (kind) {
     case EV_HIT:        /* host: the client's Kurt hit this; goes through the hook so the client gets APPLY */
         applying_hit = 1;
@@ -206,11 +222,11 @@ static void l_coop_apply(void)
         applying_hit = 0;
         break;
     case EV_APPLY:      /* client: the host applied this */
-        deal_damage_orig(NULL, gob, damage, type, part);
+        deal_damage_orig(apply_attacker(), gob, damage, type, part);
         break;
     case EV_HURT:       /* client: the host's world hurt our player */
         if (gob == local_player)
-            damage_local_player(NULL, damage, type, part);
+            damage_local_player(apply_attacker(), damage, type, part);
         break;
     case EV_SPAWN:
         ent_bind((unsigned int)num_param(3), gob);
@@ -257,6 +273,13 @@ static void l_coop_level(void)
     if (announce)
         event_queue(EV_LEVEL, "", cp, level, 0);
     logmsg("level %d checkpoint %d started%s", level, cp, announce ? ", peer asked to follow" : "");
+}
+
+/* coop_alive(gob) -> 1 if the gob still exists (a Lua global can outlive its gob) */
+static void l_coop_alive(void)
+{
+    if (gob_alive(tolua_getusertype(1, NULL)))
+        lua_pushnumber(1);
 }
 
 /* coop_mark(n): put marker n in the partner's log too */
@@ -378,6 +401,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_level", l_coop_level);
     tolua_function(NULL, "coop_peer_type", l_coop_peer_type);
     tolua_function(NULL, "coop_mark", l_coop_mark);
+    tolua_function(NULL, "coop_alive", l_coop_alive);
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
     tolua_function(NULL, "coop_listgobs", l_coop_listgobs);
     tolua_function(NULL, "coop_log", l_coop_log);

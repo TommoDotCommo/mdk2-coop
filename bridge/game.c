@@ -3,6 +3,7 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "bridge.h"
 
 const char *gob_name(BYTE *gob)
@@ -83,15 +84,36 @@ BYTE *gob_by_handle(unsigned int handle)
     return (BYTE *)GOB_TABLE[slot * 2];
 }
 
-/* Name the peer knows the gob by: its own name, or "n<host handle>" for an unnamed actor
- * (the client creates its copy under that name) */
+static int name_unique(BYTE *gob, const char *name)
+{
+    int i;
+
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *g = (BYTE *)GOB_TABLE[i * 2];
+        if (g && g != gob && strncmp((const char *)g + GOB_NAME, name, 32) == 0)
+            return 0;
+    }
+    return 1;
+}
+
+int gob_alive(BYTE *gob)
+{
+    return gob && gob_slot(gob) >= 0;
+}
+
+/* Name the peer knows the gob by: its own name if no other gob shares it, else (and for
+ * unnamed actors) "n<host handle>"; the client creates its copy under that name.
+ * Spawners name every spawn the same ("r3dogangen_spawn"). */
 void gob_netname(BYTE *gob, char *out, int size)
 {
     int slot;
 
     snprintf(out, size, "%s", gob_name(gob));
-    if (out[0] || !gob || !(gob_is_actor(gob) || gob_is_projectile(gob)))
+    if (!gob || !(gob_is_actor(gob) || gob_is_projectile(gob)))
         return;
+    if (out[0] && name_unique(gob, out))
+        return;
+    out[0] = 0;
     if (!role_host) {
         out[0] = 0;
         return;
@@ -99,6 +121,43 @@ void gob_netname(BYTE *gob, char *out, int size)
     slot = gob_slot(gob);
     if (slot >= 0)
         snprintf(out, size, "n%x", gob_handle(slot));
+}
+
+/* How the peer should name one of our gobs: our Kurt is their puppet, our puppet is
+ * their Kurt, anything else by network name */
+void gob_peername(BYTE *gob, char *out, int size)
+{
+    if (!gob)
+        out[0] = 0;
+    else if (gob == local_player)
+        snprintf(out, size, "@puppet");
+    else if (gob == puppet)
+        snprintf(out, size, "@player");
+    else
+        gob_netname(gob, out, size);
+}
+
+/* The reverse, on the receiving side: NULL if we have nothing by that name */
+BYTE *gob_find_peername(const char *name)
+{
+    int i;
+
+    if (!name[0])
+        return NULL;
+    if (!strcmp(name, "@player"))
+        return local_player;
+    if (!strcmp(name, "@puppet"))
+        return puppet;
+    if (name[0] == 'n' && name[1] && strspn(name + 1, "0123456789abcdef") == strlen(name + 1)) {
+        unsigned int id = strtoul(name + 1, NULL, 16);
+        return role_host ? gob_by_handle(id) : ent_gob(id);
+    }
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *g = (BYTE *)GOB_TABLE[i * 2];
+        if (g && strncmp((const char *)g + GOB_NAME, name, 32) == 0)
+            return g;
+    }
+    return NULL;
 }
 
 void push_gob(BYTE *gob)

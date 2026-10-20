@@ -70,6 +70,9 @@ typedef void (*lua_CFunction)(void);
 
 const char *gob_name(BYTE *gob);
 void gob_netname(BYTE *gob, char *out, int size);
+void gob_peername(BYTE *gob, char *out, int size);
+BYTE *gob_find_peername(const char *name);
+int gob_alive(BYTE *gob);
 int gob_type(BYTE *gob);
 int gob_class(BYTE *gob);
 int gob_hp(BYTE *gob);
@@ -133,6 +136,7 @@ struct event {
     float quat[4];              /* FIRE: rotation */
     DWORD extra[4];             /* FIRE: create_object's last four arguments */
     char name[EV_NAME];         /* target gob name; "@player" = the receiver's own player */
+    char from[EV_NAME];         /* APPLY / HURT: attacker, "@player" / "@puppet" / gob name */
 };
 
 extern int role_host;
@@ -153,6 +157,7 @@ void net_send_player(BYTE *gob);
 void net_level_reset(void);
 void net_send(const void *buf, int len);
 void event_queue(int kind, const char *name, int damage, int type, int part);
+void event_queue_from(int kind, const char *name, BYTE *from, int damage, int type, int part);
 void event_queue_spawn(int kind, unsigned int netid, int objtype, const float *pos, const char *name);
 struct event *event_new(int kind);
 int event_next(struct event *out);
