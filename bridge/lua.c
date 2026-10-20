@@ -12,6 +12,7 @@
 #define DEAL_DAMAGE_ADDR    0x40d590
 static const BYTE deal_damage_prologue[5] = { 0x55, 0x8b, 0x6c, 0x24, 0x0c };
 deal_damage_t deal_damage_orig;     /* trampoline into the original */
+static int applying_hit;            /* host: inside EV_HIT, damage from the puppet is real */
 
 static double num_param(int n)
 {
@@ -49,6 +50,10 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         return;
     }
     if (role_host) {
+        /* the puppet's own attacks are replays of the client's (shots, anims); the client
+         * sends its real hits as HIT */
+        if ((from == puppet && !applying_hit) || gob_is_foreign(from))
+            return;
         if (target == puppet) {
             event_queue(EV_HURT, "@player", damage, type, part);
             return;
@@ -65,7 +70,8 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         deal_damage_orig(from, target, damage, type, part);
         return;
     }
-    if (from == local_player && target != puppet && name[0])
+    /* our gun, or a shot we fired (grenades, sniper rounds); mirrored shots are the host's */
+    if ((from == local_player || (gob_is_projectile(from) && !gob_is_foreign(from))) && target != puppet && name[0])
         event_queue(EV_HIT, name, damage, type, part);
 }
 
@@ -95,6 +101,7 @@ static void l_coop_recv(void)
         ents_client_frame();
         ents_client_cleanup();
     }
+    shots_frame();
     track_update(&player_track);
     smooth_track(player_track.view.pos);
     lua_pushnumber(player_track.view.pos[0]);
@@ -118,7 +125,7 @@ static void l_coop_face(void)
 /* ---- events ---- */
 
 /* coop_event() -> kind, name, damage, type, part, netid, objtype, x, y, z
- * for the next event from the peer, or nil. DESPAWN is handled here. */
+ * for the next event from the peer, or nil. DESPAWN and FIRE are handled here. */
 static void l_coop_event(void)
 {
     struct event e;
@@ -126,9 +133,12 @@ static void l_coop_event(void)
     for (;;) {
         if (!event_next(&e))
             return;
-        if (e.kind != EV_DESPAWN)
+        if (e.kind == EV_DESPAWN)
+            ent_despawn(e.netid);
+        else if (e.kind == EV_FIRE)
+            shots_replay(&e);
+        else
             break;
-        ent_despawn(e.netid);
     }
     lua_pushnumber(e.kind);
     lua_pushstring(e.name);
@@ -154,7 +164,9 @@ static void l_coop_apply(void)
         return;
     switch (kind) {
     case EV_HIT:        /* host: the client's Kurt hit this; goes through the hook so the client gets APPLY */
+        applying_hit = 1;
         deal_damage_hook(puppet, gob, damage, type, part);
+        applying_hit = 0;
         break;
     case EV_APPLY:      /* client: the host applied this */
     case EV_HURT:       /* client: the host's world hurt our player */
@@ -296,7 +308,8 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_log", l_coop_log);
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
     net_open(ini);
-    deal_damage_orig = hook5((BYTE *)DEAL_DAMAGE_ADDR, deal_damage_prologue, deal_damage_hook);
+    deal_damage_orig = hook_code((BYTE *)DEAL_DAMAGE_ADDR, deal_damage_prologue, 5, deal_damage_hook);
     logmsg("coop_init: lua functions registered, damage hook %s", deal_damage_orig ? "installed" : "NOT installed");
+    shots_init();
     run_mod_script();
 }

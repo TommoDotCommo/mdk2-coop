@@ -51,7 +51,8 @@ typedef void (*lua_CFunction)(void);
 #define INFO_CLASS          0xb4    /* game object field; & 0x3f = index into CLASS_TABLE */
 #define CLASS_TABLE         ((BYTE **)0x4f64a8)
 #define CLASS_SLOTS         14
-#define CLASS_THINK         1       /* slot +0x4: per-frame AI/update (profiled on the Doganboy) */
+#define CLASS_THINK         1       /* slot +0x4: per-frame AI/update, think(gob); +0x0 is used instead
+                                       for the player-controlled gob (caller around 0x42b3f0) */
 
 /* Engine object table: GOB_SLOTS entries of { gob *, u16 generation, u16 pad };
  * a handle is (generation << 16) | slot (see 0x449560, mdkGetGob) */
@@ -73,12 +74,17 @@ int gob_type(BYTE *gob);
 int gob_class(BYTE *gob);
 int gob_hp(BYTE *gob);
 int gob_is_actor(BYTE *gob);
+int gob_is_projectile(BYTE *gob);
+int gob_is_mirrored(BYTE *gob);
+void gob_set_mirrored(BYTE *gob, int on);
+int gob_is_foreign(BYTE *gob);
+void gob_set_foreign(BYTE *gob, int on);
 int gob_slot(BYTE *gob);
 unsigned int gob_handle(int slot);
 BYTE *gob_by_handle(unsigned int handle);
 void push_gob(BYTE *gob);
-void class_skip_think(int cls);
-void *hook5(BYTE *fn, const BYTE *expect, void *hook);
+void class_filter_think(int cls);
+void *hook_code(BYTE *fn, const BYTE *expect, int len, void *hook);
 
 /* ---- net.c ---- */
 
@@ -111,7 +117,7 @@ struct track {
     struct snap view;                   /* interpolated state for this frame */
 };
 
-enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN };
+enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE };
 #define EV_NAME 32
 
 struct event {
@@ -121,8 +127,10 @@ struct event {
     short damage;
     int type;
     unsigned int netid;         /* SPAWN / DESPAWN: host handle of the gob */
-    short objtype;              /* SPAWN: OBJ_* type */
-    float pos[3];               /* SPAWN: where it is */
+    short objtype;              /* SPAWN / FIRE: OBJ_* type */
+    float pos[3];               /* SPAWN / FIRE: where it is */
+    float quat[4];              /* FIRE: rotation */
+    DWORD extra[4];             /* FIRE: create_object's last four arguments */
     char name[EV_NAME];         /* target gob name; "@player" = the receiver's own player */
 };
 
@@ -142,6 +150,7 @@ void net_send_player(BYTE *gob);
 void net_send(const void *buf, int len);
 void event_queue(int kind, const char *name, int damage, int type, int part);
 void event_queue_spawn(int kind, unsigned int netid, int objtype, const float *pos, const char *name);
+struct event *event_new(int kind);
 int event_next(struct event *out);
 void snap_capture(BYTE *gob, struct snap *s);
 void track_add(struct track *t, const struct snap *s);
@@ -159,6 +168,12 @@ void ent_bind(unsigned int netid, BYTE *gob);
 void ent_despawn(unsigned int netid);
 BYTE *ent_gob(unsigned int netid);
 int ent_count(void);
+
+/* ---- shots.c ---- */
+
+void shots_init(void);
+void shots_frame(void);
+void shots_replay(const struct event *e);
 
 /* ---- damage (lua.c) ---- */
 

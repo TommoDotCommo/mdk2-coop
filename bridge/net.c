@@ -122,7 +122,7 @@ static struct event inbox[INBOX];
 static int inbox_head, inbox_count;
 static unsigned int in_next = 1;               /* next event id expected from the peer */
 
-static struct event *event_new(int kind)
+struct event *event_new(int kind)
 {
     struct event *e;
 

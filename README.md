@@ -40,6 +40,12 @@ rotation and animation `ent_hz` (15) times a second; DESPAWN when it goes away. 
 its own gob of the same name, or creates one, skips the AI ("think" slot) of their classes, draws them
 from the host's snapshots, and deletes actors its own spawners make that the host never announced.
 
+Shots (`OBJ` types 400-499): every gob is made by the engine's create_object (0x42d360), which the
+bridge hooks. Creating a shot sends a reliable FIRE event (the host announces every shot, the client its own
+Kurt's); the peer replays it through the same function, with the target and owner translated, so it flies
+with the game's own physics. Replayed shots are only for show: their damage is dropped and the real hits
+travel as HIT/APPLY/HURT.
+
 Damage authority (`[net] role=host|client`): the bridge hooks the game's central damage function
 (0x40d590). The host applies everything and tells the client (APPLY); the client applies damage to its own
 player only and sends its hits on anything else to the host (HIT), which applies them as if the client's

@@ -1,11 +1,12 @@
 /*
  * Enemy sync. The host runs every actor (OBJ types 200-259); the client mirrors them.
+ * (Shots are replayed instead, see shots.c.)
  *
  * Host: scans the engine's gob table, gives each actor a network id (its gob handle),
  * announces it with a reliable SPAWN (DESPAWN when it disappears) and sends position,
  * rotation and animation ent_hz times a second.
  * Client: binds each SPAWN to a gob of the same name (level-placed actors) or one Lua
- * creates as "n<id>", skips the AI of actor classes, draws them from the host's
+ * creates as "n<id>", skips their think (AI, shot flight), draws them from the host's
  * snapshots, and deletes actors its own spawners make that the host never announced.
  */
 #include <stdio.h>
@@ -144,9 +145,12 @@ void ent_bind(unsigned int netid, BYTE *gob)
         memset(e, 0, sizeof(*e));
         e->id = netid;
     }
+    if (e->gob && e->gob != gob)
+        gob_set_mirrored(e->gob, 0);
     e->gob = gob;
     e->local = gob_handle(slot);
-    class_skip_think(gob_class(gob));
+    gob_set_mirrored(gob, 1);
+    class_filter_think(gob_class(gob));
     logmsg("ent bind %x -> %s (local %x, type %d)", netid, gob_name(gob), e->local, gob_type(gob));
 }
 
@@ -159,6 +163,8 @@ void ent_despawn(unsigned int netid)
         return;
     gob = ent_gob(netid);
     logmsg("ent despawn %x (%s)", netid, gob ? gob_name(gob) : "already gone");
+    if (e->gob)
+        gob_set_mirrored(e->gob, 0);
     if (gob)
         gob_delete(gob);
     ent_remove(e);
@@ -186,6 +192,11 @@ void ents_client_frame(void)
         struct ent *e = &ents[i];
         BYTE *gob = ent_gob(e->id);
 
+        if (!gob && e->gob) {
+            /* the engine removed it (corpse, shot hit something): forget the pointer */
+            gob_set_mirrored(e->gob, 0);
+            e->gob = NULL;
+        }
         if (!gob || !e->track.n)
             continue;
         track_update(&e->track);
