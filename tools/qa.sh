@@ -80,6 +80,9 @@ check "host opened dr1_03 for the puppet"       has $H "door dr1_03 opening \(ne
 mdk_key "$B" 61; sleep 2; mdk_key "$A" 61; sleep 2         # F3: 200 damage to self
 check "client revived at the host"              has $C "^down: "
 check "host revived at the client"              has $H "^down: "
+sleep 6     # a lava death that slipped through would reload the checkpoint by now
+reload_after_down() { sed -n '/^down: /,$p' "$1" | grep -q '^level '; }
+check "no checkpoint reload after going down"   bash -c "$(declare -f reload_after_down); ! reload_after_down '$(mdk_log $H)' && ! reload_after_down '$(mdk_log $C)'"
 
 check "both games still running"                bash -c "$(declare -f mdk_alive); mdk_alive $A && mdk_alive $B"
 mdk_kill

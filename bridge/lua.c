@@ -37,14 +37,14 @@ static void damage_local_player(void *from, int damage, int type, int part)
         deal_damage_orig(from, local_player, damage, type, part);
         return;
     }
-    if (hp > 1)
-        deal_damage_orig(from, local_player, hp - 1, type, part);
+    /* none of the hit is applied: some damage types start the death sequence whatever the
+     * hp (lava, 0x40, still reloaded the checkpoint when 99 of 500 got through) */
     info = *(BYTE **)(local_player + GOB_INFO);
     if (info && max_hp > 0)
         *(short *)(info + 0x12) = (short)max_hp;
     gob_set_position(local_player, ((float *)(puppet + GOB_POSITION))[0], ((float *)(puppet + GOB_POSITION))[1],
                      ((float *)(puppet + GOB_POSITION))[2]);
-    logmsg("down: %d damage on %d hp; revived at the partner with %d hp", damage, hp, max_hp);
+    logmsg("down: %d damage (type 0x%x) on %d hp; revived at the partner with %d hp", damage, type, hp, max_hp);
 }
 
 /* Client: is this attacker one of the host's (an actor or a projectile)? */

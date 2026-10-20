@@ -79,7 +79,11 @@ function coop.HandleEvents()
         if (kind == EV_LEVEL) then
             -- the host started level dtype at checkpoint damage: follow, unless our own copy
             -- of the script already took us there --
-            if (coop.level == dtype and coop.cp == damage) then
+            if (damage < 0) then
+                -- a reload from the host's autosave: ours does not match, and loading it
+                -- crashed the client (mdkGobCreateInstant) --
+                coop_log(format("host reloaded level %d from its save: not followed", dtype))
+            elseif (coop.level == dtype and coop.cp == damage) then
                 coop_log(format("host started level %d checkpoint %d: already here", dtype, damage))
             else
                 coop_log(format("host started level %d checkpoint %d: following", dtype, damage))
@@ -168,6 +172,10 @@ function level(l, cp, sec)
     -- loads (new game: 0 -> 1,9 -> 1,12 -> 1,1) happen on both and must not echo --
     local announce = 0
     if (coop_role() == "host" and l >= 1) then announce = 1 end
+    -- checkpoint -1 is a reload from the autosave (after a death): tell the client which
+    -- checkpoint that is instead; it cannot load our save --
+    if (cp < 0) then cp = mdkGetCurrentCheckPoint() end
+    if (cp < 0) then announce = 0 end
     coop.following = nil
     coop.p2 = nil
     coop.level = l
@@ -192,12 +200,19 @@ comfuncs.fkey[COM_TOGL3] = function()
     end
 end
 
--- F2 (was debug.lua's status display): write a numbered marker to both games' logs, so a
--- tester can say "it went wrong around mark 3" --
+-- F2 (was debug.lua's status display): write a numbered marker to both games' logs, with
+-- our position, and save a screenshot, so a tester can say "it went wrong around mark 3" --
 comfuncs.fkey[COM_SHOWSTATUS] = function()
+    local p = mdkGetPlayerGob()
     coop.marks = coop.marks + 1
-    coop_log(format("MARK %d", coop.marks))
+    if (p) then
+        coop_log(format("MARK %d at (%.1f, %.1f, %.1f) room %s", coop.marks, p.position.x, p.position.y,
+                        p.position.z, tostring(mdkGetCurrentRoom())))
+    else
+        coop_log(format("MARK %d", coop.marks))
+    end
     coop_mark(coop.marks)
+    chScreenShot(format("coop_mark%d.tga", coop.marks))     -- saved in the game folder
 end
 
 -- F11: log anim states, every gob and the OBJ_* numbers (bridge.log) --
@@ -246,9 +261,10 @@ function coop.LogObjTypes()
     end
 end
 
--- F3 (was debug.lua's clear console): deal 200 damage to our player, to test going down --
+-- F3 (was debug.lua's clear console): 200 lava damage (type 0x40) to our player, to test
+-- going down: lava starts the death sequence whatever the hp --
 comfuncs.fkey[COM_CLEARCONSOLE] = function()
-    mdkDealDamage(nil, mdkGetPlayerGob(), 200, DAMAGE_BADGUY, -1)
+    mdkDealDamage(nil, mdkGetPlayerGob(), 200, 64, -1)
 end
 
 -- F1 (was debug.lua's bars): host spawns a Poopsy ahead, always named "coop_spawn" like a

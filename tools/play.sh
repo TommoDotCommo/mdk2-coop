@@ -2,8 +2,8 @@
 # Start a two-window co-op session on this PC for a manual playtest.
 #   tools/play.sh          install the bridge into both game copies, start host (left window)
 #                          and client (right window)
-#   tools/play.sh stop     close both, take the line out of settings.lua again, and copy both
-#                          bridge.logs to local/sessions/<date-time>/
+#   tools/play.sh stop     close both, take the line out of settings.lua again, and move both
+#                          bridge.logs, F2 screenshots and crash dumps to local/sessions/<date-time>/
 # Game copies: MDK2_DIR1 (host) and MDK2_DIR2 (client), see tools/mdk.sh.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,6 +17,12 @@ if [ "${1:-}" = "stop" ]; then
     mkdir -p "$out"
     cp "$(mdk_log 1)" "$out/host.log"
     cp "$(mdk_log 2)" "$out/client.log"
+    for i in 1 2; do      # F2 screenshots and crash dumps
+        d="$(mdk_wsl "$(mdk_dir $i)")"
+        for f in "$d"/coop_mark*.tga "$d"/mdk2hd_crash_*.mdmp; do
+            [ -e "$f" ] && mv "$f" "$out/$([ $i = 1 ] && echo host || echo client)-$(basename "$f")"
+        done
+    done
     echo "logs saved to $out"
     exit 0
 fi
@@ -33,7 +39,7 @@ cat <<'TXT'
 Host = left window, client = right window. Play in the LEFT window; the right one follows.
   - Start a New Game from the left window's menu (or F7 for level 1 past the skydive).
     The right window loads the same level by itself.
-  - F2   drop a marker in both logs ("MARK 1", "MARK 2", ...) when something looks wrong
+  - F2   when something looks wrong: marker in both logs ("MARK 1", ...) plus a screenshot
   - F8   skip to the next level (both windows go)
   - F9   BioWare debug menu, F5 spawn a Doganboy in front of you
   - If you would die you are revived next to the other Kurt instead.

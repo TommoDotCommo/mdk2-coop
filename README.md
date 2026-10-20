@@ -16,7 +16,7 @@ small: the game reads it into an 8 KB stack buffer and crashes (0xc0000409) if i
     tools/inject.sh --off   # remove the settings.lua line
 
 In game: F9 BioWare debug menu, F7 jump to level 1 checkpoint 2, F6 spawn another puppet (every level start adds one),
-F8 next level, F2 marker in both logs, F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 damage to yourself, F1 (host) spawn a Poopsy named coop_spawn (same name each time), F4 teleport to the next test spot (level 1's decoy item, then door dr1_03).
+F8 next level, F2 marker in both logs, F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 lava damage to yourself, F1 (host) spawn a Poopsy named coop_spawn (same name each time), F4 teleport to the next test spot (level 1's decoy item, then door dr1_03).
 Room changes are logged to bridge.log as they happen.
 
 ## Bridge (dinput8.dll)
