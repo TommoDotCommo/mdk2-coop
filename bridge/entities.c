@@ -26,7 +26,8 @@ struct ent_state {
 struct ent_packet {
     unsigned int magic;
     unsigned char count;
-    unsigned char level;        /* host's level: dropped by a client in another level */
+    unsigned char pad;
+    unsigned short epoch;       /* host's level epoch: dropped by a client in another one */
     struct ent_state ents[ENT_PER_PACKET];
 };
 
@@ -129,7 +130,7 @@ void ents_host_tick(void)
     for (i = 0; i < nents; ) {
         BYTE *gob = gob_by_handle(ents[i].id);
         if (gob != ents[i].gob || !gob_is_actor(gob)) {
-            event_queue_spawn(EV_DESPAWN, ents[i].id, 0, NULL, "");
+            event_queue_spawn(TO_ALL, EV_DESPAWN, ents[i].id, 0, 0, NULL, "");
             logmsg("ent despawn %x", ents[i].id);
             ent_remove(&ents[i]);
         } else {
@@ -153,13 +154,13 @@ void ents_host_tick(void)
         e->gob = gob;
         e->local = id;
         gob_netname(gob, name, sizeof(name));
-        event_queue_spawn(EV_SPAWN, id, gob_type(gob), (float *)(gob + GOB_POSITION), name);
+        event_queue_spawn(TO_ALL, EV_SPAWN, id, gob_type(gob), gob_hp(gob), (float *)(gob + GOB_POSITION), name);
         logmsg("ent spawn %x %s type %d", id, name, gob_type(gob));
     }
 
     memset(&p, 0, sizeof(p));
     p.magic = ENT_MAGIC;
-    p.level = (unsigned char)cur_level;
+    p.epoch = cur_epoch;
     for (i = 0; i < nents; i++) {
         p.ents[p.count].id = ents[i].id;
         snap_capture(ents[i].gob, &p.ents[p.count].state);
@@ -168,6 +169,21 @@ void ents_host_tick(void)
             p.count = 0;
         }
     }
+}
+
+/* A player who has just joined: announce every enemy we already have */
+void ents_resend(int to)
+{
+    int i;
+
+    for (i = 0; i < nents; i++) {
+        char name[EV_NAME];
+        if (!gob_alive(ents[i].gob))
+            continue;
+        gob_netname(ents[i].gob, name, sizeof(name));
+        event_queue_spawn(to, EV_SPAWN, ents[i].id, gob_type(ents[i].gob), gob_hp(ents[i].gob), (float *)(ents[i].gob + GOB_POSITION), name);
+    }
+    logmsg("ents: %d announced to player %d", nents, to + 1);
 }
 
 /* ---- client ---- */
@@ -225,7 +241,7 @@ void ents_receive(const void *buf, int len)
     int i;
 
     if (role_host || len != sizeof(*p) || p->magic != ENT_MAGIC || p->count > ENT_PER_PACKET ||
-        p->level != (unsigned char)cur_level)
+        p->epoch != cur_epoch)
         return;
     for (i = 0; i < p->count; i++) {
         struct ent *e = ent_find(p->ents[i].id);
@@ -249,7 +265,7 @@ void ents_client_frame(void)
         }
         if (!gob || !e->track.n)
             continue;
-        track_update(&e->track);
+        track_update(&e->track, host_clock_offset());
         gob_set_position(gob, e->track.view.pos[0], e->track.view.pos[1], e->track.view.pos[2]);
         memcpy(gob + GOB_ORIENTATION, e->track.view.quat, sizeof(e->track.view.quat));
         if (sync_anim)

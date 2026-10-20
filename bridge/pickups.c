@@ -19,6 +19,36 @@ typedef int (*has_event_t)(BYTE *, int);
 static has_event_t has_event_orig;
 static int removing;
 
+/* Host: items picked up in this level, by anyone, for players who join later */
+#define MAX_TAKEN 256
+static char taken[MAX_TAKEN][EV_NAME];
+static int ntaken;
+
+static void taken_add(const char *name)
+{
+    if (role_host && ntaken < MAX_TAKEN)
+        snprintf(taken[ntaken++], EV_NAME, "%s", name);
+}
+
+void pickups_reset(void)
+{
+    ntaken = 0;
+}
+
+void pickups_resend(int to)
+{
+    struct event e;
+    int i;
+
+    for (i = 0; i < ntaken; i++) {
+        event_init(&e, EV_PICKUP);
+        snprintf(e.name, EV_NAME, "%s", taken[i]);
+        event_send(&e, to);
+    }
+    if (ntaken)
+        logmsg("pickups: %d taken items sent to player %d", ntaken, to + 1);
+}
+
 /* Items: OBJ_SHOTGUN .. 399 (apples, hams, grenades, decoys, weapons); some pickup paths
  * also ask about the picker, so everything else is ignored */
 #define ITEM_TYPE_MIN   300
@@ -43,6 +73,7 @@ static int has_event_hook(BYTE *gob, int event)
         gob_netname(gob, name, sizeof(name));
         if (name[0]) {
             event_queue(EV_PICKUP, name, 0, 0, 0);
+            taken_add(name);
             logmsg("pickup %s (type %d)", name, gob_type(gob));
         } else {
             logmsg("pickup of unnamed item type %d not synced", gob_type(gob));
@@ -55,6 +86,8 @@ static int has_event_hook(BYTE *gob, int event)
 void pickups_remove(const char *name)
 {
     int i;
+
+    taken_add(name);
 
     for (i = 0; i < GOB_SLOTS; i++) {
         BYTE *gob = (BYTE *)GOB_TABLE[i * 2];

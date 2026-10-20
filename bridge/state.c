@@ -5,8 +5,9 @@
  *
  *   role host|client
  *   level <level>
+ *   me <n>                                  our player number (host 1)
  *   player <type> <hp> <x> <y> <z>          our Kurt (or Max, Doc)
- *   puppet <x> <y> <z>                      the other player as drawn here
+ *   puppet <n> <x> <y> <z>                  player n as drawn here
  *   ent <netid> <type> <hp> <x> <y> <z> <name>   synced enemies (client: gone if deleted)
  *   actor <type> <hp> <x> <y> <z> <name>    actors outside the sync (client: not announced)
  *   item <type> <x> <y> <z> <name>
@@ -37,20 +38,22 @@ void state_dump(const char *tag)
 {
     char path[MAX_PATH];
     FILE *f;
-    int slot;
+    int slot, s;
 
     snprintf(path, MAX_PATH, "%s\\state_%s.tmp", coop_dir, tag);
     if (!(f = fopen(path, "w")))
         return;
-    fprintf(f, "role %s\nlevel %d\n", role_host ? "host" : "client", cur_level);
+    fprintf(f, "role %s\nlevel %d\nme %d\n", role_host ? "host" : "client", cur_level, my_slot + 1);
     if (gob_alive(local_player)) {
         fprintf(f, "player %d %d", gob_type(local_player), gob_hp(local_player));
         put_pos(f, local_player);
         fputc('\n', f);
     }
-    if (gob_alive(puppet)) {
-        fprintf(f, "puppet");
-        put_pos(f, puppet);
+    for (s = 0; s < MAX_PLAYERS; s++) {
+        if (!gob_alive(puppets[s]))
+            continue;
+        fprintf(f, "puppet %d", s + 1);
+        put_pos(f, puppets[s]);
         fputc('\n', f);
     }
     ents_dump(f);
@@ -58,7 +61,7 @@ void state_dump(const char *tag)
         BYTE *gob = (BYTE *)GOB_TABLE[slot * 2];
         int t;
 
-        if (!gob || gob == local_player || gob == puppet || !*(BYTE **)(gob + GOB_INFO))
+        if (!gob || gob == local_player || puppet_slot(gob) >= 0 || !*(BYTE **)(gob + GOB_INFO))
             continue;
         t = gob_type(gob);
         if (gob_is_actor(gob) && !ent_is_synced(gob)) {

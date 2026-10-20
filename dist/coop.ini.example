@@ -1,10 +1,11 @@
 ; copy to <game dir>\coop\coop.ini
 [net]
-; host runs the world; client forwards its hits to the host
+; host runs the world (player 1); clients send their hits to it. A client's peer_host /
+; peer_port are the host's address; the host learns the clients' from their packets.
 role=host
 listen_port=27900
 peer_host=127.0.0.1
-peer_port=27901
+peer_port=27900
 
 [sync]
 ; updates sent per second

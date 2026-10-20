@@ -8,8 +8,8 @@
 -------------------------------------------------------------------------------
 
 coop = {
-    offset = 3,         -- puppet sits this far from the player on x until the peer is heard
-    mirror = 0,         -- height above the peer's position, for loopback testing
+    puppets = {},       -- other players' puppets by slot (0 = host)
+    mirror = 0,         -- height above the other players' positions, for loopback testing
     marks = 0,          -- F2 markers written to bridge.log
     enemies = 0,        -- Doganboys spawned with F5
 }
@@ -78,10 +78,11 @@ omMakeCommand(COM_TOGL3, "F8", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGL4, "F11", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_TOGLG, "F4", CON_BUTTON_FALL, 0, 0)
 
--- a gob by the name the peer uses: our player, a named gob, or an "n<id>" network name --
+-- a gob by the name the others use: a player's character ("@p<n>"), a named gob, or an
+-- "n<id>" network name --
 function coop.FindGob(name)
-    if (name == "@player") then
-        return mdkGetPlayerGob()
+    if (strsub(name, 1, 1) == "@") then
+        return coop_gob(name)
     end
     local gob = getglobal(name)
     if (gob and type(gob) ~= "number" and type(gob) ~= "string" and coop_alive(gob)) then
@@ -91,13 +92,13 @@ function coop.FindGob(name)
 end
 
 -- client: bind a host actor to our gob of the same name, creating it if we lack one --
-function coop.Spawn(name, netid, objtype, x, y, z)
+function coop.Spawn(name, netid, objtype, x, y, z, hp)
     local gob = coop.FindGob(name)
     if (not gob) then
         gob = mdkCreateObjectLua(name, objtype, mdkGetScene(), nil, nil, x,y,z, 1,0,0,0, nil,0,0,0,0)
     end
     if (gob) then
-        coop_apply(EV_SPAWN, gob, netid)
+        coop_apply(EV_SPAWN, gob, netid, hp)
     else
         coop_log(format("spawn %s type %d failed", name, objtype))
     end
@@ -122,7 +123,7 @@ function coop.HandleEvents()
                 mdkNewGame(dtype, damage)
             end
         elseif (kind == EV_SPAWN) then
-            coop.Spawn(name, netid, objtype, x, y, z)
+            coop.Spawn(name, netid, objtype, x, y, z, damage)
         else
             local target = coop.FindGob(name)
             if (target) then
@@ -136,37 +137,70 @@ function coop.HandleEvents()
 end
 
 -- every frame, called by the bridge after the scene update (menus and title included):
--- send our player, apply the peer's events, put the puppet where the peer's player is --
+-- send our player, apply the others' events, put each puppet where its player is --
 function coop.Tick()
-    -- host autostart (tools/play.sh <level> <cp>): once the title screen has been up a while,
-    -- load the start checkpoint; retried until a level is running --
+    -- host autostart (tools/play.sh <level> <cp>): once the title screen has been up a while
+    -- and coop.autostart_players others have joined (or a minute has gone by), load the start
+    -- checkpoint; retried until a level is running --
     if (coop.autostart and coop.level == 0) then
         coop.ticks = (coop.ticks or 0) + 1
-        if (coop.ticks >= (coop.nextstart or 600)) then
+        local joined = coop_players()
+        if (coop.ticks >= (coop.nextstart or 600) and
+            (joined >= (coop.autostart_players or 0) or coop.ticks >= 3600)) then
             coop.nextstart = coop.ticks + 600
-            coop_log(format("autostart: level %d checkpoint %d", coop.autostart[1], coop.autostart[2]))
+            coop_log(format("autostart: level %d checkpoint %d, %d others here", coop.autostart[1],
+                            coop.autostart[2], joined))
             mdkNewGame(coop.autostart[1], coop.autostart[2])
         end
     elseif (coop.autostart and coop.level and coop.level >= 1) then
         coop.autostart = nil
     end
     local p = mdkGetPlayerGob()
-    if (p == coop.p2) then p = nil end
+    if (coop.PuppetSlot(p)) then p = nil end
     coop_send(p)
-    local x, y, z = coop_recv()
+    coop_recv()
     coop.HandleEvents()
-    if (p and not coop.p2 and coop.level and coop.level >= 1) then
-        coop.SpawnPuppet()      -- the player only exists a little after level() returns
+    if (not p or not coop.level or coop.level < 1) then return end
+    local me = coop_slot()
+    local _, slots = coop_players()
+    local s = 0
+    while (s < slots) do
+        if (s ~= me) then coop.UpdatePuppet(p, s) end
+        s = s + 1
     end
-    local gob = coop.p2
-    if (not gob or not p) then return end
-    if (x) then
-        x, y = coop.KeepApart(p, x, y)
-        mdkGobSetPositionXYZ(gob, x, y, z + coop.mirror)
-        coop_face(gob)
-    else
-        mdkGobSetPositionXYZ(gob, p.position.x + coop.offset, p.position.y, p.position.z)
+end
+
+-- slot whose puppet gob is, or nil --
+function coop.PuppetSlot(gob)
+    if (not gob) then return nil end
+    local s, g = next(coop.puppets, nil)
+    while (s) do
+        if (g == gob) then return s end
+        s, g = next(coop.puppets, s)
     end
+    return nil
+end
+
+-- one other player: add their puppet once they are in this level, move it, remove it when
+-- they leave --
+function coop.UpdatePuppet(p, s)
+    local gob = coop.puppets[s]
+    if (not coop_connected(s)) then
+        if (gob) then
+            coop_log(format("player %d left: puppet removed", s + 1))
+            coop_face(nil, s)
+            if (coop_alive(gob)) then omGobDelete(gob) end
+            coop.puppets[s] = nil
+        end
+        return
+    end
+    local x, y, z = coop_peer(s)
+    if (not x) then return end
+    if (not gob) then gob = coop.SpawnPuppet(p, s) end
+    if (not gob) then return end
+    x, y = coop.KeepApart(p, x, y)
+    mdkGobSetPositionXYZ(gob, x, y, z + coop.mirror)
+    coop_face(gob, s)
 end
 
 -- The puppet is solid and moved every frame; placed inside our player (both spawn on the
@@ -192,19 +226,21 @@ end
 
 -- the puppet is the same character as our player: each level fixes who you play and only
 -- loads that model, so another type could be missing --
-function coop.SpawnPuppet()
-    local p = mdkGetPlayerGob()
-    if (not p) then return end
+function coop.SpawnPuppet(p, s)
     local ptype = mdkGetGobType(p)
-    local peer = coop_peer_type()
+    local peer = coop_peer_type(s)
     if (peer and peer ~= ptype) then
-        coop_log(format("partner plays type %d, we play %d: puppet uses ours", peer, ptype))
+        coop_log(format("player %d plays type %d, we play %d: puppet uses ours", s + 1, peer, ptype))
     end
-    coop.p2 = mdkCreateObjectLua("coop_p2", ptype, mdkGetScene(), nil, nil, 0,0,0, 1,0,0,0, nil,0,0,0,0)
-    mdkGobSetPositionXYZ(coop.p2, p.position.x + coop.offset, p.position.y, p.position.z)
-    mdkSetLuaEvent(coop.p2, "OnUpdate", coop.PuppetOnUpdate)
-    coop_log(format("puppet spawned (type %d)", ptype))
-
+    local gob = mdkCreateObjectLua(format("coop_p%d", s + 1), ptype, mdkGetScene(), nil, nil, 0,0,0, 1,0,0,0, nil,0,0,0,0)
+    if (not gob) then
+        coop_log(format("puppet for player %d (type %d) failed", s + 1, ptype))
+        return nil
+    end
+    mdkSetLuaEvent(gob, "OnUpdate", coop.PuppetOnUpdate)
+    coop.puppets[s] = gob
+    coop_log(format("puppet spawned for player %d (type %d)", s + 1, ptype))
+    return gob
 end
 
 -- every level load (menu, script, save, debug) ends in level(): reset the bridge for the
@@ -221,7 +257,7 @@ function level(l, cp, sec)
     if (cp < 0) then cp = mdkGetCurrentCheckPoint() end
     if (cp < 0) then announce = 0 end
     coop.following = nil
-    coop.p2 = nil
+    coop.puppets = {}
     coop.level = l
     coop.cp = cp
     coop_level(l, cp, announce)
@@ -316,7 +352,11 @@ end
 -- F11: log anim states, every gob and the OBJ_* numbers (bridge.log) --
 comfuncs.fkey[COM_TOGL4] = function()
     coop_animdump(mdkGetPlayerGob())
-    if (coop.p2) then coop_animdump(coop.p2) end
+    local s, g = next(coop.puppets, nil)
+    while (s) do
+        coop_animdump(g)
+        s, g = next(coop.puppets, s)
+    end
     coop_listgobs()
     if (not coop.typeslogged) then coop.LogObjTypes() coop.typeslogged = 1 end
 end

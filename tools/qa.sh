@@ -82,7 +82,7 @@ mdk_key "$B" 62; sleep 3
 check "client picked up the decoy"              has $C "^pickup l1_r3dummy"
 check "host removed its decoy"                  has $H "peer picked up l1_r3dummy: removed here"
 mdk_key "$B" 62; sleep 3
-check "host opened dr1_03 for the puppet"       has $H "door dr1_03 opening \(nearer player: puppet\)"
+check "host opened dr1_03 for the puppet"       has $H "door dr1_03 opening \(nearer player: puppet 2\)"
 check "state matches after pickup and door"     state pickup
 
 # 6. going down

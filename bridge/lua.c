@@ -14,7 +14,8 @@ static const BYTE deal_damage_prologue[5] = { 0x55, 0x8b, 0x6c, 0x24, 0x0c };
 deal_damage_t deal_damage_orig;     /* trampoline into the original */
 static int max_hp;                  /* our player's highest hp seen this level: revive to this */
 static char apply_from[EV_NAME];    /* attacker named in the event coop_event last returned */
-static int applying_hit;            /* host: inside EV_HIT, damage from the puppet is real */
+static int apply_slot;              /* and the slot of the player who sent it */
+static int applying_hit;            /* host: inside EV_HIT, damage from that player's puppet is real */
 
 static double num_param(int n)
 {
@@ -25,10 +26,11 @@ static double num_param(int n)
 /* ---- damage ---- */
 
 /* Damage to our own player. With a partner, a hit that would kill revives us at the
- * partner instead: dying would reload the checkpoint in this game only. */
+ * nearest partner instead: dying would reload the checkpoint in this game only. */
 static void damage_local_player(void *from, int damage, int type, int part)
 {
     int hp = gob_hp(local_player);
+    BYTE *puppet = puppet_nearest((float *)(local_player + GOB_POSITION));
     BYTE *info;
 
     if (damage >= hp && hp > 0 && (!have_remote || !puppet))
@@ -58,13 +60,14 @@ static int from_host_world(BYTE *from)
     return (t >= ACTOR_TYPE_MIN && t <= ACTOR_TYPE_MAX) || (t >= PROJECTILE_TYPE_MIN && t <= PROJECTILE_TYPE_MAX);
 }
 
-/* Host: applies everything, tells the client what it applied, and turns hits on the
- * client's puppet into HURT for the client's own player.
+/* Host: applies everything, tells the clients what it applied, and turns hits on a
+ * client's puppet into HURT for that client's own player.
  * Client: only its own player takes damage locally; its hits on anything else go to
  * the host as HIT and come back as APPLY. */
 void deal_damage_hook(void *from, void *target, int damage, int type, int part)
 {
     char fromname[EV_NAME], name[EV_NAME];
+    int target_slot = puppet_slot(target);
 
     gob_netname(from, fromname, sizeof(fromname));
     gob_netname(target, name, sizeof(name));
@@ -75,12 +78,13 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         return;
     }
     if (role_host) {
-        /* the puppet's own attacks are replays of the client's (shots, anims); the client
+        /* a puppet's own attacks are replays of its client's (shots, anims); the client
          * sends its real hits as HIT */
-        if ((from == puppet && !applying_hit) || gob_is_foreign(from))
+        if ((puppet_slot(from) >= 0 && !applying_hit) || gob_is_foreign(from))
             return;
-        if (target == puppet) {
-            event_queue_from(EV_HURT, "@player", from, damage, type, part);
+        if (target_slot >= 0) {
+            snprintf(name, sizeof(name), "@p%d", target_slot + 1);
+            event_queue_from(target_slot, EV_HURT, name, from, damage, type, part);
             return;
         }
         if (target == local_player) {
@@ -89,7 +93,7 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         }
         deal_damage_orig(from, target, damage, type, part);
         if (target != local_player && name[0])
-            event_queue_from(EV_APPLY, name, from, damage, type, part);
+            event_queue_from(TO_ALL, EV_APPLY, name, from, damage, type, part);
         if (name[0] && gob_is_actor(target))
             logmsg("hp %s %d", name, gob_hp(target));
         return;
@@ -102,7 +106,7 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         return;
     }
     /* our gun, or a shot we fired (grenades, sniper rounds); mirrored shots are the host's */
-    if ((from == local_player || (gob_is_projectile(from) && !gob_is_foreign(from))) && target != puppet && name[0])
+    if ((from == local_player || (gob_is_projectile(from) && !gob_is_foreign(from))) && target_slot < 0 && name[0])
         event_queue(EV_HIT, name, damage, type, part);
 }
 
@@ -125,8 +129,7 @@ static void l_coop_send(void)
         ents_host_tick();
 }
 
-/* coop_recv() -> x, y, z of the peer for this frame, or nil until the peer has sent one in this level.
- * On the client this also moves the mirrored actors. */
+/* coop_recv(): read the network; on the client this also moves the mirrored actors */
 static void l_coop_recv(void)
 {
     net_poll();
@@ -138,34 +141,48 @@ static void l_coop_recv(void)
     }
     shots_frame();
     doors_frame();
-    /* nothing from the peer in this level yet: the view still holds where it was before the
-     * level change, and a puppet put there wakes that part of the level (level 2's gun room
-     * ran its OnCreate on the host only) */
-    if (!player_track.n)
-        return;
-    track_update(&player_track);
-    smooth_track(player_track.view.pos);
-    lua_pushnumber(player_track.view.pos[0]);
-    lua_pushnumber(player_track.view.pos[1]);
-    lua_pushnumber(player_track.view.pos[2]);
 }
 
-/* coop_face(gob): give the gob the peer's orientation and animation for this frame */
+/* coop_peer(slot) -> x, y, z of that player for this frame, or nil until it has sent one
+ * in this level (until then its view still holds where it was before the level change, and
+ * a puppet put there wakes that part of the level: level 2's gun room ran its OnCreate on
+ * the host only) */
+static void l_coop_peer(void)
+{
+    struct snap *v = player_view((int)num_param(1), 1);
+
+    if (!v)
+        return;
+    lua_pushnumber(v->pos[0]);
+    lua_pushnumber(v->pos[1]);
+    lua_pushnumber(v->pos[2]);
+}
+
+/* coop_face(gob, slot): give the gob that player's orientation and animation for this frame;
+ * coop_face(nil, slot): that player's puppet is gone */
 static void l_coop_face(void)
 {
     BYTE *gob = tolua_getusertype(1, NULL);
+    int slot = (int)num_param(2);
+    struct snap *v = player_view(slot, 0);
 
-    if (!gob || !have_remote)
+    if (slot < 0 || slot >= MAX_PLAYERS)
         return;
-    if (puppet != gob) {
-        /* the puppet is driven from the partner's game: skip its class logic like a mirror */
+    if (!gob) {
+        puppets[slot] = NULL;
+        return;
+    }
+    if (!v)
+        return;
+    if (puppets[slot] != gob) {
+        /* the puppet is driven from its player's game: skip its class logic like a mirror */
         gob_set_mirrored(gob, 1);
         class_filter_think(gob_class(gob));
     }
-    puppet = gob;
-    memcpy(gob + GOB_ORIENTATION, player_track.view.quat, sizeof(player_track.view.quat));
+    puppets[slot] = gob;
+    memcpy(gob + GOB_ORIENTATION, v->quat, sizeof(v->quat));
     if (sync_anim)
-        anim_apply(gob, &player_track.view);
+        anim_apply(gob, v);
 }
 
 /* ---- events ---- */
@@ -175,25 +192,36 @@ static void l_coop_face(void)
 static void l_coop_event(void)
 {
     struct event e;
+    int from;
 
     for (;;) {
-        if (!event_next(&e))
+        if (!event_next(&e, &from))
             return;
+        if (event_must_wait(&e)) {
+            event_unget(from);
+            return;
+        }
+        /* the host passes the clients' shots, pickups and markers on to the others */
+        if (e.kind == EV_FIRE || e.kind == EV_PICKUP || e.kind == EV_MARK)
+            event_relay(&e, from);
         if (e.kind == EV_DESPAWN)
             ent_despawn(e.netid);
         else if (e.kind == EV_FIRE)
             shots_replay(&e);
         else if (e.kind == EV_MARK)
-            logmsg("lua: MARK %d (from the partner)", e.damage);
+            logmsg("lua: MARK %d (from player %d)", e.damage, from + 1);
         else if (e.kind == EV_STATE)
             state_dump(e.name);     /* whatever level we are in: a mismatch is what it is for */
-        else if (e.level != (unsigned char)cur_level && e.kind != EV_LEVEL)
-            logmsg("event %d %s from level %d dropped (we are in %d)", e.kind, e.name, e.level, cur_level);
+        else if (e.epoch != cur_epoch && e.kind != EV_LEVEL)
+            logmsg("event %d %s from epoch %u dropped (we are in %u)", e.kind, e.name, e.epoch, cur_epoch);
         else if (e.kind == EV_PICKUP)
             pickups_remove(e.name);
         else
             break;
     }
+    if (e.kind == EV_LEVEL)
+        net_level_event(&e);
+    apply_slot = from;
     memcpy(apply_from, e.from, sizeof(apply_from));
     apply_from[EV_NAME - 1] = 0;
     lua_pushnumber(e.kind);
@@ -208,19 +236,19 @@ static void l_coop_event(void)
     lua_pushnumber(e.pos[2]);
 }
 
-/* The attacker of the event being applied: what the host named, else the puppet (some
- * damage handlers look at the attacker and crash on NULL) */
+/* The attacker of the event being applied: what the host named, else the sender's puppet
+ * (some damage handlers look at the attacker and crash on NULL) */
 static BYTE *apply_attacker(void)
 {
     BYTE *from = gob_find_peername(apply_from);
 
     if (!gob_alive(from))
-        from = gob_alive(puppet) ? puppet : local_player;
+        from = gob_alive(puppets[apply_slot]) ? puppets[apply_slot] : local_player;
     return from;
 }
 
 /* coop_apply(kind, gob, damage, type, part) carries out a damage event on the gob Lua found;
- * coop_apply(EV_SPAWN, gob, netid) binds the gob to the host's actor */
+ * coop_apply(EV_SPAWN, gob, netid, hp) binds the gob to the host's actor, with the host's hp */
 static void l_coop_apply(void)
 {
     int kind = (int)num_param(1);
@@ -232,9 +260,9 @@ static void l_coop_apply(void)
         return;
     }
     switch (kind) {
-    case EV_HIT:        /* host: the client's Kurt hit this; goes through the hook so the client gets APPLY */
+    case EV_HIT:        /* host: a client's Kurt hit this; goes through the hook so the clients get APPLY */
         applying_hit = 1;
-        deal_damage_hook(puppet, gob, damage, type, part);
+        deal_damage_hook(puppets[apply_slot], gob, damage, type, part);
         applying_hit = 0;
         break;
     case EV_APPLY:      /* client: the host applied this */
@@ -246,6 +274,10 @@ static void l_coop_apply(void)
         break;
     case EV_SPAWN:
         ent_bind((unsigned int)num_param(3), gob);
+        if ((int)num_param(4) > 0 && *(BYTE **)(gob + GOB_INFO) && gob_hp(gob) != (int)num_param(4)) {
+            logmsg("ent %s hp %d -> %d (host's)", gob_name(gob), gob_hp(gob), (int)num_param(4));
+            *(short *)(*(BYTE **)(gob + GOB_INFO) + 0x12) = (short)num_param(4);
+        }
         return;
     }
     logmsg("event %d on %s: %d type 0x%x part %d -> hp %d", kind, gob_name(gob), damage, type, part, gob_hp(gob));
@@ -260,6 +292,10 @@ static void l_coop_gob(void)
     unsigned int id;
     char *end;
 
+    if (name[0] == '@') {
+        push_gob(gob_find_peername(name));
+        return;
+    }
     if (name[0] != 'n') {
         lua_pushnil();
         return;
@@ -273,23 +309,31 @@ static void l_coop_gob(void)
 }
 
 /* coop_level(level, checkpoint, announce): a level has started here. Resets everything
- * that pointed into the old level; with announce, asks the peer to load it too. */
+ * that pointed into the old level; with announce (host), asks the clients to load it too. */
 static void l_coop_level(void)
 {
     int level = (int)num_param(1), cp = (int)num_param(2), announce = (int)num_param(3);
+    struct event e;
 
     cur_level = level;
+    cur_cp = cp;
     ents_reset();
     shots_reset();
     doors_reset();
+    pickups_reset();
     rooms_level_reset();
     net_level_reset(announce);
-    puppet = NULL;
+    memset(puppets, 0, sizeof(puppets));
     local_player = NULL;
     max_hp = 0;
-    if (announce)
-        event_queue(EV_LEVEL, "", cp, level, 0);
-    logmsg("level %d checkpoint %d started%s", level, cp, announce ? ", peer asked to follow" : "");
+    if (announce) {
+        event_init(&e, EV_LEVEL);
+        e.damage = (short)cp;
+        e.type = level;
+        e.netid = cur_epoch;
+        event_send(&e, TO_ALL);
+    }
+    logmsg("level %d checkpoint %d started (epoch %u)%s", level, cp, cur_epoch, announce ? ", peer asked to follow" : "");
 }
 
 /* coop_nearest_enemy() -> the actor nearest our player (on the client: a mirrored one), or nil */
@@ -369,11 +413,34 @@ static void l_coop_keep_spawner(void)
         ents_keep_spawner(gob);
 }
 
-/* coop_peer_type() -> OBJ type of the peer's player, or nil before it is known */
+/* coop_peer_type(slot) -> OBJ type of that player's character, or nil before it is known */
 static void l_coop_peer_type(void)
 {
-    if (peer_player_type)
-        lua_pushnumber(peer_player_type);
+    int t = player_type((int)num_param(1));
+
+    if (t)
+        lua_pushnumber(t);
+}
+
+/* coop_slot() -> our slot (0 = host), or nil on a client the host has not answered yet */
+static void l_coop_slot(void)
+{
+    if (my_slot >= 0)
+        lua_pushnumber(my_slot);
+}
+
+/* coop_connected(slot) -> 1 if that other player is in the game */
+static void l_coop_connected(void)
+{
+    if (player_connected((int)num_param(1)))
+        lua_pushnumber(1);
+}
+
+/* coop_players() -> how many other players are connected, and the number of slots */
+static void l_coop_players(void)
+{
+    lua_pushnumber(players_connected());
+    lua_pushnumber(MAX_PLAYERS);
 }
 
 /* coop_role() -> "host" or "client" */
@@ -474,7 +541,11 @@ void l_coop_init(void)
     done = 1;
     tolua_function(NULL, "coop_send", l_coop_send);
     tolua_function(NULL, "coop_recv", l_coop_recv);
+    tolua_function(NULL, "coop_peer", l_coop_peer);
     tolua_function(NULL, "coop_face", l_coop_face);
+    tolua_function(NULL, "coop_slot", l_coop_slot);
+    tolua_function(NULL, "coop_connected", l_coop_connected);
+    tolua_function(NULL, "coop_players", l_coop_players);
     tolua_function(NULL, "coop_event", l_coop_event);
     tolua_function(NULL, "coop_apply", l_coop_apply);
     tolua_function(NULL, "coop_gob", l_coop_gob);

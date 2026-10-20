@@ -1,9 +1,10 @@
 /*
  * Shots (OBJ types 400-499). Every gob is made by one engine function,
  * create_object (0x42d360). Creating a shot also sends a reliable FIRE event (the host
- * announces every shot, the client the ones its own Kurt fires); the peer replays it
- * through the same function so it flies with the game's own physics. Replayed shots
- * are "foreign" and only for show: damage stays with the host (HURT, HIT, APPLY).
+ * announces every shot, a client the ones its own Kurt fires, which the host passes on
+ * to the other clients); the others replay it through the same function so it flies with
+ * the game's own physics. Replayed shots are "foreign" and only for show: damage stays
+ * with the host (HURT, HIT, APPLY).
  */
 #include <stdio.h>
 #include <string.h>
@@ -23,9 +24,10 @@ typedef BYTE *(*create_t)(const char *, int, void *, BYTE *, int, float *, float
 static create_t create_orig;
 static int replaying;
 
-/* shot owner handles that mean "a player": the receiver swaps them for its own gobs */
-#define OWNER_SENDER_PLAYER     0xfffffff1u     /* sender's Kurt = receiver's puppet */
-#define OWNER_RECEIVER_PLAYER   0xfffffff2u     /* sender's puppet = receiver's Kurt */
+/* shot owner handles that mean "player n's character" (OWNER_PLAYER | slot): the receiver
+ * swaps them for its own player or that player's puppet. A real handle never looks like
+ * this (its low half is a gob slot, below GOB_SLOTS). */
+#define OWNER_PLAYER            0xffffff00u
 
 /* ---- foreign shots ---- */
 
@@ -73,7 +75,7 @@ static BYTE *create_hook(const char *name, int type, void *scene, BYTE *parent, 
                          float *quat, const char *model, DWORD a8, DWORD a9, DWORD a10, DWORD a11)
 {
     BYTE *gob = create_orig(name, type, scene, parent, slot, pos, quat, model, a8, a9, a10, a11);
-    struct event *e;
+    struct event ev, *e = &ev;
 
     if (replaying || !have_remote || type < PROJECTILE_TYPE_MIN || type > PROJECTILE_TYPE_MAX)
         return gob;
@@ -86,24 +88,24 @@ static BYTE *create_hook(const char *name, int type, void *scene, BYTE *parent, 
                (void *)pos, (void *)quat);
         return gob;
     }
-    if (!(e = event_new(EV_FIRE)))
-        return gob;
+    event_init(e, EV_FIRE);
     e->objtype = (short)type;
     e->type = slot;
     memcpy(e->pos, pos, sizeof(e->pos));
     memcpy(e->quat, quat, sizeof(e->quat));
     e->extra[0] = a8;
     if ((a8 && gob_by_handle(a8) && gob_by_handle(a8) == local_player) || (!role_host && !a8))
-        e->extra[0] = OWNER_SENDER_PLAYER;
-    else if (a8 && gob_by_handle(a8) && gob_by_handle(a8) == puppet)
-        e->extra[0] = OWNER_RECEIVER_PLAYER;
+        e->extra[0] = OWNER_PLAYER | (my_slot >= 0 ? my_slot : 0);
+    else if (a8 && gob_by_handle(a8) && puppet_slot(gob_by_handle(a8)) >= 0)
+        e->extra[0] = OWNER_PLAYER | puppet_slot(gob_by_handle(a8));
     e->extra[1] = a9;
     e->extra[2] = a10;
     e->extra[3] = a11;
-    /* the target as the peer knows it: our Kurt is their puppet, our puppet is their Kurt */
+    /* the target as the others know it ("@p<n>" for a player's character) */
     gob_peername(parent, e->name, EV_NAME);
     logmsg("fire type %d at (%.1f, %.1f, %.1f) target '%s' slot %d extra %lx %lx %lx %lx", type, pos[0], pos[1], pos[2],
            e->name, slot, (unsigned long)a8, (unsigned long)a9, (unsigned long)a10, (unsigned long)a11);
+    event_send(e, TO_ALL);
     return gob;
 }
 
@@ -115,11 +117,10 @@ static DWORD owner_local(DWORD host)
     BYTE *gob = NULL;
     int slot;
 
-    if (host == OWNER_SENDER_PLAYER)
-        gob = puppet;
-    else if (host == OWNER_RECEIVER_PLAYER)
-        gob = local_player;
-    else if (host && !role_host)
+    if ((host & 0xffffff00u) == OWNER_PLAYER) {
+        int s = (int)(host & 0xff);
+        gob = s == my_slot ? local_player : (s < MAX_PLAYERS ? puppets[s] : NULL);
+    } else if (host && !role_host)
         gob = ent_gob(host);
     if (!gob || (slot = gob_slot(gob)) < 0)
         return 0;

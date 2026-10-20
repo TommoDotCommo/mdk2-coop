@@ -38,8 +38,10 @@ It forwards DirectInput to the system DLL and adds Lua functions to the game:
 
 - `coop_init()` registers the others and opens a UDP socket (ports from `<game dir>\coop\coop.ini`,
   see `dist/coop.ini.example`)
-- `coop_send(gob)` sends the gob's position and orientation to the peer
-- `coop_recv()` returns the peer's latest `x, y, z`, or nil until the peer has sent one in this level
+- `coop_send(gob)` sends the gob's position and orientation to the others
+- `coop_recv()` reads the network
+- `coop_peer(slot)` returns player `slot`'s `x, y, z` for this frame, or nil until it has sent one in this level
+- `coop_slot()`, `coop_connected(slot)`, `coop_players()` (others connected, number of slots), `coop_peer_type(slot)`
 - `coop_log(msg)` writes a line to bridge.log
 - `coop_gob(name)` returns the gob for an `n<id>` network name; `coop_role()` returns "host" or "client"
 - `coop_event()` returns the next damage event from the peer (`kind, name, damage, type, part`) or nil
@@ -78,12 +80,22 @@ health he started the level with, instead of reloading the checkpoint in one gam
 30 units below the level's lowest room (some edges have no kill plane, Kurt falls forever) also brings you
 back to the partner.
 
+Players (up to 16, tested with 8): the host is player 1 (slot 0) and gives each client a slot when its
+first packet arrives (`we are player N` in the client's log). Clients only talk to the host, which
+passes each client's state, shots, pickups and markers on to the others. Every game draws a puppet
+(`coop_p<N>`) for each other player; a player silent for 10 s has left and its puppet goes. Players'
+characters travel as `@p<N>` in events, the same name in every game. A client that joins (or restarts)
+while the host is in a level is sent the level, every live enemy with its hp, and the items already
+taken. Level epochs: the host counts the level loads it announces; states and events from another
+epoch are old-level leftovers and are dropped, and a client holds events back while it is still
+loading the level they belong to.
+
 Damage authority (`[net] role=host|client`): the bridge hooks the game's central damage function
 (0x40d590). The host applies everything and tells the client (APPLY); the client applies damage to its own
 player only and sends its hits on anything else to the host (HIT), which applies them as if the client's
 puppet fired. Hits on the client's puppet in the host's world go to the client's player (HURT). Events are
 numbered and resent until acked. Targets are matched by gob name, so unnamed gobs are not synced yet.
-- `coop_face(gob)` gives the gob the peer's latest orientation and animation state
+- `coop_face(gob, slot)` gives the gob that player's latest orientation and animation state
 
 Log: `<game dir>\coop\bridge.log`. Only Steam build 3902 is supported; on any other build the bridge
 logs "unknown game build" and only forwards DirectInput.
@@ -126,6 +138,15 @@ doors opening for the puppet, reviving at the partner, no crash. About 2 minutes
 take focus. `tools/mdk.sh` has the helpers (start, keys, mouse, window screenshots).
 
 `tools/qa.sh` installs the current build first (`tools/install.sh`), so it always tests the repo.
+
+More players: `MDK2_N=8 tools/qa_n.sh` (default 3) runs a host and N-1 clients: everyone joins and
+follows, puppets for all in every game, enemies and hp everywhere, a client's shots, pickup and door
+seen by the other clients, damage reaching the right client, a client leaving and joining again
+mid-level, checkpoint keys, level 2. `tools/copies.sh` makes the extra game copies (mdk2.tar
+hard-linked, ~2 MB each). Folders and ports are set by `MDK2_DIR_BASE` / `MDK2_DIR<i>` and
+`MDK2_PORT` (see `tools/mdk.sh`), so two sets of copies can run side by side; `mdk_kill` only stops
+games running from its own copies. 2026-10-21: qa.sh 30/30, qa_n.sh 38/38 with 3 players and 53/53
+with 8 (~370 MB per game).
 
 Last runs (2026-10-20, Steam build 3902, level 1 cp 2): 21/21 on plain localhost (after the first
 manual session's client crash was fixed); earlier 17/17 with `[sim] latency_ms=120 jitter_ms=40

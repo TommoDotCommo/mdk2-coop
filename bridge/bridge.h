@@ -133,43 +133,62 @@ struct event {
     signed char part;
     short damage;
     int type;
-    unsigned int netid;         /* SPAWN / DESPAWN: host handle of the gob */
+    unsigned int netid;         /* SPAWN / DESPAWN: host handle of the gob; LEVEL: the new epoch */
     short objtype;              /* SPAWN / FIRE: OBJ_* type */
-    unsigned char level;        /* sender's level; events from another level are dropped */
+    unsigned short epoch;       /* sender's level epoch; events from another one are dropped */
     float pos[3];               /* SPAWN / FIRE: where it is */
     float quat[4];              /* FIRE: rotation */
     DWORD extra[4];             /* FIRE: create_object's last four arguments */
-    char name[EV_NAME];         /* target gob name; "@player" = the receiver's own player */
-    char from[EV_NAME];         /* APPLY / HURT: attacker, "@player" / "@puppet" / gob name */
+    char name[EV_NAME];         /* target gob name; "@p<n>" = player n's character */
+    char from[EV_NAME];         /* APPLY / HURT: attacker, "@p<n>" or gob name */
 };
 
+/* Players: slot 0 is the host, clients get 1.. from the host when they first send.
+ * Logs and gob names use the player number, slot + 1 ("@p2", "coop_p2"). */
+#define MAX_PLAYERS         16
+#define TO_ALL              (-1)
+
 extern int role_host;
+extern int my_slot;             /* our slot; -1 on a client until the host has told us */
 extern int cur_level;           /* level this game is in (coop_level) */
-extern int peer_player_type;    /* OBJ type of the peer's player, 0 if unknown */
-extern int have_remote;
+extern int cur_cp;
+extern unsigned short cur_epoch;    /* level epoch: the host counts its announced level loads */
+extern int have_remote;         /* some other player is connected */
 extern int sync_anim;
 extern int ent_hz;
 extern SOCKET sock;
 extern BYTE *local_player;
-extern BYTE *puppet;
-extern struct track player_track;
+extern BYTE *puppets[MAX_PLAYERS];  /* other players' puppets by slot (coop_face) */
 
 double now_ms(void);
 void net_open(const char *ini);
 void net_poll(void);
 void net_send_player(BYTE *gob);
-void net_level_reset(int peer_follows);
+void net_level_reset(int announce);
+void net_level_event(const struct event *e);
 void net_send(const void *buf, int len);
+int player_connected(int slot);
+int player_type(int slot);
+int players_connected(void);
+struct snap *player_view(int slot, int update);
+void event_init(struct event *e, int kind);
+void event_send(const struct event *e, int to);
+void event_relay(const struct event *e, int from);
 void event_queue(int kind, const char *name, int damage, int type, int part);
-void event_queue_from(int kind, const char *name, BYTE *from, int damage, int type, int part);
-void event_queue_spawn(int kind, unsigned int netid, int objtype, const float *pos, const char *name);
-struct event *event_new(int kind);
-int event_next(struct event *out);
+void event_queue_from(int to, int kind, const char *name, BYTE *from, int damage, int type, int part);
+void event_queue_spawn(int to, int kind, unsigned int netid, int objtype, int hp, const float *pos, const char *name);
+int event_next(struct event *out, int *from);
+void event_unget(int from);
+int event_must_wait(const struct event *e);
 void snap_capture(BYTE *gob, struct snap *s);
 void track_add(struct track *t, const struct snap *s);
-void track_update(struct track *t);
+void track_update(struct track *t, double clock_offset);
+double host_clock_offset(void);
 void anim_apply(BYTE *gob, const struct snap *s);
-void smooth_track(const float *pos);
+
+/* ---- game.c: players ---- */
+int puppet_slot(BYTE *gob);
+BYTE *puppet_nearest(const float *pos);
 
 /* ---- entities.c ---- */
 
@@ -182,6 +201,7 @@ void ent_despawn(unsigned int netid);
 BYTE *ent_gob(unsigned int netid);
 int ent_count(void);
 void ents_reset(void);
+void ents_resend(int to);
 int ent_is_synced(BYTE *gob);
 void ents_keep_spawner(BYTE *gob);
 void ents_dump(FILE *f);
@@ -216,6 +236,8 @@ void doors_reset(void);
 
 void pickups_init(void);
 void pickups_remove(const char *name);
+void pickups_reset(void);
+void pickups_resend(int to);
 
 /* ---- damage (lua.c) ---- */
 

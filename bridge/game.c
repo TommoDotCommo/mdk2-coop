@@ -154,16 +154,58 @@ void gob_netname(BYTE *gob, char *out, int size)
         snprintf(out, size, "n%x", gob_handle(slot));
 }
 
-/* How the peer should name one of our gobs: our Kurt is their puppet, our puppet is
- * their Kurt, anything else by network name */
+/* A player's character by slot: our own player or that player's puppet */
+static BYTE *player_gob(int slot)
+{
+    if (slot == my_slot)
+        return local_player;
+    return slot >= 0 && slot < MAX_PLAYERS ? puppets[slot] : NULL;
+}
+
+/* Slot of the player whose puppet this is, or -1 */
+int puppet_slot(BYTE *gob)
+{
+    int s;
+
+    for (s = 0; gob && s < MAX_PLAYERS; s++)
+        if (puppets[s] == gob)
+            return s;
+    return -1;
+}
+
+/* The live puppet nearest pos, or NULL if there is none */
+BYTE *puppet_nearest(const float *pos)
+{
+    BYTE *best = NULL;
+    float bestd = 0.0f;
+    int s;
+
+    for (s = 0; s < MAX_PLAYERS; s++) {
+        float *p, d;
+        if (!gob_alive(puppets[s]))
+            continue;
+        p = (float *)(puppets[s] + GOB_POSITION);
+        d = (p[0] - pos[0]) * (p[0] - pos[0]) + (p[1] - pos[1]) * (p[1] - pos[1]) + (p[2] - pos[2]) * (p[2] - pos[2]);
+        if (!best || d < bestd) {
+            best = puppets[s];
+            bestd = d;
+        }
+    }
+    return best;
+}
+
+/* How the other games should name one of our gobs: a player's character as "@p<number>"
+ * (our player, or a puppet), the same in every game; anything else by network name */
 void gob_peername(BYTE *gob, char *out, int size)
 {
+    int s = puppet_slot(gob);
+
     if (!gob)
         out[0] = 0;
-    else if (gob == local_player)
-        snprintf(out, size, "@puppet");
-    else if (gob == puppet)
-        snprintf(out, size, "@player");
+    else if (gob == local_player && my_slot >= 0)
+        snprintf(out, size, "@p%d", my_slot + 1);
+    else if (s >= 0)
+        snprintf(out, size, "@p%d", s + 1);
     else
         gob_netname(gob, out, size);
 }
@@ -176,10 +218,8 @@ BYTE *gob_find_peername(const char *name)
 
     if (!name[0])
         return NULL;
-    if (!strcmp(name, "@player"))
-        return local_player;
-    if (!strcmp(name, "@puppet"))
-        return puppet;
+    if (name[0] == '@' && name[1] == 'p')
+        return player_gob(atoi(name + 2) - 1);
     if (name[0] == 'n' && name[1] && strspn(name + 1, "0123456789abcdef") == strlen(name + 1)) {
         unsigned int id = strtoul(name + 1, NULL, 16);
         return role_host ? gob_by_handle(id) : ent_gob(id);

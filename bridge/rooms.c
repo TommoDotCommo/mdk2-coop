@@ -3,10 +3,10 @@
  * mark_rooms(arg, camera, 1) (0x430020) re-activates the room whose bounding box holds
  * the camera plus the rooms visible from it and makes it current; inactive rooms go
  * into stasis (gob flag 0x8) and nothing in them runs. Redirecting that one call so it
- * also activates the rooms around the other player's puppet (without entering them:
- * no OnEnterRoom, music or current room change) keeps the world running where either
- * player is. Each game also activates the rooms at its own player (the partner does,
- * for the puppet), so both wake the same rooms.
+ * also activates the rooms around the other players' puppets (without entering them:
+ * no OnEnterRoom, music or current room change) keeps the world running wherever a
+ * player is. Each game also activates the rooms at its own player (the others do, for
+ * its puppet), so all wake the same rooms.
  */
 #include <string.h>
 #include "bridge.h"
@@ -48,17 +48,21 @@ static void activate_rooms_at(float *pos)
     }
 }
 
-static void __cdecl mark_rooms_both(void *arg, BYTE *camera, int set_current)
+static void __cdecl mark_rooms_all(void *arg, BYTE *camera, int set_current)
 {
+    int s;
+
     ((mark_rooms_t)MARK_ROOMS_ADDR)(arg, camera, set_current);
-    if (puppet && have_remote && gob_slot(puppet) >= 0) {
-        activate_rooms_at((float *)(puppet + GOB_POSITION));
-        /* our own player's rooms too: the partner wakes rooms where our player stands,
-         * we by our camera; a room holding the player but not the camera (12-6, a step
-         * left at the start) only woke over there and made its items there only */
-        if (gob_alive(local_player))
-            activate_rooms_at((float *)(local_player + GOB_POSITION));
-    }
+    if (!have_remote)
+        return;
+    for (s = 0; s < MAX_PLAYERS; s++)
+        if (gob_alive(puppets[s]))
+            activate_rooms_at((float *)(puppets[s] + GOB_POSITION));
+    /* our own player's rooms too: the others wake rooms where our player stands, we by our
+     * camera; a room holding the player but not the camera (12-6, a step left at the start)
+     * only woke over there and made its items there only */
+    if (gob_alive(local_player))
+        activate_rooms_at((float *)(local_player + GOB_POSITION));
 }
 
 /* Lowest point of the level: min z over the room boxes (computed once per level) */
@@ -95,12 +99,13 @@ static int compute_floor(void)
 }
 
 /* With a partner, falling far below every room (the level has no kill plane there:
- * Kurt fell forever off level 1's dome area) brings us back to the partner */
+ * Kurt fell forever off level 1's dome area) brings us back to the nearest partner */
 void rooms_check_fall(void)
 {
+    BYTE *puppet;
     float *pos;
 
-    if (!local_player || !have_remote || !gob_alive(puppet))
+    if (!local_player || !have_remote || !(puppet = puppet_nearest((float *)(local_player + GOB_POSITION))))
         return;
     /* the room list is rebuilt while a level starts: reading it in the first frames of
      * level 2 killed the client */
@@ -125,8 +130,8 @@ void rooms_init(void)
         return;
     }
     VirtualProtect(call, 5, PAGE_EXECUTE_READWRITE, &old);
-    *(DWORD *)(call + 1) = (DWORD)mark_rooms_both - (DWORD)(call + 5);
+    *(DWORD *)(call + 1) = (DWORD)mark_rooms_all - (DWORD)(call + 5);
     VirtualProtect(call, 5, old, &old);
     FlushInstructionCache(GetCurrentProcess(), call, 5);
-    logmsg("rooms: manager also keeps the puppet's rooms active");
+    logmsg("rooms: manager also keeps the puppets' rooms active");
 }

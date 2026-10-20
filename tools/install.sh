@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Build the bridge and install everything into both game copies (closes running copies,
-# which keep dinput8.dll locked): dinput8.dll, coop.ini (host / client on localhost),
+# Build the bridge and install everything into the game copies (closes running copies,
+# which keep dinput8.dll locked): dinput8.dll, coop.ini (host + clients on localhost),
 # coop.lua, the settings.lua loader line and the Windows input helpers.
 # MDK2_START="<level> <checkpoint>" makes the host load that checkpoint from the title screen.
-# MDK2_BACKGROUND=1 installs background test mode for both: the games ignore the real keyboard
+# MDK2_BACKGROUND=1 installs background test mode for all: the games ignore the real keyboard
 # and mouse, never take focus and are muted; scripts drive them through coop\command.lua.
 # Their windows go side by side on the second monitor (the primary one if there is no other).
-# Game copies: MDK2_DIR1 (host) and MDK2_DIR2 (client), see tools/mdk.sh.
+# Game copies: MDK2_N of them, instance 1 the host (see tools/mdk.sh).
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 source "$here/tools/mdk.sh"
@@ -15,11 +15,13 @@ make -s -C "$here/bridge"
 mdk_kill
 sleep 2
 mdk_tools_install
-for i in 1 2; do
+dirs=""
+for i in $(mdk_seq); do
     d="$(mdk_wsl "$(mdk_dir $i)")"
-    [ -f "$d/mdk2hd.exe" ] || { echo "no game in $d"; exit 1; }
+    [ -f "$d/mdk2hd.exe" ] || { echo "no game in $d (tools/copies.sh makes more copies)"; exit 1; }
     mkdir -p "$d/coop"
     cp "$here/bridge/dinput8.dll" "$d/"
+    dirs="$dirs $d"
 done
 mx=0; my=0
 if [ "${MDK2_BACKGROUND:-0}" = 1 ]; then
@@ -27,21 +29,28 @@ if [ "${MDK2_BACKGROUND:-0}" = 1 ]; then
         $s = [System.Windows.Forms.Screen]::AllScreens | Sort-Object Primary | Select-Object -First 1;
         "$($s.WorkingArea.X) $($s.WorkingArea.Y)"' | tr -d '\r')
 fi
-bg() { printf '[test]\r\nbackground=%s\r\nx=%d\r\ny=%d\r\n' "${MDK2_BACKGROUND:-0}" "$1" "$2"; }
-{ printf '[net]\r\nrole=host\r\nlisten_port=27900\r\npeer_host=127.0.0.1\r\npeer_port=27901\r\n'
-  bg $((mx + 20)) $((my + 40)); } > "$(mdk_wsl "$(mdk_dir 1)")/coop/coop.ini"
-{ printf '[net]\r\nrole=client\r\nlisten_port=27901\r\npeer_host=127.0.0.1\r\npeer_port=27900\r\n'
-  bg $((mx + 860)) $((my + 40)); } > "$(mdk_wsl "$(mdk_dir 2)")/coop/coop.ini"
-GAME_DIRS="$(mdk_wsl "$(mdk_dir 1)") $(mdk_wsl "$(mdk_dir 2)")" "$here/tools/inject.sh"
-# MDK2_START="<level> <checkpoint>": the host loads it by itself from the title screen
+# windows: two side by side, more in a grid of four across (they overlap; screenshots come from
+# the back buffer, so that does not matter)
+for i in $(mdk_seq); do
+    if [ "$MDK2_N" -le 2 ]; then x=$((mx + 20 + (i - 1) * 840)); y=$((my + 40))
+    else x=$((mx + 10 + (i - 1) % 4 * 630)); y=$((my + 20 + (i - 1) / 4 * 650)); fi
+    if [ "$i" = 1 ]; then net="role=host\r\nlisten_port=$MDK2_PORT"
+    else net="role=client\r\nlisten_port=$((MDK2_PORT + i - 1))\r\npeer_host=127.0.0.1\r\npeer_port=$MDK2_PORT"; fi
+    printf "[net]\r\n$net\r\n[test]\r\nbackground=%s\r\nx=%d\r\ny=%d\r\n" "${MDK2_BACKGROUND:-0}" "$x" "$y" \
+        > "$(mdk_wsl "$(mdk_dir $i)")/coop/coop.ini"
+done
+GAME_DIRS="$dirs" "$here/tools/inject.sh"
+# MDK2_START="<level> <checkpoint>": the host loads it by itself from the title screen, once the
+# other instances have joined
 if [ -n "${MDK2_START:-}" ]; then
     read -r start_level start_cp <<< "$MDK2_START"
-    printf '\r\ncoop.autostart = { %d, %d }\r\n' "$start_level" "$start_cp" >> "$(mdk_wsl "$(mdk_dir 1)")/coop/coop.lua"
+    printf '\r\ncoop.autostart = { %d, %d }\r\ncoop.autostart_players = %d\r\n' "$start_level" "$start_cp" \
+        $((MDK2_N - 1)) >> "$(mdk_wsl "$(mdk_dir 1)")/coop/coop.lua"
 fi
-# background test mode: mute both (settings.lua has set the volumes by the time coop.lua runs;
+# background test mode: mute all (settings.lua has set the volumes by the time coop.lua runs;
 # the games are killed, not quit, so they never write these back)
 if [ "${MDK2_BACKGROUND:-0}" = 1 ]; then
-    for i in 1 2; do
+    for i in $(mdk_seq); do
         printf '\r\nchSndSetEffectsVolume(0)\r\nchSndMusicVolume(0)\r\nchSndSetVoiceVolume(0)\r\n' \
             >> "$(mdk_wsl "$(mdk_dir $i)")/coop/coop.lua"
     done
