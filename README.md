@@ -43,7 +43,8 @@ Shots (`OBJ` types 400-499): every gob is made by the engine's create_object (0x
 bridge hooks. Creating a shot sends a reliable FIRE event (the host announces every shot, the client its own
 Kurt's); the peer replays it through the same function, with the target and owner translated, so it flies
 with the game's own physics. Replayed shots are only for show: their damage is dropped and the real hits
-travel as HIT/APPLY/HURT.
+travel as HIT/APPLY/HURT. Not yet: shots created without a position and placed afterwards (the
+Doganboy's grenade, 417) are logged as "not replicated".
 
 Pickups (`OBJ` types 300-399): every pickup path asks the engine whether the item has an OnPickedUp
 handler (0x40cf60, event 15), which the bridge hooks. The picker keeps the item and sends PICKUP; the
@@ -90,6 +91,8 @@ Untested: changing options in game probably rewrites settings.lua and drops the 
 Play in the left window; the right one follows level loads by itself. F2 drops a numbered marker in
 both logs, F8 skips to the next level.
 
+The puppet is never placed within 3 units of your own player (it is solid and moved every frame;
+both players spawn on the same point and an overlapping puppet shoved the host 25 units into a wall).
 The puppet is the same character as your own player (each level fixes Kurt, Max or Doc and only loads
 that model); a different partner type is logged.
 

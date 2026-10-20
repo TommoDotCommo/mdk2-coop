@@ -33,6 +33,11 @@ spawned=$(count $H "^ent spawn"); bound=$(count $C "^ent bind")
 check "host announced level enemies ($spawned)" test "$spawned" -gt 0
 check "client bound all of them ($bound)"       test "$bound" -eq "$spawned"
 
+# 2b. client sniper rounds (Space toggles sniper mode; fire before any enemy is attacking the
+#     client: hit reactions interrupt the switch)
+mdk_key "$B" 57; sleep 2; mdk_click "$B" 100 3; sleep 2; mdk_key "$B" 57; sleep 1
+check "client sniper rounds replayed on host"   has $H "replay fire type 406"
+
 # 3. host-spawned enemy, client damage through the host
 mdk_key "$A" 63; sleep 3                                    # F5: host spawns coop_dog1
 check "client bound the host's new Doganboy"    has $C "ent bind .* -> coop_dog1"
@@ -58,12 +63,11 @@ check "client made a separate copy for it"      has $C "^ent bind ([0-9a-f]+) ->
 mdk_click "$B" 2500 1; sleep 2
 check "client survived hitting the Poopsies"    bash -c "$(declare -f mdk_alive); mdk_alive $B"
 
-# 4. shots both ways (the Doganboy fires when the host backs off; the client snipes)
+# 4. the host's enemy shots on the client (the Doganboy fires when the host backs off)
 mdk_key "$A" 31 1 2000; sleep 4
-fired=$(count $H "^fire type"); replayed=$(count $C "^replay fire")
-check "host shots replayed on client ($fired/$replayed)"  bash -c "[ $fired -eq 0 ] || [ $replayed -ge $((fired - 1)) ]"
-mdk_key "$B" 57; sleep 1; mdk_click "$B" 100 2; sleep 2; mdk_key "$B" 57; sleep 1
-check "client sniper rounds replayed on host"   has $H "replay fire type 406"
+# the Doganboy keeps firing: count the host's shots, give them 2 s to arrive, then compare
+fired=$(count $H "^fire type [0-9]+ at "); sleep 2; replayed=$(count $C "^replay fire")   # sent ones log a position
+check "host shots replayed on client ($fired fired, $replayed replayed)"  test "$replayed" -ge "$fired"
 
 # 5. pickup and rooms/doors (client teleports to the decoy item, then into door dr1_03)
 mdk_key "$B" 62; sleep 3

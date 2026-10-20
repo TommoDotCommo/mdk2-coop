@@ -114,11 +114,28 @@ function coop.Tick()
     local gob = coop.p2
     if (not gob or not p) then return end
     if (x) then
+        x, y = coop.KeepApart(p, x, y)
         mdkGobSetPositionXYZ(gob, x, y, z + coop.mirror)
         coop_face(gob)
     else
         mdkGobSetPositionXYZ(gob, p.position.x + coop.offset, p.position.y, p.position.z)
     end
+end
+
+-- The puppet is solid and moved every frame; placed inside our player (both spawn on the
+-- same point) it shoves us across the room (25 units into a wall at level 1's start).
+-- Keep it at least coop.apart units away horizontally (z is up). --
+coop.apart = 3
+function coop.KeepApart(p, x, y)
+    local dx = x - p.position.x
+    local dy = y - p.position.y
+    local d2 = dx * dx + dy * dy
+    if (d2 >= coop.apart * coop.apart) then return x, y end
+    if (d2 < 0.0001) then
+        return p.position.x + coop.apart, y
+    end
+    local k = coop.apart / sqrt(d2)
+    return p.position.x + dx * k, p.position.y + dy * k
 end
 
 -- the puppet has an empty OnUpdate: a gob with a Lua OnUpdate skips its class think,
@@ -139,6 +156,7 @@ function coop.SpawnPuppet()
     coop.p2 = mdkCreateObjectLua("coop_p2", ptype, mdkGetScene(), nil, nil, 0,0,0, 1,0,0,0, nil,0,0,0,0)
     mdkGobSetPositionXYZ(coop.p2, p.position.x + coop.offset, p.position.y, p.position.z)
     mdkSetLuaEvent(coop.p2, "OnUpdate", coop.PuppetOnUpdate)
+
 end
 
 -- every level load (menu, script, save, debug) ends in level(): reset the bridge for the
