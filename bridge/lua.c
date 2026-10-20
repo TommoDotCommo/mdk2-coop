@@ -117,6 +117,8 @@ static void l_coop_send(void)
     if (gob && (hp = gob_hp(gob)) > max_hp)
         max_hp = hp;
     net_send_player(gob);
+    if (gob)
+        rooms_check_fall();
     if (gob && role_host)
         ents_host_tick();
 }
@@ -266,6 +268,7 @@ static void l_coop_level(void)
     ents_reset();
     shots_reset();
     doors_reset();
+    rooms_level_reset();
     net_level_reset();
     puppet = NULL;
     local_player = NULL;

@@ -292,11 +292,19 @@ end
 
 -- F4: teleport the player onto the next test spot: level 1's decoy item (next room, standing
 -- on it picks it up), then door dr1_03 (another room) --
-coop.tpspots = { "l1_r3dummy", "dr1_03" }
-coop.ntpspots = 2      -- Lua 3.1 has no getn
+coop.tpspots = { "l1_r3dummy", "dr1_03", "void" }
+coop.ntpspots = 3      -- Lua 3.1 has no getn
 coop.tpnext = 1
 comfuncs.fkey[COM_TOGLG] = function()
     local name = coop.tpspots[coop.tpnext]
+    local p = mdkGetPlayerGob()
+    if (name == "void") then
+        -- 400 units below us: outside the level, to test falling out of the world --
+        coop.tpnext = 1
+        mdkGobSetPositionXYZ(p, p.position.x, p.position.y, p.position.z - 400)
+        coop_log(format("teleported into the void at z %.1f", p.position.z))
+        return
+    end
     local g = getglobal(name)
     coop.tpnext = coop.tpnext + 1
     if (coop.tpnext > coop.ntpspots) then coop.tpnext = 1 end

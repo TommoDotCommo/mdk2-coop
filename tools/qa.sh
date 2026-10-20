@@ -84,6 +84,9 @@ check "client revived at the host"              has $C "^down: "
 check "host revived at the client"              has $H "^down: "
 sleep 6     # a lava death that slipped through would reload the checkpoint by now
 reload_after_down() { sed -n '/^down: /,$p' "$1" | grep -q '^level '; }
+# falling out of the world (F4 cycles decoy -> door -> void; the client used two already)
+mdk_key "$B" 62; sleep 3
+check "client fell out of the world and came back" has $C "^fell out of the world"
 check "no checkpoint reload after going down"   bash -c "$(declare -f reload_after_down); ! reload_after_down '$(mdk_log $H)' && ! reload_after_down '$(mdk_log $C)'"
 
 check "both games still running"                bash -c "$(declare -f mdk_alive); mdk_alive $A && mdk_alive $B"

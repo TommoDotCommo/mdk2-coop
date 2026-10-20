@@ -193,6 +193,8 @@ void frame_init(void);
 /* ---- rooms.c ---- */
 
 void rooms_init(void);
+void rooms_level_reset(void);
+void rooms_check_fall(void);
 
 /* ---- doors.c ---- */
 

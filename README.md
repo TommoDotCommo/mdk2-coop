@@ -16,7 +16,7 @@ small: the game reads it into an 8 KB stack buffer and crashes (0xc0000409) if i
     tools/inject.sh --off   # remove the settings.lua line
 
 In game: F9 BioWare debug menu, F6 / F7 next / previous checkpoint (host),
-F8 next level (host), F2 marker in both logs, F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 lava damage to yourself, F1 (host) spawn a Poopsy named coop_spawn (same name each time), F4 teleport to the next test spot (level 1's decoy item, then door dr1_03).
+F8 next level (host), F2 marker in both logs, F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 lava damage to yourself, F1 (host) spawn a Poopsy named coop_spawn (same name each time), F4 teleport to the next test spot (level 1's decoy item, door dr1_03, then 400 units below you).
 Room changes are logged to bridge.log as they happen.
 
 ## Bridge (dinput8.dll)
@@ -62,7 +62,9 @@ screen, and not when the load was itself following the peer) and the next tick a
 enemy packets carry the sender's level and are dropped by a game in another level.
 
 Going down: with a partner connected, a hit that would kill your Kurt revives him at the partner with the
-health he started the level with, instead of reloading the checkpoint in one game only.
+health he started the level with, instead of reloading the checkpoint in one game only. Falling more than
+30 units below the level's lowest room (some edges have no kill plane, Kurt falls forever) also brings you
+back to the partner.
 
 Damage authority (`[net] role=host|client`): the bridge hooks the game's central damage function
 (0x40d590). The host applies everything and tells the client (APPLY); the client applies damage to its own

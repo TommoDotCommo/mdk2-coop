@@ -20,6 +20,7 @@
 #define ROOM_ARRAY      (*(BYTE ***)0x524380)
 #define ROOM_INACTIVE   0x24
 #define point_in_box    ((int (*)(float *, float *, float *))0x453fc0)
+#define FALL_MARGIN     30.0f       /* this far below the lowest room counts as out of the world */
 
 typedef void (*mark_rooms_t)(void *, BYTE *, int);
 
@@ -50,6 +51,55 @@ static void __cdecl mark_rooms_both(void *arg, BYTE *camera, int set_current)
     ((mark_rooms_t)MARK_ROOMS_ADDR)(arg, camera, set_current);
     if (puppet && have_remote && gob_slot(puppet) >= 0)
         activate_rooms_at((float *)(puppet + GOB_POSITION));
+}
+
+/* Lowest point of the level: min z over the room boxes (computed once per level) */
+static float level_floor;
+static int have_floor;
+
+void rooms_level_reset(void)
+{
+    have_floor = 0;
+}
+
+static int compute_floor(void)
+{
+    int i, found = 0;
+
+    for (i = 0; i < ROOM_COUNT; i++) {
+        BYTE *room = ROOM_ARRAY[i];
+        float *bmin, *bmax;
+        if (!room)
+            continue;
+        bmin = (float *)(room + 0x2c);
+        bmax = (float *)(room + 0x38);
+        if (bmax[2] <= bmin[2])
+            continue;       /* no box */
+        if (!found || bmin[2] < level_floor)
+            level_floor = bmin[2];
+        found = 1;
+    }
+    if (found)
+        logmsg("rooms: lowest point of the level z %.1f", level_floor);
+    return found;
+}
+
+/* With a partner, falling far below every room (the level has no kill plane there:
+ * Kurt fell forever off level 1's dome area) brings us back to the partner */
+void rooms_check_fall(void)
+{
+    float *pos;
+
+    if (!local_player || !have_remote || !gob_alive(puppet))
+        return;
+    if (!have_floor && !(have_floor = compute_floor()))
+        return;
+    pos = (float *)(local_player + GOB_POSITION);
+    if (pos[2] > level_floor - FALL_MARGIN)
+        return;
+    logmsg("fell out of the world at z %.1f (floor %.1f): back to the partner", pos[2], level_floor);
+    gob_set_position(local_player, ((float *)(puppet + GOB_POSITION))[0], ((float *)(puppet + GOB_POSITION))[1],
+                     ((float *)(puppet + GOB_POSITION))[2]);
 }
 
 void rooms_init(void)
