@@ -20,6 +20,6 @@ mdk_click() { powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$MDK2_TOO
 # mdk_shot <pid> <name>: window capture to $MDK2_TOOLS\<name>.png
 mdk_shot()  { powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$MDK2_TOOLS\\winshot.ps1" -id "$1" -out "$MDK2_TOOLS\\$2.png"; }
 mdk_alive() { tasklist.exe /FI "PID eq $1" | grep -qi mdk2hd; }
-mdk_kill()  { taskkill.exe /IM mdk2hd.exe /F >/dev/null 2>&1; }
+mdk_kill()  { taskkill.exe /IM mdk2hd.exe /F >/dev/null 2>&1 || true; }   # fine when none is running
 # mdk_boot: start host and client; only the host loads level 1 cp 2 (F7), the client follows
 mdk_boot()  { mdk_kill; sleep 2; local A B; A=$(mdk_start 1); sleep 3; B=$(mdk_start 2); echo "$A $B" > "$MDK2_PIDS"; sleep 9; mdk_key "$A" 65; sleep 18; }
