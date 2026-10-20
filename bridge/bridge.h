@@ -9,6 +9,7 @@
 
 #include <winsock2.h>
 #include <windows.h>
+#include <stdio.h>
 
 /* ---- game Lua 3.1 API (cdecl, statically linked in mdk2hd.exe) ---- */
 
@@ -121,7 +122,7 @@ struct track {
     struct snap view;                   /* interpolated state for this frame */
 };
 
-enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK };
+enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE };
 #define EV_NAME 32
 
 struct event {
@@ -179,6 +180,12 @@ void ent_despawn(unsigned int netid);
 BYTE *ent_gob(unsigned int netid);
 int ent_count(void);
 void ents_reset(void);
+int ent_is_synced(BYTE *gob);
+void ents_dump(FILE *f);
+
+/* ---- state.c ---- */
+
+void state_dump(const char *tag);
 
 /* ---- shots.c ---- */
 
@@ -212,6 +219,14 @@ void pickups_remove(const char *name);
 typedef void (*deal_damage_t)(void *, void *, int, int, int);
 extern deal_damage_t deal_damage_orig;
 void deal_damage_hook(void *from, void *target, int damage, int type, int part);
+
+/* ---- input.c ---- */
+
+extern int test_background;
+void input_init(void);
+void input_wrap_dinput(void *di);
+void input_press(int code, int hold_ms);
+void input_shot(const char *name);
 
 /* ---- dinput8.c ---- */
 

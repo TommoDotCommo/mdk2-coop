@@ -70,6 +70,36 @@ BYTE *ent_gob(unsigned int netid)
     return gob_by_handle(e->local) == e->gob ? e->gob : NULL;
 }
 
+/* 1 if the gob is one of the synced enemies */
+int ent_is_synced(BYTE *gob)
+{
+    int i;
+
+    for (i = 0; i < nents; i++)
+        if (ents[i].gob == gob && gob_by_handle(ents[i].local) == gob)
+            return 1;
+    return 0;
+}
+
+/* state.c: one "ent" line per synced enemy, "gone" where the local gob no longer exists */
+void ents_dump(FILE *f)
+{
+    int i;
+
+    for (i = 0; i < nents; i++) {
+        BYTE *gob = gob_by_handle(ents[i].local) == ents[i].gob ? ents[i].gob : NULL;
+        float *p;
+
+        if (!gob) {
+            fprintf(f, "ent %x gone\n", ents[i].id);
+            continue;
+        }
+        p = (float *)(gob + GOB_POSITION);
+        fprintf(f, "ent %x %d %d %.2f %.2f %.2f %s\n", ents[i].id, gob_type(gob), gob_hp(gob),
+                p[0], p[1], p[2], gob_name(gob));
+    }
+}
+
 /* New level: every gob is gone */
 void ents_reset(void)
 {

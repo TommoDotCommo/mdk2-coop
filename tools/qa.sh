@@ -2,14 +2,18 @@
 # Automated co-op checks with two real game instances on this PC (host + client, UDP
 # on localhost). Installs the current build (tools/install.sh), drives both games with key
 # and mouse input, then checks bridge.log on each side. Needs the two game copies, windowed.
-# Takes about 2 minutes; the game windows will take focus. Leaves the settings.lua line in.
+# Takes about 2 minutes. Background test mode: the games sit muted behind other windows on the
+# second monitor and get scripted input only, so the PC stays usable. Leaves the settings.lua line in.
 #   tools/qa.sh            run every check
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/mdk.sh"
-MDK2_START="1 2" "$here/install.sh" >/dev/null   # always test what is in the repo; host autostarts 1-2
+MDK2_BACKGROUND=1 MDK2_START="1 2" "$here/install.sh" >/dev/null   # always test what is in the repo; host autostarts 1-2
 
 pass=0; fail=0; results=()
+out="$here/../local/qa/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$out"   # state dumps and reports
+# state <tag>: both games dump their state; passes when statecheck.py finds no FAIL
+state() { mdk_state "$1" "$out" > "$out/report_$1.txt" 2>&1; }
 check() {   # check <name> <command...>
     local name="$1"; shift
     if "$@" >/dev/null 2>&1; then results+=("PASS  $name"); pass=$((pass + 1))
@@ -32,6 +36,7 @@ sleep 2
 spawned=$(count $H "^ent spawn"); bound=$(count $C "^ent bind")
 check "host announced level enemies ($spawned)" test "$spawned" -gt 0
 check "client bound all of them ($bound)"       test "$bound" -eq "$spawned"
+check "state matches after loading"             state load
 
 # 2b. client sniper rounds (right mouse toggles sniper mode; fire before any enemy is attacking the
 #     client: hit reactions interrupt the switch)
@@ -64,6 +69,7 @@ check "duplicate announced as n<id>"            bash -c "grep -A50 -E '^ent spaw
 check "client made a separate copy for it"      has $C "^ent bind ([0-9a-f]+) -> n\\1 \\(local [0-9a-f]+, type 217\\)"
 mdk_click "$B" 2500 1; sleep 2
 check "client survived hitting the Poopsies"    bash -c "$(declare -f mdk_alive); mdk_alive $B"
+check "state matches after spawns and hits"     state hits
 
 # 4. the host's enemy shots on the client (the Doganboy fires when the host backs off)
 mdk_key "$A" 31 1 2000; sleep 4
@@ -77,6 +83,7 @@ check "client picked up the decoy"              has $C "^pickup l1_r3dummy"
 check "host removed its decoy"                  has $H "peer picked up l1_r3dummy: removed here"
 mdk_key "$B" 62; sleep 3
 check "host opened dr1_03 for the puppet"       has $H "door dr1_03 opening \(nearer player: puppet\)"
+check "state matches after pickup and door"     state pickup
 
 # 6. going down
 mdk_key "$B" 61; sleep 2; mdk_key "$A" 61; sleep 2         # F3: 200 damage to self
@@ -101,8 +108,11 @@ for i in $(seq 1 30); do sleep 1; grep -q "^level 2 checkpoint 1 started" "$(mdk
 check "F8 took both games to level 2"           has $C "^level 2 checkpoint 1 started"
 sleep 20
 check "both games survive 20 s of level 2 (Max)" bash -c "$(declare -f mdk_alive); mdk_alive $A && mdk_alive $B"
+check "state matches in level 2"                state level2
 mdk_kill
 
 printf '%s\n' "${results[@]}"
+grep -h '^FAIL' "$out"/report_*.txt 2>/dev/null | sed 's/^/  state: /'
+echo "state dumps: $out"
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

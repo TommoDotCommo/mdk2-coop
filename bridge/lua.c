@@ -180,6 +180,8 @@ static void l_coop_event(void)
             shots_replay(&e);
         else if (e.kind == EV_MARK)
             logmsg("lua: MARK %d (from the partner)", e.damage);
+        else if (e.kind == EV_STATE)
+            state_dump(e.name);     /* whatever level we are in: a mismatch is what it is for */
         else if (e.level != (unsigned char)cur_level && e.kind != EV_LEVEL)
             logmsg("event %d %s from level %d dropped (we are in %d)", e.kind, e.name, e.level, cur_level);
         else if (e.kind == EV_PICKUP)
@@ -325,6 +327,35 @@ static void l_coop_mark(void)
     event_queue(EV_MARK, "", (int)num_param(1), 0, 0);
 }
 
+/* coop_press(code, ms): hold a key (DirectInput scancode) or mouse button (256 left, 257 right)
+ * for ms; only in background test mode, where the real devices are ignored */
+static void l_coop_press(void)
+{
+    if (test_background)
+        input_press((int)num_param(1), (int)num_param(2));
+}
+
+/* coop_shot(name): screenshot of the next frame to <game dir>\coop\<name>.tga (background
+ * test mode; chScreenShot run from a script catches an empty buffer) */
+static void l_coop_shot(void)
+{
+    long len;
+    const char *name = luaL_check_lstr(1, &len);
+    if (test_background)
+        input_shot(name);
+}
+
+/* coop_state(tag): write coop\state_<tag>.txt here and, from the host, in the client too */
+static void l_coop_state(void)
+{
+    long len;
+    const char *tag = luaL_check_lstr(1, &len);
+
+    state_dump(tag);
+    if (role_host)
+        event_queue(EV_STATE, tag, 0, 0, 0);
+}
+
 /* coop_peer_type() -> OBJ type of the peer's player, or nil before it is known */
 static void l_coop_peer_type(void)
 {
@@ -443,6 +474,9 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
     tolua_function(NULL, "coop_listgobs", l_coop_listgobs);
     tolua_function(NULL, "coop_log", l_coop_log);
+    tolua_function(NULL, "coop_press", l_coop_press);
+    tolua_function(NULL, "coop_shot", l_coop_shot);
+    tolua_function(NULL, "coop_state", l_coop_state);
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
     net_open(ini);
     deal_damage_orig = hook_code((BYTE *)DEAL_DAMAGE_ADDR, deal_damage_prologue, 5, deal_damage_hook);

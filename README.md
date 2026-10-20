@@ -19,6 +19,18 @@ In game: F9 BioWare debug menu, F6 / F7 next / previous checkpoint (host),
 F8 next level (host), F2 marker in both logs, F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 lava damage to yourself, F1 (host) spawn a Poopsy named coop_spawn (same name each time), F4 teleport to the next test spot (level 1's decoy item, door dr1_03, then 400 units below you).
 Room changes are logged to bridge.log as they happen.
 
+Background test mode (`tools/qa.sh` and `tools/sweep.sh` use it; `MDK2_BACKGROUND=1 tools/install.sh` sets
+`[test] background=1` in coop.ini): both games open side by side on the second monitor, behind other windows,
+never take focus, are muted and capped at 60 fps (`[test] fps`). They ignore the real keyboard and mouse;
+scripts write a Lua line to `<game dir>\coop\command.lua`, which the bridge runs within a few frames:
+`coop_press(code, ms)` holds a DirectInput scancode (256 / 257 = left / right mouse) and `coop_shot(name)`
+saves the next frame to `coop\<name>.tga`. `tools/play.sh` stays in normal mode for playing by hand.
+
+State checks: `coop_state(tag)` on the host writes `coop\state_<tag>.txt` (players, puppet, synced enemies,
+other actors, items, doors) and has the client do the same; `tools/statecheck.py host client` reports where
+the two worlds disagree. `mdk_state` (tools/mdk.sh) runs both; qa.sh checks state at four points and
+sweep.sh at every checkpoint.
+
 ## Bridge (dinput8.dll)
 
 `bridge/` builds a dinput8.dll proxy (mingw-w64, `make -C bridge install GAME_DIR=/mnt/c/coop/mdk2-test`).

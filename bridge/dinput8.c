@@ -72,7 +72,10 @@ typedef HRESULT (WINAPI *DirectInput8Create_t)(HINSTANCE, DWORD, REFIID, LPVOID 
 HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE inst, DWORD ver, REFIID riid, LPVOID *out, LPUNKNOWN outer)
 {
     DirectInput8Create_t fn = (DirectInput8Create_t)real_proc("DirectInput8Create");
-    return fn ? fn(inst, ver, riid, out, outer) : E_FAIL;
+    HRESULT hr = fn ? fn(inst, ver, riid, out, outer) : E_FAIL;
+    if (SUCCEEDED(hr))
+        input_wrap_dinput(*out);
+    return hr;
 }
 
 HRESULT WINAPI Proxy_DllCanUnloadNow(void)
@@ -114,6 +117,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         log_file = fopen(path, "w");
         logmsg("mdk2-coop bridge attached");
         install_lua_hook();
+        input_init();
     }
     return TRUE;
 }

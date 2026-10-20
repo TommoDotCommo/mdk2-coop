@@ -5,7 +5,7 @@
 #   tools/sweep.sh                 every checkpoint
 #   tools/sweep.sh 2-1 3-4         from 2-1 up to and including 3-4
 # Results: local/sweeps/<date-time>/results.md, plus per checkpoint both log slices,
-# both screenshots and any crash dumps. Takes roughly 30 s per checkpoint.
+# both screenshots, both state dumps with statecheck.py's report (state.txt) and any crash dumps. Takes roughly 30 s per checkpoint.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/mdk.sh"
@@ -31,8 +31,8 @@ results="$out/results.md"
 {
     echo "# Checkpoint sweep $(date '+%Y-%m-%d %H:%M')"
     echo
-    echo "| checkpoint | followed | puppets | enemies host/client | orphans | lua errors | enemies hit | hp mismatches | alive | notes |"
-    echo "|---|---|---|---|---|---|---|---|---|---|"
+    echo "| checkpoint | followed | puppets | enemies host/client | orphans | lua errors | enemies hit | hp mismatches | state fail/warn | alive | notes |"
+    echo "|---|---|---|---|---|---|---|---|---|---|---|"
 } > "$results"
 
 LOG1="$(mdk_log 1)"; LOG2="$(mdk_log 2)"
@@ -54,7 +54,7 @@ collect_dumps() {   # move new crash dumps into the checkpoint's folder
     done
 }
 start_at() {   # start_at <checkpoint>: fresh pair with the host autostarting there
-    MDK2_START="${1%-*} ${1#*-}" "$here/install.sh" >/dev/null
+    MDK2_BACKGROUND=1 MDK2_START="${1%-*} ${1#*-}" "$here/install.sh" >/dev/null
     mdk_boot
 }
 
@@ -91,9 +91,10 @@ for c in $list; do
     mdk_key "$B" 59                                       # client F1: hits coop_dog1 if there is one
     mdk_key "$A" 32 1 800; mdk_key "$B" 30 1 800          # strafe apart
     sleep 3
-    mdk_shot "$A" "sweep_host" >/dev/null 2>&1; mdk_shot "$B" "sweep_client" >/dev/null 2>&1
-    mv "$(mdk_wsl "$MDK2_TOOLS")/sweep_host.png" "$dir/host.png" 2>/dev/null
-    mv "$(mdk_wsl "$MDK2_TOOLS")/sweep_client.png" "$dir/client.png" 2>/dev/null
+    mdk_shot "$A" "$dir/host.png" >/dev/null 2>&1; mdk_shot "$B" "$dir/client.png" >/dev/null 2>&1
+    mdk_state "$c" "$dir" > "$dir/state.txt" 2>&1
+    state=$(sed -nE 's/^state: ([0-9]+) fail, ([0-9]+) warn.*/\1\/\2/p' "$dir/state.txt")
+    [ -n "$state" ] || state="no dump"
 
     since "$LOG1" "$o1" > "$dir/host.log"; since "$LOG2" "$o2" > "$dir/client.log"
     collect_dumps "$dir"
@@ -114,8 +115,9 @@ for c in $list; do
     [ "$luaerr" -gt 0 ] && notes="$notes $(grep -h 'LUA ERROR' "$dir"/*.log | sort | uniq -c | head -2 | tr -s ' ' | tr '\n' ';')"
     grep -q '^down: ' "$dir/host.log" "$dir/client.log" && notes="$notes went down;"
 
+    grep -q '^FAIL' "$dir/state.txt" && notes="$notes $(grep -m2 '^FAIL' "$dir/state.txt" | sed 's/^FAIL  //' | tr '\n' ';')"
     [ "$hpbad" -gt 0 ] && notes="$notes hp differs: $(join "$dir/hp_host.txt" "$dir/hp_client.txt" | awk '$2 != $3' | head -2 | tr '\n' ';')"
-    echo "| $c | $followed | $puppets | $spawned/$bound | $orphans | $luaerr | $hits | $hpbad | $alive | ${notes:-} |" >> "$results"
+    echo "| $c | $followed | $puppets | $spawned/$bound | $orphans | $luaerr | $hits | $hpbad | $state | $alive | ${notes:-} |" >> "$results"
     echo "$c: followed $followed, alive $alive ${notes:-}"
 done
 mdk_kill
