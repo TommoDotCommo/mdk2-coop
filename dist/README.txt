@@ -68,11 +68,19 @@ What the installer changes
   as settings.lua.coop-backup). The game rewrites that file when you change options;
   the mod puts the line back at the next start.
 
+Settings in the game
+--------------------
+Options > Co-op (on the title screen, or Esc > Options while playing):
+- Players: who is in the game, with ping.
+- Session: your name, host or join, the host's address, and on the host "Resume co-op"
+  and "Save now".
+- Gameplay (the host's settings count): friendly fire, tougher enemies for more players,
+  how often co-op saves are made, modern controls (Space jumps, right mouse snipes) and
+  developer keys (off: the F-keys are developer shortcuts that change the level for
+  everyone; F2 always puts a marker in the logs when you want to report something).
+
 Known issues
 ------------
-- The function keys are still developer shortcuts in this build. Avoid them: the host's
-  F6 / F7 / F8 jump everyone to the next / previous checkpoint or the next level, F1 and
-  F5 spawn enemies, F3 hurts you, F9 opens the developer menu.
 - Direct connection only: the host needs port forwarding until Steam networking is in.
 - With many players the host uploads a lot (about 20 Mbit/s with 8 in a busy level).
 - Nobody has finished the whole campaign in co-op yet. Please report what breaks.
