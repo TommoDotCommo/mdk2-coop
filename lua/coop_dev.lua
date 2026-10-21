@@ -329,12 +329,14 @@ omMakeCommand(COM_LOADINSTANT, "", CON_BUTTON_FALL, 0, 0)
 
 -- Developer keys ([controls] devkeys, Options > Co-op > Gameplay; off for players, on in
 -- the test installs): F1 hit / spawn, F3 lava, F4 teleport, F5 Doganboy, F6 / F7 / F8
--- checkpoints and levels for everyone, F9 BioWare debug menu, F10 test error, F11 anim log.
+-- checkpoints and levels for everyone, F9 BioWare debug menu, F10 test error, F11 anim log,
+-- keypad + / - / 0 step through the player's animations as emotes (0 stops).
 -- F2 (marker in every log, and a screenshot) stays on: it is how players report a problem. --
 coop.devkeys = {
     { COM_SHOWBARS, "F1" }, { COM_CLEARCONSOLE, "F3" }, { COM_TOGLG, "F4" }, { COM_NEXTSECTION, "F5" },
     { COM_TOGL1, "F6" }, { COM_TOGL2, "F7" }, { COM_TOGL3, "F8" }, { COM_DEBUGMENUTOG, "F9" },
     { COM_PRINTCOL, "F10" }, { COM_TOGL4, "F11" },
+    { COM_LIGHTNEXT, "NUM PLUS" }, { COM_LIGHTPREV, "NUM MINUS" }, { COM_LIGHTRESET, "NUM 0" },
 }
 
 function coop.ApplyDevKeys(on)
@@ -927,6 +929,40 @@ comfuncs.fkey[COM_TOGL4] = function()
     coop_listgobs()
     if (not coop.typeslogged) then coop.LogObjTypes() coop.typeslogged = 1 end
 end
+
+-- Emote browser (dev keys): keypad + / - play the next / previous animation the character has
+-- on loop, keypad 0 stops; the id and ANIM_* name go to bridge.log --
+function coop.AnimNames()
+    if (coop.animnames) then return coop.animnames end
+    coop.animnames = {}
+    local n, v = nextvar(nil)
+    while (n) do
+        if (strsub(n, 1, 5) == "ANIM_" and type(v) == "number") then coop.animnames[v] = n end
+        n, v = nextvar(n)
+    end
+    return coop.animnames
+end
+
+function coop.EmoteStep(dir)
+    local names = coop.AnimNames()
+    local id = coop.emoteid or -1
+    local tries = 0
+    while (tries < 160) do
+        id = id + dir
+        if (id > 159) then id = 0 end
+        if (id < 0) then id = 159 end
+        if (coop_emote(id, 1) == 1) then
+            coop.emoteid = id
+            coop_log(format("emote %d %s", id, tostring(names[id])))
+            return
+        end
+        tries = tries + 1
+    end
+end
+
+comfuncs.fkey[COM_LIGHTNEXT] = function() coop.EmoteStep(1) end
+comfuncs.fkey[COM_LIGHTPREV] = function() coop.EmoteStep(-1) end
+comfuncs.fkey[COM_LIGHTRESET] = function() coop_emote(-1) end
 
 -- F4: teleport the player onto the next test spot: level 1's decoy item (next room, standing
 -- on it picks it up), then door dr1_03 (another room) --
