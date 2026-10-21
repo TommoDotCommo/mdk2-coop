@@ -70,6 +70,9 @@ What the installer changes
 
 Known issues
 ------------
+- The function keys are still developer shortcuts in this build. Avoid them: the host's
+  F6 / F7 / F8 jump everyone to the next / previous checkpoint or the next level, F1 and
+  F5 spawn enemies, F3 hurts you, F9 opens the developer menu.
 - Direct connection only: the host needs port forwarding until Steam networking is in.
 - With many players the host uploads a lot (about 20 Mbit/s with 8 in a busy level).
 - Nobody has finished the whole campaign in co-op yet. Please report what breaks.
