@@ -143,6 +143,7 @@ static void l_coop_send(void)
         local_max_hp = hp;
     /* before our state is captured: the downed pose (the game's player control puts its own
      * animation back every frame) and a spectator's ride */
+    emote_frame();
     revive_frame();
     net_send_player(gob);
     if (gob)
@@ -433,6 +434,20 @@ static void l_coop_revive_checkpoint(void)
     revive_checkpoint();
 }
 
+/* coop_emote(id, loop) -> 1 if it plays: hold animation id on our player until we move (id < 0 stops);
+ * coop_emoting() -> the id playing, or -1 */
+static void l_coop_emote(void)
+{
+    unsigned int o = lua_getparam(2);
+
+    lua_pushnumber(emote_play((int)num_param(1), o && lua_isnumber(o) ? lua_getnumber(o) != 0.0 : 1));
+}
+
+static void l_coop_emoting(void)
+{
+    lua_pushnumber(emote_active());
+}
+
 /* coop_alive(gob) -> 1 if the gob still exists (a Lua global can outlive its gob) */
 static void l_coop_alive(void)
 {
@@ -655,6 +670,8 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_alive", l_coop_alive);
     tolua_function(NULL, "coop_nearest_enemy", l_coop_nearest_enemy);
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
+    tolua_function(NULL, "coop_emote", l_coop_emote);
+    tolua_function(NULL, "coop_emoting", l_coop_emoting);
     tolua_function(NULL, "coop_revive_tick", l_coop_revive_tick);
     tolua_function(NULL, "coop_life", l_coop_life);
     tolua_function(NULL, "coop_revive_checkpoint", l_coop_revive_checkpoint);

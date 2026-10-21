@@ -261,6 +261,12 @@ int revive_take_forced(void);
 int player_life(int slot);
 int player_reviving(int slot);
 
+/* ---- emote.c ---- */
+
+int emote_play(int id, int looping);
+void emote_frame(void);
+int emote_active(void);
+
 /* ---- input.c / hud.c / rooms.c / entities.c, for revive.c ---- */
 
 int input_down(int code, int vk);
