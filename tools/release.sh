@@ -11,7 +11,7 @@ name="mdk2-coop-$ver"
 out="$here/local/release"
 stage="$out/$name"
 
-make -s -C "$here/bridge"
+make -s -B -C "$here/bridge" VERSION="$ver"
 rm -rf "$stage" "$out/$name.zip"
 mkdir -p "$stage/coop"
 cp "$here/bridge/dinput8.dll" "$stage/"

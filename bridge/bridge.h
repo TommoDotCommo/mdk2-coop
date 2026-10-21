@@ -363,6 +363,11 @@ void bot_level_loaded(int level);
 /* ---- dinput8.c ---- */
 
 extern char coop_dir[MAX_PATH];
+
+/* ---- launcher.c ---- */
+
+extern int coop_enabled;
+void launcher_run(void);
 void logmsg(const char *fmt, ...);
 
 #endif

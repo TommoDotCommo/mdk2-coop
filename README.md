@@ -39,10 +39,16 @@ that port on their router for internet play, and gives friends their public IPv4
 On the same LAN use the host's local IPv4 address. Allow MDK2 HD through Windows Firewall. A joining
 player enters that address and port. Old `coop.ini` files without a `transport` key keep using UDP.
 
-The installer's answers are only the first setup: run it again to switch, or change them in game in the
-Options > Co-op > Session menu (network and startup role changes need a restart). The installer changes
+**The launcher.** Pressing Play in Steam opens the mod's launcher before the game: pick *Host a game*,
+*Join a friend* or *Play solo* (plain MDK2 HD, co-op off for that start), Steam or direct UDP, the
+host's address or lobby ID, your name, the co-op settings and the screen mode and resolution, and read
+about the mod. Enter starts the game, Esc quits. Turn it off under Settings > Show at start (hold Shift
+while the game starts to bring it back). Accepting a Steam invite skips it and joins straight away.
+
+The installer's answers are only the first setup: change them in the launcher, run the installer again, or
+use the in-game Options > Co-op > Session menu (network and startup role changes need a restart). The installer changes
 `<game>\dinput8.dll`, `<game>\coop\coop.lua`, the
-`[net]` keys of `<game>\coop\coop.ini` (other keys are kept) and one loader block in
+`[net]` keys and `[launcher] mode` of `<game>\coop\coop.ini` (other keys are kept) and one loader block in
 `%LOCALAPPDATA%\MDK2HD\settings.lua` (backed up first as `settings.lua.coop-backup`, restored on uninstall).
 The game rewrites settings.lua whenever options are saved, which drops that block. The bridge puts it back
 when the game starts (and creates settings.lua with just the block on a first start), so co-op keeps working.
@@ -179,6 +185,18 @@ fixed-function pipeline of the game's legacy GL context (Windows font through wg
 the game's shader program, framebuffer, texture unit, matrices and attributes put back. The tags
 project through the game's camera gob (`mdkGetCameraGob`: looks along its +y, +z up) with a 64 degree
 vertical field of view, measured from puppets at known spots. Hidden under menus. `tools/qa_hud.sh`.
+
+Launcher (`bridge/launcher.c`): input.c's `CreateWindowExA` hook (always installed now) calls it before
+the game's first window, which comes before settings.lua and coop_init run, so what it writes applies to
+that start: `coop.ini` (`[net]`, `[game]`, `[save]`, `[controls]`, `[hud]`, `[launcher] show` and
+`mode`), `coop\player.ini` (name) and the `chSetVideoMode` line of settings.lua (screen mode and
+resolution; the rest of the file and the loader block are kept). Solo sets `coop_enabled = 0`, and
+coop_init then does nothing. Drawn with GDI into a DIB: the title art (`Titlescreen_PC.dds`) and menu font
+(`font.dds`, widths from `font.lua`) are read from the player's own mdk2.tar; without them it falls back to
+plain colours and Windows fonts. Skipped for `+connect_lobby` and in background test mode, except with
+`[test] launcher=1`: hidden, driven by `coop\launcher.txt` (`key <vk>`, `click <x> <y>`, `text <s>`,
+`shot <name>`). `tools/qa_launcher.sh` (23 checks, two games: pages, UDP join at a typed address,
+settings, solo, quit, show=0, +connect_lobby, resolution).
 
 Options > Co-op (the game's own menus, on the title screen and in the pause menu's Options):
 - Players: everyone connected, with player number, name and ping (the host measures every client, a

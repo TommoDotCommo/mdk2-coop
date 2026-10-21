@@ -637,6 +637,10 @@ void l_coop_init(void)
     if (done)
         return;
     done = 1;
+    if (!coop_enabled) {
+        logmsg("coop_init: solo start (launcher): co-op off");
+        return;
+    }
     tolua_function(NULL, "coop_send", l_coop_send);
     tolua_function(NULL, "coop_recv", l_coop_recv);
     tolua_function(NULL, "coop_peer", l_coop_peer);

@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File mdk2-coop.ps1 [-Uninstall] [-GameDir <folder>]
 #              [-Transport steam|udp] [-Role host|join] [-LobbyId <id>]
 #              [-HostAddress <ip>] [-HostPort 27900] [-ClientPort 27901] [-Yes]
-# What it changes: <game>\dinput8.dll, <game>\coop\coop.lua, <game>\coop\coop.ini ([net] keys only)
+# What it changes: <game>\dinput8.dll, <game>\coop\coop.lua, <game>\coop\coop.ini ([net] keys and [launcher] mode)
 # and one loader block in %LOCALAPPDATA%\MDK2HD\settings.lua (backed up first as settings.lua.coop-backup).
 param(
     [switch]$Uninstall,
@@ -223,6 +223,7 @@ function Do-Install {
     Say '  dinput8.dll and coop\coop.lua copied'
     Ini-Set $ini 'net' 'transport' $network
     Ini-Set $ini 'net' 'role' $(if ($role -eq 'host') { 'host' } else { 'client' })
+    Ini-Set $ini 'launcher' 'mode' $role     # the launcher shows this choice (not a solo start from before)
     if ($network -eq 'steam') {
         Ini-Set $ini 'net' 'lobby_id' "$LobbyId"
     } elseif ($role -eq 'host') {
