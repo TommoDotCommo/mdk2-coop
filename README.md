@@ -100,12 +100,16 @@ it stops, then one a second while it rests: most are in sleeping rooms); DESPAWN
 its own gob of the same name, or creates one, skips the AI ("think" slot) of their classes, draws them
 from the host's snapshots, and deletes actors its own spawners make that the host never announced.
 
-Shots (`OBJ` types 400-499): every gob is made by the engine's create_object (0x42d360), which the
-bridge hooks. Creating a shot sends a reliable FIRE event (the host announces every shot, the client its own
-Kurt's); the peer replays it through the same function, with the target and owner translated, so it flies
-with the game's own physics. Replayed shots are only for show: their damage is dropped and the real hits
-travel as HIT/APPLY/HURT. Not yet: shots created without a position and placed afterwards (the
-Doganboy's grenade, 417) are logged as "not replicated".
+Shots (`OBJ` types 400-499): the bridge hooks the engine's create_object (0x42d360) and shot launcher
+(0x403b00), sending reliable FIRE events (the host announces enemy shots, each player their own).
+Class 5 shots carry their final launch position, rotation, velocity and fuse; this includes Doganboy
+grenades (417), created attached to a hand with no position or rotation and launched afterwards.
+The peer translates the target and owner, creates the shot and restores its flight state so the game's
+own physics takes over, without rerunning shooter scripts. Other shot classes replay their create_object
+arguments; custom models and missing creation transforms remain unsupported for those classes.
+Replayed shots are only for show: their damage is dropped and the real hits travel as HIT/APPLY/HURT.
+Shots produced by copied attack animations are discarded when launched, avoiding duplicate projectiles.
+`coop_shots_dump()` logs live class 5 shots, positions, velocities and ownership flags for diagnostics.
 
 Pickups (`OBJ` types 300-399): every pickup path asks the engine whether the item has an OnPickedUp
 handler (0x40cf60, event 15), which the bridge hooks. The picker keeps the item and sends PICKUP; the
@@ -260,8 +264,8 @@ The test leaves both lobbies and shuts down only its own Steam API instance.
 Network traffic. Snapshots go out compact (`snap_encode` in net.c): position, rotation as 4 x int16, and
 of each running animation only its non-zero values, play positions and weight as 16-bit numbers; a
 `struct snap` in memory is ~390 bytes, a resting enemy on the wire 23 and a running animation ~30. The
-host relays the other players' states to each client in one bundle per send tick ("MDKR"), with names
-about once a second. Packet magics are the protocol version: "MDKA" player, "MDKF" enemies, "MDKR"
+host relays the other players' states to each client in one bundle per send tick ("MDKS"), with names
+about once a second. Packet magics are the protocol version: "MDKC" player, "MDKF" enemies, "MDKS"
 relays; builds that differ ignore each other. `bridge/netstats.c` logs `net out:` every 10 s (kbit/s by
 kind, per link). `MDK2_N=8 tools/netmeasure.sh [level checkpoint]` measures the host's upload at 2-1
 (71 enemies) while everyone stands and while everyone moves. 2026-10-21, 8 players at 2-1, everyone moving:
@@ -298,6 +302,15 @@ doors opening for the puppet, reviving at the partner, no crash. About 2 minutes
 take focus. `tools/mdk.sh` has the helpers (start, keys, mouse, window screenshots).
 
 `tools/qa.sh` installs the current build first (`tools/install.sh`), so it always tests the repo.
+
+Projectile regression: `make -C bridge test-shots` (or `tools/test_shots.sh`) tests capture/replay against
+a fake engine (no game files needed). `MDK2_N=3 tools/qa_shots.sh` launches type 417 on the host
+and a client, checking one launch, actual flight and suppressed replay damage in every game, including
+the client-to-client relay. It does not depend on an enemy choosing a grenade attack.
+`tools/qa_shots_native.sh` checks a Doganboy's held grenade through release, motion and expiry, matching
+launch transforms on every peer, and exactly one replay of a client's native sniper launch.
+If the calling process forces Windows to prefer system DLLs over the proxy, set
+`MDK2_PROCESS_SERVICE=1` to launch test games through Windows' process service.
 
 More players: `MDK2_N=8 tools/qa_n.sh` (default 3) runs a host and N-1 clients: everyone joins and
 follows, puppets for all in every game, enemies and hp everywhere, a client's shots, pickup and door

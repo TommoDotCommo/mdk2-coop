@@ -15,4 +15,11 @@ install: dinput8.dll
 clean:
 	rm -f dinput8.dll
 
-.PHONY: install clean
+../local/tests/shots_test.exe: tests/shots_test.c shots.c bridge.h
+	mkdir -p ../local/tests
+	$(CC) $(CFLAGS) -o $@ tests/shots_test.c -static-libgcc
+
+test-shots: ../local/tests/shots_test.exe
+	../local/tests/shots_test.exe
+
+.PHONY: install clean test-shots
