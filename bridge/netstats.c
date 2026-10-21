@@ -27,7 +27,7 @@ void netstats_sent(int kind_hint, int len)
 
     if (since == 0.0)
         since = now;
-    bytes[k] += len + UDP_IP_HEADER;
+    bytes[k] += len + (net_steam ? 0 : UDP_IP_HEADER);  /* Steam: payload only; relay overhead is unknown */
     packets[k] += 1;
     if (now - since < STATS_MS)
         return;

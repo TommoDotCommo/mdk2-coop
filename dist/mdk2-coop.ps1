@@ -1,13 +1,16 @@
 # mdk2-coop installer for MDK2 HD (Steam build 3902). Windows PowerShell 5.1, no other tools.
 # Double-click Install.cmd / Uninstall.cmd, or:
 #   powershell -ExecutionPolicy Bypass -File mdk2-coop.ps1 [-Uninstall] [-GameDir <folder>]
-#              [-Role host|join] [-HostAddress <ip or name>] [-HostPort 27900] [-ClientPort 27901] [-Yes]
+#              [-Transport steam|udp] [-Role host|join] [-LobbyId <id>]
+#              [-HostAddress <ip>] [-HostPort 27900] [-ClientPort 27901] [-Yes]
 # What it changes: <game>\dinput8.dll, <game>\coop\coop.lua, <game>\coop\coop.ini ([net] keys only)
 # and one loader block in %LOCALAPPDATA%\MDK2HD\settings.lua (backed up first as settings.lua.coop-backup).
 param(
     [switch]$Uninstall,
     [string]$GameDir,
     [ValidateSet('', 'host', 'join')][string]$Role = '',
+    [ValidateSet('', 'steam', 'udp')][string]$Transport = '',
+    [string]$LobbyId,
     [string]$HostAddress,
     [int]$HostPort = 0,
     [int]$ClientPort = 0,
@@ -88,7 +91,7 @@ function Resolve-GameDir {
     }
     $d = $d.Trim('"', ' ')
     if (-not (Test-Path (Join-Path $d 'mdk2hd.exe'))) { Fail "No mdk2hd.exe in '$d'." }
-    return (Resolve-Path $d).Path
+    return (Resolve-Path $d).ProviderPath
 }
 
 function Check-Build($dir) {
@@ -138,6 +141,10 @@ function Add-Loader {
         if ($text.Length -gt 0 -and -not $text.EndsWith("`n")) { $text += "`r`n" }
     } else {
         $text = ''     # the game has never saved its settings: it starts fine with only the loader
+        # Keep an empty original so a later reinstall never backs up our loader as
+        # if it were the player's original settings.
+        $backup = "$SettingsPath.coop-backup"
+        if (-not (Test-Path $backup)) { [IO.File]::WriteAllText($backup, '', (New-Object Text.ASCIIEncoding)) }
     }
     $text += $LoaderBlock
     if ($text.Length -gt $SettingsMax) { Fail "settings.lua would be $($text.Length) bytes; the game crashes above about 8 KB." }
@@ -169,6 +176,13 @@ function Do-Install {
     $ini = Join-Path $game 'coop\coop.ini'
     $hadIni = Test-Path $ini
     $curRole = if ($hadIni) { Ini-Get $ini 'net' 'role' 'host' } else { 'host' }
+    $network = $Transport
+    if (-not $network) {
+        $def = if ($HostAddress -or $HostPort -or $ClientPort) { 'udp' } elseif ($hadIni) { Ini-Get $ini 'net' 'transport' 'udp' } else { 'steam' }
+        $network = Ask 'Network: steam (friends and invites, no port forwarding) / udp (direct IP)' $def
+    }
+    $network = "$network".ToLower()
+    if ($network -notin 'steam', 'udp') { Fail 'Network must be steam or udp.' }
     $role = $Role
     if (-not $role) {
         $def = if ($curRole -eq 'client') { 'join' } else { 'host' }
@@ -176,16 +190,26 @@ function Do-Install {
     }
     $role = "$role".ToLower(); if ($role -eq 'client') { $role = 'join' }
     if ($role -notin 'host', 'join') { Fail "Answer host or join (got '$role')." }
-    if ($role -eq 'join') {
-        $addr = $HostAddress
-        if (-not $addr) { $addr = Ask "Host's IP address or name (the host gets it from the 'How to host' steps)" (Ini-Get $ini 'net' 'peer_host' '127.0.0.1') }
-    }
-    # the host's port: a host listens on it, a client sends to it
-    $knownHostPort = if ($curRole -eq 'client') { Ini-Get $ini 'net' 'peer_port' '27900' } else { Ini-Get $ini 'net' 'listen_port' '27900' }
-    $hp = if ($HostPort) { $HostPort } else { Ask-Port 'Host UDP port' $knownHostPort }
-    if ($role -eq 'join') {
-        $knownOwn = if ($curRole -eq 'client') { Ini-Get $ini 'net' 'listen_port' "$($hp + 1)" } else { "$($hp + 1)" }
-        $cp = if ($ClientPort) { $ClientPort } else { Ask-Port 'Your own UDP port (any free one; only matters with several players on one PC)' $knownOwn }
+    if ($network -eq 'steam') {
+        if ($LobbyId) {
+            $numericLobby = [UInt64]0
+            if ($LobbyId -notmatch '^\d+$' -or -not [UInt64]::TryParse($LobbyId, [ref]$numericLobby) -or
+                ($numericLobby -shr 56) -ne 1 -or (($numericLobby -shr 52) -band 15) -ne 8) {
+                Fail 'LobbyId must be a numeric Steam lobby ID from the host.'
+            }
+        }
+    } else {
+        if ($role -eq 'join') {
+            $addr = $HostAddress
+            if (-not $addr) { $addr = Ask "Host's IPv4 address" (Ini-Get $ini 'net' 'peer_host' '127.0.0.1') }
+        }
+        # the host's port: a host listens on it, a client sends to it
+        $knownHostPort = if ($curRole -eq 'client') { Ini-Get $ini 'net' 'peer_port' '27900' } else { Ini-Get $ini 'net' 'listen_port' '27900' }
+        $hp = if ($HostPort) { $HostPort } else { Ask-Port 'Host UDP port' $knownHostPort }
+        if ($role -eq 'join') {
+            $knownOwn = if ($curRole -eq 'client') { Ini-Get $ini 'net' 'listen_port' "$($hp + 1)" } else { "$($hp + 1)" }
+            $cp = if ($ClientPort) { $ClientPort } else { Ask-Port 'Your own UDP port (any free one; only matters with several players on one PC)' $knownOwn }
+        }
     }
 
     Say "`nInstalling into $game"
@@ -197,24 +221,36 @@ function Do-Install {
     New-Item -ItemType Directory -Force -Path (Join-Path $game 'coop') | Out-Null
     Copy-Item (Join-Path $Here 'coop\coop.lua') (Join-Path $game 'coop\coop.lua') -Force
     Say '  dinput8.dll and coop\coop.lua copied'
-    if ($role -eq 'host') {
-        Ini-Set $ini 'net' 'role' 'host'; Ini-Set $ini 'net' 'listen_port' $hp
+    Ini-Set $ini 'net' 'transport' $network
+    Ini-Set $ini 'net' 'role' $(if ($role -eq 'host') { 'host' } else { 'client' })
+    if ($network -eq 'steam') {
+        Ini-Set $ini 'net' 'lobby_id' "$LobbyId"
+    } elseif ($role -eq 'host') {
+        Ini-Set $ini 'net' 'listen_port' $hp
     } else {
-        Ini-Set $ini 'net' 'role' 'client'; Ini-Set $ini 'net' 'listen_port' $cp
+        Ini-Set $ini 'net' 'listen_port' $cp
         Ini-Set $ini 'net' 'peer_host' $addr; Ini-Set $ini 'net' 'peer_port' $hp
     }
-    Say "  coop\coop.ini: $(if ($role -eq 'host') { "host on UDP $hp" } else { "join $addr`:$hp" })"
+    Say "  coop\coop.ini: $network, $role"
     Add-Loader
 
     Say "`nDone. Start MDK2 HD from Steam as usual." Green
-    if ($role -eq 'host') {
+    if ($network -eq 'steam') {
+        Say 'Steam must be running and online for every player. No port forwarding is needed.'
+        if ($role -eq 'host') {
+            Say 'Open Options > Co-op > Session > Invite Steam friends, or share the Lobby ID shown there.'
+            Say 'Start a New Game or load a save; friends follow you into the level.'
+        } else {
+            Say 'Start the game, then accept a Steam invite or use Options > Co-op > Session > Join lobby by ID.'
+        }
+    } elseif ($role -eq 'host') {
         Say "Hosting: friends join your public IP on UDP port $hp. Forward UDP $hp on your router to this PC," Gray
         Say "and allow MDK2 HD when Windows Firewall asks (tick Private and Public). Then start a New Game;" Gray
         Say "players who join follow you into your level." Gray
     } else {
         Say "Joining: start the game after the host has. You follow the host into their level automatically." Gray
     }
-    Say 'Change host/join later by running Install again (or in the game: Options > Co-op, once that is there).'
+    Say 'Change network or host/join later in Options > Co-op > Session, or run Install again.'
     if (-not $Yes) { Read-Host "`nPress Enter to close" | Out-Null }
 }
 
@@ -235,6 +271,12 @@ function Do-Uninstall {
     if (Test-Path $backup) {
         if (Test-Path $SettingsPath) { Copy-Item $SettingsPath "$SettingsPath.coop-uninstalled" -Force }
         Move-Item $backup $SettingsPath -Force
+        # Older installers could back up a file already containing the loader on
+        # reinstall. Removing our block also makes those backups safe to restore.
+        $restored = [IO.File]::ReadAllText($SettingsPath)
+        if ($restored.Contains($LoaderBegin)) {
+            [IO.File]::WriteAllText($SettingsPath, (Remove-Loader $restored), (New-Object Text.ASCIIEncoding))
+        }
         Say '  settings.lua restored from the backup made at install (the one in use is kept as settings.lua.coop-uninstalled)'
     } elseif (Test-Path $SettingsPath) {
         $text = Remove-Loader ([IO.File]::ReadAllText($SettingsPath))

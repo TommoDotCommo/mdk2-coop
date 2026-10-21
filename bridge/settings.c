@@ -111,6 +111,14 @@ static void l_coop_set_host(void)
     lua_pushnumber(1);
 }
 
+static void l_coop_transport(void) { lua_pushstring(net_steam ? "steam" : "udp"); }
+static void l_coop_steam_status(void) { lua_pushstring(steam_status()); }
+static void l_coop_steam_lobby(void) { lua_pushstring(steam_lobby_id()); }
+static void l_coop_steam_join(void) { if (net_steam && steam_join_lobby(str_param(1))) lua_pushnumber(1); }
+static void l_coop_steam_host(void) { if (net_steam && steam_host_lobby()) lua_pushnumber(1); }
+static void l_coop_steam_leave(void) { if (net_steam && steam_leave_lobby()) lua_pushnumber(1); }
+static void l_coop_steam_invite(void) { if (net_steam && steam_invite()) lua_pushnumber(1); }
+
 void settings_lua_init(void)
 {
     tolua_function(NULL, "coop_get", l_coop_get);
@@ -119,4 +127,11 @@ void settings_lua_init(void)
     tolua_function(NULL, "coop_name", l_coop_name);
     tolua_function(NULL, "coop_set_name", l_coop_set_name);
     tolua_function(NULL, "coop_set_host", l_coop_set_host);
+    tolua_function(NULL, "coop_transport", l_coop_transport);
+    tolua_function(NULL, "coop_steam_status", l_coop_steam_status);
+    tolua_function(NULL, "coop_steam_lobby", l_coop_steam_lobby);
+    tolua_function(NULL, "coop_steam_join", l_coop_steam_join);
+    tolua_function(NULL, "coop_steam_host", l_coop_steam_host);
+    tolua_function(NULL, "coop_steam_leave", l_coop_steam_leave);
+    tolua_function(NULL, "coop_steam_invite", l_coop_steam_invite);
 }

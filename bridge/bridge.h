@@ -10,6 +10,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <stdio.h>
+#include <stdint.h>
 
 /* ---- game Lua 3.1 API (cdecl, statically linked in mdk2hd.exe) ---- */
 
@@ -166,13 +167,17 @@ extern unsigned short cur_epoch;    /* level epoch: the host counts its announce
 extern int have_remote;         /* some other player is connected */
 extern int sync_anim;
 extern int ent_hz;
-extern SOCKET sock;
+extern int net_steam;           /* [net] transport=steam; absent means legacy UDP */
 extern BYTE *local_player;
 extern BYTE *puppets[MAX_PLAYERS];  /* other players' puppets by slot (coop_face) */
 
 double now_ms(void);
 void net_open(const char *ini);
 void net_poll(void);
+int net_ready(void);
+void net_steam_session(int host, uint64_t peer);
+void net_steam_receive(const void *buf, int len, uint64_t peer);
+void net_steam_left(uint64_t peer);
 void net_send_player(BYTE *gob);
 void net_level_reset(int announce);
 void net_level_event(const struct event *e);
@@ -258,6 +263,20 @@ int ents_alive_in_zone(const float *zone_pos);
 /* ---- netstats.c ---- */
 
 void netstats_sent(int kind, int len);
+
+/* ---- steam.c: uses the game's Steam connection, never replaces steam_api.dll ---- */
+
+void steam_open(const char *ini);
+void steam_poll(void);
+int steam_ready(void);
+int steam_send(uint64_t peer, const void *buf, int len);
+int steam_peer_allowed(uint64_t peer);
+int steam_host_lobby(void);
+int steam_join_lobby(const char *id);
+int steam_leave_lobby(void);
+int steam_invite(void);
+const char *steam_status(void);
+const char *steam_lobby_id(void);
 
 /* ---- state.c ---- */
 
