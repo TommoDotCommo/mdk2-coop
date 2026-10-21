@@ -226,6 +226,11 @@ static void l_coop_event(void)
             event_unget(from);
             return;
         }
+        if (e.kind == EV_CHAT || e.kind == EV_PING || e.kind == EV_TYPING) {
+            chat_event(&e, from);       /* the host stamps the sender, then passes it on */
+            event_relay(&e, from);
+            continue;
+        }
         /* the host passes the clients' shots, pickups and markers on to the others */
         if (e.kind == EV_FIRE || e.kind == EV_PICKUP || e.kind == EV_MARK)
             event_relay(&e, from);
@@ -679,6 +684,7 @@ void l_coop_init(void)
     saves_lua_init();
     settings_lua_init();
     hud_lua_init();
+    chat_lua_init();
     bot_lua_init();
     run_mod_script();
 }

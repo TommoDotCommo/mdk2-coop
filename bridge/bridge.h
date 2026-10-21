@@ -131,7 +131,7 @@ struct track {
 };
 
 enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY,
-       EV_REVIVE, EV_RESPAWN, EV_DIED };
+       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING };
 #define EV_NAME 32
 /* FIRE part: 0 replays create_object arguments; 1 restores a launched class 5 shot. */
 #define FIRE_LAUNCHED 1
@@ -315,6 +315,21 @@ void saves_lua_init(void);
 
 void hud_frame(HDC dc);
 void hud_lua_init(void);
+BYTE *hud_camera(void);
+
+/* ---- chat.c: text chat and pings ---- */
+
+void chat_frame(int allowed);
+void chat_event(struct event *e, int from);
+int chat_is_open(void);
+int chat_typing(int slot);
+int chat_last(int slot, const char **text, double *age_ms);
+const char *chat_input(void);
+int chat_blocks_keys(void);
+int chat_line(int i, int *slot, const char **text, double *age_ms);
+int ping_get(int slot, float *pos, double *age_ms);
+float ping_life_left(double age_ms);
+void chat_lua_init(void);
 
 /* ---- frame.c ---- */
 

@@ -180,6 +180,18 @@ the game's shader program, framebuffer, texture unit, matrices and attributes pu
 project through the game's camera gob (`mdkGetCameraGob`: looks along its +y, +z up) with a 64 degree
 vertical field of view, measured from puppets at known spots. Hidden under menus. `tools/qa_hud.sh`.
 
+Chat and pings (`bridge/chat.c`, drawn by `hud.c`): T opens a chat line at the bottom left, Enter sends
+it (up to 62 characters), Esc cancels. The text comes from a thread message hook that swallows the
+keyboard messages while the line is open, and the DirectInput keyboard reads empty meanwhile (and for
+a quarter second after), so the game sees no keys. V or the middle mouse button pings: the actor
+nearest the crosshair, else a point 40 units ahead (the bridge cannot cast a ray into the level). Both
+are events (`EV_CHAT`, `EV_PING`): a client's goes to the host, which stamps the sender's slot and passes it on.
+A ping shows for 6 s as a marker in the sender's colour with their name and the distance, pinned to the
+screen edge when out of view; one per player. Each player's latest message shows in a bubble over their head for 8 s, and "..." while they have a line open (`EV_TYPING`).
+Lua test hooks: `coop_say(text)`, `coop_typing(on)`, `coop_ping([x, y, z])`,
+`coop_chat_dump()`. `tools/qa_chat.sh`. The keys are fixed for now and untested by hand in a focused
+game; the harness only covers the network path and the drawing.
+
 Options > Co-op (the game's own menus, on the title screen and in the pause menu's Options):
 - Players: everyone connected, with player number, name and ping (the host measures every client, a
   client its host).

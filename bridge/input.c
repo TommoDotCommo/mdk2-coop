@@ -191,6 +191,8 @@ static HRESULT WINAPI dev_get_state(void *self, DWORD size, void *out)
                 ((BYTE *)out)[12 + i] = code_state(d, MOUSE_BUTTON0 + i);
         }
     }
+    if (d->kind == DEV_KEYBOARD && chat_blocks_keys())
+        memset(out, 0, size);               /* typing a chat line: the game sees no keys */
     if (d->kind == DEV_KEYBOARD) {
         for (i = 0; i < 256 && i < (int)size; i++) capture_code(i, ((BYTE *)out)[i] & 0x80);
     } else {
@@ -211,6 +213,10 @@ static HRESULT WINAPI dev_get_data(void *self, DWORD objsize, DIDEVICEOBJECTDATA
         return get_data_orig(self, objsize, out, inout, flags);
     if (!test_background) {
         HRESULT hr = get_data_orig(self, objsize, out, inout, flags);
+        if (SUCCEEDED(hr) && d->kind == DEV_KEYBOARD && chat_blocks_keys()) {
+            *inout = 0;                     /* typing a chat line: read and dropped */
+            return hr;
+        }
         if (SUCCEEDED(hr) && out && !(flags & DIGDD_PEEK)) {
             for (DWORD i = 0; i < *inout; i++) {
                 DIDEVICEOBJECTDATA *e = (void *)((BYTE *)out + i * objsize);
