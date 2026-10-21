@@ -170,20 +170,6 @@ number, in two alternating files (`save\c<id><a|b>.sav`, recorded in `coop\saves
   (each level start and checkpoint) is newer than its last save, and Resume starts that checkpoint
   instead of going back a level.
 
-Textures (`dist/mdk2-textures.ps1`, "Upscale Textures.cmd" / "Restore Textures.cmd" for players):
-the HD release's level textures are mostly the original 64-512 pixel ones (it added normal and
-specular maps beside them; only the main characters got new 2048 `_d` textures). The tool picks the
-uncompressed level textures (those with an `_n` map, plus skies) of 64-512 pixels, minus UI pictures,
-wraps 8 pixels of each edge around it (tiling textures upscale without seams), upscales 4x with
-Real-ESRGAN (`realesrgan-x4plus`, ncnn/Vulkan, on the player's GPU), crops, and compresses to BC3 /
-DXT5 with mipmaps (texconv, `--ignore-srgb`, at most 1024 pixels): about the size of the
-uncompressed originals. The game reads textures only from `mdk2.tar` (loose files in the game
-folder, `override\`, `data\`, `textures\` and `%LOCALAPPDATA%\MDK2HD\override\` are ignored), so it
-writes a new archive and keeps the original as `mdk2.tar.original`; every run starts from that one.
-2026-10-21, RTX 3080 Ti: 441 textures in 4 minutes; archive 1.64 -> 1.82 GB; peak virtual memory over
-the twelve levels 1166 -> 1183 MB (of 2 GB, the exe is not large-address-aware); 96/96 checkpoints in
-the sweep with it; `-Restore` gives back a byte-identical archive.
-
 On screen (`bridge/hud.c`, Options > Co-op > Gameplay > Players on screen, `[hud] show`): a panel at
 the top left with each other player's number, name, health bar and hp, character, distance (game
 units; Kurt is about 1.45 tall) and ping, "loading" while they are not in our level; and a name tag over

@@ -92,15 +92,6 @@ Options > Co-op (on the title screen, or Esc > Options while playing):
   developer keys (off: the F-keys are developer shortcuts that change the level for
   everyone; F2 always puts a marker in the logs when you want to report something).
 
-Sharper textures (optional)
----------------------------
-Upscale Textures.cmd makes the level textures 4x sharper with AI (Real-ESRGAN). It runs on
-your own PC and your own copy of the game (nothing is downloaded but the two free tools it
-uses, about 50 MB): about 5 minutes on a recent graphics card, 2 GB of free disk space next
-to the game. The game keeps its original archive as mdk2.tar.original; Restore Textures.cmd
-puts it back. Co-op partners do not need the same textures. If Steam verifies the game files
-it puts the original back too; run Upscale Textures.cmd again afterwards.
-
 Known issues
 ------------
 - Steam networking passed offline regression tests and a real lobby create/leave
