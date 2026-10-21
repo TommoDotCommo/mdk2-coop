@@ -29,8 +29,13 @@ apply to every session here.
   `games/mdk2-hd/README.md` (from `templates/game.md`), the `data/directory.yaml` entry plus
   `python tools/build_directory.py`, and lessons.
 - Publishing goes out under the owner's GitHub account. Show the owner the diff and get their OK before
-  `gh issue create`, pushing to the fork or `gh pr create --draft`. PRs are always drafts, one
+  `gh issue create`, `gh pr create --draft`, or anything new on GitHub. PRs are always drafts, one
   game per PR, with the owner-review box left for the owner.
+- Pre-approved by the owner (2026-10-21), no need to ask: pushing commits to this repo
+  (`git push origin master:main`) and adding commits to the open PR #95 (`git push fork game/mdk2-hd`),
+  provided every pushed commit has the identity below and no real names, emails, tokens, game files
+  or usernamed paths (check `git log --format='%an %ae %cn %ce' origin/main..master` and the diff).
+  Never force-push, and never `push --all` / `--mirror`.
 - Already published: claim issue cranebeaker/coop-anything#94 and draft PR #95 (branch `game/mdk2-hd`
   on the fork, remote `fork`). Add to that PR while it is open (commit + `git push fork game/mdk2-hd`)
   instead of opening a new one.
