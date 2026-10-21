@@ -51,6 +51,16 @@ when the game starts (and creates settings.lua with just the block on a first st
 (dinput8.dll, coop\coop.lua, Install.cmd, Uninstall.cmd, mdk2-coop.ps1, README.txt, LICENSE.txt), then
 `gh release create v0.x.y local/release/mdk2-coop-v0.x.y.zip`.
 
+## Voice chat
+
+Proximity voice: hold the push-to-talk key (**V**; change it in **Options > Co-op > Voice chat**) and players
+near you hear you, quieter the further away you are and not at all beyond the hearing range. A speaker is marked
+by a speaker icon over their head, a green name in the players panel, and **MIC** at the bottom left for you.
+The host decides the range (Short, Medium, Long, Everywhere). The mic opens the first time you press the key, using
+Windows' default recording device. Audio is 16 kHz ADPCM, about 70 kbit/s per talker, relayed by the host
+only to players in range. Settings are the `[voice]` keys of `coop.ini`: `enabled`, `key` (V, B, T, CAPS), `volume`
+(%), `range` (world units, 0 = everywhere). `tools/qa_voice.sh` tests it with a tone instead of a mic.
+
 ## Dev harness
 
 `lua/coop_dev.lua` is installed as `<game dir>\coop\coop.lua`; the bridge runs it from `coop_init()`, which one

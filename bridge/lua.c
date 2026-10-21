@@ -171,6 +171,7 @@ static void l_coop_send(void)
 static void l_coop_recv(void)
 {
     net_poll();
+    voice_frame();
     if (!have_remote)
         return;
     if (!role_host) {
@@ -710,6 +711,7 @@ void l_coop_init(void)
     settings_init(ini);
     net_open(ini);
     settings_start();
+    voice_init(ini);
     deal_damage_orig = hook_code((BYTE *)DEAL_DAMAGE_ADDR, deal_damage_prologue, 5, deal_damage_hook);
     logmsg("coop_init: lua functions registered, damage hook %s", deal_damage_orig ? "installed" : "NOT installed");
     shots_init();
@@ -722,6 +724,7 @@ void l_coop_init(void)
     ctrlview_lua_init();
     input_lua_init();
     chat_lua_init();
+    voice_lua_init();
     bot_lua_init();
     run_mod_script();
 }

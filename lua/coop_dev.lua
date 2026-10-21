@@ -1095,6 +1095,7 @@ menu.coopplayers = mdkCreateMenu(0.5, 0.16, 0.045, 0.045, 0.005, JUSTIFY_CENTER,
 menu.coopsession = mdkCreateMenu(0.5, 0.22, 0.05, 0.05, 0.01, JUSTIFY_CENTER, 1)
 menu.coopgame = mdkCreateMenu(0.7, 0.25, 0.05, 0.05, 0.01, JUSTIFY_RIGHT, 1)
 menu.coopdiff = mdkCreateMenu(0.7, 0.2, 0.045, 0.045, 0.005, JUSTIFY_RIGHT, 1)
+menu.coopvoice = mdkCreateMenu(0.7, 0.25, 0.05, 0.05, 0.01, JUSTIFY_RIGHT, 1)
 
 coop.pages = {
     coop = function() coop.BuildMain() end,
@@ -1103,6 +1104,7 @@ coop.pages = {
     coopgame = function() coop.BuildGame() end,
     coopctrl = function() coop.OpenControls() end,
     coopdiff = function() coop.BuildDifficulty() end,
+    coopvoice = function() coop.BuildVoice() end,
 }
 
 function coop.ShowPage(name)
@@ -1139,6 +1141,8 @@ function coop.BuildMain()
     item.Select = function(self) coop.ShowPage("coopgame") end
     item = mdkCreateMenuItem(menu.coop, "Controls")
     item.Select = function(self) coop.ShowPage("coopctrl") end
+    item = mdkCreateMenuItem(menu.coop, "Voice chat")
+    item.Select = function(self) coop.ShowPage("coopvoice") end
     item = mdkCreateMenuItemW(menu.coop, strings.opt_ok)
     mdkMenuItemStayInCenterPlease(item)
     mdkMenuItemSetSponge(item, 0.03)
@@ -1810,5 +1814,54 @@ end
 function coop.ControlsCheck()
     if (coop.ctrl_open and menu.current ~= "coopctrl") then coop.CloseControls() end
 end
+
+-- voice chat page: proximity voice (bridge/voice.c); the range is the host's setting --
+coop.voice_keys = { [0] = "V", [1] = "B", [2] = "T", [3] = "CAPS" }
+coop.voice_volumes = { [0] = 50, [1] = 100, [2] = 150, [3] = 200 }
+coop.voice_ranges = { [0] = 25, [1] = 50, [2] = 100, [3] = 0 }
+
+function coop.BuildVoice()
+    local m = menu.coopvoice
+    mdkClearMenu(m)
+    coop.Heading(m, "Voice chat")
+
+    local item = mdkCreateMenuItem(m, "Voice chat")
+    mdkMenuItemAddCheckBox(item, tonumber(coop_get("voice", "enabled", "1")) or 1)
+    item.Select = function(self, n) coop_set("voice", "enabled", n) end
+
+    item = mdkCreateMenuItem(m, "Push to talk")
+    mdkMenuItemAddComboBox(item)
+    mdkMenuItemAddComboString(item, "V")
+    mdkMenuItemAddComboString(item, "B")
+    mdkMenuItemAddComboString(item, "T")
+    mdkMenuItemAddComboString(item, "Caps Lock")
+    mdkMenuItemSetWidgitValue(item, coop.IndexOf(coop.voice_keys, strupper(coop_get("voice", "key", "V")), 0))
+    item.Inc = function(self) coop_set("voice", "key", coop.voice_keys[mdkMenuItemGetWidgitValue(self)]) end
+    item.Dec = item.Inc
+
+    item = mdkCreateMenuItem(m, "Voice volume")
+    mdkMenuItemAddComboBox(item)
+    mdkMenuItemAddComboString(item, "Quiet")
+    mdkMenuItemAddComboString(item, "Normal")
+    mdkMenuItemAddComboString(item, "Loud")
+    mdkMenuItemAddComboString(item, "Louder")
+    mdkMenuItemSetWidgitValue(item, coop.IndexOf(coop.voice_volumes, tonumber(coop_get("voice", "volume", "100")), 1))
+    item.Inc = function(self) coop_set("voice", "volume", coop.voice_volumes[mdkMenuItemGetWidgitValue(self)]) end
+    item.Dec = item.Inc
+
+    item = mdkCreateMenuItem(m, "Hearing range (host)")
+    mdkMenuItemAddComboBox(item)
+    mdkMenuItemAddComboString(item, "Short")
+    mdkMenuItemAddComboString(item, "Medium")
+    mdkMenuItemAddComboString(item, "Long")
+    mdkMenuItemAddComboString(item, "Everywhere")
+    mdkMenuItemSetWidgitValue(item, coop.IndexOf(coop.voice_ranges, tonumber(coop_get("voice", "range", "50")), 1))
+    item.Inc = function(self) coop_set("voice", "range", coop.voice_ranges[mdkMenuItemGetWidgitValue(self)]) end
+    item.Dec = item.Inc
+
+    coop.BackItem(m, "coop")
+end
+
+menu.coopvoice.Cancel = function() coop.ShowPage("coop") end
 
 coop.ApplyDevKeys(coop_get("controls", "devkeys", "0") == "1")

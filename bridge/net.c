@@ -364,18 +364,26 @@ static void send_to(int slot, const void *buf, int len)
         return;
     if (net_ready() && links[slot].used) {
         const struct player_packet *p = buf;
-        int kind = 3;                                   /* netstats.c: player, relay, ent, other */
+        int kind = NS_OTHER;                            /* netstats.c */
         if (len >= (int)sizeof(unsigned int) && p->magic == PLAYER_MAGIC)
-            kind = len >= (int)offsetof(struct player_packet, state) && (p->flags & PK_RELAY) ? 1 : 0;
+            kind = len >= (int)offsetof(struct player_packet, state) && (p->flags & PK_RELAY) ? NS_RELAY : NS_PLAYER;
         else if (len >= (int)sizeof(unsigned int) && p->magic == RELAY_MAGIC)
-            kind = 1;
+            kind = NS_RELAY;
         else if (ents_is_packet(buf, len))
-            kind = 2;
+            kind = NS_ENT;
+        else if (voice_is_packet(buf, len))
+            kind = NS_VOICE;
         int sent = net_steam ? steam_send(links[slot].steam_id, buf, len) :
             sendto(sock, (const char *)buf, len, 0, (struct sockaddr *)&links[slot].addr, sizeof(links[slot].addr)) == len;
         if (sent)
             netstats_sent(kind, len);
     }
+}
+
+void net_send_to(int slot, const void *buf, int len)
+{
+    if (slot >= 0 && slot < MAX_PLAYERS)
+        send_to(slot, buf, len);
 }
 
 /* Host: to every client; client: to the host */
@@ -1441,6 +1449,20 @@ static void accept_datagram(const BYTE *buf, int len, const struct sockaddr_in *
         if (net_steam ? steam_id == links[0].steam_id :
             (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port))
             relay_receive(buf, len, arrived);
+    } else if (voice_is_packet(buf, len)) {
+        int slot = -1, s;
+
+        if (role_host) {
+            for (s = 0; s < MAX_PLAYERS; s++)
+                if (links[s].used && (net_steam ? links[s].steam_id == steam_id :
+                    (links[s].addr.sin_addr.s_addr == from->sin_addr.s_addr && links[s].addr.sin_port == from->sin_port)))
+                    slot = s;
+        } else if (net_steam ? steam_id == links[0].steam_id :
+                   (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port)) {
+            slot = 0;
+        }
+        if (slot >= 0 && have_remote)
+            voice_receive(slot, buf, len);
     } else if (have_remote && (role_host || (net_steam ? steam_id == links[0].steam_id :
                 (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port)))) {
         ents_receive(buf, len);

@@ -11,8 +11,7 @@
 #define UDP_IP_HEADER   28
 #define STATS_MS        10000.0
 
-enum { NS_PLAYER, NS_RELAY, NS_ENT, NS_OTHER, NS_KINDS };
-static const char *ns_name[NS_KINDS] = { "player", "relay", "ent", "other" };
+static const char *ns_name[NS_KINDS] = { "player", "relay", "ent", "voice", "other" };
 static double bytes[NS_KINDS], packets[NS_KINDS];
 static double since;
 

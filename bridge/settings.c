@@ -7,6 +7,7 @@
  *   [game]     friendly_fire=0|1, enemy_scale=<% more enemy hp per extra player>  (the host's count),
  *              enemy_hp=<% of normal>, dmg_taken=<%>, dmg_dealt=<%>, down_secs, revive_secs
  *              (difficulty: the host's values rule; clients get them as EV_RULES)
+ *   [voice]    enabled, key, volume, range   (voice.c; range is the host's)
  *   [save]     interval=<seconds between co-op saves>
  *   [controls] preset=original|modern|custom, devkeys=0|1;  [controls_custom] <action>=<key>,<key>
  *
@@ -59,6 +60,7 @@ static const char *str_param(int n)
 
 static void settings_load(void)
 {
+    voice_reload(ini_path);
     cfg_friendly_fire = GetPrivateProfileIntA("game", "friendly_fire", 0, ini_path) != 0;
     cfg_enemy_scale = GetPrivateProfileIntA("game", "enemy_scale", 50, ini_path);
     if (cfg_enemy_scale < 0)
