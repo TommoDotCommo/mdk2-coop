@@ -107,7 +107,11 @@ mdk_kill; sleep 2
 setini 2 launcher show 1
 
 # 6. Steam's join launch (+connect_lobby) skips the launcher
-P2=$(powershell.exe -NoProfile -Command "(Start-Process -PassThru -FilePath '$(mdk_dir 2)\\mdk2hd.exe' -WorkingDirectory '$(mdk_dir 2)' -ArgumentList '+connect_lobby','109775240000000000').Id" | tr -d '\r')
+if [ "${MDK2_PROCESS_SERVICE:-0}" = 1 ]; then     # as mdk_start: see tools/mdk.sh
+    P2=$(powershell.exe -NoProfile -Command "(Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='\"$(mdk_dir 2)\\mdk2hd.exe\" +connect_lobby 109775240000000000';CurrentDirectory='$(mdk_dir 2)'}).ProcessId" | tr -d '\r')
+else
+    P2=$(powershell.exe -NoProfile -Command "(Start-Process -PassThru -FilePath '$(mdk_dir 2)\\mdk2hd.exe' -WorkingDirectory '$(mdk_dir 2)' -ArgumentList '+connect_lobby','109775240000000000').Id" | tr -d '\r')
+fi
 check "+connect_lobby: launcher skipped"                wait_log 2 "^launcher: skipped, Steam started the game to join a lobby" 30
 mdk_kill; sleep 2
 for i in 1 2; do setini $i test launcher 0; done

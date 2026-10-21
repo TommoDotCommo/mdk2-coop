@@ -864,7 +864,7 @@ static void page_settings(void)
     y += ROW + 2;
     toggle(ID, PX, y, PW, "Players on screen", "Health panel and name tags", &cfg.hud);
     y += ROW + 2;
-    choice(ID, PX, y, PW, "Controls", cfg.controls == 1 ? "WASD, Space jumps, right mouse aims" :
+    choice(ID, PX, y, PW, "Controls", cfg.controls == 1 ? "WASD, Space to jump" :
            cfg.controls == 0 ? "The game's own keys" : "Yours: Options > Co-op > Controls", ctrl_names, 3, &cfg.controls);
     y += ROW + 10;
 
