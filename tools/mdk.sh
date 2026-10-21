@@ -6,6 +6,8 @@
 #   MDK2_PORT               UDP port of the host (default 27900); instance i listens on MDK2_PORT + i - 1
 #   MDK2_TOOLS              where tools/win/*.ps1 are copied (default C:\coop\tools)
 #   MDK2_PIDS               file with the instances' pids, in order
+#   MDK2_PROCESS_SERVICE=1  launch through Win32_Process.Create when the calling process
+#                           forces system DLLs ahead of the local dinput8.dll proxy
 # Keys are DirectInput scancodes (1 Esc, 17 W, 30 A, 31 S, 32 D, 57 Space = jump with the co-op
 # bindings, 59-68 F1-F10, 87 F11).
 MDK2_N="${MDK2_N:-2}"
@@ -22,7 +24,12 @@ mdk_dir()   { local i="${1:-1}" v; v="MDK2_DIR$i"
 mdk_log()   { echo "$(mdk_wsl "$(mdk_dir "$1")")/coop/bridge.log"; }
 mdk_seq()   { seq 1 "$MDK2_N"; }
 mdk_tools_install() { local here; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; mkdir -p "$(mdk_wsl "$MDK2_TOOLS")"; cp "$here"/win/*.ps1 "$(mdk_wsl "$MDK2_TOOLS")/"; }
-mdk_start() { local d; d=$(mdk_dir "${1:-1}"); powershell.exe -NoProfile -Command "(Start-Process -PassThru -FilePath '$d\\mdk2hd.exe' -WorkingDirectory '$d').Id" | tr -d '\r'; }
+mdk_start() { local d; d=$(mdk_dir "${1:-1}")
+              if [ "${MDK2_PROCESS_SERVICE:-0}" = 1 ]; then
+                  powershell.exe -NoProfile -Command "(Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='\"$d\\mdk2hd.exe\"';CurrentDirectory='$d'}).ProcessId" | tr -d '\r'
+              else
+                  powershell.exe -NoProfile -Command "(Start-Process -PassThru -FilePath '$d\\mdk2hd.exe' -WorkingDirectory '$d').Id" | tr -d '\r'
+              fi; }
 mdk_pids()  { cat "$MDK2_PIDS"; }
 mdk_pid()   { local i=0 p; for p in $(mdk_pids); do i=$((i + 1)); [ "$i" = "$1" ] && { echo "$p"; return; }; done; }
 # Input: in background test mode (MDK2_BACKGROUND=1 at install) a Lua line goes to the game

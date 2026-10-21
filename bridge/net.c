@@ -24,7 +24,7 @@
 #include <math.h>
 #include "bridge.h"
 
-#define PLAYER_MAGIC    0x424b444d      /* "MDKB": compact state, life and reviving bytes */
+#define PLAYER_MAGIC    0x434b444d      /* "MDKC": FIRE includes finished projectile launch state */
 #define PACKET_EVENTS   7      /* 7 x 128-byte events + player state fit in one datagram */
 #define MAX_DATAGRAM    1400
 #define PLAYER_TIMEOUT_MS 10000.0

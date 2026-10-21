@@ -132,6 +132,8 @@ struct track {
 enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY,
        EV_REVIVE, EV_RESPAWN, EV_DIED };
 #define EV_NAME 32
+/* FIRE part: 0 replays create_object arguments; 1 restores a launched class 5 shot. */
+#define FIRE_LAUNCHED 1
 
 struct event {
     unsigned int id;
@@ -144,10 +146,16 @@ struct event {
     unsigned short epoch;       /* sender's level epoch; events from another one are dropped */
     float pos[3];               /* SPAWN / FIRE: where it is */
     float quat[4];              /* FIRE: rotation */
-    DWORD extra[4];             /* FIRE: create_object's last four arguments;
+    DWORD extra[4];             /* FIRE: create_object's last four arguments (launched: [0] owner);
                                    LEVEL: [0] co-op save to load (0 none), [1] host's player id */
     char name[EV_NAME];         /* target gob name; "@p<n>" = player n's character */
-    char from[EV_NAME];         /* APPLY / HURT: attacker, "@p<n>" or gob name */
+    union {
+        char from[EV_NAME];     /* APPLY / HURT: attacker, "@p<n>" or gob name */
+        struct {               /* FIRE_LAUNCHED: pointer-free class 5 state, keeping events 128 B */
+            float velocity[3];
+            DWORD state[5];    /* active, age, flags and timers (shot state +4..+0x14) */
+        } shot;
+    };
 };
 
 /* Players: slot 0 is the host, clients get 1.. from the host when they first send.
@@ -267,6 +275,9 @@ void state_dump(const char *tag);
 
 void shots_init(void);
 void shots_frame(void);
+void shots_dump(void);
+void shots_test_sniper(void);
+BYTE *shots_test_latest(int type);
 void shots_replay(const struct event *e);
 void shots_reset(void);
 

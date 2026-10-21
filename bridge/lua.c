@@ -584,6 +584,21 @@ static void l_coop_log(void)
     logmsg("lua: %s", luaL_check_lstr(1, &len));
 }
 
+static void l_coop_shots_dump(void)
+{
+    shots_dump();
+}
+
+static void l_coop_test_sniper(void)
+{
+    shots_test_sniper();
+}
+
+static void l_coop_test_shot(void)
+{
+    push_gob(shots_test_latest((int)num_param(1)));
+}
+
 /* ---- startup ---- */
 
 /* Run <game dir>\coop\coop.lua. The game reads settings.lua into an 8 KB stack
@@ -643,6 +658,9 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_life", l_coop_life);
     tolua_function(NULL, "coop_revive_checkpoint", l_coop_revive_checkpoint);
     tolua_function(NULL, "coop_listgobs", l_coop_listgobs);
+    tolua_function(NULL, "coop_shots_dump", l_coop_shots_dump);
+    tolua_function(NULL, "coop_test_sniper", l_coop_test_sniper);
+    tolua_function(NULL, "coop_test_shot", l_coop_test_shot);
     tolua_function(NULL, "coop_log", l_coop_log);
     tolua_function(NULL, "coop_press", l_coop_press);
     tolua_function(NULL, "coop_shot", l_coop_shot);
