@@ -83,7 +83,8 @@ Options > Co-op (on the title screen, or Esc > Options while playing):
 Known issues
 ------------
 - Direct connection only: the host needs port forwarding until Steam networking is in.
-- With many players the host uploads a lot (about 20 Mbit/s with 8 in a busy level).
+- The host uploads about 1.3 Mbit/s with 8 players in a busy level (less with fewer):
+  check the host has that much upload to spare.
 - Nobody has finished the whole campaign in co-op yet. Please report what breaks.
 
 MIT licensed (LICENSE.txt). MDK2 HD itself is not included.

@@ -24,7 +24,7 @@
 #include <math.h>
 #include "bridge.h"
 
-#define PLAYER_MAGIC    0x394b444d      /* "MDK9" */
+#define PLAYER_MAGIC    0x414b444d      /* "MDKA": compact state on the wire (packet_pack) */
 #define PACKET_EVENTS   7      /* 7 x 128-byte events + player state fit in one datagram */
 #define MAX_DATAGRAM    1400
 #define PLAYER_TIMEOUT_MS 10000.0
@@ -32,6 +32,23 @@
 
 #define PK_STATE        1       /* carries a player state */
 #define PK_RELAY        2       /* host passing on another client's state: no ack, no events */
+#define PK_NAME         4       /* relayed state carries the player's name (relay bundles) */
+
+/* Relay bundle (host to client): the other players' latest states since the last bundle,
+ * one datagram per client per send tick instead of one per relayed state. Header, then
+ * count records: u8 slot, u8 flags, u8 level, u8 pad, u32 id, u32 seq, u16 epoch,
+ * i16 player_type, i16 hp, i16 hp_max, u32 state time, [name, PLAYER_NAME bytes, if PK_NAME], u16 length,
+ * snap_encode bytes. The name goes along about once a second. */
+#define RELAY_MAGIC     0x524b444d      /* "MDKR" */
+struct relay_head {
+    unsigned int magic;
+    unsigned int nonce;         /* host process */
+    unsigned short gen;         /* the receiver's link */
+    unsigned char you;          /* the receiver's slot */
+    unsigned char count;
+};
+#define RELAY_FIXED     (4 + 4 + 4 + 2 + 2 + 2 + 2 + 4)
+#define RELAY_NAME_EVERY 30     /* states between names */
 
 struct player_packet {
     unsigned int magic;
@@ -56,6 +73,74 @@ struct player_packet {
     struct event events[PACKET_EVENTS];
 };
 #define PACKET_HEAD     offsetof(struct player_packet, events)
+#define WIRE_HEAD       offsetof(struct player_packet, state)
+
+/* On the wire the state is compact (snap_encode): the header up to `state`, u32 state time,
+ * u16 state length (0 = no state), the encoded state, u32 ack, u8 nevents, the events. A full
+ * struct snap went out with every packet before, ~390 bytes, mostly empty anim slots; the
+ * host relays every player's state to every other client, so that was most of its upload. */
+static int packet_pack(const struct player_packet *p, BYTE *out, int max)
+{
+    BYTE *o = out;
+    int n = 0;
+
+    unsigned short n16;
+
+    if (max < (int)WIRE_HEAD + 4 + 2 + 4 + 1 + p->nevents * (int)sizeof(struct event))
+        return 0;
+    memcpy(o, p, WIRE_HEAD); o += WIRE_HEAD;
+    memcpy(o, &p->state.time, 4); o += 4;
+    if ((p->flags & PK_STATE) &&
+        !(n = snap_encode(&p->state, o + 2, max - (int)(o + 2 - out) - 5 - p->nevents * (int)sizeof(struct event))))
+        return 0;
+    n16 = (unsigned short)n;
+    memcpy(o, &n16, 2); o += 2 + n;
+    memcpy(o, &p->ack, 4); o += 4;
+    *o++ = p->nevents;
+    memcpy(o, p->events, p->nevents * sizeof(struct event)); o += p->nevents * sizeof(struct event);
+    return (int)(o - out);
+}
+
+/* 1 if buf is a whole, well-formed player packet; *p gets it in the in-memory form */
+static int packet_unpack(const BYTE *buf, int len, struct player_packet *p)
+{
+    const BYTE *q = buf, *end = buf + len;
+    int n;
+
+    unsigned short n16;
+
+    if (len < (int)WIRE_HEAD + 4 + 2)
+        return 0;
+    memset(p, 0, PACKET_HEAD);
+    memcpy(p, q, WIRE_HEAD); q += WIRE_HEAD;
+    if (p->magic != PLAYER_MAGIC)
+        return 0;
+    memcpy(&p->state.time, q, 4); q += 4;
+    memcpy(&n16, q, 2); q += 2;
+    n = n16;
+    if (n && (end - q < n || snap_decode(q, n, &p->state) != n))
+        return 0;
+    q += n;
+    if (end - q < 5)
+        return 0;
+    memcpy(&p->ack, q, 4); q += 4;
+    p->nevents = *q++;
+    if (p->nevents > PACKET_EVENTS || end - q != (int)(p->nevents * sizeof(struct event)))
+        return 0;
+    memcpy(p->events, q, p->nevents * sizeof(struct event));
+    return 1;
+}
+
+/* send_to with the packet packed */
+static void send_to(int slot, const void *buf, int len);
+static void send_packet(int slot, const struct player_packet *p)
+{
+    BYTE wire[MAX_DATAGRAM];
+    int len = packet_pack(p, wire, sizeof(wire));
+
+    if (len)
+        send_to(slot, wire, len);
+}
 
 /* settings from coop.ini */
 int sync_anim = 1;              /* [sync] anim: 0 turns animation sync off */
@@ -137,6 +222,13 @@ struct player {
 };
 
 static struct player players[MAX_PLAYERS];
+
+/* host: latest state of each client still to be relayed, and to whom */
+static struct {
+    struct player_packet st;    /* header and state only */
+    unsigned int to;            /* bit per slot: not yet sent there */
+    unsigned int count;         /* states relayed so far, for the name */
+} relay_pending[MAX_PLAYERS];
 
 double now_ms(void)
 {
@@ -253,8 +345,18 @@ static void send_to(int slot, const void *buf, int len)
 {
     if (block_until > now_ms())
         return;
-    if (sock != INVALID_SOCKET && links[slot].used)
+    if (sock != INVALID_SOCKET && links[slot].used) {
+        const struct player_packet *p = buf;
+        int kind = 3;                                   /* netstats.c: player, relay, ent, other */
+        if (len >= (int)sizeof(unsigned int) && p->magic == PLAYER_MAGIC)
+            kind = len >= (int)offsetof(struct player_packet, state) && (p->flags & PK_RELAY) ? 1 : 0;
+        else if (len >= (int)sizeof(unsigned int) && p->magic == RELAY_MAGIC)
+            kind = 1;
+        else if (ents_is_packet(buf, len))
+            kind = 2;
         sendto(sock, (const char *)buf, len, 0, (struct sockaddr *)&links[slot].addr, sizeof(links[slot].addr));
+        netstats_sent(kind, len);
+    }
 }
 
 /* Host: to every client; client: to the host */
@@ -740,6 +842,130 @@ void snap_capture(BYTE *gob, struct snap *s)
     }
 }
 
+/* ---- compact snapshots on the wire ----
+ * A struct snap is ~390 bytes, almost all of it the 8 anim slots; most enemies have no
+ * anim running (rooms in stasis) and a running anim is mostly zeros and constants with
+ * only its play position moving. Wire form (little endian, no padding):
+ *   pos 3 x float, quat 4 x int16 (x 32767), cur, prev, nanims, then per anim:
+ *   id, u16 mask (bit k: state[k] is non-zero and follows; bit 15: [3] [4] [6] are in 0..1
+ *   and follow as u16 x 65535), the non-zero state DWORDs.
+ * The time is not in it: callers carry one per packet. */
+
+#define SNAP_QUANT      0x8000
+#define QUANT_FIELD(k)  ((k) == ANIM_TIME0 || (k) == ANIM_TIME1 || (k) == ANIM_WEIGHT)
+
+static int unit_float(DWORD d)
+{
+    float f;
+    memcpy(&f, &d, 4);
+    return f >= 0.0f && f <= 1.0f;
+}
+
+/* bytes written, or 0 if it does not fit in max */
+int snap_encode(const struct snap *s, BYTE *out, int max)
+{
+    BYTE *o = out, *end = out + max;
+    int i, k;
+
+    if (end - o < 12 + 8 + 3)
+        return 0;
+    memcpy(o, s->pos, 12); o += 12;
+    for (k = 0; k < 4; k++) {
+        float q = s->quat[k] < -1.0f ? -1.0f : s->quat[k] > 1.0f ? 1.0f : s->quat[k];
+        short v = (short)lrintf(q * 32767.0f);
+        memcpy(o, &v, 2); o += 2;
+    }
+    *o++ = s->cur;
+    *o++ = s->prev;
+    *o++ = s->nanims;
+    for (i = 0; i < s->nanims; i++) {
+        const DWORD *st = s->anims[i].state;
+        unsigned short mask = 0;
+        int quant = 1;
+
+        for (k = 0; k < ANIM_STATE_DWORDS; k++) {
+            if (st[k])
+                mask |= (unsigned short)(1 << k);
+            if (QUANT_FIELD(k) && st[k] && !unit_float(st[k]))
+                quant = 0;
+        }
+        if (quant)
+            mask |= SNAP_QUANT;
+        if (end - o < 3 + ANIM_STATE_DWORDS * 4)
+            return 0;
+        *o++ = s->anims[i].id;
+        memcpy(o, &mask, 2); o += 2;
+        for (k = 0; k < ANIM_STATE_DWORDS; k++) {
+            if (!(mask & (1 << k)))
+                continue;
+            if (quant && QUANT_FIELD(k)) {
+                float f;
+                unsigned short v;
+                memcpy(&f, &st[k], 4);
+                v = (unsigned short)lrintf(f * 65535.0f);
+                memcpy(o, &v, 2); o += 2;
+            } else {
+                memcpy(o, &st[k], 4); o += 4;
+            }
+        }
+    }
+    return (int)(o - out);
+}
+
+/* bytes read, or 0 if the data is short or bad; s->time is left alone */
+int snap_decode(const BYTE *in, int len, struct snap *s)
+{
+    const BYTE *p = in, *end = in + len;
+    float n = 0.0f;
+    int i, k;
+
+    if (end - p < 12 + 8 + 3)
+        return 0;
+    memcpy(s->pos, p, 12); p += 12;
+    for (k = 0; k < 4; k++) {
+        short v;
+        memcpy(&v, p, 2); p += 2;
+        s->quat[k] = v / 32767.0f;
+        n += s->quat[k] * s->quat[k];
+    }
+    n = n > 0.0f ? 1.0f / sqrtf(n) : 1.0f;
+    for (k = 0; k < 4; k++)
+        s->quat[k] *= n;
+    s->cur = *p++;
+    s->prev = *p++;
+    s->nanims = *p++;
+    if (s->nanims > SNAP_ANIMS)
+        return 0;
+    for (i = 0; i < s->nanims; i++) {
+        unsigned short mask;
+        DWORD *st = s->anims[i].state;
+
+        if (end - p < 3)
+            return 0;
+        s->anims[i].id = *p++;
+        memcpy(&mask, p, 2); p += 2;
+        for (k = 0; k < ANIM_STATE_DWORDS; k++) {
+            st[k] = 0;
+            if (!(mask & (1 << k)))
+                continue;
+            if ((mask & SNAP_QUANT) && QUANT_FIELD(k)) {
+                unsigned short v;
+                float f;
+                if (end - p < 2)
+                    return 0;
+                memcpy(&v, p, 2); p += 2;
+                f = v / 65535.0f;
+                memcpy(&st[k], &f, 4);
+            } else {
+                if (end - p < 4)
+                    return 0;
+                memcpy(&st[k], p, 4); p += 4;
+            }
+        }
+    }
+    return (int)(p - in);
+}
+
 /* Make gob's anim states match the snapshot: copy active blocks, stop the rest */
 void anim_apply(BYTE *gob, const struct snap *s)
 {
@@ -765,6 +991,8 @@ void anim_apply(BYTE *gob, const struct snap *s)
 
 /* ---- player packets ---- */
 
+static void relay_flush(void);
+
 /* Our state to every link, each with its own ack and events */
 void net_send_player(BYTE *gob)
 {
@@ -778,6 +1006,8 @@ void net_send_player(BYTE *gob)
     if (sock == INVALID_SOCKET || now < next_send)
         return;
     next_send = (now - next_send > 1000.0 / send_hz) ? now + 1000.0 / send_hz : next_send + 1000.0 / send_hz;
+    if (role_host)
+        relay_flush();
     memset(&p, 0, PACKET_HEAD);
     p.magic = PLAYER_MAGIC;
     p.nonce = nonce;
@@ -807,7 +1037,7 @@ void net_send_player(BYTE *gob)
         p.nevents = 0;
         for (id = l->out_acked + 1; id < l->out_next && p.nevents < PACKET_EVENTS; id++)
             p.events[p.nevents++] = l->outbox[id % OUTBOX];
-        send_to(s, &p, PACKET_HEAD + p.nevents * sizeof(struct event));
+        send_packet(s, &p);
         if (p.seq % 900 == 0)
             logmsg("send #%u to player %d pos (%.2f, %.2f, %.2f) anim cur %d n %d, events %d unacked", p.seq, s + 1,
                    p.state.pos[0], p.state.pos[1], p.state.pos[2], p.state.cur, p.state.nanims,
@@ -834,8 +1064,10 @@ static void accept_state(int slot, const struct player_packet *p, double arrived
     if (slot == my_slot || slot >= MAX_PLAYERS)
         return;
     pl->id = p->id;
-    memcpy(pl->name, p->name, PLAYER_NAME);
-    pl->name[PLAYER_NAME - 1] = 0;
+    if (!(p->flags & PK_RELAY) || (p->flags & PK_NAME)) {     /* bundles carry it now and then */
+        memcpy(pl->name, p->name, PLAYER_NAME);
+        pl->name[PLAYER_NAME - 1] = 0;
+    }
     pl->level = p->level;
     pl->epoch = p->epoch;
     if (!pl->connected) {
@@ -930,7 +1162,6 @@ static void host_welcome(int s)
 /* Host: a client's packet; its link is found by player id (else address), or made */
 static void host_accept(const struct player_packet *p, const struct sockaddr_in *from, double arrived)
 {
-    struct player_packet relay;
     struct link *l = NULL;
     int s;
 
@@ -981,19 +1212,123 @@ static void host_accept(const struct player_packet *p, const struct sockaddr_in 
     accept_state(s, p, arrived);
     have_remote = 1;
 
-    /* pass the state on to the other clients */
-    memcpy(&relay, p, PACKET_HEAD);
-    relay.nonce = nonce;
-    relay.slot = (unsigned char)s;
-    relay.flags |= PK_RELAY;
-    relay.ack = 0;
-    relay.nevents = 0;
-    for (s = 1; s < MAX_PLAYERS; s++) {
-        if (!links[s].used || &links[s] == l)
+    /* pass the state on to the other clients, in the next relay bundle */
+    if (p->flags & PK_STATE) {
+        unsigned int to = 0;
+        memcpy(&relay_pending[s].st, p, PACKET_HEAD);
+        for (int d = 1; d < MAX_PLAYERS; d++)
+            if (links[d].used && d != s)
+                to |= 1u << d;
+        relay_pending[s].to = to;
+    }
+}
+
+/* Host: one bundle per client with the states that came in since the last one */
+static void relay_flush(void)
+{
+    BYTE buf[MAX_DATAGRAM];
+    int d, s;
+
+    for (d = 1; d < MAX_PLAYERS; d++) {
+        struct relay_head *h = (struct relay_head *)buf;
+        BYTE *o = buf + sizeof(*h);
+
+        if (!links[d].used)
             continue;
-        relay.you = (unsigned char)s;
-        relay.gen = links[s].gen;
-        send_to(s, &relay, PACKET_HEAD);
+        h->magic = RELAY_MAGIC;
+        h->nonce = nonce;
+        h->gen = links[d].gen;
+        h->you = (unsigned char)d;
+        h->count = 0;
+        for (s = 1; s < MAX_PLAYERS; s++) {
+            const struct player_packet *p = &relay_pending[s].st;
+            int name, n;
+            unsigned short n16;
+            BYTE flags;
+
+            if (!(relay_pending[s].to & (1u << d)))
+                continue;
+            name = relay_pending[s].count % RELAY_NAME_EVERY == 0;
+            if (buf + sizeof(buf) - o < RELAY_FIXED + PLAYER_NAME + 2 + 400) {
+                send_to(d, buf, (int)(o - buf));
+                o = buf + sizeof(*h);
+                h->count = 0;
+            }
+            flags = (BYTE)((p->flags & PK_STATE) | PK_RELAY | (name ? PK_NAME : 0));
+            *o++ = (BYTE)s;
+            *o++ = flags;
+            *o++ = p->level;
+            *o++ = 0;
+            memcpy(o, &p->id, 4); o += 4;
+            memcpy(o, &p->seq, 4); o += 4;
+            memcpy(o, &p->epoch, 2); o += 2;
+            memcpy(o, &p->player_type, 2); o += 2;
+            memcpy(o, &p->hp, 2); o += 2;
+            memcpy(o, &p->hp_max, 2); o += 2;
+            memcpy(o, &p->state.time, 4); o += 4;
+            if (name) {
+                memcpy(o, p->name, PLAYER_NAME);
+                o += PLAYER_NAME;
+            }
+            n = snap_encode(&p->state, o + 2, 400);
+            n16 = (unsigned short)n;
+            memcpy(o, &n16, 2);
+            o += 2 + n;
+            h->count++;
+            relay_pending[s].to &= ~(1u << d);
+        }
+        if (h->count)
+            send_to(d, buf, (int)(o - buf));
+    }
+    for (s = 1; s < MAX_PLAYERS; s++)
+        if (relay_pending[s].st.magic && !relay_pending[s].to) {
+            relay_pending[s].count++;
+            relay_pending[s].st.magic = 0;      /* sent everywhere */
+        }
+}
+
+/* Client: a relay bundle from our host */
+static void relay_receive(const BYTE *buf, int len, double arrived)
+{
+    const struct relay_head *h = (const struct relay_head *)buf;
+    const BYTE *q = buf + sizeof(*h), *end = buf + len;
+    struct link *l = &links[0];
+    static struct player_packet p;
+    int i;
+
+    if (len < (int)sizeof(*h) || h->nonce != l->nonce || h->gen != l->gen)
+        return;                 /* the host's own packets set up the link first */
+    l->last_heard = arrived;
+    for (i = 0; i < h->count; i++) {
+        unsigned short n16;
+        int slot;
+
+        if (end - q < RELAY_FIXED + 2)
+            return;
+        memset(&p, 0, PACKET_HEAD);
+        slot = q[0];
+        p.flags = q[1];
+        p.level = q[2];
+        q += 4;
+        memcpy(&p.id, q, 4); q += 4;
+        memcpy(&p.seq, q, 4); q += 4;
+        memcpy(&p.epoch, q, 2); q += 2;
+        memcpy(&p.player_type, q, 2); q += 2;
+        memcpy(&p.hp, q, 2); q += 2;
+        memcpy(&p.hp_max, q, 2); q += 2;
+        memcpy(&p.state.time, q, 4); q += 4;
+        if (p.flags & PK_NAME) {
+            if (end - q < PLAYER_NAME + 2)
+                return;
+            memcpy(p.name, q, PLAYER_NAME);
+            q += PLAYER_NAME;
+        }
+        memcpy(&n16, q, 2); q += 2;
+        if (end - q < n16 || (n16 && snap_decode(q, n16, &p.state) != n16))
+            return;
+        q += n16;
+        if (slot < MAX_PLAYERS)
+            accept_state(slot, &p, arrived);
     }
 }
 
@@ -1039,15 +1374,19 @@ static void client_accept(const struct player_packet *p, double arrived)
 
 static void accept_datagram(const BYTE *buf, int len, const struct sockaddr_in *from, double arrived)
 {
-    const struct player_packet *p = (const struct player_packet *)buf;
+    static struct player_packet unpacked;
+    const struct player_packet *p = &unpacked;
 
-    if (len >= (int)PACKET_HEAD && p->magic == PLAYER_MAGIC) {
-        if (p->nevents > PACKET_EVENTS || len != (int)(PACKET_HEAD + p->nevents * sizeof(struct event)))
+    if (len >= (int)sizeof(unsigned int) && *(const unsigned int *)buf == PLAYER_MAGIC) {
+        if (!packet_unpack(buf, len, &unpacked))
             return;
         if (role_host)
             host_accept(p, from, arrived);
         else if (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port)
             client_accept(p, arrived);      /* only the host we are set to (Options > Co-op > Host address) */
+    } else if (!role_host && len >= (int)sizeof(unsigned int) && *(const unsigned int *)buf == RELAY_MAGIC) {
+        if (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port)
+            relay_receive(buf, len, arrived);
     } else if (have_remote && (role_host || (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr &&
                                              from->sin_port == links[0].addr.sin_port))) {
         ents_receive(buf, len);

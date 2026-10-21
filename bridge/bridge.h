@@ -203,6 +203,8 @@ int event_next(struct event *out, int *from);
 void event_unget(int from);
 int event_must_wait(const struct event *e);
 void snap_capture(BYTE *gob, struct snap *s);
+int snap_encode(const struct snap *s, BYTE *out, int max);
+int snap_decode(const BYTE *in, int len, struct snap *s);
 void track_add(struct track *t, const struct snap *s);
 void track_update(struct track *t, double clock_offset);
 double host_clock_offset(void);
@@ -227,6 +229,11 @@ void ents_resend(int to);
 int ent_is_synced(BYTE *gob);
 void ents_keep_spawner(BYTE *gob);
 void ents_dump(FILE *f);
+int ents_is_packet(const void *buf, int len);
+
+/* ---- netstats.c ---- */
+
+void netstats_sent(int kind, int len);
 
 /* ---- state.c ---- */
 

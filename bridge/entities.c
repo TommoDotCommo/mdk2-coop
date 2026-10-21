@@ -13,22 +13,21 @@
 #include <string.h>
 #include "bridge.h"
 
-#define ENT_MAGIC       0x454b444d      /* "MDKE" */
-#define ENT_PER_PACKET  3
+#define ENT_MAGIC       0x464b444d      /* "MDKF": compact snapshots (net.c snap_encode) */
 #define MAX_ENTS        256
 #define ORPHAN_GRACE_MS 3000.0
+#define ENT_PAYLOAD     1200            /* bytes per datagram, under any internet MTU */
+#define ENT_ENC_MAX     384             /* one encoded snapshot at most (8 full anims) */
+#define ENT_SETTLE      2               /* unchanged snapshots still sent after a change */
+#define ENT_KEEPALIVE_MS 1000.0         /* an unchanged enemy is still sent this often */
 
-struct ent_state {
-    unsigned int id;
-    struct snap state;
-};
-
-struct ent_packet {
+/* Datagram: this header, then count records of { u32 id, snap_encode bytes } */
+struct ent_head {
     unsigned int magic;
+    unsigned short epoch;       /* host's level epoch: dropped by a client in another one */
     unsigned char count;
     unsigned char pad;
-    unsigned short epoch;       /* host's level epoch: dropped by a client in another one */
-    struct ent_state ents[ENT_PER_PACKET];
+    unsigned int time;          /* host clock when the snapshots were taken, ms */
 };
 
 struct ent {
@@ -36,6 +35,11 @@ struct ent {
     BYTE *gob;                  /* local gob */
     unsigned int local;         /* local gob handle, to notice when the gob goes away */
     struct track track;         /* client */
+    /* host: what was sent last, to send an enemy only when it changes */
+    BYTE last[ENT_ENC_MAX];
+    short last_len;
+    unsigned char quiet;        /* snapshots in a row that matched the last one */
+    double last_sent;
 };
 
 static struct ent ents[MAX_ENTS];
@@ -54,6 +58,12 @@ static struct ent *ent_find(unsigned int id)
 static void ent_remove(struct ent *e)
 {
     *e = ents[--nents];
+}
+
+/* netstats.c: is this datagram one of ours */
+int ents_is_packet(const void *buf, int len)
+{
+    return len >= (int)sizeof(unsigned int) && *(const unsigned int *)buf == ENT_MAGIC;
 }
 
 int ent_count(void)
@@ -116,7 +126,6 @@ void ents_reset(void)
 void ents_host_tick(void)
 {
     static double next_tick;
-    struct ent_packet p;
     double now = now_ms();
     int slot, i;
 
@@ -161,16 +170,46 @@ void ents_host_tick(void)
         logmsg("ent spawn %x %s type %d", id, name, gob_type(gob));
     }
 
-    memset(&p, 0, sizeof(p));
-    p.magic = ENT_MAGIC;
-    p.epoch = cur_epoch;
-    for (i = 0; i < nents; i++) {
-        p.ents[p.count].id = ents[i].id;
-        snap_capture(ents[i].gob, &p.ents[p.count].state);
-        if (++p.count == ENT_PER_PACKET || i == nents - 1) {
-            net_send(&p, sizeof(p));
-            p.count = 0;
+    /* snapshots: an enemy goes out when it changed, for ENT_SETTLE more ticks after that
+     * (so the client's track ends on two equal states and stops instead of extrapolating
+     * the last step), and every ENT_KEEPALIVE_MS while it rests (most are in rooms in
+     * stasis). Records are packed into datagrams of up to ENT_PAYLOAD bytes. */
+    {
+        BYTE buf[sizeof(struct ent_head) + ENT_PAYLOAD], *o = buf + sizeof(struct ent_head);
+        struct ent_head *h = (struct ent_head *)buf;
+
+        memset(h, 0, sizeof(*h));
+        h->magic = ENT_MAGIC;
+        h->epoch = cur_epoch;
+        h->time = (unsigned int)now;
+        for (i = 0; i < nents; i++) {
+            struct ent *e = &ents[i];
+            struct snap sn;
+            BYTE enc[ENT_ENC_MAX];
+            int len, same;
+
+            snap_capture(e->gob, &sn);
+            if (!(len = snap_encode(&sn, enc, sizeof(enc))))
+                continue;
+            same = len == e->last_len && memcmp(enc, e->last, len) == 0;
+            e->quiet = same ? (e->quiet < 255 ? e->quiet + 1 : 255) : 0;
+            if (same && e->quiet > ENT_SETTLE && now - e->last_sent < ENT_KEEPALIVE_MS)
+                continue;
+            if (o + 4 + len > buf + sizeof(buf)) {
+                net_send(buf, (int)(o - buf));
+                o = buf + sizeof(struct ent_head);
+                h->count = 0;
+            }
+            memcpy(o, &e->id, 4);
+            memcpy(o + 4, enc, len);
+            o += 4 + len;
+            h->count++;
+            memcpy(e->last, enc, len);
+            e->last_len = (short)len;
+            e->last_sent = now;
         }
+        if (h->count)
+            net_send(buf, (int)(o - buf));
     }
 }
 
@@ -240,16 +279,27 @@ void ent_despawn(unsigned int netid)
 
 void ents_receive(const void *buf, int len)
 {
-    const struct ent_packet *p = buf;
+    const struct ent_head *h = buf;
+    const BYTE *p = (const BYTE *)buf + sizeof(*h), *end = (const BYTE *)buf + len;
     int i;
 
-    if (role_host || len != sizeof(*p) || p->magic != ENT_MAGIC || p->count > ENT_PER_PACKET ||
-        p->epoch != cur_epoch)
+    if (role_host || len < (int)sizeof(*h) || h->magic != ENT_MAGIC || h->epoch != cur_epoch)
         return;
-    for (i = 0; i < p->count; i++) {
-        struct ent *e = ent_find(p->ents[i].id);
-        if (e && e->gob && p->ents[i].state.nanims <= SNAP_ANIMS)
-            track_add(&e->track, &p->ents[i].state);
+    for (i = 0; i < h->count; i++) {
+        unsigned int id;
+        struct snap sn;
+        struct ent *e;
+        int used;
+
+        if (end - p < 4)
+            return;
+        memcpy(&id, p, 4);
+        if (!(used = snap_decode(p + 4, (int)(end - p - 4), &sn)))
+            return;
+        p += 4 + used;
+        sn.time = h->time;
+        if ((e = ent_find(id)) && e->gob)
+            track_add(&e->track, &sn);
     }
 }
 

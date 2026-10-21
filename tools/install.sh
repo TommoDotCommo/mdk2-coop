@@ -3,6 +3,7 @@
 # which keep dinput8.dll locked): dinput8.dll, coop.ini (host + clients on localhost),
 # coop.lua, the settings.lua loader line and the Windows input helpers.
 # MDK2_START="<level> <checkpoint>" makes the host load that checkpoint from the title screen.
+# MDK2_SIM="<latency ms> <jitter ms> <loss %>" adds a faked bad connection ([sim]) to every game.
 # MDK2_BACKGROUND=1 installs background test mode for all: the games ignore the real keyboard
 # and mouse, never take focus and are muted; scripts drive them through coop\command.lua.
 # Their windows go side by side on the second monitor (the primary one if there is no other).
@@ -11,7 +12,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 source "$here/tools/mdk.sh"
 
-make -s -C "$here/bridge"
+[ "${MDK2_NO_BUILD:-0}" = 1 ] || make -s -C "$here/bridge"     # MDK2_NO_BUILD=1: already built (parallel sweeps)
 mdk_kill
 sleep 2
 mdk_tools_install
@@ -38,6 +39,12 @@ for i in $(mdk_seq); do
     else net="role=client\r\nlisten_port=$((MDK2_PORT + i - 1))\r\npeer_host=127.0.0.1\r\npeer_port=$MDK2_PORT"; fi
     printf "[net]\r\n$net\r\n[controls]\r\ndevkeys=1\r\n[test]\r\nbackground=%s\r\nx=%d\r\ny=%d\r\n" "${MDK2_BACKGROUND:-0}" "$x" "$y" \
         > "$(mdk_wsl "$(mdk_dir $i)")/coop/coop.ini"
+    # MDK2_SIM="<latency ms> <jitter ms> <loss %>": every game fakes a bad connection on what it receives
+    if [ -n "${MDK2_SIM:-}" ]; then
+        read -r sl sj sp <<< "$MDK2_SIM"
+        printf "[sim]\r\nlatency_ms=%d\r\njitter_ms=%d\r\nloss_pct=%d\r\n" "$sl" "$sj" "$sp" \
+            >> "$(mdk_wsl "$(mdk_dir $i)")/coop/coop.ini"
+    fi
 done
 GAME_DIRS="$dirs" "$here/tools/inject.sh"
 # MDK2_START="<level> <checkpoint>": the host loads it by itself from the title screen, once the
