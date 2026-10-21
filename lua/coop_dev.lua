@@ -224,13 +224,14 @@ end
 
 -- the players panel ([hud] show, Options > Co-op > Gameplay): in a level, no menu up --
 coop.hud_on = (coop_get("hud", "show", "1") == "1")
+coop.hud_outline = (coop_get("hud", "outline", "1") == "1")
 function coop.HudTick()
     local show = 0
     if (coop.hud_on and coop.level and coop.level >= 1 and not coop.waiting and
         not (gamecontrol and gamecontrol.showmenu == 1)) then
         show = 1
     end
-    coop_hud(show, mdkGetCameraGob())
+    coop_hud(show, mdkGetCameraGob(), coop.hud_outline and 1 or 0)
 end
 
 -- slot whose puppet gob is, or nil --
@@ -1092,6 +1093,13 @@ function coop.BuildGame()
     item.Select = function(self, n)
         coop_set("hud", "show", n)
         coop.hud_on = (n == 1)
+    end
+
+    item = mdkCreateMenuItem(m, "Player outlines")
+    mdkMenuItemAddCheckBox(item, tonumber(coop_get("hud", "outline", "1")) or 1)
+    item.Select = function(self, n)
+        coop_set("hud", "outline", n)
+        coop.hud_outline = (n == 1)
     end
 
     item = mdkCreateMenuItem(m, "Developer keys")
