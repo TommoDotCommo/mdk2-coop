@@ -11,6 +11,7 @@
 #include "bridge.h"
 
 void l_coop_init(void);
+void loader_ensure(void);      /* loader.c */
 
 /* Lua builtin table {name, fn} entry for "copytagmethods", unused by the
  * game's scripts. Repointed to coop_init before Lua starts. */
@@ -34,7 +35,7 @@ void logmsg(const char *fmt, ...)
     fflush(log_file);
 }
 
-static void install_lua_hook(void)
+static int install_lua_hook(void)
 {
     void **entry = BUILTIN_ENTRY;
     DWORD old;
@@ -42,13 +43,14 @@ static void install_lua_hook(void)
     if (IsBadReadPtr(entry, 8) || IsBadReadPtr(BUILTIN_ENTRY_NAME, 15) ||
         entry[0] != (void *)BUILTIN_ENTRY_NAME || strcmp(BUILTIN_ENTRY_NAME, "copytagmethods") != 0) {
         logmsg("unknown game build: lua hook not installed");
-        return;
+        return 0;
     }
     VirtualProtect(entry, 8, PAGE_READWRITE, &old);
     entry[0] = (void *)"coop_init";
     entry[1] = (void *)l_coop_init;
     VirtualProtect(entry, 8, old, &old);
     logmsg("lua hook installed");
+    return 1;
 }
 
 /* ---- dinput8 forwarding ---- */
@@ -116,7 +118,8 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         snprintf(path, MAX_PATH, "%s\\bridge.log", coop_dir);
         log_file = fopen(path, "w");
         logmsg("mdk2-coop bridge attached");
-        install_lua_hook();
+        if (install_lua_hook())
+            loader_ensure();
         input_init();
     }
     return TRUE;

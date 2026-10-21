@@ -1,12 +1,46 @@
 # mdk2-coop
 
 Co-op for MDK2 HD (Steam app 213350, build 3902). Alpha: two or more players can play through the
-campaign together (host runs the world, up to 16 players), but there is no release build yet and the whole
-campaign has not been finished in co-op. Every checkpoint passes an automated two-client sweep.
+campaign together (host runs the world, up to 16 players), but the whole campaign has not been finished in
+co-op yet. Every checkpoint passes an automated two-client sweep.
 Built with the [Co-op Anything](https://github.com/cranebeaker/coop-anything) playbook; research notes live in
 `games/mdk2-hd/NOTES.md` there.
 
 No game files are in this repo. You need your own copy of MDK2 HD.
+
+## Playing with friends
+
+Download the zip from [Releases](https://github.com/TommoDotCommo/mdk2-coop/releases), unzip it and
+double-click **Install.cmd**. No dev tools needed. The installer finds MDK2 HD in your Steam libraries (or asks
+for the folder), refuses any build other than Steam 3902 (SHA-256 of `mdk2hd.exe`
+`bf5faa81b18837b4c07f35941b107e5c23caa8b105536ccd9c8e5a8e37357f43`), asks *host or join* (and the host's
+address and port), and copies the mod in. **Uninstall.cmd** takes it out again. The zip's README.txt has the
+details; this is the short version.
+
+**How to host**
+1. Install, answer *host* (UDP port 27900 unless you change it).
+2. Forward UDP 27900 on your router to your PC. Only the host needs this, until Steam networking replaces
+   direct connections.
+3. Tell your friends your public IP (search "what is my IP"), or your 192.168.x.x address on the same network.
+4. Start the game; allow MDK2 HD when Windows Firewall asks (Private and Public). If you missed the prompt,
+   run this in an administrator prompt:
+   `netsh advfirewall firewall add rule name="MDK2 co-op" dir=in action=allow protocol=UDP localport=27900`
+5. Start a New Game or load a save; players who join follow you into your level.
+
+**How to join**
+1. Install, answer *join*, type the host's address and port.
+2. Start the game after the host. You arrive in the host's level next to them.
+
+The installer's answers are only the first setup: run it again to switch, or change them in game in the
+Options > Co-op menu (being built). The installer changes `<game>\dinput8.dll`, `<game>\coop\coop.lua`, the
+`[net]` keys of `<game>\coop\coop.ini` (other keys are kept) and one loader block in
+`%LOCALAPPDATA%\MDK2HD\settings.lua` (backed up first as `settings.lua.coop-backup`, restored on uninstall).
+The game rewrites settings.lua whenever options are saved, which drops that block. The bridge puts it back
+when the game starts (and creates settings.lua with just the block on a first start), so co-op keeps working.
+
+**Making a release** (maintainers): `tools/release.sh v0.x.y` builds `local/release/mdk2-coop-v0.x.y.zip`
+(dinput8.dll, coop\coop.lua, Install.cmd, Uninstall.cmd, mdk2-coop.ps1, README.txt, LICENSE.txt), then
+`gh release create v0.x.y local/release/mdk2-coop-v0.x.y.zip`.
 
 ## Dev harness
 
@@ -131,8 +165,9 @@ Untested: changing options in game probably rewrites settings.lua and drops the 
 
 ## Manual playtest on one PC
 
-    tools/play.sh          # install into both copies, start host (left) and client (right)
-    tools/play.sh stop     # close both, remove the settings.lua line, save both logs to local/sessions/
+    tools/play.sh          # install into the copies, start host (left) and client (right)
+    tools/play.sh stop     # close them, remove the settings.lua line, save every log to local/sessions/
+    MDK2_N=3 tools/play.sh # host and two clients (rows of three windows); stop with the same MDK2_N
 
 Play in the left window; the right one follows level loads by itself. `tools/play.sh <level>
 <checkpoint>` starts both straight at a checkpoint; in game the host's F6 / F7 go to the next / previous
@@ -169,6 +204,12 @@ hard-linked, ~2 MB each). Folders and ports are set by `MDK2_DIR_BASE` / `MDK2_D
 `MDK2_PORT` (see `tools/mdk.sh`), so two sets of copies can run side by side; `mdk_kill` only stops
 games running from its own copies. 2026-10-21: qa.sh 30/30, qa_n.sh 38/38 with 3 players and 53/53
 with 8 (~370 MB per game), qa_save.sh 41/41 with 8; after adding the resume-at-checkpoint case, 38/38 with 3.
+
+Checkpoint sweep: `tools/sweep.sh [from] [to]` visits every checkpoint of the debug menu's list (96)
+with MDK2_N games (default 2), has everyone walk and fire and every client land a hit, then checks that all
+followed, all alive, puppets, every client bound the host's enemies, hp equal, no Lua errors, and diffs
+every game's world against the host's. About 55 minutes with two; `local/sweeps/<date>/results.md`.
+2026-10-21: with `MDK2_N=3`, 1-1 .. 1-3 and 8-4 .. 8-5 all clean (every client bound every enemy, equal hp, no state differences).
 
 Last runs (2026-10-20, Steam build 3902, level 1 cp 2): 21/21 on plain localhost (after the first
 manual session's client crash was fixed); earlier 17/17 with `[sim] latency_ms=120 jitter_ms=40

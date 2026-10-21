@@ -79,7 +79,7 @@ mdk_kill()  { local i w=""; for i in $(mdk_seq); do w="$w -or \$_.Path -like '$(
               powershell.exe -NoProfile -Command "Get-Process mdk2hd -ErrorAction SilentlyContinue | Where-Object { \$false $w } | Stop-Process -Force" >/dev/null 2>&1 || true; }
 # mdk_boot: start every instance and wait until all clients have followed the host into a level
 # (install with MDK2_START so the host loads one by itself once the others have joined)
-mdk_boot()  { mdk_kill; sleep 2; local i pids="" ok
+mdk_boot()  { mdk_kill; sleep 2; local i c pids="" ok
               for i in $(mdk_seq); do pids="$pids $(mdk_start "$i")"; echo "$pids" > "$MDK2_PIDS"; sleep 2; done
               for i in $(seq 1 60); do sleep 2; ok=1
                   for c in $(seq 2 "$MDK2_N"); do grep -q "^level [1-9][0-9]* checkpoint [0-9]* started" "$(mdk_log "$c")" 2>/dev/null || ok=0; done
