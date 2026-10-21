@@ -58,14 +58,20 @@ while (i) do
     i, com = next(coop.debugkeys, i)
 end
 
--- Controls: Space jumps (and works Max's jetpack and Kurt's parachute, which share the jump
--- button), right mouse toggles Kurt's sniper mode. The game's defaults are the other way round
--- (right mouse 1001 = jump/jet/chute, Space 57 = sniper toggle). Applied after settings.lua,
--- so they win over the saved bindings; changing controls in the options menu saves them. --
-omBindCommandI(COM_JUMP, 57)
-omBindCommandI(COM_JET, 57)
-omBindCommandI(COM_CHUTE, 57)
-omBindCommandI(COM_SMTOGGLE, 1001)
+-- Modern controls ([controls] modern, Options > Co-op): Space jumps (and works Max's jetpack
+-- and Kurt's parachute, which share the jump button), right mouse toggles Kurt's sniper mode.
+-- The game's defaults are the other way round (right mouse 1001 = jump/jet/chute, Space 57 =
+-- sniper toggle). Applied after settings.lua, so they win over the saved bindings; changing
+-- controls in the options menu saves them. --
+function coop.ApplyControls(modern)
+    local jump, snipe = 1001, 57
+    if (modern) then jump, snipe = 57, 1001 end
+    omBindCommandI(COM_JUMP, jump)
+    omBindCommandI(COM_JET, jump)
+    omBindCommandI(COM_CHUTE, jump)
+    omBindCommandI(COM_SMTOGGLE, snipe)
+end
+coop.ApplyControls(coop_get("controls", "modern", "1") == "1")
 
 -- The game's quicksave (F6) and quickload (F7) are off in co-op: a quickload restores this
 -- game's own save, which the partner cannot follow (it showed up as level(l, -1) and the
@@ -73,11 +79,24 @@ omBindCommandI(COM_SMTOGGLE, 1001)
 omMakeCommand(COM_SAVEINSTANT, "", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_LOADINSTANT, "", CON_BUTTON_FALL, 0, 0)
 
-omMakeCommand(COM_TOGL1, "F6", CON_BUTTON_FALL, 0, 0)
-omMakeCommand(COM_TOGL2, "F7", CON_BUTTON_FALL, 0, 0)
-omMakeCommand(COM_TOGL3, "F8", CON_BUTTON_FALL, 0, 0)
-omMakeCommand(COM_TOGL4, "F11", CON_BUTTON_FALL, 0, 0)
-omMakeCommand(COM_TOGLG, "F4", CON_BUTTON_FALL, 0, 0)
+-- Developer keys ([controls] devkeys, Options > Co-op > Gameplay; off for players, on in
+-- the test installs): F1 hit / spawn, F3 lava, F4 teleport, F5 Doganboy, F6 / F7 / F8
+-- checkpoints and levels for everyone, F9 BioWare debug menu, F10 test error, F11 anim log.
+-- F2 (marker in every log, and a screenshot) stays on: it is how players report a problem. --
+coop.devkeys = {
+    { COM_SHOWBARS, "F1" }, { COM_CLEARCONSOLE, "F3" }, { COM_TOGLG, "F4" }, { COM_NEXTSECTION, "F5" },
+    { COM_TOGL1, "F6" }, { COM_TOGL2, "F7" }, { COM_TOGL3, "F8" }, { COM_DEBUGMENUTOG, "F9" },
+    { COM_PRINTCOL, "F10" }, { COM_TOGL4, "F11" },
+}
+
+function coop.ApplyDevKeys(on)
+    local i, k = next(coop.devkeys, nil)
+    while (i) do
+        if (on) then omMakeCommand(k[1], k[2], CON_BUTTON_FALL, 0, 0)
+        else omMakeCommand(k[1], "", CON_BUTTON_FALL, 0, 0) end
+        i, k = next(coop.devkeys, i)
+    end
+end
 
 -- a gob by the name the others use: a player's character ("@p<n>"), a named gob, or an
 -- "n<id>" network name --
@@ -318,7 +337,7 @@ end
 -- the same number. Load Game on the host's title screen offers "Resume co-op".
 -- ---------------------------------------------------------------------------------------
 
-coop.save_interval = 120
+coop.save_interval = tonumber(coop_get("save", "interval", "120")) or 120
 
 -- host: save in `secs` seconds (sooner than any save already due) --
 function coop.ScheduleSave(secs)
@@ -659,8 +678,319 @@ comfuncs.fkey[COM_SHOWBARS] = function()
 end
 
 -- F12 is Steam's screenshot key; F10: raise a Lua error on purpose, to check error logging --
-omMakeCommand(COM_PRINTCOL, "F10", CON_BUTTON_FALL, 0, 0)   -- a debug.lua command we unbound above
 comfuncs.fkey[COM_PRINTCOL] = function()
     coop_log("raising a test error")
     coop.no_such_function()
 end
+
+
+-- ---------------------------------------------------------------------------------------
+-- Options > Co-op: players, session and gameplay settings (coop.ini through the bridge;
+-- the game's menus, so it is there on the title screen and in the pause menu's Options)
+-- ---------------------------------------------------------------------------------------
+
+-- the game's BuildOptionsMenu (options.lua) with Co-op before OK --
+function BuildOptionsMenu()
+    mdkClearMenu(menu.options)
+
+    item = mdkCreateMenuItemW(menu.options, strings.opt_video)
+    item.Select = function(self)
+        BuildVideoMenu()
+        menu.SwitchDlg("optvideo")
+        mdkShowMouse(1,0)
+    end
+
+    item = mdkCreateMenuItemW(menu.options, strings.opt_audio)
+    item.Select = function(self)
+        BuildAudioMenu()
+        menu.SwitchDlg("optaudio")
+        mdkShowMouse(1,0)
+    end
+
+    item = mdkCreateMenuItemW(menu.options, strings.opt_controls)
+    item.Select = function(self)
+        BuildControlsMenu()
+        menu.SwitchDlg("optcontrols")
+        mdkShowMouse(1,0)
+    end
+
+    item = mdkCreateMenuItemW(menu.options, strings.opt_game)
+    item.Select = function(self)
+        BuildGameMenu()
+        menu.SwitchDlg("optgame")
+        mdkShowMouse(1,0)
+    end
+
+    item = mdkCreateMenuItem(menu.options, "Co-op")
+    item.Select = function(self)
+        coop.ShowPage("coop")
+    end
+
+    item = mdkCreateMenuItemW(menu.options, strings.opt_ok)
+    mdkMenuItemStayInCenterPlease(item)
+    mdkMenuItemSetSponge(item, 0.03)
+    item.Select = function()
+        menu.options.Cancel()
+    end
+end
+
+menu.coop = mdkCreateMenu(0.5, 0.25, 0.06, 0.06, 0.01, JUSTIFY_CENTER, 1)
+menu.coopplayers = mdkCreateMenu(0.5, 0.16, 0.045, 0.045, 0.005, JUSTIFY_CENTER, 1)
+menu.coopsession = mdkCreateMenu(0.5, 0.22, 0.05, 0.05, 0.01, JUSTIFY_CENTER, 1)
+menu.coopgame = mdkCreateMenu(0.7, 0.25, 0.05, 0.05, 0.01, JUSTIFY_RIGHT, 1)
+
+coop.pages = {
+    coop = function() coop.BuildMain() end,
+    coopplayers = function() coop.BuildPlayers() end,
+    coopsession = function() coop.BuildSession() end,
+    coopgame = function() coop.BuildGame() end,
+}
+
+function coop.ShowPage(name)
+    coop_log(format("menu: %s", name))
+    coop.pages[name]()
+    menu.SwitchDlg(name)
+    mdkShowMouse(1,0)
+end
+
+-- a heading line: plain text, not selectable --
+function coop.Heading(m, text)
+    local item = mdkCreateMenuItem(m, text)
+    mdkMenuItemEnable(item, 0)
+    return item
+end
+
+function coop.BackItem(m, page)
+    local item = mdkCreateMenuItemW(m, strings.opt_ok)
+    mdkMenuItemStayInCenterPlease(item)
+    mdkMenuItemSetSponge(item, 0.03)
+    item.back = page
+    item.Select = function(self) coop.ShowPage(self.back) end
+end
+
+-- main page --
+function coop.BuildMain()
+    mdkClearMenu(menu.coop)
+    coop.Heading(menu.coop, "Co-op")
+    local item = mdkCreateMenuItem(menu.coop, "Players")
+    item.Select = function(self) coop.ShowPage("coopplayers") end
+    item = mdkCreateMenuItem(menu.coop, "Session")
+    item.Select = function(self) coop.ShowPage("coopsession") end
+    item = mdkCreateMenuItem(menu.coop, "Gameplay")
+    item.Select = function(self) coop.ShowPage("coopgame") end
+    item = mdkCreateMenuItemW(menu.coop, strings.opt_ok)
+    mdkMenuItemStayInCenterPlease(item)
+    mdkMenuItemSetSponge(item, 0.03)
+    item.Select = function(self) menu.coop.Cancel() end
+end
+
+menu.coop.Cancel = function()
+    menu.SwitchDlg("options", 0)
+    mdkShowMouse(1,0)
+end
+
+-- players page: everyone connected, refreshed every second --
+function coop.BuildPlayers()
+    mdkClearMenu(menu.coopplayers)
+    coop.Heading(menu.coopplayers, "Players")
+    local me = coop_slot()
+    local _, slots = coop_players()
+    local s, n = 0, 0
+    while (s < slots) do
+        local name, ping = coop_player_info(s)
+        if (name) then
+            local tags = ""
+            if (s == 0) then tags = " (host)" end
+            if (s == me) then tags = tags .. " - you" elseif (ping > 0) then tags = tags .. format(" - %d ms", ping) end
+            -- a plain item (disabled ones are drawn too faint to read); selecting it does nothing --
+            mdkCreateMenuItem(menu.coopplayers, format("%d  %s%s", s + 1, name, tags))
+            n = n + 1
+        end
+        s = s + 1
+    end
+    if (not me) then coop.Heading(menu.coopplayers, "Not connected to a host yet") end
+    coop.players_built = coop_time()
+    coop.BackItem(menu.coopplayers, "coop")
+end
+
+menu.coopplayers.Update = function()
+    if (coop_time() - (coop.players_built or 0) >= 1) then coop.BuildPlayers() end
+end
+
+menu.coopplayers.Cancel = function() coop.ShowPage("coop") end
+
+-- text entry (the save menu's way): a box at the bottom, the menu waits for Enter or Esc --
+function coop.EditText(m, text, onaccept)
+    m.editing = 1
+    m.editbox = mdkMessageBoxCreate(0.2, 0.7, 0.6, 0.05, -1, 1)
+    m.onaccept = onaccept
+    mdkEditString(m.editbox, text)
+    conscheme = "poo"
+    mdkShowMouse(0,0)
+end
+
+function coop.EditUpdate(m, page)
+    if (not m.editing) then return end
+    local result = mdkGetEditResult()
+    if (result == 0) then return end
+    m.editing = nil
+    mdkMessageBoxDestroy(m.editbox)
+    mdkShowMouse(1,0)
+    newconscheme = "menu"
+    if (result == 1) then m.onaccept(mdkGetEditString()) end
+    coop.pages[page]()
+end
+
+-- session page: name, host or join, host address, resume / save now --
+function coop.BuildSession()
+    local m = menu.coopsession
+    mdkClearMenu(m)
+    coop.Heading(m, "Session")
+    local item = mdkCreateMenuItem(m, "Name: " .. coop_name())
+    item.Select = function(self)
+        coop.EditText(menu.coopsession, coop_name(), function(text) coop_set_name(text) end)
+    end
+
+    -- host or join: a plain item that switches (a combo box draws over its label here) --
+    local role = coop_get("net", "role", "host")
+    if (role == "client") then item = mdkCreateMenuItem(m, "Role: Join") else item = mdkCreateMenuItem(m, "Role: Host") end
+    item.Select = function(self)
+        if (coop_get("net", "role", "host") == "client") then coop_set("net", "role", "host")
+        else coop_set("net", "role", "client") end
+        coop.role_changed = 1
+        coop.BuildSession()
+        mdkMenuSetHighlighted(menu.coopsession, 2)
+    end
+
+    local host, port = coop_get("net", "peer_host", "127.0.0.1"), coop_get("net", "peer_port", "27900")
+    item = mdkCreateMenuItem(m, "Host address: " .. host .. ":" .. port)
+    item.Select = function(self)
+        local h, p = coop_get("net", "peer_host", "127.0.0.1"), coop_get("net", "peer_port", "27900")
+        coop.EditText(menu.coopsession, h .. ":" .. p, function(text) coop.SetHostAddress(text) end)
+    end
+    if (coop.role_changed or coop.host_note) then
+        coop.Heading(m, coop.host_note or "Host or join applies when you next start the game")
+    end
+
+    if (coop_role() == "host") then
+        local rp = coop.ResumePoint()
+        if (rp) then
+            item = mdkCreateMenuItem(m, format("Resume co-op %d-%d", rp.level, rp.cp))
+            item.resume = rp
+            item.Select = function(self)
+                menu.pause.Cancel()
+                coop.ResumeAt(self.resume)
+            end
+        end
+        if (coop.level and coop.level >= 1) then
+            item = mdkCreateMenuItem(m, coop.save_note or "Save now")
+            item.Select = function(self)
+                if (CanSaveGameNow() and coop_all_ready()) then
+                    coop.SaveNow()
+                    coop.save_note = "Saved"
+                else
+                    coop.save_note = "Cannot save here"
+                end
+                coop.BuildSession()
+            end
+        end
+    end
+    coop.BackItem(m, "coop")
+end
+
+-- "address:port" from the text box: kept for the next start and, on a client, used at once --
+function coop.SetHostAddress(text)
+    local colon = strfind(text, ":")
+    local host, port = text, coop_get("net", "peer_port", "27900")
+    if (colon) then
+        host = strsub(text, 1, colon - 1)
+        port = strsub(text, colon + 1)
+    end
+    port = tonumber(port)
+    if (not port or port < 1 or port > 65535 or not strfind(host, "^%d+%.%d+%.%d+%.%d+$")) then
+        coop.host_note = "Address must look like 192.168.1.20:27900"
+        return
+    end
+    coop.host_note = nil
+    if (coop_role() == "client" and coop_set_host(host, port)) then
+        coop.host_note = "Connecting to " .. host .. ":" .. port
+    else
+        coop_set("net", "peer_host", host)
+        coop_set("net", "peer_port", port)
+    end
+end
+
+menu.coopsession.Update = function() coop.EditUpdate(menu.coopsession, "coopsession") end
+menu.coopsession.Cancel = function()
+    if (not menu.coopsession.editing) then
+        coop.save_note = nil
+        coop.ShowPage("coop")
+    end
+end
+
+-- gameplay page --
+coop.scales = { [0] = 0, [1] = 25, [2] = 50, [3] = 100 }
+coop.intervals = { [0] = 60, [1] = 120, [2] = 300, [3] = 600 }
+
+-- index of value in a 0-based table, or dflt --
+function coop.IndexOf(t, value, dflt)
+    local i = 0
+    while (t[i]) do
+        if (t[i] == value) then return i end
+        i = i + 1
+    end
+    return dflt
+end
+
+function coop.BuildGame()
+    local m = menu.coopgame
+    mdkClearMenu(m)
+    coop.Heading(m, "Gameplay")
+
+    local item = mdkCreateMenuItem(m, "Friendly fire")
+    mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "friendly_fire", "0")) or 0)
+    item.Select = function(self, n) coop_set("game", "friendly_fire", n) end
+
+    item = mdkCreateMenuItem(m, "Tougher enemies")
+    mdkMenuItemAddComboBox(item)
+    mdkMenuItemAddComboString(item, "Off")
+    mdkMenuItemAddComboString(item, "+25%")
+    mdkMenuItemAddComboString(item, "+50%")
+    mdkMenuItemAddComboString(item, "+100%")
+    mdkMenuItemSetWidgitValue(item, coop.IndexOf(coop.scales, tonumber(coop_get("game", "enemy_scale", "50")), 2))
+    item.Inc = function(self) coop_set("game", "enemy_scale", coop.scales[mdkMenuItemGetWidgitValue(self)]) end
+    item.Dec = item.Inc
+
+    item = mdkCreateMenuItem(m, "Co-op save every")
+    mdkMenuItemAddComboBox(item)
+    mdkMenuItemAddComboString(item, "1 min")
+    mdkMenuItemAddComboString(item, "2 min")
+    mdkMenuItemAddComboString(item, "5 min")
+    mdkMenuItemAddComboString(item, "10 min")
+    mdkMenuItemSetWidgitValue(item, coop.IndexOf(coop.intervals, coop.save_interval, 1))
+    item.Inc = function(self)
+        coop.save_interval = coop.intervals[mdkMenuItemGetWidgitValue(self)]
+        coop_set("save", "interval", coop.save_interval)
+    end
+    item.Dec = item.Inc
+
+    item = mdkCreateMenuItem(m, "Modern controls")
+    mdkMenuItemAddCheckBox(item, tonumber(coop_get("controls", "modern", "1")) or 1)
+    item.Select = function(self, n)
+        coop_set("controls", "modern", n)
+        coop.ApplyControls(n == 1)
+    end
+
+    item = mdkCreateMenuItem(m, "Developer keys")
+    mdkMenuItemAddCheckBox(item, tonumber(coop_get("controls", "devkeys", "0")) or 0)
+    item.Select = function(self, n)
+        coop_set("controls", "devkeys", n)
+        coop.ApplyDevKeys(n == 1)
+    end
+
+    coop.BackItem(m, "coop")
+end
+
+menu.coopgame.Cancel = function() coop.ShowPage("coop") end
+
+coop.ApplyDevKeys(coop_get("controls", "devkeys", "0") == "1")

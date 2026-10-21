@@ -86,6 +86,9 @@ int gob_is_mirrored(BYTE *gob);
 void gob_set_mirrored(BYTE *gob, int on);
 int gob_is_foreign(BYTE *gob);
 void gob_sets_clear(void);
+int gob_is_own_shot(BYTE *gob);
+void gob_set_own_shot(BYTE *gob, int on);
+void gob_set_hp(BYTE *gob, int hp);
 int gob_purge_named(const char *prefix);
 void gob_set_foreign(BYTE *gob, int on);
 int gob_slot(BYTE *gob);
@@ -149,10 +152,12 @@ struct event {
 /* Players: slot 0 is the host, clients get 1.. from the host when they first send.
  * Logs and gob names use the player number, slot + 1 ("@p2", "coop_p2"). */
 #define MAX_PLAYERS         16
+#define PLAYER_NAME         16
 #define TO_ALL              (-1)
 
 extern int role_host;
 extern unsigned int my_id;      /* this game copy's player id (coop\player.ini), kept across restarts */
+extern char my_name[PLAYER_NAME];
 extern int my_slot;             /* our slot; -1 on a client until the host has told us */
 extern int cur_level;           /* level this game is in (coop_level) */
 extern int cur_cp;
@@ -173,6 +178,10 @@ void net_level_event(const struct event *e);
 void net_send(const void *buf, int len);
 int player_connected(int slot);
 int player_in_level(int slot);
+const char *player_name(int slot);
+int player_ping(int slot);
+void net_set_name(const char *name);
+int net_retarget(const char *host, int port);
 unsigned int host_id(void);
 double host_silent_ms(void);
 int host_level(void);
@@ -227,6 +236,13 @@ void shots_init(void);
 void shots_frame(void);
 void shots_replay(const struct event *e);
 void shots_reset(void);
+
+/* ---- settings.c ---- */
+
+extern int cfg_friendly_fire;   /* [game] friendly_fire: players' hits hurt other players */
+extern int cfg_enemy_scale;     /* [game] enemy_scale: % more enemy hp per extra player (host) */
+void settings_init(const char *ini);
+void settings_lua_init(void);
 
 /* ---- saves.c ---- */
 

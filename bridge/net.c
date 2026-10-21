@@ -24,7 +24,7 @@
 #include <math.h>
 #include "bridge.h"
 
-#define PLAYER_MAGIC    0x374b444d      /* "MDK7" */
+#define PLAYER_MAGIC    0x384b444d      /* "MDK8" */
 #define PACKET_EVENTS   7      /* 7 x 128-byte events + player state fit in one datagram */
 #define MAX_DATAGRAM    1400
 #define PLAYER_TIMEOUT_MS 10000.0
@@ -38,7 +38,10 @@ struct player_packet {
     unsigned int nonce;         /* sender process */
     unsigned int id;            /* sender's player id */
     unsigned short gen;         /* host to client: which link this is */
-    unsigned short pad;
+    unsigned short hold;        /* ms between receiving echo and sending this */
+    unsigned int stamp;         /* sender's clock, ms (ping) */
+    unsigned int echo;          /* the latest stamp the sender got on this link, 0 none */
+    char name[PLAYER_NAME];     /* name of player `slot` */
     unsigned int seq;           /* state number of player `slot` */
     unsigned char slot;         /* whose state; NO_SLOT from a client that has no slot yet */
     unsigned char you;          /* host to client: the receiver's slot */
@@ -65,6 +68,7 @@ static int sim_loss_pct;
 
 int role_host = 1;              /* [net] role: host runs the world, clients mirror it */
 unsigned int my_id;
+char my_name[PLAYER_NAME];
 int my_slot = -1;
 int cur_level = -1;
 int cur_cp;
@@ -92,6 +96,9 @@ struct link {
     unsigned int nonce;
     unsigned int id;                    /* host: the client's player id */
     unsigned short gen;
+    unsigned int last_stamp;            /* their latest stamp, and when it came (ping) */
+    double last_stamp_at;
+    double ping;                        /* round trip, ms, smoothed; 0 unknown */
     double last_heard;
     struct event outbox[OUTBOX];
     unsigned int out_next, out_acked;   /* outbox holds ids out_acked+1 .. out_next-1 */
@@ -104,6 +111,7 @@ static struct link links[MAX_PLAYERS];
 static unsigned int slot_id[MAX_PLAYERS];  /* host: player id each slot belongs to, kept after they leave */
 static unsigned short next_gen = 1;
 static void slots_load(void);
+static void player_left(int slot, const char *why);
 
 /* ---- other players, by slot ---- */
 
@@ -111,6 +119,7 @@ struct player {
     int connected;
     double last_heard;
     unsigned int id;
+    char name[PLAYER_NAME];
     int level;                  /* where their latest packet says they are */
     unsigned short epoch;
     unsigned int seq;           /* latest state number */
@@ -154,6 +163,7 @@ static void load_player_id(void)
     snprintf(path, MAX_PATH, "%s\\player.ini", coop_dir);
     GetPrivateProfileStringA("player", "id", "", buf, sizeof(buf), path);
     my_id = strtoul(buf, NULL, 16);
+    GetPrivateProfileStringA("player", "name", "", my_name, sizeof(my_name), path);
     if (!my_id) {
         my_id = (nonce * 2654435761u) ^ GetTickCount();
         if (!my_id)
@@ -161,7 +171,9 @@ static void load_player_id(void)
         snprintf(buf, sizeof(buf), "%08x", my_id);
         WritePrivateProfileStringA("player", "id", buf, path);
     }
-    logmsg("player id %08x", my_id);
+    if (!my_name[0])
+        snprintf(my_name, sizeof(my_name), "Player %04x", my_id & 0xffff);
+    logmsg("player id %08x, name %s", my_id, my_name);
 }
 
 void net_open(const char *ini)
@@ -273,7 +285,8 @@ unsigned int host_id(void)
 
 double host_silent_ms(void)
 {
-    return links[0].last_heard ? now_ms() - links[0].last_heard : 0.0;
+    /* never heard (a new host address): as silent as can be */
+    return links[0].last_heard ? now_ms() - links[0].last_heard : 1e9;
 }
 
 int host_level(void)
@@ -287,6 +300,63 @@ int host_changed_take(void)
     int c = host_changed;
     host_changed = 0;
     return c;
+}
+
+/* A player's name ("" unknown) and ping in ms (0 unknown): the host measures every client,
+ * a client only the host */
+const char *player_name(int slot)
+{
+    if (slot == my_slot)
+        return my_name;
+    return player_connected(slot) ? players[slot].name : "";
+}
+
+int player_ping(int slot)
+{
+    if (slot == my_slot || !player_connected(slot))
+        return 0;
+    if (role_host)
+        return links[slot].used ? (int)(links[slot].ping + 0.5) : 0;
+    return slot == 0 ? (int)(links[0].ping + 0.5) : 0;
+}
+
+/* Our name: printable ASCII, kept in coop\player.ini */
+void net_set_name(const char *name)
+{
+    char path[MAX_PATH];
+    int i, n = 0;
+
+    for (i = 0; name[i] && n < PLAYER_NAME - 1; i++)
+        if (name[i] >= 32 && name[i] < 127)
+            my_name[n++] = name[i];
+    my_name[n] = 0;
+    if (!n)
+        snprintf(my_name, sizeof(my_name), "Player %04x", my_id & 0xffff);
+    snprintf(path, MAX_PATH, "%s\\player.ini", coop_dir);
+    WritePrivateProfileStringA("player", "name", my_name, path);
+    logmsg("name now %s", my_name);
+}
+
+/* Client: talk to the host at a new address from now on (the menu's Host address) */
+int net_retarget(const char *host, int port)
+{
+    struct link *l = &links[0];
+    unsigned long a = inet_addr(host);
+    int s;
+
+    if (role_host || a == INADDR_NONE || port <= 0 || port > 65535)
+        return 0;
+    l->addr.sin_family = AF_INET;
+    l->addr.sin_port = htons((u_short)port);
+    l->addr.sin_addr.s_addr = a;
+    l->nonce = 0;
+    l->last_heard = 0;
+    link_reset(l);
+    for (s = 0; s < MAX_PLAYERS; s++)
+        player_left(s, "new host address");
+    my_slot = -1;
+    logmsg("host address now %s:%d", host, port);
+    return 1;
 }
 
 /* Tests: cut this game off the network for ms */
@@ -478,6 +548,19 @@ int event_must_wait(const struct event *e)
     if (e->kind == EV_LEVEL)
         return cur_level < 0;
     return cur_epoch != pending_epoch && e->epoch == pending_epoch;
+}
+
+/* Ping on a direct link: they echo our latest stamp and how long they held it */
+static void link_ping(struct link *l, const struct player_packet *p, double arrived)
+{
+    l->last_stamp = p->stamp;
+    l->last_stamp_at = arrived;
+    if (p->echo) {
+        /* our clock is a double, the stamp its low 32 bits: compare in the same width */
+        double rtt = (double)(unsigned int)((unsigned int)arrived - p->echo) - p->hold;
+        if (rtt >= 0.0 && rtt < 10000.0)
+            l->ping = l->ping > 0.0 ? l->ping * 0.8 + rtt * 0.2 : rtt;
+    }
 }
 
 static void events_receive(struct link *l, const struct player_packet *p)
@@ -690,6 +773,8 @@ void net_send_player(BYTE *gob)
     p.magic = PLAYER_MAGIC;
     p.nonce = nonce;
     p.id = my_id;
+    memcpy(p.name, my_name, PLAYER_NAME);
+    p.stamp = (unsigned int)now;
     p.seq = ++seq;
     p.slot = my_slot >= 0 ? (unsigned char)my_slot : NO_SLOT;
     p.level = (unsigned char)cur_level;
@@ -705,6 +790,8 @@ void net_send_player(BYTE *gob)
             continue;
         p.you = (unsigned char)s;
         p.gen = l->gen;
+        p.echo = l->last_stamp;
+        p.hold = l->last_stamp ? (unsigned short)(now - l->last_stamp_at) : 0;
         p.ack = l->in_next - 1;
         p.nevents = 0;
         for (id = l->out_acked + 1; id < l->out_next && p.nevents < PACKET_EVENTS; id++)
@@ -736,6 +823,8 @@ static void accept_state(int slot, const struct player_packet *p, double arrived
     if (slot == my_slot || slot >= MAX_PLAYERS)
         return;
     pl->id = p->id;
+    memcpy(pl->name, p->name, PLAYER_NAME);
+    pl->name[PLAYER_NAME - 1] = 0;
     pl->level = p->level;
     pl->epoch = p->epoch;
     if (!pl->connected) {
@@ -874,6 +963,7 @@ static void host_accept(const struct player_packet *p, const struct sockaddr_in 
         host_welcome(s);
     }
     l->last_heard = arrived;
+    link_ping(l, p, arrived);
     events_receive(l, p);
     accept_state(s, p, arrived);
     have_remote = 1;
@@ -929,6 +1019,7 @@ static void client_accept(const struct player_packet *p, double arrived)
     if (!have_remote)
         logmsg("first packet from peer (host, seq %u)", p->seq);
     have_remote = 1;
+    link_ping(l, p, arrived);
     events_receive(l, p);
     accept_state(0, p, arrived);
 }
@@ -942,9 +1033,10 @@ static void accept_datagram(const BYTE *buf, int len, const struct sockaddr_in *
             return;
         if (role_host)
             host_accept(p, from, arrived);
-        else
-            client_accept(p, arrived);
-    } else if (have_remote) {
+        else if (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port)
+            client_accept(p, arrived);      /* only the host we are set to (Options > Co-op > Host address) */
+    } else if (have_remote && (role_host || (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr &&
+                                             from->sin_port == links[0].addr.sin_port))) {
         ents_receive(buf, len);
     }
 }

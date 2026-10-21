@@ -29,7 +29,17 @@ static double num_param(int n)
  * nearest partner instead: dying would reload the checkpoint in this game only. */
 static void damage_local_player(void *from, int damage, int type, int part)
 {
-    int hp = gob_hp(local_player);
+    int hp;
+
+    /* a hit from another player (friendly fire) comes in without an attacker and as an
+     * enemy's gun damage (0x2): the player's damage filter drops its own gun's type (0x1),
+     * and the game ignores a player character hitting the player */
+    if (from && (from == local_player || puppet_slot(from) >= 0)) {
+        from = NULL;
+        if (type == 0x1)
+            type = 0x2;
+    }
+    hp = gob_hp(local_player);
     BYTE *puppet = puppet_nearest((float *)(local_player + GOB_POSITION));
     BYTE *info;
 
@@ -60,8 +70,20 @@ static int from_host_world(BYTE *from)
     return (t >= ACTOR_TYPE_MIN && t <= ACTOR_TYPE_MAX) || (t >= PROJECTILE_TYPE_MIN && t <= PROJECTILE_TYPE_MAX);
 }
 
+/* Which player an attacker is (their character, or on the host its own player's shots):
+ * its slot, or -1 for anything else */
+static int attacker_slot(BYTE *from)
+{
+    if (!from)
+        return -1;
+    if (from == local_player || gob_is_own_shot(from))
+        return my_slot;
+    return puppet_slot(from);
+}
+
 /* Host: applies everything, tells the clients what it applied, and turns hits on a
- * client's puppet into HURT for that client's own player.
+ * client's puppet into HURT for that client's own player. Players hurt each other only
+ * with friendly fire on ([game] friendly_fire); hurting yourself always counts.
  * Client: only its own player takes damage locally; its hits on anything else go to
  * the host as HIT and come back as APPLY. */
 void deal_damage_hook(void *from, void *target, int damage, int type, int part)
@@ -80,8 +102,14 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
     if (role_host) {
         /* a puppet's own attacks are replays of its client's (shots, anims); the client
          * sends its real hits as HIT */
+        int from_slot = attacker_slot(from);
         if ((puppet_slot(from) >= 0 && !applying_hit) || gob_is_foreign(from))
             return;
+        if (from_slot >= 0 && (target_slot >= 0 || target == local_player) && !cfg_friendly_fire &&
+            from_slot != (target_slot >= 0 ? target_slot : my_slot)) {
+            logmsg("friendly fire off: player %d's hit on %s dropped", from_slot + 1, name);
+            return;
+        }
         if (target_slot >= 0) {
             snprintf(name, sizeof(name), "@p%d", target_slot + 1);
             event_queue_from(target_slot, EV_HURT, name, from, damage, type, part);
@@ -105,8 +133,13 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         damage_local_player(from, damage, type, part);
         return;
     }
-    /* our gun, or a shot we fired (grenades, sniper rounds); mirrored shots are the host's */
-    if ((from == local_player || (gob_is_projectile(from) && !gob_is_foreign(from))) && target_slot < 0 && name[0])
+    /* our gun, or a shot we fired (grenades, sniper rounds); mirrored shots are the host's.
+     * Another player goes by player number: the host's friendly fire setting decides */
+    if (!(from == local_player || (gob_is_projectile(from) && !gob_is_foreign(from))))
+        return;
+    if (target_slot >= 0)
+        snprintf(name, sizeof(name), "@p%d", target_slot + 1);
+    if (name[0])
         event_queue(EV_HIT, name, damage, type, part);
 }
 
@@ -442,6 +475,15 @@ static void l_coop_peer_type(void)
         lua_pushnumber(t);
 }
 
+/* coop_hp(gob) -> its hp (mdkGobGetHealth gives nonsense for some gobs), nil if it is gone */
+static void l_coop_hp(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL);
+
+    if (gob_alive(gob))
+        lua_pushnumber(gob_hp(gob));
+}
+
 /* coop_slot() -> our slot (0 = host), or nil on a client the host has not answered yet */
 static void l_coop_slot(void)
 {
@@ -564,6 +606,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_peer", l_coop_peer);
     tolua_function(NULL, "coop_face", l_coop_face);
     tolua_function(NULL, "coop_slot", l_coop_slot);
+    tolua_function(NULL, "coop_hp", l_coop_hp);
     tolua_function(NULL, "coop_connected", l_coop_connected);
     tolua_function(NULL, "coop_players", l_coop_players);
     tolua_function(NULL, "coop_event", l_coop_event);
@@ -583,6 +626,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_state", l_coop_state);
     tolua_function(NULL, "coop_keep_spawner", l_coop_keep_spawner);
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
+    settings_init(ini);
     net_open(ini);
     deal_damage_orig = hook_code((BYTE *)DEAL_DAMAGE_ADDR, deal_damage_prologue, 5, deal_damage_hook);
     logmsg("coop_init: lua functions registered, damage hook %s", deal_damage_orig ? "installed" : "NOT installed");
@@ -591,5 +635,6 @@ void l_coop_init(void)
     rooms_init();
     frame_init();
     saves_lua_init();
+    settings_lua_init();
     run_mod_script();
 }

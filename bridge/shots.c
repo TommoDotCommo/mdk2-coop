@@ -36,6 +36,22 @@ static int replaying;
 static struct { BYTE *gob; unsigned int handle; } foreign[MAX_FOREIGN];
 static int nforeign;
 
+/* shots our own player fired, for friendly fire: same bookkeeping */
+static struct { BYTE *gob; unsigned int handle; } own[MAX_FOREIGN];
+static int nown;
+
+static void own_add(BYTE *gob)
+{
+    int slot = gob_slot(gob);
+
+    if (slot < 0 || nown == MAX_FOREIGN)
+        return;
+    own[nown].gob = gob;
+    own[nown].handle = gob_handle(slot);
+    nown++;
+    gob_set_own_shot(gob, 1);
+}
+
 static void foreign_add(BYTE *gob)
 {
     int slot = gob_slot(gob);
@@ -48,10 +64,19 @@ static void foreign_add(BYTE *gob)
     gob_set_foreign(gob, 1);
 }
 
-/* Forget replayed shots the engine has removed */
+/* Forget replayed and own shots the engine has removed */
 void shots_frame(void)
 {
     int i;
+
+    for (i = 0; i < nown; ) {
+        if (gob_by_handle(own[i].handle) != own[i].gob) {
+            gob_set_own_shot(own[i].gob, 0);
+            own[i] = own[--nown];
+        } else {
+            i++;
+        }
+    }
 
     for (i = 0; i < nforeign; ) {
         if (gob_by_handle(foreign[i].handle) != foreign[i].gob) {
@@ -67,6 +92,8 @@ void shots_reset(void)
 {
     while (nforeign)
         gob_set_foreign(foreign[--nforeign].gob, 0);
+    while (nown)
+        gob_set_own_shot(own[--nown].gob, 0);
 }
 
 /* ---- host: announce ---- */
@@ -79,6 +106,9 @@ static BYTE *create_hook(const char *name, int type, void *scene, BYTE *parent, 
 
     if (replaying || !have_remote || type < PROJECTILE_TYPE_MIN || type > PROJECTILE_TYPE_MAX)
         return gob;
+    /* our player's shot (sniper rounds are created with no owner) */
+    if (gob && ((a8 && gob_by_handle(a8) == local_player) || (!role_host && !a8)))
+        own_add(gob);
     /* the client only announces its own Kurt's shots (mirrored enemies do not think, so
      * do not fire; sniper rounds are created with no owner); the host announces all */
     if (!role_host && a8 && gob_by_handle(a8) != local_player)

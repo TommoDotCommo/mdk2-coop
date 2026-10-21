@@ -251,6 +251,7 @@ void push_gob(BYTE *gob)
 
 static BYTE *mirror_set[GOB_SET];      /* drawn from host snapshots, think skipped */
 static BYTE *foreign_set[GOB_SET];     /* host shots replayed here: fly normally, deal no damage */
+static BYTE *own_set[GOB_SET];         /* shots our own player fired (friendly fire) */
 
 static unsigned int set_hash(BYTE *gob)
 {
@@ -294,6 +295,7 @@ void gob_sets_clear(void)
 {
     memset(mirror_set, 0, sizeof(mirror_set));
     memset(foreign_set, 0, sizeof(foreign_set));
+    memset(own_set, 0, sizeof(own_set));
 }
 
 /* Delete every gob whose name starts with prefix and continues with digits ("coop_p" ->
@@ -331,6 +333,25 @@ void gob_set_mirrored(BYTE *gob, int on)
 int gob_is_foreign(BYTE *gob)
 {
     return set_has(foreign_set, gob);
+}
+
+int gob_is_own_shot(BYTE *gob)
+{
+    return set_has(own_set, gob);
+}
+
+void gob_set_own_shot(BYTE *gob, int on)
+{
+    set_put(own_set, gob, on);
+}
+
+/* hp of a gob with a game object (enemies: no maximum to keep in step) */
+void gob_set_hp(BYTE *gob, int hp)
+{
+    BYTE *info = *(BYTE **)(gob + GOB_INFO);
+
+    if (info)
+        *(short *)(info + 0x12) = (short)(hp > 32000 ? 32000 : hp);
 }
 
 void gob_set_foreign(BYTE *gob, int on)

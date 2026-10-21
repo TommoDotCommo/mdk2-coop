@@ -144,6 +144,20 @@ number, in two alternating files (`save\c<id><a|b>.sav`, recorded in `coop\saves
   (each level start and checkpoint) is newer than its last save, and Resume starts that checkpoint
   instead of going back a level.
 
+Options > Co-op (the game's own menus, on the title screen and in the pause menu's Options):
+- Players: everyone connected, with player number, name and ping (the host measures every client, a
+  client its host).
+- Session: your name (`coop\player.ini`, the others see it at once), host or join (next start), the
+  host's address (a client reconnects at once; it only listens to the host it is set to), Resume co-op
+  and Save now on the host.
+- Gameplay (`coop.ini`; the host's settings count): friendly fire (off by default; hits between
+  players arrive as enemy gun damage, since the game ignores a player hitting a player), tougher
+  enemies (+0/25/50/100% hp per extra player, default 50, set when an enemy first appears), co-op
+  save interval, modern controls (Space jumps, right mouse snipes) and developer keys (F1, F3-F11 and
+  the F9 debug menu; off for players, on in the test installs; F2 stays on as the report marker).
+Lua reads and writes the settings through `coop_get(section, key, default)` / `coop_set(section, key,
+value)`, which change one key in place. `tools/qa_menu.sh` drives it, keys included.
+
 Damage authority (`[net] role=host|client`): the bridge hooks the game's central damage function
 (0x40d590). The host applies everything and tells the client (APPLY); the client applies damage to its own
 player only and sends its hits on anything else to the host (HIT), which applies them as if the client's

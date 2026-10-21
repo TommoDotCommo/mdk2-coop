@@ -153,6 +153,9 @@ void ents_host_tick(void)
         e->id = id;
         e->gob = gob;
         e->local = id;
+        /* more players, tougher enemies ([game] enemy_scale % per extra player) */
+        if (cfg_enemy_scale > 0 && players_connected() > 0 && gob_hp(gob) > 0)
+            gob_set_hp(gob, gob_hp(gob) + gob_hp(gob) * cfg_enemy_scale * players_connected() / 100);
         gob_netname(gob, name, sizeof(name));
         event_queue_spawn(TO_ALL, EV_SPAWN, id, gob_type(gob), gob_hp(gob), (float *)(gob + GOB_POSITION), name);
         logmsg("ent spawn %x %s type %d", id, name, gob_type(gob));

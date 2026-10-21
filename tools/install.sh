@@ -36,7 +36,7 @@ for i in $(mdk_seq); do
     else x=$((mx + 10 + (i - 1) % 4 * 630)); y=$((my + 20 + (i - 1) / 4 * 650)); fi
     if [ "$i" = 1 ]; then net="role=host\r\nlisten_port=$MDK2_PORT"
     else net="role=client\r\nlisten_port=$((MDK2_PORT + i - 1))\r\npeer_host=127.0.0.1\r\npeer_port=$MDK2_PORT"; fi
-    printf "[net]\r\n$net\r\n[test]\r\nbackground=%s\r\nx=%d\r\ny=%d\r\n" "${MDK2_BACKGROUND:-0}" "$x" "$y" \
+    printf "[net]\r\n$net\r\n[controls]\r\ndevkeys=1\r\n[test]\r\nbackground=%s\r\nx=%d\r\ny=%d\r\n" "${MDK2_BACKGROUND:-0}" "$x" "$y" \
         > "$(mdk_wsl "$(mdk_dir $i)")/coop/coop.ini"
 done
 GAME_DIRS="$dirs" "$here/tools/inject.sh"
