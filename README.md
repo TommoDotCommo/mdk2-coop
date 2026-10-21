@@ -191,8 +191,24 @@ Options > Co-op (the game's own menus, on the title screen and in the pause menu
 - Gameplay (`coop.ini`; the host's settings count): friendly fire (off by default; hits between
   players arrive as enemy gun damage, since the game ignores a player hitting a player), tougher
   enemies (+0/25/50/100% hp per extra player, default 50, set when an enemy first appears), co-op
-  save interval, modern controls (Space jumps, right mouse snipes) and developer keys (F1, F3-F11 and
-  the F9 debug menu; off for players, on in the test installs; F2 stays on as the report marker).
+  save interval, players on screen and developer keys (F1, F3-F11 and the F9 debug menu; off for
+  players, on in the test installs; F2 stays on as the report marker).
+- Controls (`[controls] preset=original|modern|custom`, custom keys in `[controls_custom]`, one
+  `action=key1,key2` line each; scan codes, mouse 1000 left, 1001 right, 1002 middle, 1008 wheel up,
+  1009 wheel down, -1 none): Original is the game's own keys, Modern is WASD, Space to jump, right
+  mouse to aim (Q / E cycle items, F opens the inventory), Custom is yours. Presets are tables in
+  `coop_dev.lua` (`coop.preset_original`, `coop.preset_modern`) over a list of actions (`coop.actions`:
+  the game commands each one's keys are bound to, as the game's own key menu ties them, and a page).
+  `coop.sets` lists the actions that are in use together; a key taken for one is taken away from
+  another in its set. Applied after settings.lua, so they win over what the game saved.
+  The page (`Options > Co-op > Controls`) draws a keyboard and mouse (`bridge/ctrlview.c`, through the
+  HUD's GL state) with every bound key coloured by group and labelled, and the page's bindings in full
+  under it; the game's own menu on the right (inside its middle 4:3, so beside the picture on a wide
+  window) picks the page (On foot, Kurt, Sniper, Max, Doc, Minigames, Menus, System) and preset and
+  rebinds: select an action, press a key (it joins the action's two keys and the older drops out);
+  Delete clears. Lua sends a page with `coop_ctrl_clear / tab / bind / line / hint / focus / show`.
+  `tools/qa_controls.sh` drives it with real key presses (pages, presets, rebinding, taking a key
+  from another action, Custom kept across a restart) and saves a screenshot of every page.
 Lua reads and writes the settings through `coop_get(section, key, default)` / `coop_set(section, key,
 value)`, which change one key in place. `tools/qa_menu.sh` drives it, keys included.
 

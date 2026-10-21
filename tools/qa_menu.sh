@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Options > Co-op checks with MDK2_N (default 3) games in background test mode: the menu
 # reached with real key presses, names, friendly fire (the host's setting, both ways), tougher
-# enemies, a client changing host address live, modern controls, and settings kept across a
+# enemies, a client changing host address live, the controls presets, and settings kept across a
 # restart. Screenshots of every page go to the output folder.
 #   MDK2_N=3 tools/qa_menu.sh
 # Game copies: see tools/mdk.sh. About 3 minutes.
@@ -99,13 +99,14 @@ check "back on the right address it plays again"        wait_log $L "host is bac
 check "with its player number"                          bash -c "grep -E '^we are player' '$(mdk_log $L)' | tail -1 | grep -q 'player $lastnum'"
 check "address kept in coop.ini"                        test "$(ini $L peer_port coop.ini)" = "$MDK2_PORT"
 
-# 6. modern controls off and on: what Space and right mouse do
+# 6. controls presets: what Space and right mouse do in Original and Modern (tools/qa_controls.sh
+# covers the page itself)
 keys() { lua "$1" 'coop_log(format("KEYS jump %s snipe %s", omGetCommandKeyName(COM_JUMP), omGetCommandKeyName(COM_SMTOGGLE)))'; sleep 0.5
          grep -E "^lua: KEYS " "$(mdk_log "$1")" | tail -1 | tr -d '\r'; }
-k1=$(keys 2)
-lua 2 'coop_set("controls", "modern", 0) coop.ApplyControls(nil)'; k0=$(keys 2)
-lua 2 'coop_set("controls", "modern", 1) coop.ApplyControls(1)'; k2=$(keys 2)
-check "modern controls toggle (${k1#lua: } / ${k0#lua: })" bash -c "[ '$k1' != '$k0' ] && [ '$k1' = '$k2' ]"
+lua 2 'coop.SetPreset("modern")'; k1=$(keys 2)
+lua 2 'coop.SetPreset("original")'; k0=$(keys 2)
+lua 2 'coop.SetPreset("modern")'; k2=$(keys 2)
+check "controls presets (${k1#lua: } / ${k0#lua: })" bash -c "[ '$k1' != '$k0' ] && [ '$k1' = '$k2' ]"
 
 # 7. settings kept across a restart of client 2
 lua 2 'coop_set("save", "interval", 300) coop_set_name("Second")'; sleep 1

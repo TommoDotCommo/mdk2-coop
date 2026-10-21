@@ -77,10 +77,15 @@ static int shown;               /* coop_hud(on) from Lua, this frame */
 static BYTE *camera;            /* the game's camera gob (mdkGetCameraGob), from coop_hud */
 static float fov_deg = 64.0f;   /* vertical field of view: from where puppets at known spots appear (1-2) */
 static float head_z = 1.8f;     /* tag this far above a puppet's feet (Kurt is about 1.45 tall) */
-static unsigned font_base;
-static int font_px, font_h;     /* font built for this text height (pixels) */
-static int char_w[128];         /* advance widths, for measuring text */
-static HFONT font;
+/* fonts: 0 is the HUD's, 1, 2 and 3 smaller / larger / tiny ones for the controls view (ctrlview.c) */
+struct fnt { unsigned base; int px, h; int w[128]; HFONT hf; };
+static struct fnt fn[4];
+static int fsel;                /* the font in use */
+#define font_base fn[fsel].base
+#define font_px   fn[fsel].px   /* font built for this text height (pixels) */
+#define font_h    fn[fsel].h
+#define char_w    fn[fsel].w    /* advance widths, for measuring text */
+#define font      fn[fsel].hf
 
 static int load_gl(void)
 {
@@ -169,11 +174,22 @@ static void text(float x, float y, int h, const char *s, float r, float g, float
     gl.CallLists(n, GL_UNSIGNED_BYTE, s);
 }
 
+/* for ctrlview.c: the same primitives, and a font choice (0 HUD, 1 small, 2 large) */
+void hud_font_use(int i) { fsel = i; }
+int hud_font_h(void) { return font_h; }
+int hud_text_w(const char *s) { return text_width(s); }
+void hud_text(float x, float y, int h, const char *s, float r, float g, float b) { text(x, y, h, s, r, g, b); }
+
 /* a box from (x, y) top left, y down */
 static void box(float x, float y, float w, float bh, int h, float r, float g, float b, float a)
 {
     gl.Color4f(r, g, b, a);
     gl.Rectf(x, (float)h - y - bh, x + w, (float)h - y);
+}
+
+void hud_box(float x, float y, float w, float bh, int h, float r, float g, float b, float a)
+{
+    box(x, y, w, bh, h, r, g, b, a);
 }
 
 static float dist_to(BYTE *gob)
@@ -440,7 +456,7 @@ void hud_frame(HDC dc)
     RECT rc;
 
     /* the panel and tags follow coop_hud's "shown"; the revive status shows whenever it is set */
-    if (!have_remote || (!shown && !status1[0] && !status2[0]))
+    if (!ctrlview_on() && (!have_remote || (!shown && !status1[0] && !status2[0])))
         return;
     if (ready < 0)
         ready = load_gl();
@@ -449,8 +465,18 @@ void hud_frame(HDC dc)
     GetClientRect(WindowFromDC(dc), &rc);
     w = rc.right;
     h = rc.bottom;
+    fsel = 0;
     if (w <= 0 || h <= 0 || !make_font(dc, h / 42 < 13 ? 13 : h / 42))
         return;
+    if (ctrlview_on()) {
+        fsel = 1;
+        make_font(dc, h / 64 < 10 ? 10 : h / 64);
+        fsel = 2;
+        make_font(dc, h / 26 < 18 ? 18 : h / 26);
+        fsel = 3;
+        make_font(dc, h / 80 < 9 ? 9 : h / 80);
+        fsel = 0;
+    }
 
     if (gl.UseProgram) {
         gl.GetIntegerv(GL_CURRENT_PROGRAM, &prog);
@@ -482,6 +508,8 @@ void hud_frame(HDC dc)
         draw_panel(w, h);
     }
     draw_status(w, h);
+    ctrlview_draw(w, h);
+    fsel = 0;
     frames_drawn++;
 
     gl.MatrixMode(GL_MODELVIEW); gl.PopMatrix();

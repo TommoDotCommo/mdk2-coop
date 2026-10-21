@@ -88,9 +88,15 @@ Options > Co-op (on the title screen, or Esc > Options while playing):
   clients can accept a new invite or press Esc on the waiting screen to join by ID.
 - Gameplay (the host's settings count): friendly fire, tougher enemies for more players,
   how often co-op saves are made, players on screen (names over heads and a panel with
-  everyone's health), modern controls (Space jumps, right mouse snipes) and
-  developer keys (off: the F-keys are developer shortcuts that change the level for
-  everyone; F2 always puts a marker in the logs when you want to report something).
+  everyone's health) and developer keys (off: the F-keys are developer shortcuts that
+  change the level for everyone; F2 always puts a marker in the logs when you want to
+  report something).
+- Controls: pick Original (the game's own keys), Modern (WASD, Space jumps, right mouse
+  snipes, Q / E cycle items, F opens the inventory) or Custom. A picture of the keyboard and
+  mouse shows every key and what it does, one page per situation: on foot, Kurt, sniper
+  mode, Max, Doc, minigames, menus and system. Select an action and press a key to change
+  it; the first change starts Custom as a copy of the preset you were on. Delete clears an
+  action. Your Custom keys are kept separately, so Original and Modern are always there.
 
 Known issues
 ------------

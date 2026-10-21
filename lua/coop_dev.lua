@@ -58,20 +58,256 @@ while (i) do
     i, com = next(coop.debugkeys, i)
 end
 
--- Modern controls ([controls] modern, Options > Co-op): Space jumps (and works Max's jetpack
--- and Kurt's parachute, which share the jump button), right mouse toggles Kurt's sniper mode.
--- The game's defaults are the other way round (right mouse 1001 = jump/jet/chute, Space 57 =
--- sniper toggle). Applied after settings.lua, so they win over the saved bindings; changing
--- controls in the options menu saves them. --
-function coop.ApplyControls(modern)
-    local jump, snipe = 1001, 57
-    if (modern) then jump, snipe = 57, 1001 end
-    omBindCommandI(COM_JUMP, jump)
-    omBindCommandI(COM_JET, jump)
-    omBindCommandI(COM_CHUTE, jump)
-    omBindCommandI(COM_SMTOGGLE, snipe)
+-- ---------------------------------------------------------------------------------------
+-- Controls: Original (the game's own keys), Modern (WASD, Space jumps, right mouse aims) and a
+-- Custom slot, picked in Options > Co-op > Controls ([controls] preset, custom keys in
+-- [controls_custom]). Applied after settings.lua, so they win over the keys the game saved.
+-- The page shows a keyboard and mouse with every bound key labelled, one page per situation,
+-- drawn by the bridge (coop_ctrl_*); the game's own menu on the right picks page and preset
+-- and rebinds (select an action, press a key). Keys are DirectInput scan codes; the mouse is
+-- 1000 left, 1001 right, 1002 middle, 1008 wheel up, 1009 wheel down; -1 is unbound.
+-- ---------------------------------------------------------------------------------------
+coop.keynames = {
+    [1]="Esc", [2]="1", [3]="2", [4]="3", [5]="4", [6]="5", [7]="6", [8]="7", [9]="8", [10]="9", [11]="0",
+    [12]="-", [13]="=", [14]="Backspace", [15]="Tab", [16]="Q", [17]="W", [18]="E", [19]="R", [20]="T",
+    [21]="Y", [22]="U", [23]="I", [24]="O", [25]="P", [26]="[", [27]="]", [28]="Enter", [29]="Ctrl",
+    [30]="A", [31]="S", [32]="D", [33]="F", [34]="G", [35]="H", [36]="J", [37]="K", [38]="L", [39]=";",
+    [40]="'", [41]="`", [42]="Shift", [43]="\\", [44]="Z", [45]="X", [46]="C", [47]="V", [48]="B", [49]="N",
+    [50]="M", [51]=",", [52]=".", [53]="/", [54]="Shift", [56]="Alt", [57]="Space", [58]="Caps",
+    [59]="F1", [60]="F2", [61]="F3", [62]="F4", [63]="F5", [64]="F6", [65]="F7", [66]="F8", [67]="F9",
+    [68]="F10", [87]="F11", [88]="F12", [157]="Ctrl", [184]="Alt", [199]="Home", [200]="Up", [201]="PgUp",
+    [203]="Left", [205]="Right", [207]="End", [208]="Down", [209]="PgDn", [210]="Insert", [211]="Delete",
+    [1000]="Left mouse", [1001]="Right mouse", [1002]="Middle mouse", [1003]="Side mouse",
+    [1004]="Mouse right", [1005]="Mouse left", [1006]="Mouse down", [1007]="Mouse up",
+    [1008]="Wheel up", [1009]="Wheel down",
+}
+
+function coop.KeyName(k)
+    if (not k or k < 0) then return "" end
+    return coop.keynames[k] or format("Key %d", k)
 end
-coop.ApplyControls(coop_get("controls", "modern", "1") == "1")
+
+-- pages: where an action is shown and rebound --
+coop.ctrlpages = { "On foot", "Kurt", "Sniper", "Max", "Doc", "Minigames", "Menus", "System" }
+coop.pageid = { "foot", "kurt", "sniper", "max", "doc", "mini", "menus", "system" }
+
+-- groups (colours) are the bridge's: 1 move, 2 look, 3 jump, 4 combat, 5 inventory, 6 sniper,
+-- 7 system, 8 co-op, 9 menus. coms: every game command the action's keys are bound to
+-- (the game's own key menu ties them the same way). sets: which actions are in use together,
+-- for the conflict check when rebinding --
+coop.actions = {
+    { id="fwd", name="Forward", page="foot",   group=1, short="Fwd",    long="Move forward",    coms={ COM_FORWARD, COM_MINIUP } },
+    { id="back", name="Backward", page="foot",   group=1, short="Back",   long="Move backward",   coms={ COM_BACKWARD, COM_MINIDOWN } },
+    { id="strl", name="Strafe left", page="foot",   group=1, short="Left",   long="Strafe left",     coms={ COM_STRAFELEFT, COM_SMSTRAFELEFT, COM_MINILEFT2 } },
+    { id="strr", name="Strafe right", page="foot",   group=1, short="Right",  long="Strafe right",    coms={ COM_STRAFERIGHT, COM_SMSTRAFERIGHT, COM_MINIRIGHT2 } },
+    { id="turnl", name="Turn left", page="foot",   group=1, short="Turn<", long="Turn left",  coms={ COM_TURNLEFT, COM_MINILEFT } },
+    { id="turnr", name="Turn right", page="foot",   group=1, short="Turn>", long="Turn right", coms={ COM_TURNRIGHT, COM_MINIRIGHT } },
+    { id="lookup", name="Look up", page="foot",   group=2, short="Look^", long="Look up",   coms={ COM_LOOKUP, COM_MINIUP2 } },
+    { id="lookdn", name="Look down", page="foot",   group=2, short="Lookv", long="Look down", coms={ COM_LOOKDOWN, COM_MINIDOWN2 } },
+    { id="jump", name="Jump / jet", page="foot",   group=3, short="Jump",   long="Jump; jetpack (Max); parachute (Kurt)", coms={ COM_JUMP, COM_CHUTE, COM_JET } },
+    { id="shoot", name="Fire", page="foot",   group=4, short="Fire",   long="Fire, melee, use the selected item", coms={ COM_SHOOT, COM_MELEE, COM_SMSHOOT, COM_INVCOMBINE, COM_INVACTIVATE } },
+    { id="kinvl", name="Inventory left", page="kurt",   group=5, short="Inv <",  long="Inventory left",  coms={ COM_INVNEXT } },
+    { id="kinvr", name="Inventory right", page="kurt",   group=5, short="Inv >",  long="Inventory right", coms={ COM_INVPREV } },
+    { id="kuse", name="Open inventory", page="kurt",   group=5, short="Items",  long="Open the inventory", coms={ COM_INVENABLE } },
+    { id="kclose", name="Close inventory", page="kurt",   group=5, short="Close",  long="Close the inventory", coms={ COM_INVDISABLE } },
+    { id="sniper", name="Sniper mode", page="sniper", group=6, short="Sniper", long="Sniper mode on / off (Kurt)", coms={ COM_SMTOGGLE } },
+    { id="zoomin", name="Zoom in", page="sniper", group=6, short="Zoom +", long="Zoom in (sniper mode)",  coms={ COM_SMZOOMIN } },
+    { id="zoomout", name="Zoom out",page="sniper", group=6, short="Zoom -", long="Zoom out (sniper mode)", coms={ COM_SMZOOMOUT } },
+    { id="minvl", name="Inventory left", page="max",    group=5, short="Inv <",  long="Inventory left",  coms={ COM_MAXINVNEXT } },
+    { id="minvr", name="Inventory right", page="max",    group=5, short="Inv >",  long="Inventory right", coms={ COM_MAXINVPREV } },
+    { id="mequip", name="Equip", page="max",    group=5, short="Equip",  long="Equip the selected weapon", coms={ COM_MAXEQUIP } },
+    { id="munequip", name="Unequip",page="max",   group=5, short="Stow",long="Put the weapon away", coms={ COM_MAXUNEQUIP } },
+    { id="dup", name="Inventory up", page="doc",    group=5, short="Up",     long="Inventory up",    coms={ COM_DOCINVUP } },
+    { id="ddown", name="Inventory down", page="doc",    group=5, short="Down",   long="Inventory down",  coms={ COM_DOCINVDOWN } },
+    { id="dleft", name="Inventory left", page="doc",    group=5, short="Left",   long="Inventory left",  coms={ COM_DOCINVENLEFT } },
+    { id="dright", name="Inventory right", page="doc",    group=5, short="Right",  long="Inventory right", coms={ COM_DOCINVENRIGHT } },
+}
+
+-- actions in use together: a key may not do two things in the same set --
+coop.sets = {
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "kinvl", "kinvr", "kuse", "kclose", "sniper" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "minvl", "minvr", "mequip", "munequip" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "dup", "ddown", "dleft", "dright" },
+    { "sniper", "zoomin", "zoomout", "strl", "strr", "shoot", "jump" },
+}
+
+-- the presets: id = { key 1, key 2 } --
+coop.preset_original = {
+    fwd = { 200, 17 }, back = { 208, 31 }, strl = { 203, 30 }, strr = { 205, 32 }, turnl = { 44, -1 }, turnr = { 45, -1 },
+    lookup = { 199, -1 }, lookdn = { 207, -1 }, jump = { 1001, -1 }, shoot = { 1000, -1 },
+    kinvl = { 1008, 2 }, kinvr = { 1009, 4 }, kuse = { 33, 18 }, kclose = { 12, -1 },
+    sniper = { 57, -1 }, zoomin = { 200, 17 }, zoomout = { 208, 31 },
+    minvl = { 26, 1008 }, minvr = { 27, 1009 }, mequip = { 18, 16 }, munequip = { 16, 18 },
+    dup = { 27, 1008 }, ddown = { 26, 1009 }, dleft = { 12, 16 }, dright = { 13, 18 },
+}
+coop.preset_modern = {
+    fwd = { 17, 200 }, back = { 31, 208 }, strl = { 30, 203 }, strr = { 32, 205 }, turnl = { 44, -1 }, turnr = { 46, -1 },
+    lookup = { 199, -1 }, lookdn = { 207, -1 }, jump = { 57, -1 }, shoot = { 1000, -1 },
+    kinvl = { 16, 1008 }, kinvr = { 18, 1009 }, kuse = { 33, 15 }, kclose = { 34, -1 },
+    sniper = { 1001, -1 }, zoomin = { 1008, 17 }, zoomout = { 1009, 31 },
+    minvl = { 16, 1008 }, minvr = { 18, 1009 }, mequip = { 33, -1 }, munequip = { 34, -1 },
+    dup = { 19, 1008 }, ddown = { 33, 1009 }, dleft = { 16, -1 }, dright = { 18, -1 },
+}
+coop.preset_names = { original = "Original", modern = "Modern", custom = "Custom" }
+coop.preset_order = { "original", "modern", "custom" }
+
+function coop.ActionById(id)
+    local i, a = next(coop.actions, nil)
+    while (i) do
+        if (a.id == id) then return a end
+        i, a = next(coop.actions, i)
+    end
+    return nil
+end
+
+-- custom keys from coop.ini: "k1,k2" per action; an action not there takes the Modern key --
+coop.custom = {}
+function coop.LoadCustom()
+    local i, a = next(coop.actions, nil)
+    while (i) do
+        local v = coop_get("controls_custom", a.id, "")
+        local c = strfind(v, ",", 1, 1)
+        local k1, k2 = nil, nil
+        if (c) then k1, k2 = tonumber(strsub(v, 1, c - 1)), tonumber(strsub(v, c + 1)) end
+        if (k1 and k2) then
+            coop.custom[a.id] = { k1, k2 }
+        else
+            coop.custom[a.id] = { coop.preset_modern[a.id][1], coop.preset_modern[a.id][2] }
+        end
+        i, a = next(coop.actions, i)
+    end
+end
+
+function coop.SaveCustom(id)
+    coop_set("controls_custom", id, format("%d,%d", coop.custom[id][1], coop.custom[id][2]))
+end
+
+-- the keys of one action in the active preset --
+function coop.Keys(id)
+    if (coop.preset == "original") then return coop.preset_original[id] end
+    if (coop.preset == "custom") then return coop.custom[id] end
+    return coop.preset_modern[id]
+end
+
+function coop.BindAction(a)
+    local k = coop.Keys(a.id)
+    local n, c = next(a.coms, nil)
+    while (n) do
+        omBindCommandI(c, k[1])
+        omBindCommandI2(c, k[2])
+        n, c = next(a.coms, n)
+    end
+end
+
+function coop.ApplyControls()
+    local i, a = next(coop.actions, nil)
+    while (i) do
+        coop.BindAction(a)
+        i, a = next(coop.actions, i)
+    end
+end
+
+-- log what is bound now, first command of each action (tests) --
+function coop.ControlsDump()
+    local i, a = next(coop.actions, nil)
+    while (i) do
+        coop_log(format("ctrl %s %d %d", a.id, omGetCommandBinding(a.coms[1]), omGetCommandBinding2(a.coms[1])))
+        i, a = next(coop.actions, i)
+    end
+end
+
+function coop.SetPreset(name)
+    coop.preset = name
+    coop_set("controls", "preset", name)
+    coop.ApplyControls()
+    coop_log("controls: " .. name)
+end
+
+-- short names for the menu's narrow value column --
+coop.shortnames = { [1000]="LMB", [1001]="RMB", [1002]="MMB", [1003]="SMB", [1008]="Wh+", [1009]="Wh-",
+    [14]="Bksp", [210]="Ins", [211]="Del", [201]="PgUp", [209]="PgDn", [205]="Right", [58]="Caps" }
+function coop.ShortKeyText(k)
+    local t, u = "", ""
+    if (k[1] >= 0) then t = coop.shortnames[k[1]] or coop.KeyName(k[1]) end
+    if (k[2] >= 0) then u = coop.shortnames[k[2]] or coop.KeyName(k[2]) end
+    if (t ~= "" and u ~= "") then return t .. " " .. u end
+    if (t ~= "") then return t end
+    if (u ~= "") then return u end
+    return "-"
+end
+
+-- "W / Up" for an action's keys --
+function coop.KeyText(k)
+    local t = coop.KeyName(k[1])
+    if (k[2] >= 0) then
+        if (t ~= "") then t = t .. " / " end
+        t = t .. coop.KeyName(k[2])
+    end
+    if (t == "") then t = "(none)" end
+    return t
+end
+
+-- the action using key `code` in a set with action `id`, if any --
+function coop.Conflict(id, code)
+    local si, set = next(coop.sets, nil)
+    while (si) do
+        local inset = nil
+        local ni, nid = next(set, nil)
+        while (ni) do
+            if (nid == id) then inset = 1 end
+            ni, nid = next(set, ni)
+        end
+        if (inset) then
+            ni, nid = next(set, nil)
+            while (ni) do
+                if (nid ~= id) then
+                    local k = coop.Keys(nid)
+                    if (k[1] == code or k[2] == code) then return nid end
+                end
+                ni, nid = next(set, ni)
+            end
+        end
+        si, set = next(coop.sets, si)
+    end
+    return nil
+end
+
+-- the game's rule for a new key: it becomes the second, the first drops out (when both are set) --
+function coop.AddKey(id, code)
+    local k = coop.custom[id]
+    if (code == k[1] or code == k[2]) then return end
+    if (k[1] >= 0 and k[2] >= 0) then k[1] = k[2]; k[2] = code
+    elseif (k[1] >= 0) then k[2] = code
+    elseif (k[2] >= 0) then k[1] = k[2]; k[2] = code
+    else k[1] = code end
+end
+
+function coop.RemoveKey(id, code)
+    local k = coop.custom[id]
+    if (k[1] == code) then k[1] = k[2]; k[2] = -1
+    elseif (k[2] == code) then k[2] = -1 end
+end
+
+-- Custom starts as a copy of whatever was active when you first change a key --
+function coop.EditCustom()
+    if (coop.preset == "custom") then return end
+    local i, a = next(coop.actions, nil)
+    while (i) do
+        local k = coop.Keys(a.id)
+        coop.custom[a.id] = { k[1], k[2] }
+        coop.SaveCustom(a.id)
+        i, a = next(coop.actions, i)
+    end
+    coop.SetPreset("custom")
+end
+
+coop.preset = coop_get("controls", "preset", "")
+if (coop.preset ~= "original" and coop.preset ~= "modern" and coop.preset ~= "custom") then
+    -- before presets there was [controls] modern (default on)
+    if (coop_get("controls", "modern", "1") == "1") then coop.preset = "modern" else coop.preset = "original" end
+end
+coop.LoadCustom()
+coop.ApplyControls()
 
 -- The game's quicksave (F6) and quickload (F7) are off in co-op: a quickload restores this
 -- game's own save, which the partner cannot follow (it showed up as level(l, -1) and the
@@ -183,6 +419,7 @@ end
 -- every frame, called by the bridge after the scene update (menus and title included):
 -- send our player, apply the others' events, put each puppet where its player is --
 function coop.Tick()
+    coop.ControlsCheck()
     -- host autostart (tools/play.sh <level> <cp>): once the title screen has been up a while
     -- and coop.autostart_players others have joined (or a minute has gone by), load the start
     -- checkpoint; retried until a level is running --
@@ -814,6 +1051,7 @@ coop.pages = {
     coopplayers = function() coop.BuildPlayers() end,
     coopsession = function() coop.BuildSession() end,
     coopgame = function() coop.BuildGame() end,
+    coopctrl = function() coop.OpenControls() end,
 }
 
 function coop.ShowPage(name)
@@ -848,6 +1086,8 @@ function coop.BuildMain()
     item.Select = function(self) coop.ShowPage("coopsession") end
     item = mdkCreateMenuItem(menu.coop, "Gameplay")
     item.Select = function(self) coop.ShowPage("coopgame") end
+    item = mdkCreateMenuItem(menu.coop, "Controls")
+    item.Select = function(self) coop.ShowPage("coopctrl") end
     item = mdkCreateMenuItemW(menu.coop, strings.opt_ok)
     mdkMenuItemStayInCenterPlease(item)
     mdkMenuItemSetSponge(item, 0.03)
@@ -1080,13 +1320,6 @@ function coop.BuildGame()
     end
     item.Dec = item.Inc
 
-    item = mdkCreateMenuItem(m, "Modern controls")
-    mdkMenuItemAddCheckBox(item, tonumber(coop_get("controls", "modern", "1")) or 1)
-    item.Select = function(self, n)
-        coop_set("controls", "modern", n)
-        coop.ApplyControls(n == 1)
-    end
-
     item = mdkCreateMenuItem(m, "Players on screen")
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("hud", "show", "1")) or 1)
     item.Select = function(self, n)
@@ -1105,5 +1338,289 @@ function coop.BuildGame()
 end
 
 menu.coopgame.Cancel = function() coop.ShowPage("coop") end
+
+-- ---------------------------------------------------------------------------------------
+-- Options > Co-op > Controls: the keyboard and mouse picture (bridge, ctrlview.c) fills the
+-- left, this menu the right: page, preset, then the page's actions with their keys
+-- ---------------------------------------------------------------------------------------
+menu.coopctrl = mdkCreateMenu(0.78, 0.09, 0.034, 0.034, 0.004, JUSTIFY_RIGHT, 1)
+
+coop.ctrlpage = 1
+coop.ctrlnote = ""
+
+-- rows shown without an action of their own: keys another action owns ("from"), or fixed ones --
+coop.derived = {
+    foot = {
+        { codes = { 1004, 1006 }, group = 2, short = "Look", long = "Move the mouse to turn and look around" },
+    },
+    kurt = {
+        { from = "jump", group = 3, short = "Chute", long = "Parachute: hold jump while falling" },
+        { from = "sniper", group = 6, short = "Sniper", long = "Sniper mode on / off" },
+        { from = "shoot", group = 4, short = "Fire", long = "Fire / use the selected item" },
+    },
+    sniper = {
+        { from = "strl", group = 1, short = "Left", long = "Sidestep left" },
+        { from = "strr", group = 1, short = "Right", long = "Sidestep right" },
+        { from = "shoot", group = 4, short = "Fire", long = "Fire the sniper rifle" },
+        { codes = { 1004, 1006 }, group = 2, short = "Aim", long = "Aim: move the mouse" },
+    },
+    max = {
+        { from = "jump", group = 3, short = "Jet", long = "Jetpack: hold jump" },
+        { from = "shoot", group = 4, short = "Fire", long = "Fire the equipped weapon" },
+    },
+    doc = {
+        { from = "shoot", group = 4, short = "Use", long = "Use the selected item" },
+        { from = "jump", group = 3, short = "Jump", long = "Jump" },
+    },
+    mini = {
+        { from = "fwd", group = 1, short = "S1 Up", long = "Stick 1 up" },
+        { from = "back", group = 1, short = "S1 Dn", long = "Stick 1 down" },
+        { from = "turnl", group = 1, short = "S1 L", long = "Stick 1 left" },
+        { from = "turnr", group = 1, short = "S1 R", long = "Stick 1 right" },
+        { from = "lookup", group = 2, short = "S2 Up", long = "Stick 2 up (two-stick minigames)" },
+        { from = "lookdn", group = 2, short = "S2 Dn", long = "Stick 2 down" },
+        { from = "strl", group = 1, short = "S2 L", long = "Stick 2 left" },
+        { from = "strr", group = 1, short = "S2 R", long = "Stick 2 right" },
+    },
+    menus = {
+        { codes = { 200 }, group = 9, short = "Up", long = "Menu up" },
+        { codes = { 208 }, group = 9, short = "Down", long = "Menu down" },
+        { codes = { 203 }, group = 9, short = "Left", long = "Menu left, a smaller value" },
+        { codes = { 205 }, group = 9, short = "Right", long = "Menu right, a bigger value" },
+        { codes = { 28, 1000 }, group = 9, short = "Select", long = "Choose the highlighted item" },
+        { codes = { 1 }, group = 9, short = "Back", long = "Back out of a menu" },
+        { codes = { 211, 14 }, group = 9, short = "Clear", long = "Clear a key in the key lists" },
+    },
+    system = {
+        { codes = { 1 }, group = 7, short = "Pause", long = "Pause menu" },
+        { codes = { 68 }, group = 7, short = "Shot", long = "Screenshot (saved by the game)" },
+        { codes = { 60 }, group = 8, short = "Mark", long = "Co-op marker: a note in every log and a screenshot, for bug reports" },
+        { codes = { 41 }, group = 7, short = "Console", long = "Developer console" },
+    },
+}
+
+-- the game's own pages of keys that cannot be changed here --
+coop.fixedpage = { mini = 1, menus = 1, system = 1 }
+
+function coop.KeysOfRow(r)
+    if (r.from) then
+        local k = coop.Keys(r.from)
+        return { k[1], k[2] }
+    end
+    return { r.codes[1] or -1, r.codes[2] or -1 }
+end
+
+function coop.MenuName(a)
+    return a.name
+end
+
+-- send the current page to the bridge's picture --
+function coop.FeedControls()
+    local pid = coop.pageid[coop.ctrlpage]
+    coop_log("controls page: " .. pid)
+    coop_ctrl_clear("Controls: " .. coop.ctrlpages[coop.ctrlpage], "Preset: " .. coop.preset_names[coop.preset] .. coop.ctrlnote)
+    local i = 1
+    while (coop.ctrlpages[i]) do
+        local on = 0
+        if (i == coop.ctrlpage) then on = 1 end
+        coop_ctrl_tab(coop.ctrlpages[i], on)
+        i = i + 1
+    end
+    local n, a = next(coop.actions, nil)
+    while (n) do
+        if (a.page == pid) then
+            local k = coop.Keys(a.id)
+            if (k[1] >= 0) then coop_ctrl_bind(k[1], a.group, a.short) end
+            if (k[2] >= 0) then coop_ctrl_bind(k[2], a.group, a.short) end
+            coop_ctrl_line(a.group, coop.KeyText(k), a.long)
+        end
+        n, a = next(coop.actions, n)
+    end
+    local rows = coop.derived[pid]
+    if (rows) then
+        n, a = next(rows, nil)
+        while (n) do
+            local k = coop.KeysOfRow(a)
+            if (k[1] >= 0) then coop_ctrl_bind(k[1], a.group, a.short) end
+            if (k[2] >= 0) then coop_ctrl_bind(k[2], a.group, a.short) end
+            if (a.codes and a.codes[1] == 1004) then
+                coop_ctrl_line(a.group, "Mouse", a.long)
+            else
+                coop_ctrl_line(a.group, coop.KeyText(k), a.long)
+            end
+            n, a = next(rows, n)
+        end
+    end
+    if (coop.rebinding) then
+        coop_ctrl_hint("Press a key or a mouse button for " .. coop.MenuName(coop.ActionById(coop.rebinding)) .. "   (Esc: cancel)")
+    elseif (coop.fixedpage[pid]) then
+        coop_ctrl_hint("Left / Right on Page: next page      These keys follow other pages and are not set here")
+    else
+        coop_ctrl_hint("Left / Right on Page: next page      Select an action, press a key to bind it      Delete: clear")
+    end
+end
+
+function coop.BuildControls()
+    local m = menu.coopctrl
+    mdkClearMenu(m)
+    local pid = coop.pageid[coop.ctrlpage]
+
+    local item = mdkCreateMenuItem(m, "Page")
+    mdkMenuItemAddComboBox(item)
+    local i = 1
+    while (coop.ctrlpages[i]) do
+        mdkMenuItemAddComboString(item, coop.ctrlpages[i])
+        i = i + 1
+    end
+    mdkMenuItemSetWidgitValue(item, coop.ctrlpage - 1)
+    item.Inc = function(self)
+        coop.ctrlpage = mdkMenuItemGetWidgitValue(self) + 1
+        coop.ctrl_focus = 0
+        coop.ctrl_dirty = 1
+    end
+    item.Dec = item.Inc
+
+    item = mdkCreateMenuItem(m, "Preset")
+    mdkMenuItemAddComboBox(item)
+    i = 1
+    while (coop.preset_order[i]) do
+        mdkMenuItemAddComboString(item, coop.preset_names[coop.preset_order[i]])
+        i = i + 1
+    end
+    local pi = 0
+    i = 1
+    while (coop.preset_order[i]) do
+        if (coop.preset_order[i] == coop.preset) then pi = i - 1 end
+        i = i + 1
+    end
+    mdkMenuItemSetWidgitValue(item, pi)
+    item.Inc = function(self)
+        coop.SetPreset(coop.preset_order[mdkMenuItemGetWidgitValue(self) + 1])
+        coop.ctrlnote = ""
+        coop.ctrl_focus = 1
+        coop.ctrl_dirty = 1
+    end
+    item.Dec = item.Inc
+
+    local n, a = next(coop.actions, nil)
+    local pos = 2
+    while (n) do
+        if (a.page == pid) then
+            item = mdkCreateMenuItem(m, coop.MenuName(a))
+            item.action = a.id
+            item.pos = pos
+            pos = pos + 1
+            mdkMenuItemAddTextBox(item, coop.ShortKeyText(coop.Keys(a.id)), 0.14)
+            item.Select = function(self) coop.BeginRebind(self.action, self.pos) end
+            item.Clear = function(self) coop.ClearKeys(self.action, self.pos) end
+        end
+        n, a = next(coop.actions, n)
+    end
+
+    item = mdkCreateMenuItemW(m, strings.opt_ok)
+    mdkMenuItemSetSponge(item, 0.03)
+    item.Select = function(self) menu.coopctrl.Cancel() end
+    coop.FeedControls()
+end
+
+function coop.OpenControls()
+    coop.ctrlnote = ""
+    coop.ctrl_open = 1
+    coop.ctrl_focus = 0
+    coop.BuildControls()
+    coop_ctrl_show(1)
+end
+
+function coop.CloseControls()
+    coop.ctrl_open = nil
+    coop.rebinding = nil
+    coop_ctrl_show(0)
+end
+
+-- begin: switch to Custom (a copy of what is active), then wait for the next key --
+function coop.BeginRebind(id, pos)
+    coop.ctrl_focus = pos
+    if (coop.preset ~= "custom") then
+        local from = coop.preset_names[coop.preset]
+        coop.EditCustom()
+        coop.ctrlnote = "  (copied from " .. from .. ")"
+    end
+    coop.rebinding = id
+    coop.rebind_timeout = 6
+    conscheme = "poo"
+    mdkShowMouse(0, 0)
+    coop.FeedControls()
+    coop_ctrl_focus(0)
+end
+
+function coop.EndRebind()
+    coop.rebinding = nil
+    mdkShowMouse(1, 0)
+    conscheme = "menu"
+    coop.ctrl_dirty = 1
+end
+
+function coop.ClearKeys(id, pos)
+    coop.ctrl_focus = pos
+    if (coop.preset ~= "custom") then
+        coop.EditCustom()
+    end
+    coop.custom[id] = { -1, -1 }
+    coop.SaveCustom(id)
+    coop.ApplyControls()
+    coop.ctrl_dirty = 1
+end
+
+function coop.PollRebind()
+    local id = coop.rebinding
+    coop.rebind_timeout = coop.rebind_timeout - chGetDeltaT()
+    local k = omGetKeyPress()
+    if (coop.rebind_timeout <= 0) then
+        k = 1
+        omEnableControl()
+    end
+    if (k == -1) then return end
+    if (k ~= 1) then
+        local other = coop.Conflict(id, k)
+        if (other) then
+            coop.RemoveKey(other, k)
+            coop.SaveCustom(other)
+            coop.ctrlnote = "  (" .. coop.KeyName(k) .. " taken from " .. coop.MenuName(coop.ActionById(other)) .. ")"
+        else
+            coop.ctrlnote = ""
+        end
+        coop.AddKey(id, k)
+        coop.SaveCustom(id)
+        coop.ApplyControls()
+        coop_log(format("controls: %s = %d, %d", id, coop.custom[id][1], coop.custom[id][2]))
+    end
+    coop.EndRebind()
+end
+
+menu.coopctrl.Update = function()
+    if (coop.rebinding) then
+        coop.PollRebind()
+        return
+    end
+    if (coop.ctrl_dirty) then
+        coop.ctrl_dirty = nil
+        coop.BuildControls()
+        mdkMenuSetHighlighted(menu.coopctrl, coop.ctrl_focus or 0)
+    end
+end
+
+menu.coopctrl.Cancel = function()
+    if (coop.rebinding) then
+        coop.EndRebind()
+        return
+    end
+    coop.CloseControls()
+    coop.ShowPage("coop")
+end
+
+-- the picture goes away with the menu, however the menu was left --
+function coop.ControlsCheck()
+    if (coop.ctrl_open and menu.current ~= "coopctrl") then coop.CloseControls() end
+end
 
 coop.ApplyDevKeys(coop_get("controls", "devkeys", "0") == "1")

@@ -6,7 +6,7 @@
  *   [net]      role, listen_port, peer_host, peer_port   (role and ports apply at the next start)
  *   [game]     friendly_fire=0|1, enemy_scale=<% more enemy hp per extra player>  (the host's count)
  *   [save]     interval=<seconds between co-op saves>
- *   [controls] modern=1|0   (Space jumps, right mouse toggles sniper mode)
+ *   [controls] preset=original|modern|custom, devkeys=0|1;  [controls_custom] <action>=<key>,<key>
  *
  * The player name lives in coop\player.ini with the player id.
  */

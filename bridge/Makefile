@@ -4,7 +4,7 @@ LDFLAGS = -shared -static-libgcc -Wl,--enable-stdcall-fixup -Wl,--kill-at -lws2_
 
 GAME_DIR ?= /mnt/c/coop/mdk2-test
 
-SRCS = dinput8.c game.c net.c steam.c entities.c shots.c pickups.c doors.c rooms.c frame.c input.c state.c saves.c settings.c loader.c hud.c netstats.c revive.c lua.c route.c bot.c
+SRCS = dinput8.c game.c net.c steam.c entities.c shots.c pickups.c doors.c rooms.c frame.c input.c state.c saves.c settings.c loader.c hud.c ctrlview.c netstats.c revive.c lua.c route.c bot.c
 
 dinput8.dll: $(SRCS) bridge.h steam_abi.h route.h dinput8.def
 	$(CC) $(CFLAGS) -o $@ $(SRCS) dinput8.def $(LDFLAGS)

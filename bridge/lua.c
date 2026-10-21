@@ -679,6 +679,7 @@ void l_coop_init(void)
     saves_lua_init();
     settings_lua_init();
     hud_lua_init();
+    ctrlview_lua_init();
     bot_lua_init();
     run_mod_script();
 }

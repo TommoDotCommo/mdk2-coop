@@ -314,6 +314,14 @@ void saves_lua_init(void);
 /* ---- hud.c ---- */
 
 void hud_frame(HDC dc);
+void hud_font_use(int i);
+int hud_font_h(void);
+int hud_text_w(const char *s);
+void hud_text(float x, float y, int h, const char *s, float r, float g, float b);
+void hud_box(float x, float y, float w, float bh, int h, float r, float g, float b, float a);
+int ctrlview_on(void);
+void ctrlview_draw(int w, int h);
+void ctrlview_lua_init(void);
 void hud_lua_init(void);
 
 /* ---- frame.c ---- */
