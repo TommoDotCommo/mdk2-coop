@@ -209,6 +209,9 @@ function coop.Tick()
     coop.HudTick()
     coop.PendingSaveTick()
     if (coop_role() == "host") then coop.SaveTick() end
+    local route_blocked = 0
+    if ((gamecontrol and gamecontrol.showmenu == 1) or coop.waiting) then route_blocked = 1 end
+    coop_route_tick(p, coop.level or 0, mdkGetCurrentCheckPoint(), route_blocked)
     if (not p or not coop.level or coop.level < 1) then return end
     local me = coop_slot()
     local _, slots = coop_players()

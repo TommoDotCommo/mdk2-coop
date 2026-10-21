@@ -354,6 +354,7 @@ static void l_coop_level(void)
     unsigned int save = (unsigned int)num_param(4);
     struct event e;
 
+    bot_level_loaded(level);
     cur_level = level;
     cur_cp = cp;
     gob_sets_clear();
@@ -660,5 +661,6 @@ void l_coop_init(void)
     saves_lua_init();
     settings_lua_init();
     hud_lua_init();
+    bot_lua_init();
     run_mod_script();
 }

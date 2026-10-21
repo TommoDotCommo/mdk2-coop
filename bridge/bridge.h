@@ -321,6 +321,14 @@ void input_init(void);
 void input_wrap_dinput(void *di);
 void input_press(int code, int hold_ms);
 void input_shot(const char *name);
+struct route_input;
+void input_capture(struct route_input *out);
+void input_replay(const struct route_input *input);
+
+/* ---- bot.c: recorded-route progression tests ---- */
+void bot_lua_init(void);
+void bot_before_frame(void);
+void bot_level_loaded(int level);
 
 /* ---- dinput8.c ---- */
 

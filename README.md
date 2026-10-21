@@ -277,6 +277,14 @@ games side by side on their own runs of checkpoints (copies 1..4*MDK2_N, ports +
 the results: about 4 minutes (236 s) for all 96 with two games per set, against 35 min one at a time before.
 2026-10-21: with `MDK2_N=3`, 1-1 .. 1-3 and 8-4 .. 8-5 all clean (every client bound every enemy, equal hp, no state differences).
 
+Recorded progression: `tools/replay.sh record <name>` / `stop <name>` capture a route in a running
+session; `tools/replay.sh run local/routes/<name>.route` replays its controls in a background
+host with clients. It requires the recorded checkpoint transitions and endpoint, checks the
+worlds after progression, and saves logs, state comparisons and failure screenshots to
+`local/replays/`. See [routes/README.md](routes/README.md) for recording, tolerances and limits.
+`tools/test_replay.sh` runs the parser, playback and failure checks without the game. Recorded
+routes need real replay validation before being counted as campaign coverage.
+
 Last runs (2026-10-20, Steam build 3902, level 1 cp 2): 21/21 on plain localhost (after the first
 manual session's client crash was fixed); earlier 17/17 with `[sim] latency_ms=120 jitter_ms=40
 loss_pct=5` on both sides. The enemy-attack and shot-replay checks depend on the Doganboy acting during

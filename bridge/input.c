@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "bridge.h"
+#include "route.h"
 #include <mmsystem.h>
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
@@ -25,6 +26,33 @@ int test_background;
 #define CODES           264
 
 static double release_at[CODES];       /* held while now_ms() < release_at */
+static struct route_input captured, replay_input;
+static int replay_active;
+
+void input_capture(struct route_input *out)
+{
+    *out = captured;
+    memset(captured.mouse, 0, sizeof(captured.mouse));
+}
+
+void input_replay(const struct route_input *input)
+{
+    replay_active = input != NULL;
+    if (input) {
+        memcpy(replay_input.keys, input->keys, ROUTE_BYTES);
+        for (int i = 0; i < 3; i++) replay_input.mouse[i] += input->mouse[i];
+    } else {
+        memset(&replay_input, 0, sizeof(replay_input));
+        memset(release_at, 0, sizeof(release_at));
+    }
+}
+
+static void capture_code(int code, int down)
+{
+    unsigned char mask = 1 << (code % 8);
+    if (down) captured.keys[code / 8] |= mask;
+    else captured.keys[code / 8] &= ~mask;
+}
 
 void input_press(int code, int hold_ms)
 {
@@ -36,6 +64,8 @@ void input_press(int code, int hold_ms)
 
 static int held(int code)
 {
+    if (replay_active)
+        return (replay_input.keys[code / 8] >> (code % 8)) & 1;
     return now_ms() < release_at[code];
 }
 
@@ -109,22 +139,22 @@ static void *patch_slot(void *obj, int slot, void *fn)
 
 static HRESULT WINAPI dev_acquire(void *self)
 {
-    return dev_find(self) ? DI_OK : acquire_orig(self);
+    return test_background && dev_find(self) ? DI_OK : acquire_orig(self);
 }
 
 static HRESULT WINAPI dev_unacquire(void *self)
 {
-    return dev_find(self) ? DI_OK : unacquire_orig(self);
+    return test_background && dev_find(self) ? DI_OK : unacquire_orig(self);
 }
 
 static HRESULT WINAPI dev_poll(void *self)
 {
-    return dev_find(self) ? DI_OK : poll_orig(self);
+    return test_background && dev_find(self) ? DI_OK : poll_orig(self);
 }
 
 static HRESULT WINAPI dev_set_coop(void *self, HWND wnd, DWORD flags)
 {
-    return dev_find(self) ? DI_OK : set_coop_orig(self, wnd, flags);
+    return test_background && dev_find(self) ? DI_OK : set_coop_orig(self, wnd, flags);
 }
 
 /* Current synthetic state of one code, as the device reports it (0x80 = down) */
@@ -139,17 +169,33 @@ static HRESULT WINAPI dev_get_state(void *self, DWORD size, void *out)
 {
     struct dev *d = dev_find(self);
     int i;
+    HRESULT hr;
 
     if (!d)
         return get_state_orig(self, size, out);
-    memset(out, 0, size);
-    if (d->kind == DEV_KEYBOARD) {
-        for (i = 0; i < 256 && i < (int)size; i++)
-            ((BYTE *)out)[i] = code_state(d, i);
+    if (!test_background) {
+        hr = get_state_orig(self, size, out);
+        if (FAILED(hr)) return hr;
     } else {
-        /* DIMOUSESTATE(2): lX, lY, lZ, then 4 (8) buttons */
-        for (i = 0; i < 8 && 12 + i < (int)size; i++)
-            ((BYTE *)out)[12 + i] = code_state(d, MOUSE_BUTTON0 + i);
+        memset(out, 0, size);
+        if (d->kind == DEV_KEYBOARD) {
+            for (i = 0; i < 256 && i < (int)size; i++)
+                ((BYTE *)out)[i] = code_state(d, i);
+        } else {
+            /* DIMOUSESTATE(2): lX, lY, lZ, then 4 (8) buttons */
+            for (i = 0; i < 3 && (i + 1) * 4 <= (int)size; i++) {
+                ((LONG *)out)[i] = replay_input.mouse[i];
+                replay_input.mouse[i] = 0;
+            }
+            for (i = 0; i < 8 && 12 + i < (int)size; i++)
+                ((BYTE *)out)[12 + i] = code_state(d, MOUSE_BUTTON0 + i);
+        }
+    }
+    if (d->kind == DEV_KEYBOARD) {
+        for (i = 0; i < 256 && i < (int)size; i++) capture_code(i, ((BYTE *)out)[i] & 0x80);
+    } else {
+        for (i = 0; i < 3 && (i + 1) * 4 <= (int)size; i++) captured.mouse[i] += ((LONG *)out)[i];
+        for (i = 0; i < 8 && 12 + i < (int)size; i++) capture_code(256 + i, ((BYTE *)out)[12 + i] & 0x80);
     }
     return DI_OK;
 }
@@ -163,7 +209,38 @@ static HRESULT WINAPI dev_get_data(void *self, DWORD objsize, DIDEVICEOBJECTDATA
 
     if (!d)
         return get_data_orig(self, objsize, out, inout, flags);
+    if (!test_background) {
+        HRESULT hr = get_data_orig(self, objsize, out, inout, flags);
+        if (SUCCEEDED(hr) && out && !(flags & DIGDD_PEEK)) {
+            for (DWORD i = 0; i < *inout; i++) {
+                DIDEVICEOBJECTDATA *e = (void *)((BYTE *)out + i * objsize);
+                if (d->kind == DEV_KEYBOARD && e->dwOfs < 256) capture_code(e->dwOfs, e->dwData & 0x80);
+                else if (d->kind == DEV_MOUSE && e->dwOfs < 12 && e->dwOfs % 4 == 0)
+                    captured.mouse[e->dwOfs / 4] += (LONG)e->dwData;
+                else if (d->kind == DEV_MOUSE && e->dwOfs >= 12 && e->dwOfs < 20)
+                    capture_code(256 + e->dwOfs - 12, e->dwData & 0x80);
+            }
+        }
+        return hr;
+    }
     room = *inout;
+    if (d->kind == DEV_MOUSE) {
+        for (int axis = 0; axis < 3; axis++) {
+            if (!replay_input.mouse[axis] || (out && n >= room)) continue;
+            if (out) {
+                DIDEVICEOBJECTDATA *e = (void *)((BYTE *)out + n * objsize);
+                memset(e, 0, objsize);
+                e->dwOfs = axis * 4;
+                e->dwData = replay_input.mouse[axis];
+                e->dwTimeStamp = GetTickCount();
+            }
+            if (!(flags & DIGDD_PEEK)) {
+                captured.mouse[axis] += replay_input.mouse[axis];
+                replay_input.mouse[axis] = 0;
+            }
+            n++;
+        }
+    }
     first = d->kind == DEV_KEYBOARD ? 0 : MOUSE_BUTTON0;
     last = d->kind == DEV_KEYBOARD ? 256 : CODES;
     for (code = first; code < last; code++) {
@@ -179,8 +256,10 @@ static HRESULT WINAPI dev_get_data(void *self, DWORD objsize, DIDEVICEOBJECTDATA
         } else if (out) {
             break;
         }
-        if (!(flags & DIGDD_PEEK))
+        if (!(flags & DIGDD_PEEK)) {
             d->reported[code] = s;
+            capture_code(code, s & 0x80);
+        }
         n++;
     }
     *inout = out ? n : 0;
@@ -197,7 +276,7 @@ static HRESULT WINAPI create_device(void *self, REFGUID guid, void **out, void *
         return hr;
     kind = IsEqualGUID(guid, &GUID_SysKeyboard) ? DEV_KEYBOARD :
            IsEqualGUID(guid, &GUID_SysMouse) ? DEV_MOUSE : DEV_OTHER;
-    logmsg("test: dinput device %p kind %d", *out, kind);
+    logmsg("input: dinput device %p kind %d", *out, kind);
     if (kind == DEV_OTHER)
         return hr;
     for (i = 0; i < 8 && devs[i].ptr; i++)
@@ -220,7 +299,7 @@ static HRESULT WINAPI create_device(void *self, REFGUID guid, void **out, void *
 void input_wrap_dinput(void *di)
 {
     void *old;
-    if (!test_background || !di)
+    if (!di)
         return;
     if ((old = patch_slot(di, DI_CREATEDEVICE, (void *)create_device)))
         create_device_orig = (create_device_t)old;
