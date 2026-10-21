@@ -25,7 +25,8 @@ frames() { info "$1" "$2" | cut -d' ' -f1; }
 gain()   { info "$1" "$2" | cut -d' ' -f2; }
 
 mdk_boot
-check "voice starts in test mode"                       has 1 "^voice: on, push to talk V"
+check "voice starts in test mode"                       has 1 "^voice: on, range "
+check "push to talk on the Controls page (B)"            has 1 "^game keys 3: 48/-1"
 
 # 1. client 2 (slot 1) talks, everyone close together
 lua 2 'coop_voice_test(3500)'; sleep 1

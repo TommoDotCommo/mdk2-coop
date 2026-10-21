@@ -39,7 +39,7 @@ After installing, double-click Couch.cmd (or run it with -Players 3, -Monitor 2,
 game window per player on one screen, each played with its own Xbox-style gamepad (player 1 = first pad).
 Player 1 starts the game from the title screen; the others follow. Only player 1 has sound.
 Left stick move, right stick look, right trigger fire, left trigger sniper, A jump, X hold to revive,
-Y use, bumpers change item, B/Start pause. Each window is a full game: 4 players need a strong PC.
+Y use, Back ping, bumpers change item, B/Start pause. Each window is a full game: 4 players need a strong PC.
 
 How to host (Steam)
 -------------------
@@ -103,17 +103,20 @@ Options > Co-op (on the title screen, or Esc > Options while playing):
   status/ID, invites and joining, or the UDP host address. On the host: Resume co-op
   and Save now. Change lobbies from the title screen. If a Steam lobby closes,
   clients can accept a new invite or press Esc on the waiting screen to join by ID.
-- Gameplay (the host's settings count): friendly fire, tougher enemies for more players,
-  how often co-op saves are made, players on screen (names over heads and a panel with
-  everyone's health) and developer keys (off: the F-keys are developer shortcuts that
+- Gameplay (the host's settings count): friendly fire, difficulty (Story, Normal, Hard,
+  Nightmare, or enemy health, damage and revive times one by one), how often co-op saves
+  are made, players on screen (names over heads and a panel with everyone's health),
+  outlines of the other players through walls and developer keys (off: the F-keys are developer shortcuts that
   change the level for everyone; F2 always puts a marker in the logs when you want to
   report something).
 - Controls: pick Original (the game's own keys), Modern (WASD, Space jumps, right mouse
   snipes, Q / E cycle items, F opens the inventory) or Custom. A picture of the keyboard and
   mouse shows every key and what it does, one page per situation: on foot, Kurt, sniper
-  mode, Max, Doc, minigames, co-op (chat, ping, revive), menus and system. Select an action and press a key to change
+  mode, Max, Doc, minigames, co-op (chat, ping, revive, push to talk), menus and system. Select an action and press a key to change
   it; the first change starts Custom as a copy of the preset you were on. Delete clears an
   action. Your Custom keys are kept separately, so Original and Modern are always there.
+- Voice chat: hold B (changed on the Controls page) and players near you hear you. Turn it
+  off, set its volume, and on the host choose how far voices carry.
 
 Known issues
 ------------

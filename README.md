@@ -59,13 +59,14 @@ when the game starts (and creates settings.lua with just the block on a first st
 
 ## Voice chat
 
-Proximity voice: hold the push-to-talk key (**V**; change it in **Options > Co-op > Voice chat**) and players
+Proximity voice: hold the push-to-talk key (**B**; change it on the Co-op tab of **Options > Co-op > Controls**) and players
 near you hear you, quieter the further away you are and not at all beyond the hearing range. A speaker is marked
-by a speaker icon over their head, a green name in the players panel, and **MIC** at the bottom left for you.
+by a speaker icon over their head, a green name in the players panel, and **MIC** at the bottom right for you.
 The host decides the range (Short, Medium, Long, Everywhere). The mic opens the first time you press the key, using
 Windows' default recording device. Audio is 16 kHz ADPCM, about 70 kbit/s per talker, relayed by the host
-only to players in range. Settings are the `[voice]` keys of `coop.ini`: `enabled`, `key` (V, B, T, CAPS), `volume`
-(%), `range` (world units, 0 = everywhere). `tools/qa_voice.sh` tests it with a tone instead of a mic.
+only to players in range. Settings are the `[voice]` keys of `coop.ini`: `enabled`, `volume`
+(%), `range` (world units, 0 = everywhere); the key is the Controls page's `voice` action (`coop_game_keys` 3).
+Couch games have no voice chat (one room, one microphone). `tools/qa_voice.sh` tests it with a tone instead of a mic.
 
 ## Dev harness
 
@@ -247,7 +248,7 @@ Options > Co-op (the game's own menus, on the title screen and in the pause menu
   mouse to aim (Q / E cycle items, F opens the inventory), Custom is yours. Presets are tables in
   `coop_dev.lua` (`coop.preset_original`, `coop.preset_modern`) over a list of actions (`coop.actions`:
   the game commands each one's keys are bound to, as the game's own key menu ties them, and a page).
-  The Co-op tab holds the keys the bridge reads itself (chat, ping, revive: `coop_game_keys(which, k1, k2)`,
+  The Co-op tab holds the keys the bridge reads itself (chat, ping, revive, push to talk: `coop_game_keys(which, k1, k2)`,
   mouse buttons yes, wheel no). `coop.sets` lists the actions that are in use together; a key taken for one is taken away from
   another in its set. Applied after settings.lua, so they win over what the game saved.
   The page (`Options > Co-op > Controls`) draws a keyboard and mouse (`bridge/ctrlview.c`, through the
@@ -328,13 +329,13 @@ kind, per link). `MDK2_N=8 tools/netmeasure.sh [level checkpoint]` measures the 
 `Couch.cmd` (release zip; needs the mod installed first) makes one game copy per player next to the game
 folder (`MDK 2 HD couch\p1`..`p4`, mdk2.tar hard-linked), tiles a borderless 16:9 window per player on a
 monitor (2 players stacked, 3-4 in a 2x2 grid) and starts them: player 1 hosts over localhost UDP, the others
-join and follow. Options: `-Players 2..4`, `-Monitor <n>`, `-Stop`. One gamepad (XInput) per player, pad N for
+join and follow. Couch games skip the launcher, play with the Modern controls preset and have no voice chat. Options: `-Players 2..4`, `-Monitor <n>`, `-Stop`. One gamepad (XInput) per player, pad N for
 window N; only player 1 has sound; the HUD, revive, saves and drop-out recovery are the normal co-op ones.
 It is not one engine drawing several viewports (the engine has one player and one camera): it is N games
 sharing the screen, so it costs N times the CPU/GPU/RAM (~370 MB each) and Steam online play is not combined
 with it (couch games use UDP on localhost).
 Pad: left stick/D-pad arrows, right stick look, RT fire, LT sniper, A jump/select, B/Start Esc, X revive (R),
-Y E, bumpers mouse wheel. `bridge/pad.c` maps it onto input.c's synthetic keyboard/mouse, so it works
+Y E, Back ping (V), bumpers mouse wheel. `bridge/pad.c` maps it onto input.c's synthetic keyboard/mouse, so it works
 without focus. `coop.ini` `[couch]`: slot, count, pad, x, y, w, h, look, fps. `make -C bridge test-pad` checks
 the mapping; `coop_pad_fake(lx, ly, rx, ry, buttons, lt, rt)` (command.lua) stands in for a pad in tests.
 Checked 2026-10-21 with two windows on a 2560x1440 monitor: both joined, a faked stick moved and turned

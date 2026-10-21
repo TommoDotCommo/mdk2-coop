@@ -126,14 +126,15 @@ coop.actions = {
     { id="chat",   name="Chat",   page="coop", group=8, short="Chat",   long="Open the chat line (Enter sends, Esc cancels)", coms={}, gk=0 },
     { id="ping",   name="Ping",   page="coop", group=8, short="Ping",   long="Ping what you aim at: a marker for everyone", coms={}, gk=1 },
     { id="revive", name="Revive", page="coop", group=8, short="Revive", long="Hold beside a downed teammate to stand them up", coms={}, gk=2 },
+    { id="voice",  name="Push to talk", page="coop", group=8, short="Talk", long="Hold to talk: players near you hear you (Options > Co-op > Voice chat)", coms={}, gk=3 },
 }
 
 -- actions in use together: a key may not do two things in the same set --
 coop.sets = {
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "kinvl", "kinvr", "kuse", "kclose", "sniper", "chat", "ping", "revive" },
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "minvl", "minvr", "mequip", "munequip", "chat", "ping", "revive" },
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "dup", "ddown", "dleft", "dright", "chat", "ping", "revive" },
-    { "sniper", "zoomin", "zoomout", "strl", "strr", "shoot", "jump", "chat", "ping", "revive" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "kinvl", "kinvr", "kuse", "kclose", "sniper", "chat", "ping", "revive", "voice" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "minvl", "minvr", "mequip", "munequip", "chat", "ping", "revive", "voice" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "dup", "ddown", "dleft", "dright", "chat", "ping", "revive", "voice" },
+    { "sniper", "zoomin", "zoomout", "strl", "strr", "shoot", "jump", "chat", "ping", "revive", "voice" },
 }
 
 -- the presets: id = { key 1, key 2 } --
@@ -144,7 +145,7 @@ coop.preset_original = {
     sniper = { 57, -1 }, zoomin = { 200, 17 }, zoomout = { 208, 31 },
     minvl = { 26, 1008 }, minvr = { 27, 1009 }, mequip = { 18, 16 }, munequip = { 16, 18 },
     dup = { 27, 1008 }, ddown = { 26, 1009 }, dleft = { 12, 16 }, dright = { 13, 18 },
-    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 },
+    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 },
 }
 coop.preset_modern = {
     fwd = { 17, 200 }, back = { 31, 208 }, strl = { 30, 203 }, strr = { 32, 205 }, turnl = { 44, -1 }, turnr = { 46, -1 },
@@ -153,7 +154,7 @@ coop.preset_modern = {
     sniper = { 1001, -1 }, zoomin = { 1008, 17 }, zoomout = { 1009, 31 },
     minvl = { 16, 1008 }, minvr = { 18, 1009 }, mequip = { 33, -1 }, munequip = { 34, -1 },
     dup = { 34, 1008 }, ddown = { 33, 1009 }, dleft = { 16, -1 }, dright = { 18, -1 },
-    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 },
+    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 },
 }
 coop.preset_names = { original = "Original", modern = "Modern", custom = "Custom" }
 coop.preset_order = { "original", "modern", "custom" }
@@ -213,6 +214,10 @@ function coop.ApplyControls()
         coop.BindAction(a)
         i, a = next(coop.actions, i)
     end
+    -- the keys that end an emote (bridge/emote.c): moving, jumping, firing, sniper mode
+    local f, b, l, r = coop.Keys("fwd"), coop.Keys("back"), coop.Keys("strl"), coop.Keys("strr")
+    local j, s, n = coop.Keys("jump"), coop.Keys("shoot"), coop.Keys("sniper")
+    coop_emote_keys(f[1], f[2], b[1], b[2], l[1], l[2], r[1], r[2], j[1], j[2], s[1], s[2], n[1], n[2])
 end
 
 -- log what is bound now, first command of each action (tests) --
@@ -321,10 +326,11 @@ end
 coop.LoadCustom()
 coop.ApplyControls()
 
--- Couch co-op ([couch] in coop.ini, written by tools/win/couch.ps1 / dist/mdk2-couch.ps1): this
+-- Couch co-op ([couch] in coop.ini, written by dist/mdk2-couch.ps1): this
 -- game is one of 2-4 local players, each its own window on one screen. The window is sized by
 -- the bridge; the game is told the same size so it renders into all of it. Only player 1
--- makes sound, and everyone plays with the modern controls the gamepad layout assumes. --
+-- makes sound, and everyone plays with the Modern preset, whose keys the gamepad presses
+-- (bridge/pad.c; not saved, so the game copy's own preset is kept). --
 do
     local slot, count = coop_couch()
     if (slot) then
@@ -332,7 +338,8 @@ do
         local w = tonumber(coop_get("couch", "w", "960")) or 960
         local h = tonumber(coop_get("couch", "h", "540")) or 540
         chSetVideoMode('', 0, 0, w, h, 165, 0)
-        coop.ApplyControls(true)
+        coop.preset = "modern"
+        coop.ApplyControls()
         if (slot > 1) then
             chSndSetEffectsVolume(0)
             chSndMusicVolume(0)
@@ -1835,8 +1842,8 @@ function coop.ControlsCheck()
     if (coop.ctrl_open and menu.current ~= "coopctrl") then coop.CloseControls() end
 end
 
--- voice chat page: proximity voice (bridge/voice.c); the range is the host's setting --
-coop.voice_keys = { [0] = "V", [1] = "B", [2] = "T", [3] = "CAPS" }
+-- voice chat page: proximity voice (bridge/voice.c); the range is the host's setting, the
+-- push-to-talk key is on the Controls page --
 coop.voice_volumes = { [0] = 50, [1] = 100, [2] = 150, [3] = 200 }
 coop.voice_ranges = { [0] = 25, [1] = 50, [2] = 100, [3] = 0 }
 
@@ -1849,15 +1856,11 @@ function coop.BuildVoice()
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("voice", "enabled", "1")) or 1)
     item.Select = function(self, n) coop_set("voice", "enabled", n) end
 
-    item = mdkCreateMenuItem(m, "Push to talk")
-    mdkMenuItemAddComboBox(item)
-    mdkMenuItemAddComboString(item, "V")
-    mdkMenuItemAddComboString(item, "B")
-    mdkMenuItemAddComboString(item, "T")
-    mdkMenuItemAddComboString(item, "Caps Lock")
-    mdkMenuItemSetWidgitValue(item, coop.IndexOf(coop.voice_keys, strupper(coop_get("voice", "key", "V")), 0))
-    item.Inc = function(self) coop_set("voice", "key", coop.voice_keys[mdkMenuItemGetWidgitValue(self)]) end
-    item.Dec = item.Inc
+    item = mdkCreateMenuItem(m, "Push to talk: " .. coop.KeyText(coop.Keys("voice")))
+    item.Select = function(self)
+        coop.ctrlpage = 7       -- Co-op
+        coop.ShowPage("coopctrl")
+    end
 
     item = mdkCreateMenuItem(m, "Voice volume")
     mdkMenuItemAddComboBox(item)

@@ -512,6 +512,8 @@ static void draw_bubbles(int w, int h)
         p[2] += head_z + 0.7f;
         if (!project(p, w, h, &sx, &sy) || sx < 0 || sx > w || sy < 0 || sy > h)
             continue;
+        if (s != my_slot && voice_talking(s))
+            sy -= font_h * 1.9f;        /* above the speaker icon over their name tag */
         tw = (float)text_width(msg);
         slot_colour(s, c);
         box(sx - tw * 0.5f - 6, sy - font_h - 3, tw + 12, font_h + 9, h, 0.0f, 0.0f, 0.0f, 0.6f);
@@ -652,10 +654,10 @@ static void draw_status(int w, int h)
 {
     float y = h * 0.70f, bw = w * 0.30f;
 
-    if (voice_talking(-1)) {
-        float mw = text_width("MIC") + 16.0f;
-        box(font_h * 0.8f, h - font_h * 2.4f, mw, font_h + 8, h, 0.0f, 0.0f, 0.0f, 0.5f);
-        text(font_h * 0.8f + 8.0f, h - font_h * 1.4f, h, "MIC", 0.45f, 1.0f, 0.55f);
+    if (voice_talking(-1)) {        /* bottom right: the chat line has the bottom left */
+        float mw = text_width("MIC") + 16.0f, mx = w - font_h * 0.8f - mw;
+        box(mx, h - font_h * 2.4f, mw, font_h + 8, h, 0.0f, 0.0f, 0.0f, 0.5f);
+        text(mx + 8.0f, h - font_h * 1.4f, h, "MIC", 0.45f, 1.0f, 0.55f);
     }
     if (!status1[0] && !status2[0]) {
         if (dump_status)

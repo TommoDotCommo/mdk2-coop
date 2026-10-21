@@ -7,7 +7,7 @@
  *   [game]     friendly_fire=0|1, enemy_scale=<% more enemy hp per extra player>  (the host's count),
  *              enemy_hp=<% of normal>, dmg_taken=<%>, dmg_dealt=<%>, down_secs, revive_secs
  *              (difficulty: the host's values rule; clients get them as EV_RULES)
- *   [voice]    enabled, key, volume, range   (voice.c; range is the host's)
+ *   [voice]    enabled, volume, range   (voice.c; range is the host's; the key is on the Controls page)
  *   [save]     interval=<seconds between co-op saves>
  *   [controls] preset=original|modern|custom, devkeys=0|1;  [controls_custom] <action>=<key>,<key>
  *

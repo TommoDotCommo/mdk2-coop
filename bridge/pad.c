@@ -3,14 +3,15 @@
  * (one process each, joined over localhost like any other co-op player); this gives each one a
  * gamepad. XInput is polled once a frame and turned into the keyboard and mouse the game already
  * understands (input.c feeds them to the game's DirectInput devices), so menus, revive (R) and the
- * co-op key bindings need nothing special. It works without focus, which is how four windows can
- * be played at once.
+ * co-op key bindings need nothing special: the keys are the Modern preset's, which a couch game
+ * always uses (coop_dev.lua). It works without focus, which is how four windows can be played at once.
  *
  *   left stick / D-pad   arrow keys (move and strafe in game, navigate in menus)
  *   right stick          mouse look
  *   A                    Space (jump) and Enter (menu select)
  *   B, Start             Esc (pause, back)
  *   X                    R (revive)          Y   E (inventory, Max's equip)
+ *   Back                 V (ping what you aim at)
  *   right trigger        left mouse (fire)   left trigger   right mouse (sniper mode)
  *   right / left bumper  mouse wheel up / down (next / previous item)
  */
@@ -55,6 +56,7 @@ void pad_map(const struct pad_raw *p, unsigned prev_buttons, float dt, float loo
     if (b & (PAD_B | PAD_START))        set(o, 1);
     if (b & PAD_X)                      set(o, 19);
     if (b & PAD_Y)                      set(o, 18);
+    if (b & PAD_BACK)                   set(o, 47);
     if (p->rt > PAD_TRIGGER)            set(o, CODE_MOUSE_LEFT);
     if (p->lt > PAD_TRIGGER)            set(o, CODE_MOUSE_RIGHT);
     /* squared response: fine aim near the centre, full speed at the edge */

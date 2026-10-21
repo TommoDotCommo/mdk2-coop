@@ -16,11 +16,14 @@
 #define ANIMSTYLE_PLAYONCE  3
 #define DEFAULT_RATE        1.0f
 
-/* scancodes and mouse buttons that end an emote (input.c codes; 256 and up are the mouse) */
-static const struct { int code, vk; } cancel_keys[] = {
+/* the keys that end an emote (input.c codes; 256 and up are the mouse): moving, jumping, firing and
+ * sniper mode as the Controls page has them bound (Lua: coop_emote_keys); the Modern keys until then */
+#define MAX_CANCEL 24
+static struct { int code, vk; } cancel_keys[MAX_CANCEL] = {
     { 17, 'W' }, { 30, 'A' }, { 31, 'S' }, { 32, 'D' }, { 200, VK_UP }, { 208, VK_DOWN },
     { 203, VK_LEFT }, { 205, VK_RIGHT }, { 57, VK_SPACE }, { 256, VK_LBUTTON }, { 257, VK_RBUTTON },
 };
+static int ncancel = 11;
 
 static int active = -1;             /* animation id, or -1 */
 static int loop = 1;
@@ -103,7 +106,7 @@ void emote_frame(void)
         stop("hurt");
         return;
     }
-    for (i = 0; i < sizeof(cancel_keys) / sizeof(cancel_keys[0]); i++) {
+    for (i = 0; i < (unsigned)ncancel && !chat_blocks_keys(); i++) {
         if (input_down(cancel_keys[i].code, cancel_keys[i].vk)) {
             stop("moved");
             return;
@@ -129,4 +132,24 @@ void emote_frame(void)
     memcpy(&st[7], &four, 4);
     st[9] = 1;
     anim_apply(local_player, &s);
+}
+
+/* coop_emote_keys(k1, k2, ...): the keys that end an emote, numbered as Lua's (input_lua_key) */
+static void l_coop_emote_keys(void)
+{
+    int n = 0, i, code, vk;
+    unsigned int o;
+
+    for (i = 1; n < MAX_CANCEL && (o = lua_getparam(i)) && lua_isnumber(o); i++)
+        if (input_lua_key((int)lua_getnumber(o), &code, &vk)) {
+            cancel_keys[n].code = code;
+            cancel_keys[n].vk = vk;
+            n++;
+        }
+    ncancel = n;
+}
+
+void emote_lua_init(void)
+{
+    tolua_function(NULL, "coop_emote_keys", l_coop_emote_keys);
 }

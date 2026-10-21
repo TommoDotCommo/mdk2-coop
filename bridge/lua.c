@@ -764,6 +764,7 @@ void l_coop_init(void)
     hud_lua_init();
     ctrlview_lua_init();
     input_lua_init();
+    emote_lua_init();
     chat_lua_init();
     voice_lua_init();
     bot_lua_init();

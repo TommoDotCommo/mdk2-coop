@@ -7,6 +7,7 @@
 #define PAD_LEFT    0x0004
 #define PAD_RIGHT   0x0008
 #define PAD_START   0x0010
+#define PAD_BACK    0x0020
 #define PAD_LB      0x0100
 #define PAD_RB      0x0200
 #define PAD_A       0x1000

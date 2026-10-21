@@ -10,7 +10,10 @@
  * slot and the host's range. The range is the host's setting, like friendly fire; each listener
  * turns the speaker's distance into a volume (full close up, fading to silence at the range).
  *
- *   [voice]  enabled=1|0, key=V|B|T|CAPS (push to talk), volume=<% of normal>, range=<world units, 0 = everywhere>
+ *   [voice]  enabled=1|0, volume=<% of normal>, range=<world units, 0 = everywhere>
+ *
+ * The push-to-talk key (B) is set on the Controls page's Co-op tab (input.c GK_VOICE). Couch games
+ * (several players at one PC and one microphone, in the same room) have no voice chat.
  *
  * Network, key and gains are handled on the game thread (voice_frame); the worker only touches the
  * mic, the jitter buffers (under a lock) and the speakers. Background test mode opens no audio
@@ -52,7 +55,6 @@ struct voice_packet {
 
 /* settings */
 static int cfg_enabled = 1;
-static int cfg_dik = 0x2f, cfg_vk = 'V';
 static int cfg_volume = 100;
 static int cfg_range = 50;
 
@@ -355,27 +357,15 @@ static DWORD WINAPI worker(LPVOID arg)
 
 /* ---- settings ---- */
 
-static void key_from_name(const char *name)
-{
-    if (!_stricmp(name, "B")) { cfg_dik = 0x30; cfg_vk = 'B'; }
-    else if (!_stricmp(name, "T")) { cfg_dik = 0x14; cfg_vk = 'T'; }
-    else if (!_stricmp(name, "CAPS")) { cfg_dik = 0x3a; cfg_vk = VK_CAPITAL; }
-    else { cfg_dik = 0x2f; cfg_vk = 'V'; }
-}
-
 void voice_reload(const char *ini)
 {
-    char key[16];
-
-    cfg_enabled = GetPrivateProfileIntA("voice", "enabled", 1, ini) != 0;
+    cfg_enabled = !couch_active && GetPrivateProfileIntA("voice", "enabled", 1, ini) != 0;
     cfg_volume = GetPrivateProfileIntA("voice", "volume", 100, ini);
     if (cfg_volume < 0) cfg_volume = 0;
     if (cfg_volume > 300) cfg_volume = 300;
     cfg_range = GetPrivateProfileIntA("voice", "range", 50, ini);
     if (cfg_range < 0) cfg_range = 0;
     if (cfg_range > 60000) cfg_range = 60000;
-    GetPrivateProfileStringA("voice", "key", "V", key, sizeof(key), ini);
-    key_from_name(key);
 }
 
 void voice_init(const char *ini)
@@ -385,8 +375,8 @@ void voice_init(const char *ini)
     in_ev = CreateEventA(NULL, FALSE, FALSE, NULL);
     out_ev = CreateEventA(NULL, FALSE, FALSE, NULL);
     started = CreateThread(NULL, 0, worker, NULL, 0, NULL) != NULL;
-    logmsg("voice: %s, push to talk %c, range %d, volume %d%%%s", cfg_enabled ? "on" : "off",
-           cfg_vk == VK_CAPITAL ? '*' : cfg_vk, cfg_range, cfg_volume, test_background ? " (no audio devices: test mode)" : "");
+    logmsg("voice: %s, range %d, volume %d%%%s", cfg_enabled ? "on" : couch_active ? "off (couch game)" : "off",
+           cfg_range, cfg_volume, test_background ? " (no audio devices: test mode)" : "");
 }
 
 /* ---- network ---- */
@@ -506,7 +496,7 @@ void voice_frame(void)
 
     if (!started)
         return;
-    down = cfg_enabled && (input_down(cfg_dik, cfg_vk) || now < tone_until);
+    down = cfg_enabled && (gamekey_down(GK_VOICE) || now < tone_until);
     ptt = down && have_remote;
     for (s = 0; s < MAX_PLAYERS; s++)
         spk[s].target = gain_for(s);

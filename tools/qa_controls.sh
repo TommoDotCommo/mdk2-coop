@@ -58,6 +58,7 @@ check "Modern: forward W / Up, jump Space"                bash -c "[ '$(bound fw
 check "Modern: sniper is the right mouse, zoom on the wheel" bash -c "[ '$(bound sniper)' = '1001 -1' ] && [ '$(bound zoomin)' = '1008 17' ]"
 check "Modern: chat T, ping V / middle mouse, revive R"   bash -c "[ '$(bound chat)' = '20 -1' ] && [ '$(bound ping)' = '47 1002' ] && [ '$(bound revive)' = '19 -1' ]"
 check "chat, ping and revive keys reach the bridge"       has "^game keys 1: 47/258"
+check "Modern: push to talk B, handed to the bridge"     bash -c "[ '$(bound voice)' = '48 -1' ] && grep -qE '^game keys 3: 48/-1' '$(mdk_log 1)'"
 lua 'coop.EditCustom() coop.custom.chat = { 34, -1 } coop.custom.revive = { 35, -1 } coop.ApplyControls()'; sleep 1
 check "a custom chat key is handed to the bridge (G)"     has "^game keys 0: 34/-1"
 check "a custom revive key is handed to the bridge (H)"   has "^game keys 2: 35/-1"

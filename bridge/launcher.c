@@ -134,12 +134,29 @@ enum { MODE_HOST, MODE_JOIN, MODE_SOLO };
 static const char *mode_names[] = { "host", "join", "solo" };
 
 static struct {
-    int mode, steam, friendly_fire, enemy_scale, save_interval, modern, hud, show;
+    int mode, steam, friendly_fire, difficulty, save_interval, controls, hud, show;
     char name[PLAYER_NAME], lobby[24], host[64], port[8], listen[8];
 } cfg;
 
-static const int scales[] = { 0, 25, 50, 100 };
-static const char *scale_text[] = { "Off", "+25%", "+50%", "+100%" };
+/* The difficulty presets of Options > Co-op > Gameplay > Difficulty (coop.diffpresets in
+ * coop_dev.lua: keep the two the same). Values of the [game] keys in diff_keys order; a key
+ * that is not in coop.ini counts as Normal's. Custom: the keys match no preset, kept as they are. */
+#define NDIFF 7
+static const char *diff_keys[NDIFF] = { "friendly_fire", "enemy_hp", "enemy_scale", "dmg_taken", "dmg_dealt",
+                                        "down_secs", "revive_secs" };
+static const int diff_presets[4][NDIFF] = {
+    { 0,  75,   0,  50, 100, 60, 2 },   /* Story */
+    { 0, 100,  50, 100, 100, 30, 3 },   /* Normal */
+    { 0, 125,  75, 150, 100, 20, 4 },   /* Hard */
+    { 1, 150, 100, 200, 100, 10, 5 },   /* Nightmare */
+};
+static const char *diff_names[] = { "Story", "Normal", "Hard", "Nightmare", "Custom" };
+#define DIFF_CUSTOM 4
+static int diff[NDIFF], diff_read[NDIFF];      /* the values now, and as coop.ini had them */
+
+/* Controls page presets ([controls] preset) */
+static const char *ctrl_ids[] = { "original", "modern", "custom" };
+static const char *ctrl_names[] = { "Original", "Modern", "Custom" };
 static const int intervals[] = { 60, 120, 300, 600 };
 static const char *interval_text[] = { "1 min", "2 min", "5 min", "10 min" };
 
@@ -253,9 +270,25 @@ static void video_save(void)
     logmsg("launcher: video %s", line);
 }
 
+/* which preset the difficulty values are (cfg.difficulty), and friendly fire's toggle from them */
+static void diff_match(void)
+{
+    int p, i;
+
+    for (p = 0; p < 4; p++) {
+        for (i = 0; i < NDIFF && diff[i] == diff_presets[p][i]; i++)
+            ;
+        if (i == NDIFF)
+            break;
+    }
+    cfg.difficulty = p;         /* 4: DIFF_CUSTOM */
+    cfg.friendly_fire = diff[0] != 0;
+}
+
 static void settings_read(void)
 {
     char s[16];
+    int i;
 
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
     snprintf(player_ini, MAX_PATH, "%s\\player.ini", coop_dir);
@@ -277,10 +310,16 @@ static void settings_read(void)
     GetPrivateProfileStringA("net", "peer_port", "27900", cfg.port, sizeof(cfg.port), ini);
     GetPrivateProfileStringA("net", "listen_port", "27900", cfg.listen, sizeof(cfg.listen), ini);
     GetPrivateProfileStringA("player", "name", "", cfg.name, sizeof(cfg.name), player_ini);
-    cfg.friendly_fire = GetPrivateProfileIntA("game", "friendly_fire", 0, ini) != 0;
-    cfg.enemy_scale = index_of(scales, 4, GetPrivateProfileIntA("game", "enemy_scale", 50, ini), 2);
+    for (i = 0; i < NDIFF; i++)
+        diff[i] = diff_read[i] = GetPrivateProfileIntA("game", diff_keys[i], diff_presets[1][i], ini);
+    diff_match();
     cfg.save_interval = index_of(intervals, 4, GetPrivateProfileIntA("save", "interval", 120, ini), 1);
-    cfg.modern = GetPrivateProfileIntA("controls", "modern", 1, ini) != 0;
+    /* as coop_dev.lua reads it: before presets there was [controls] modern (default on) */
+    GetPrivateProfileStringA("controls", "preset", "", s, sizeof(s), ini);
+    for (cfg.controls = 0; cfg.controls < 3 && _stricmp(s, ctrl_ids[cfg.controls]); cfg.controls++)
+        ;
+    if (cfg.controls == 3)
+        cfg.controls = GetPrivateProfileIntA("controls", "modern", 1, ini) ? 1 : 0;
     cfg.hud = GetPrivateProfileIntA("hud", "show", 1, ini) != 0;
     cfg.show = GetPrivateProfileIntA("launcher", "show", 1, ini) != 0;
     video_load();
@@ -807,14 +846,26 @@ static void page_settings(void)
     heading(PX, y, 18, "Co-op", C_BLUE, DT_LEFT);
     y += 24;
     toggle(ID, PX, y, PW, "Friendly fire", "The host's choice counts", &cfg.friendly_fire);
+    if (cfg.friendly_fire != diff[0]) {         /* part of the difficulty: may make it Custom */
+        diff[0] = cfg.friendly_fire;
+        diff_match();
+    }
     y += ROW + 2;
-    choice(ID, PX, y, PW, "Tougher enemies", "Health per extra player (host)", scale_text, 4, &cfg.enemy_scale);
+    if (choice(ID, PX, y, PW, "Difficulty", cfg.difficulty == DIFF_CUSTOM ? "Custom: in game, Options > Co-op" :
+               "The host's choice counts", diff_names, 5, &cfg.difficulty)) {
+        if (cfg.difficulty == DIFF_CUSTOM)
+            memcpy(diff, diff_read, sizeof(diff));      /* back to what coop.ini has */
+        else
+            memcpy(diff, diff_presets[cfg.difficulty], sizeof(diff));
+        diff_match();
+    }
     y += ROW + 2;
     choice(ID, PX, y, PW, "Co-op save every", NULL, interval_text, 4, &cfg.save_interval);
     y += ROW + 2;
     toggle(ID, PX, y, PW, "Players on screen", "Health panel and name tags", &cfg.hud);
     y += ROW + 2;
-    toggle(ID, PX, y, PW, "Modern controls", "Space jumps, right mouse aims the sniper", &cfg.modern);
+    choice(ID, PX, y, PW, "Controls", cfg.controls == 1 ? "WASD, Space jumps, right mouse aims" :
+           cfg.controls == 0 ? "The game's own keys" : "Yours: Options > Co-op > Controls", ctrl_names, 3, &cfg.controls);
     y += ROW + 10;
 
     heading(PX, y, 18, "Display", C_BLUE, DT_LEFT);
@@ -852,6 +903,8 @@ static void page_about(void)
                   "-  Up to 16 players, over Steam lobbies or direct UDP\n"
                   "-  Enemies, shots, doors, pickups and bosses stay in sync\n"
                   "-  Downed players can be revived by a teammate\n"
+                  "-  Text chat, pings and proximity voice chat\n"
+                  "-  Difficulty presets, and couch co-op (Couch.cmd)\n"
                   "-  Co-op saves: drop out and rejoin where you left off\n"
                   "-  In-game settings: Options > Co-op") + 18;
     heading(PX, y, 18, "Credits", C_BLUE, DT_LEFT);
@@ -1277,6 +1330,10 @@ void launcher_run(void)
     }
     if (test_background && !headless)
         return;
+    if (couch_active) {
+        logmsg("launcher: skipped, couch game");
+        return;
+    }
     if (!cfg.show && !(shift && !headless)) {
         logmsg("launcher: off ([launcher] show=0; hold Shift at start to show it)");
         return;
@@ -1286,10 +1343,13 @@ void launcher_run(void)
         logmsg("launcher: quit");
         ExitProcess(0);
     }
-    put_int("game", "friendly_fire", cfg.friendly_fire);
-    put_int("game", "enemy_scale", scales[cfg.enemy_scale]);
+    if (memcmp(diff, diff_read, sizeof(diff))) {
+        int i;
+        for (i = 0; i < NDIFF; i++)
+            put_int("game", diff_keys[i], diff[i]);
+    }
     put_int("save", "interval", intervals[cfg.save_interval]);
-    put_int("controls", "modern", cfg.modern);
+    put("controls", "preset", ctrl_ids[cfg.controls]);
     put_int("hud", "show", cfg.hud);
     put_int("launcher", "show", cfg.show);
     if (video_dirty)

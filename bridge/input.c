@@ -78,19 +78,23 @@ static int held(int code)
     return now_ms() < release_at[code];
 }
 
-/* The keys of the co-op features that read the keyboard themselves (chat, ping, revive): set by
- * Lua from the Controls page (coop_game_keys), two each. code is this file's (scan code, or
- * 256 + mouse button), vk the Windows key for the focused-window read. */
+/* The keys of the co-op features that read the keyboard themselves (chat, ping, revive, push to
+ * talk): set by Lua from the Controls page (coop_game_keys), two each. code is this file's (scan
+ * code, or 256 + mouse button), vk the Windows key for the focused-window read. */
 static struct { int code[2], vk[2]; } gamekeys[GK_COUNT] = {
     { { 20, -1 }, { 'T', 0 } },
     { { 47, 258 }, { 'V', VK_MBUTTON } },
     { { 19, -1 }, { 'R', 0 } },
+    { { 48, -1 }, { 'B', 0 } },
 };
 
+/* none of them while a chat line is being typed (the letters are text then) */
 int gamekey_down(int which)
 {
     int i;
 
+    if (chat_blocks_keys())
+        return 0;
     for (i = 0; i < 2; i++)
         if (gamekeys[which].code[i] >= 0 && input_down(gamekeys[which].code[i], gamekeys[which].vk[i]))
             return 1;
@@ -615,7 +619,7 @@ void input_init(void)
     patch_import("user32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA);
     test_background = GetPrivateProfileIntA("test", "background", 0, ini);
     /* [couch]: this game is player slot+1 of count on one screen, window at x, y of w x h, played
-     * with gamepad `pad` (default slot); see pad.c and tools/win/couch.ps1 */
+     * with gamepad `pad` (default slot); see pad.c and dist/mdk2-couch.ps1 */
     couch.slot = GetPrivateProfileIntA("couch", "slot", -1, ini);
     couch.count = GetPrivateProfileIntA("couch", "count", 0, ini);
     couch_active = couch.slot >= 0 && couch.count >= 2;
@@ -654,8 +658,25 @@ void input_init(void)
                place_x, place_y, fps_cap);
 }
 
-/* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1 or GK_REVIVE 2; keys are Lua's
- * (DirectInput scan code, 1000 + mouse button, -1 none; the wheel cannot be used) */
+/* A key as Lua numbers it (DirectInput scan code, 1000 + mouse button, -1 none) -> this file's code
+ * and the Windows key; 0 when it cannot be read here (none, or the wheel) */
+int input_lua_key(int k, int *code, int *vk)
+{
+    *code = -1;
+    *vk = 0;
+    if (k >= 1000 && k <= 1003) {
+        static const int mouse_vk[] = { VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1 };
+        *code = 256 + (k - 1000);
+        *vk = mouse_vk[k - 1000];
+    } else if (k > 0 && k < 256) {
+        *code = k;          /* extended keys (arrows, Home...) are 0x80 + their base code */
+        *vk = (int)MapVirtualKeyA(k >= 128 ? 0xE000u | (unsigned)(k & 0x7f) : (unsigned)k, 3 /* VSC_TO_VK_EX */);
+    }
+    return *code >= 0;
+}
+
+/* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1, GK_REVIVE 2 or GK_VOICE 3; keys
+ * are Lua's (input_lua_key; the wheel cannot be used) */
 static void l_coop_game_keys(void)
 {
     int which = (int)lua_getnumber(lua_getparam(1)), i;
@@ -664,18 +685,8 @@ static void l_coop_game_keys(void)
         return;
     for (i = 0; i < 2; i++) {
         unsigned int o = lua_getparam(2 + i);
-        int k = (o && lua_isnumber(o)) ? (int)lua_getnumber(o) : -1, code = -1, vk = 0;
 
-        if (k >= 1000 && k <= 1003) {
-            static const int mouse_vk[] = { VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1 };
-            code = 256 + (k - 1000);
-            vk = mouse_vk[k - 1000];
-        } else if (k > 0 && k < 256) {
-            code = k;       /* extended keys (arrows, Home...) are 0x80 + their base code */
-            vk = (int)MapVirtualKeyA(k >= 128 ? 0xE000u | (unsigned)(k & 0x7f) : (unsigned)k, 3 /* VSC_TO_VK_EX */);
-        }
-        gamekeys[which].code[i] = code;
-        gamekeys[which].vk[i] = vk;
+        input_lua_key((o && lua_isnumber(o)) ? (int)lua_getnumber(o) : -1, &gamekeys[which].code[i], &gamekeys[which].vk[i]);
     }
     logmsg("game keys %d: %d/%d", which, gamekeys[which].code[0], gamekeys[which].code[1]);
 }

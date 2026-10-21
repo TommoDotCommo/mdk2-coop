@@ -27,6 +27,9 @@ int main(void)
     p.buttons = PAD_A | PAD_X | PAD_START; p.rt = 255; p.lt = 255;
     pad_map(&p, 0, 0.016f, 700, &o);
     CHECK(down(&o, 57) && down(&o, 28) && down(&o, 19) && down(&o, 1) && down(&o, 256) && down(&o, 257));
+    p.buttons = PAD_BACK;                             /* ping */
+    pad_map(&p, 0, 0.016f, 700, &o);
+    CHECK(down(&o, 47) && !down(&o, 19));
     memset(&p, 0, sizeof(p));
     p.rx = 32767; p.ry = 32767;                       /* full right and up, 1 s */
     pad_map(&p, 0, 1.0f, 700, &o);

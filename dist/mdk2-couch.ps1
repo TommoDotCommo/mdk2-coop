@@ -183,7 +183,7 @@ function Do-Couch {
             Ini-Set $ini 'net' 'peer_host' '127.0.0.1'; Ini-Set $ini 'net' 'peer_port' $Port
         }
         Ini-Set $ini 'controls' 'devkeys' 0
-        Ini-Set $ini 'controls' 'modern' 1
+        Ini-Set $ini 'controls' 'preset' 'modern'
         $t = $tiles[$i - 1]
         Ini-Set $ini 'couch' 'slot' ($i - 1); Ini-Set $ini 'couch' 'count' $n; Ini-Set $ini 'couch' 'pad' ($i - 1)
         Ini-Set $ini 'couch' 'x' $t.X; Ini-Set $ini 'couch' 'y' $t.Y; Ini-Set $ini 'couch' 'w' $t.W; Ini-Set $ini 'couch' 'h' $t.H
