@@ -204,6 +204,7 @@ function coop.Tick()
     coop_send(p)
     coop_recv()
     coop.HandleEvents()
+    coop.ReviveTick(p)
     coop.WaitTick()
     coop.HudTick()
     coop.PendingSaveTick()
@@ -257,9 +258,54 @@ function coop.UpdatePuppet(p, s)
     if (not x) then return end
     if (not gob) then gob = coop.SpawnPuppet(p, s) end
     if (not gob) then return end
+    -- a dead player spectating someone rides along behind them, hidden: park their puppet
+    -- out of everyone's way (it is solid) and hide it --
+    local parked = coop_life(s) == 3
+    if (parked ~= (coop.parked[s] or 0)) then
+        omGobGMSetVisible(gob, parked and 0 or 1)
+        coop.parked[s] = parked and 1 or 0
+    end
+    if (parked) then
+        mdkGobSetPositionXYZ(gob, p.position.x, p.position.y, p.position.z - 500)
+        return
+    end
     x, y = coop.KeepApart(p, x, y)
     mdkGobSetPositionXYZ(gob, x, y, z + coop.mirror)
     coop_face(gob, s)
+end
+coop.parked = {}
+
+-- going down, reviving, spectating (bridge revive.c): what needs the game's own calls --
+function coop.ReviveTick(p)
+    local a = coop_revive_tick()
+    while (a) do
+        coop_log("revive action: " .. a)
+        if (a == "down") then
+            mdkDisablePlayerControl()
+            if (p) then mdkGobSetTargetable(p, 0) end
+        elseif (a == "hide") then
+            if (p) then omGobGMSetVisible(p, 0) end
+        elseif (a == "up") then
+            if (p) then
+                omGobGMSetVisible(p, 1)
+                mdkGobSetTargetable(p, 1)
+            end
+            mdkEnablePlayerControl()
+        elseif (a == "die") then
+            -- nobody left to revive us: the game's own death and checkpoint reload --
+            if (p) then
+                omGobGMSetVisible(p, 1)
+                mdkGobSetTargetable(p, 1)
+                mdkEnablePlayerControl()
+                mdkDealDamage(nil, p, 9999, DAMAGE_BADGUY, -1)
+            end
+        elseif (a == "wipe") then
+            -- host: everyone is down; the clients follow the load --
+            coop_log(format("everyone down: reloading level %d checkpoint %d", coop.level or 0, coop.cp or 0))
+            mdkNewGame(coop.level, coop.cp)
+        end
+        a = coop_revive_tick()
+    end
 end
 
 -- The puppet is solid and moved every frame; placed inside our player (both spawn on the
@@ -366,6 +412,7 @@ function coop.SaveTick()
         coop_log(format("checkpoint %d reached", cp))
         coop.cp = cp
         coop_progress(coop.level, cp)
+        coop_revive_checkpoint()
         coop.ScheduleSave(3)
     end
     local now = coop_time()

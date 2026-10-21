@@ -39,6 +39,20 @@ static int held(int code)
     return now_ms() < release_at[code];
 }
 
+/* revive.c: is this key or mouse button down? Background test mode: the scripted presses;
+ * otherwise the real one (vk), only while our game window has the focus */
+int input_down(int code, int vk)
+{
+    DWORD pid = 0;
+
+    if (code < 0 || code >= CODES)
+        return 0;
+    if (test_background)
+        return held(code);
+    GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+    return pid == GetCurrentProcessId() && (GetAsyncKeyState(vk) & 0x8000);
+}
+
 /* ---- devices ---- */
 
 enum { DEV_OTHER, DEV_KEYBOARD, DEV_MOUSE };

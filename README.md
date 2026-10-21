@@ -113,10 +113,21 @@ wraps: it resets the bridge's per-level state and, on the host, asks the client 
 screen, and not when the load was itself following the peer) and the next tick adds the puppet. Events and
 enemy packets carry the sender's level and are dropped by a game in another level.
 
-Going down: with a partner connected, a hit that would kill your Kurt revives him at the partner with the
-health he started the level with, instead of reloading the checkpoint in one game only. Falling more than
-30 units below the level's lowest room (some edges have no kill plane, Kurt falls forever) also brings you
-back to the partner.
+Going down (`bridge/revive.c`, `tools/qa_revive.sh`): with teammates in the game, a hit that would kill
+you puts you **down** instead: you lie where you fell (the game's death animation, held) and cannot move or
+shoot, and enemies stop aiming at you. A teammate who holds **R** next to you (5 units) for 3 s stands you up
+with half your health; your 30 s clock stops while someone is reviving. Bleed out and you are **dead**: you
+watch a living teammate (click: the next one) and come back next to them when no enemy is left standing in
+your zone (the room your body lies in and the rooms visible from it, checked by the host) or when a
+checkpoint is reached. Lava, black holes and falling more than 30 units below the level's lowest room (some
+edges have no kill plane) leave no body to reach: straight to dead. Everyone down or dead: the host reloads
+the checkpoint and everyone follows (the load is forced, so clients already at that checkpoint reload too).
+Alone, the game's own death.
+How it is done: the downed player is marked mirrored (its think is skipped, like a puppet's) and the death
+animation's state is applied every frame (the game's death sequence cannot be stopped without a reload);
+a dead player's hidden, untargetable body rides 3 units behind the teammate it watches, so the normal
+camera follows them, and other games park its puppet out of the way. Each player packet carries a life
+byte (alive, down, dead, spectating) and who they are reviving; the HUD panel shows DOWN and dead.
 
 Players (up to 16, tested with 8): the host is player 1 (slot 0) and gives each client a slot when its
 first packet arrives (`we are player N` in the client's log). Clients only talk to the host, which

@@ -12,7 +12,7 @@ import sys
 
 
 def load(path):
-    s = {"level": None, "me": None, "player": None, "puppet": {}, "ent": {}, "gone": set(), "actor": [],
+    s = {"level": None, "me": None, "life": 0, "player": None, "puppet": {}, "ent": {}, "gone": set(), "actor": [],
          "item": {}, "unplaced": 0, "door": {}}
     for line in open(path, encoding="latin-1"):
         f = line.split()
@@ -21,6 +21,8 @@ def load(path):
         k = f[0]
         if k == "level":
             s["level"] = int(f[1])
+        elif k == "life":
+            s["life"] = int(f[1])
         elif k == "player":
             s["player"] = (int(f[1]), int(f[2]), tuple(map(float, f[3:6])))
         elif k == "me":
@@ -69,6 +71,10 @@ def main():
     for me in dumps:
         if not me["player"]:
             warn(f"{who(me)} has no player")
+            continue
+        if me["life"] >= 2:
+            # dead: the body rides along behind a teammate and its puppet is parked (revive.c)
+            warn(f"{who(me)} is dead (spectating): its puppet is not compared")
             continue
         for other in dumps:
             if other is me or other in bad_level or (me in bad_level and other is h):

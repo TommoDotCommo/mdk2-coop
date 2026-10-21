@@ -43,7 +43,8 @@ void state_dump(const char *tag)
     snprintf(path, MAX_PATH, "%s\\state_%s.tmp", coop_dir, tag);
     if (!(f = fopen(path, "w")))
         return;
-    fprintf(f, "role %s\nlevel %d\nme %d\n", role_host ? "host" : "client", cur_level, my_slot + 1);
+    fprintf(f, "role %s\nlevel %d\nme %d\nlife %d\n", role_host ? "host" : "client", cur_level, my_slot + 1,
+            revive_life());
     if (gob_alive(local_player)) {
         fprintf(f, "player %d %d", gob_type(local_player), gob_hp(local_player));
         put_pos(f, local_player);

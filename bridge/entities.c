@@ -60,6 +60,19 @@ static void ent_remove(struct ent *e)
     *e = ents[--nents];
 }
 
+/* Host, revive.c: enemies still standing in a dead player's zone */
+int ents_alive_in_zone(const float *zone_pos)
+{
+    int i, n = 0;
+
+    for (i = 0; i < nents; i++) {
+        BYTE *gob = ents[i].gob;
+        if (gob_alive(gob) && gob_hp(gob) > 0 && rooms_in_zone(zone_pos, (float *)(gob + GOB_POSITION)))
+            n++;
+    }
+    return n;
+}
+
 /* netstats.c: is this datagram one of ours */
 int ents_is_packet(const void *buf, int len)
 {

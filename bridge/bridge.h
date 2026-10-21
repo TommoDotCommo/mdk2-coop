@@ -129,7 +129,8 @@ struct track {
     struct snap view;                   /* interpolated state for this frame */
 };
 
-enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY };
+enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY,
+       EV_REVIVE, EV_RESPAWN, EV_DIED };
 #define EV_NAME 32
 
 struct event {
@@ -230,6 +231,29 @@ int ent_is_synced(BYTE *gob);
 void ents_keep_spawner(BYTE *gob);
 void ents_dump(FILE *f);
 int ents_is_packet(const void *buf, int len);
+
+/* ---- revive.c ---- */
+
+enum { LIFE_ALIVE = 0, LIFE_DOWNED, LIFE_DEAD };
+void revive_frame(void);
+void revive_level_reset(void);
+int revive_life(void);
+int revive_reviving(void);
+int revive_hit(int damage, int type);
+void revive_unreachable(const char *why);
+void revive_event(const struct event *e, int from);
+void revive_checkpoint(void);
+const char *revive_tick(void);
+int revive_take_forced(void);
+int player_life(int slot);
+int player_reviving(int slot);
+
+/* ---- input.c / hud.c / rooms.c / entities.c, for revive.c ---- */
+
+int input_down(int code, int vk);
+void hud_status(const char *line1, const char *line2, float progress);
+int rooms_in_zone(const float *zone_pos, const float *p);
+int ents_alive_in_zone(const float *zone_pos);
 
 /* ---- netstats.c ---- */
 

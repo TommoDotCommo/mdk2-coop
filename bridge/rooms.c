@@ -48,6 +48,34 @@ static void activate_rooms_at(float *pos)
     }
 }
 
+/* revive.c: is p in a dead player's zone, the rooms holding zone_pos and the rooms visible
+ * from them (the same rooms the manager wakes around a player) */
+int rooms_in_zone(const float *zone_pos, const float *p)
+{
+    int i, j;
+
+    if (ROOM_COUNT <= 0 || IsBadReadPtr(ROOM_ARRAY, 4))
+        return 0;
+    for (i = 0; i < ROOM_COUNT; i++) {
+        BYTE *room = ROOM_ARRAY[i];
+        BYTE **vis;
+        int nvis;
+
+        if (!room || IsBadReadPtr(room, 0x44) ||
+            !point_in_box((float *)zone_pos, (float *)(room + 0x2c), (float *)(room + 0x38)))
+            continue;
+        if (point_in_box((float *)p, (float *)(room + 0x2c), (float *)(room + 0x38)))
+            return 1;
+        nvis = *(int *)(room + 0x4);
+        vis = *(BYTE ***)(room + 0xc);
+        for (j = 0; vis && j < nvis; j++)
+            if (vis[j] && !IsBadReadPtr(vis[j], 0x44) &&
+                point_in_box((float *)p, (float *)(vis[j] + 0x2c), (float *)(vis[j] + 0x38)))
+                return 1;
+    }
+    return 0;
+}
+
 static void __cdecl mark_rooms_all(void *arg, BYTE *camera, int set_current)
 {
     int s;
@@ -98,8 +126,8 @@ static int compute_floor(void)
     return found;
 }
 
-/* With a partner, falling far below every room (the level has no kill plane there:
- * Kurt fell forever off level 1's dome area) brings us back to the nearest partner */
+/* With teammates, falling far below every room (the level has no kill plane there: Kurt
+ * fell forever off level 1's dome area) is a death with no body to reach (revive.c) */
 void rooms_check_fall(void)
 {
     BYTE *puppet;
@@ -115,9 +143,10 @@ void rooms_check_fall(void)
     pos = (float *)(local_player + GOB_POSITION);
     if (pos[2] > level_floor - FALL_MARGIN)
         return;
-    logmsg("fell out of the world at z %.1f (floor %.1f): back to the partner", pos[2], level_floor);
-    gob_set_position(local_player, ((float *)(puppet + GOB_POSITION))[0], ((float *)(puppet + GOB_POSITION))[1],
-                     ((float *)(puppet + GOB_POSITION))[2]);
+    if (revive_life() != LIFE_ALIVE)
+        return;
+    logmsg("fell out of the world at z %.1f (floor %.1f)", pos[2], level_floor);
+    revive_unreachable("fell out of the world");
 }
 
 void rooms_init(void)

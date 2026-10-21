@@ -25,12 +25,11 @@ static double num_param(int n)
 
 /* ---- damage ---- */
 
-/* Damage to our own player. With a partner, a hit that would kill revives us at the
- * nearest partner instead: dying would reload the checkpoint in this game only. */
+/* Damage to our own player. With teammates, a hit that would kill puts us down instead
+ * (revive.c), and nothing reaches us while we are down or dead: dying would reload the
+ * checkpoint in this game only. */
 static void damage_local_player(void *from, int damage, int type, int part)
 {
-    int hp;
-
     /* a hit from another player (friendly fire) comes in without an attacker and as an
      * enemy's gun damage (0x2): the player's damage filter drops its own gun's type (0x1),
      * and the game ignores a player character hitting the player */
@@ -39,24 +38,11 @@ static void damage_local_player(void *from, int damage, int type, int part)
         if (type == 0x1)
             type = 0x2;
     }
-    hp = gob_hp(local_player);
-    BYTE *puppet = puppet_nearest((float *)(local_player + GOB_POSITION));
-    BYTE *info;
-
-    if (damage >= hp && hp > 0 && (!have_remote || !puppet))
-        logmsg("lethal hit, no revive: remote %d puppet %p", have_remote, (void *)puppet);
-    if (!have_remote || !puppet || hp <= 0 || damage < hp) {
-        deal_damage_orig(from, local_player, damage, type, part);
+    /* none of an absorbed hit is applied: some damage types start the death sequence
+     * whatever the hp (lava, 0x40, still reloaded the checkpoint when 99 of 500 got through) */
+    if (revive_hit(damage, type))
         return;
-    }
-    /* none of the hit is applied: some damage types start the death sequence whatever the
-     * hp (lava, 0x40, still reloaded the checkpoint when 99 of 500 got through) */
-    info = *(BYTE **)(local_player + GOB_INFO);
-    if (info && local_max_hp > 0)
-        *(short *)(info + 0x12) = (short)local_max_hp;
-    gob_set_position(local_player, ((float *)(puppet + GOB_POSITION))[0], ((float *)(puppet + GOB_POSITION))[1],
-                     ((float *)(puppet + GOB_POSITION))[2]);
-    logmsg("down: %d damage (type 0x%x) on %d hp; revived at the partner with %d hp", damage, type, hp, local_max_hp);
+    deal_damage_orig(from, local_player, damage, type, part);
 }
 
 /* Client: is this attacker one of the host's (an actor or a projectile)? */
@@ -155,6 +141,9 @@ static void l_coop_send(void)
     local_player = gob;
     if (gob && (hp = gob_hp(gob)) > local_max_hp)
         local_max_hp = hp;
+    /* before our state is captured: the downed pose (the game's player control puts its own
+     * animation back every frame) and a spectator's ride */
+    revive_frame();
     net_send_player(gob);
     if (gob)
         rooms_check_fall();
@@ -257,13 +246,15 @@ static void l_coop_event(void)
             logmsg("event %d %s from epoch %u dropped (we are in %u)", e.kind, e.name, e.epoch, cur_epoch);
         else if (e.kind == EV_PICKUP)
             pickups_remove(e.name);
+        else if (e.kind == EV_REVIVE || e.kind == EV_RESPAWN || e.kind == EV_DIED)
+            revive_event(&e, from);
         else
             break;
     }
     if (e.kind == EV_LEVEL) {
         int same = cur_epoch == (unsigned short)e.netid && cur_level == e.type;
         net_level_event(&e);
-        e.part = host_changed_take() ? 1 : same ? 2 : 0;
+        e.part = host_changed_take() || e.extra[2] ? 1 : same ? 2 : 0;
     }
     apply_slot = from;
     memcpy(apply_from, e.from, sizeof(apply_from));
@@ -369,6 +360,7 @@ static void l_coop_level(void)
     ents_reset();
     shots_reset();
     doors_reset();
+    revive_level_reset();
     pickups_reset();
     rooms_level_reset();
     net_level_reset(announce);
@@ -382,6 +374,7 @@ static void l_coop_level(void)
         e.netid = cur_epoch;
         e.extra[0] = save;
         e.extra[1] = my_id;
+        e.extra[2] = revive_take_forced();      /* everyone was down: load it even if already there */
         event_send(&e, TO_ALL);
         if (save)
             net_set_last_save(save);
@@ -414,6 +407,29 @@ static void l_coop_nearest_enemy(void)
         }
     }
     push_gob(best);
+}
+
+/* coop_revive_tick() -> the next action for Lua ("down", "hide", "up", "die", "wipe") or nil */
+static void l_coop_revive_tick(void)
+{
+    const char *a = revive_tick();
+    if (a)
+        lua_pushstring((char *)a);
+    else
+        lua_pushnil();
+}
+
+/* coop_life(slot) -> 0 alive, 1 downed, 2 dead, 3 dead and spectating (its puppet is parked) */
+static void l_coop_life(void)
+{
+    int s = (int)num_param(1);
+    lua_pushnumber(s == my_slot ? revive_life() : player_life(s));
+}
+
+/* coop_revive_checkpoint(): host, a checkpoint was reached: the dead come back */
+static void l_coop_revive_checkpoint(void)
+{
+    revive_checkpoint();
 }
 
 /* coop_alive(gob) -> 1 if the gob still exists (a Lua global can outlive its gob) */
@@ -518,13 +534,17 @@ static void l_coop_animdump(void)
 {
     BYTE *gob = tolua_getusertype(1, NULL);
     BYTE *ctl;
-    int id, i;
+    int id, i, cur;
 
     if (!gob || !(ctl = *(BYTE **)(gob + GOB_ANIM)))
         return;
-    logmsg("animdump %s pos (%.2f, %.2f, %.2f) cur=%p prev=%p", gob_name(gob),
+    for (cur = 0; cur < ANIM_ID_MAX && (!*(void **)(ctl + 0x28) ||
+                                         (void *)om_anim_state(gob, cur) != *(void **)(ctl + 0x28)); cur++)
+        ;
+    logmsg("animdump %s pos (%.2f, %.2f, %.2f) cur=%p (anim %d) prev=%p", gob_name(gob),
            ((float *)(gob + GOB_POSITION))[0], ((float *)(gob + GOB_POSITION))[1],
-           ((float *)(gob + GOB_POSITION))[2], *(void **)(ctl + 0x28), *(void **)(ctl + 0x2c));
+           ((float *)(gob + GOB_POSITION))[2], *(void **)(ctl + 0x28), cur < ANIM_ID_MAX ? cur : -1,
+           *(void **)(ctl + 0x2c));
     for (id = 0; id < ANIM_ID_MAX; id++) {
         DWORD *st = om_anim_state(gob, id);
         char line[256];
@@ -619,6 +639,9 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_alive", l_coop_alive);
     tolua_function(NULL, "coop_nearest_enemy", l_coop_nearest_enemy);
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
+    tolua_function(NULL, "coop_revive_tick", l_coop_revive_tick);
+    tolua_function(NULL, "coop_life", l_coop_life);
+    tolua_function(NULL, "coop_revive_checkpoint", l_coop_revive_checkpoint);
     tolua_function(NULL, "coop_listgobs", l_coop_listgobs);
     tolua_function(NULL, "coop_log", l_coop_log);
     tolua_function(NULL, "coop_press", l_coop_press);

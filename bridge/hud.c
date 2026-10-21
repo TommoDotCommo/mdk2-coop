@@ -262,8 +262,8 @@ static void draw_tags(int w, int h)
 {
     int order[MAX_PLAYERS], n = 0, i, j, s;
 
-    for (s = 0; s < MAX_PLAYERS; s++)
-        if (player_in_level(s) && gob_alive(puppets[s]))
+    for (s = 0; s < MAX_PLAYERS; s++)       /* a dead player's puppet is parked away: no tag */
+        if (player_in_level(s) && gob_alive(puppets[s]) && player_life(s) < LIFE_DEAD)
             order[n++] = s;
     for (i = 1; i < n; i++)
         for (j = i; j > 0 && dist_to(puppets[order[j]]) < dist_to(puppets[order[j - 1]]); j--) {
@@ -279,7 +279,7 @@ static void draw_tags(int w, int h)
 
         s = order[i];
         memcpy(p, puppets[s] + GOB_POSITION, sizeof(p));
-        p[2] += head_z;
+        p[2] += player_life(s) == LIFE_DOWNED ? head_z * 0.3f : head_z;     /* lying down */
         name = player_name(s);
         tw = (float)text_width(name);
         on = project(p, w, h, &sx, &sy);
@@ -320,7 +320,19 @@ static void draw_tags(int w, int h)
     }
 }
 
+/* revive.c: one or two centred lines in the lower third, with a progress bar when >= 0 */
+static char status1[96], status2[96];
+static float status_progress = -1.0f;
+
+void hud_status(const char *line1, const char *line2, float progress)
+{
+    snprintf(status1, sizeof(status1), "%s", line1 ? line1 : "");
+    snprintf(status2, sizeof(status2), "%s", line2 ? line2 : "");
+    status_progress = progress;
+}
+
 static int dump_rows;           /* coop_hud_dump: log the next frame's rows */
+static int dump_status;         /* and its status lines */
 static int frames_drawn;        /* frames with the HUD drawn, for tests */
 
 static void draw_panel(int w, int h)
@@ -341,8 +353,11 @@ static void draw_panel(int w, int h)
         player_health(s, &hp[s], &maxhp[s]);
         if (!player_in_level(s))
             snprintf(info[s], sizeof(info[s]), "loading");
+        else if (player_life(s) >= LIFE_DEAD)
+            snprintf(info[s], sizeof(info[s]), "%s  dead", character(player_type(s)));
         else if (gob_alive(puppets[s]) && gob_alive(local_player))
-            snprintf(info[s], sizeof(info[s]), "%d  %s  %.0f away", hp[s], character(player_type(s)), dist_to(puppets[s]));
+            snprintf(info[s], sizeof(info[s]), "%d  %s  %.0f away%s", hp[s], character(player_type(s)),
+                     dist_to(puppets[s]), player_life(s) == LIFE_DOWNED ? "  DOWN" : "");
         else
             snprintf(info[s], sizeof(info[s]), "%d  %s", hp[s], character(player_type(s)));
         ping[s][0] = 0;
@@ -393,12 +408,39 @@ static void draw_panel(int w, int h)
 }
 
 /* SwapBuffers hook, before the game's frame is shown */
+static void draw_status(int w, int h)
+{
+    float y = h * 0.70f, bw = w * 0.30f;
+
+    if (!status1[0] && !status2[0]) {
+        if (dump_status)
+            logmsg("hud status: (none)");
+        dump_status = 0;
+        return;
+    }
+    box(w * 0.5f - bw * 0.5f - 12, y - font_h - 6, bw + 24, font_h * (status2[0] ? 2 : 1) + 12 +
+        (status_progress >= 0.0f ? 14 : 0), h, 0, 0, 0, 0.45f);
+    if (status1[0])
+        text(w * 0.5f - text_width(status1) * 0.5f, y, h, status1, 1.0f, 0.85f, 0.3f);
+    if (status2[0])
+        text(w * 0.5f - text_width(status2) * 0.5f, y + font_h, h, status2, 0.9f, 0.9f, 0.9f);
+    if (status_progress >= 0.0f) {
+        float by = y + font_h * (status2[0] ? 2 : 1) - font_h + 8;
+        box(w * 0.5f - bw * 0.5f, by, bw, 6, h, 0.2f, 0.2f, 0.2f, 0.8f);
+        box(w * 0.5f - bw * 0.5f, by, bw * (status_progress > 1.0f ? 1.0f : status_progress), 6, h, 0.3f, 0.9f, 0.4f, 0.9f);
+    }
+    if (dump_status)
+        logmsg("hud status: %s | %s | %.2f", status1, status2, status_progress);
+    dump_status = 0;
+}
+
 void hud_frame(HDC dc)
 {
     int prog = 0, fbo = 0, tex = 0, w, h;
     RECT rc;
 
-    if (!shown || !have_remote)
+    /* the panel and tags follow coop_hud's "shown"; the revive status shows whenever it is set */
+    if (!have_remote || (!shown && !status1[0] && !status2[0]))
         return;
     if (ready < 0)
         ready = load_gl();
@@ -435,8 +477,11 @@ void hud_frame(HDC dc)
     gl.Ortho(0, w, 0, h, -1, 1);
     gl.MatrixMode(GL_MODELVIEW); gl.PushMatrix(); gl.LoadIdentity();
 
-    draw_tags(w, h);
-    draw_panel(w, h);
+    if (shown) {
+        draw_tags(w, h);
+        draw_panel(w, h);
+    }
+    draw_status(w, h);
     frames_drawn++;
 
     gl.MatrixMode(GL_MODELVIEW); gl.PopMatrix();
@@ -465,6 +510,7 @@ static void l_coop_hud(void)
 static void l_coop_hud_dump(void)
 {
     dump_rows = 1;
+    dump_status = 1;
     logmsg("hud: %d frames drawn", frames_drawn);
 }
 

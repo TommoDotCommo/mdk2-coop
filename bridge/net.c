@@ -24,7 +24,7 @@
 #include <math.h>
 #include "bridge.h"
 
-#define PLAYER_MAGIC    0x414b444d      /* "MDKA": compact state on the wire (packet_pack) */
+#define PLAYER_MAGIC    0x424b444d      /* "MDKB": compact state, life and reviving bytes */
 #define PACKET_EVENTS   7      /* 7 x 128-byte events + player state fit in one datagram */
 #define MAX_DATAGRAM    1400
 #define PLAYER_TIMEOUT_MS 10000.0
@@ -36,10 +36,10 @@
 
 /* Relay bundle (host to client): the other players' latest states since the last bundle,
  * one datagram per client per send tick instead of one per relayed state. Header, then
- * count records: u8 slot, u8 flags, u8 level, u8 pad, u32 id, u32 seq, u16 epoch,
- * i16 player_type, i16 hp, i16 hp_max, u32 state time, [name, PLAYER_NAME bytes, if PK_NAME], u16 length,
+ * count records: u8 slot, u8 flags, u8 level, u8 life, u32 id, u32 seq, u16 epoch,
+ * i16 player_type, i16 hp, i16 hp_max, u8 reviving, u8 pad, u32 state time, [name, PLAYER_NAME bytes, if PK_NAME], u16 length,
  * snap_encode bytes. The name goes along about once a second. */
-#define RELAY_MAGIC     0x524b444d      /* "MDKR" */
+#define RELAY_MAGIC     0x534b444d      /* "MDKS": records with life and reviving */
 struct relay_head {
     unsigned int magic;
     unsigned int nonce;         /* host process */
@@ -47,7 +47,7 @@ struct relay_head {
     unsigned char you;          /* the receiver's slot */
     unsigned char count;
 };
-#define RELAY_FIXED     (4 + 4 + 4 + 2 + 2 + 2 + 2 + 4)
+#define RELAY_FIXED     (4 + 4 + 4 + 2 + 2 + 2 + 2 + 2 + 4)
 #define RELAY_NAME_EVERY 30     /* states between names */
 
 struct player_packet {
@@ -67,6 +67,9 @@ struct player_packet {
     unsigned short epoch;
     short player_type;          /* OBJ type of that player (Kurt, Max, Doc, Hyde) */
     short hp, hp_max;           /* that player's hp, and the most it has had this level */
+    unsigned char life;         /* LIFE_ALIVE / LIFE_DOWNED / LIFE_DEAD (revive.c) */
+    unsigned char reviving;     /* slot + 1 of the downed player this one is reviving, 0 none */
+    unsigned char pad2[2];
     struct snap state;
     unsigned int ack;           /* highest event id received in order on this link */
     unsigned char nevents;
@@ -211,6 +214,7 @@ struct player {
     unsigned int seq;           /* latest state number */
     int type;                   /* OBJ type of their character, 0 if unknown */
     int hp, hp_max;
+    int life, reviving;         /* revive.c: LIFE_*, slot + 1 they are reviving */
     double clock_offset;        /* their clock - ours, least-delayed estimate */
     int have_clock;
     struct track track;
@@ -420,6 +424,17 @@ void player_health(int slot, int *hp, int *hp_max)
 {
     *hp = player_connected(slot) ? players[slot].hp : 0;
     *hp_max = player_connected(slot) ? players[slot].hp_max : 0;
+}
+
+/* revive.c: LIFE_* of that player (alive if unknown), and the slot they are reviving or -1 */
+int player_life(int slot)
+{
+    return player_connected(slot) ? players[slot].life : LIFE_ALIVE;
+}
+
+int player_reviving(int slot)
+{
+    return player_connected(slot) ? players[slot].reviving - 1 : -1;
 }
 
 int player_ping(int slot)
@@ -1023,6 +1038,8 @@ void net_send_player(BYTE *gob)
         p.player_type = (short)gob_type(gob);
         p.hp = (short)gob_hp(gob);
         p.hp_max = (short)(local_max_hp > p.hp ? local_max_hp : p.hp);
+        p.life = (unsigned char)revive_life();
+        p.reviving = (unsigned char)(revive_reviving() + 1);
         snap_capture(gob, &p.state);
     }
     for (s = 0; s < MAX_PLAYERS; s++) {
@@ -1084,6 +1101,8 @@ static void accept_state(int slot, const struct player_packet *p, double arrived
         pl->type = p->player_type;
         pl->hp = p->hp;
         pl->hp_max = p->hp_max;
+        pl->life = p->life;
+        pl->reviving = p->reviving;
         clock_sample(pl, p->state.time, arrived);
         track_add(&pl->track, &p->state);
     }
@@ -1258,13 +1277,15 @@ static void relay_flush(void)
             *o++ = (BYTE)s;
             *o++ = flags;
             *o++ = p->level;
-            *o++ = 0;
+            *o++ = p->life;
             memcpy(o, &p->id, 4); o += 4;
             memcpy(o, &p->seq, 4); o += 4;
             memcpy(o, &p->epoch, 2); o += 2;
             memcpy(o, &p->player_type, 2); o += 2;
             memcpy(o, &p->hp, 2); o += 2;
             memcpy(o, &p->hp_max, 2); o += 2;
+            *o++ = p->reviving;
+            *o++ = 0;
             memcpy(o, &p->state.time, 4); o += 4;
             if (name) {
                 memcpy(o, p->name, PLAYER_NAME);
@@ -1309,6 +1330,7 @@ static void relay_receive(const BYTE *buf, int len, double arrived)
         slot = q[0];
         p.flags = q[1];
         p.level = q[2];
+        p.life = q[3];
         q += 4;
         memcpy(&p.id, q, 4); q += 4;
         memcpy(&p.seq, q, 4); q += 4;
@@ -1316,6 +1338,8 @@ static void relay_receive(const BYTE *buf, int len, double arrived)
         memcpy(&p.player_type, q, 2); q += 2;
         memcpy(&p.hp, q, 2); q += 2;
         memcpy(&p.hp_max, q, 2); q += 2;
+        p.reviving = q[0];
+        q += 2;
         memcpy(&p.state.time, q, 4); q += 4;
         if (p.flags & PK_NAME) {
             if (end - q < PLAYER_NAME + 2)

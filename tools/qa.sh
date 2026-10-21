@@ -85,16 +85,28 @@ mdk_key "$B" 62; sleep 3
 check "host opened dr1_03 for the puppet"       has $H "door dr1_03 opening \(nearer player: puppet 2\)"
 check "state matches after pickup and door"     state pickup
 
-# 6. going down
-mdk_key "$B" 61; sleep 2; mdk_key "$A" 61; sleep 2         # F3: 200 damage to self
-check "client revived at the host"              has $C "^down: "
-check "host revived at the client"              has $H "^down: "
-sleep 6     # a lava death that slipped through would reload the checkpoint by now
-reload_after_down() { sed -n '/^down: /,$p' "$1" | grep -q '^level '; }
+# 6. going down (revive.c; tools/qa_revive.sh has the rest): lava and the void leave no body
+# to reach, so straight to dead and spectating; a checkpoint (here called by hand) brings
+# the dead back. One of the two always stands, so no checkpoint reload.
+lua_in() { mdk_cmd "$1" "$2"; }
+lua_in "$A" "coop_revive_checkpoint()"; sleep 1          # stand up anyone the dogs put down above
+h0=$(wc -l < "$(mdk_log $H)"); c0=$(wc -l < "$(mdk_log $C)")
+mdk_key "$B" 61; sleep 2                                    # F3: 200 lava damage to self
+check "client in lava: dead, no body to reach"  bash -c "tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -q 'life: alive -> dead (no body to reach)'"
+sleep 3
+check "  and spectating the host, or back"      bash -c "tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -qE 'revive: spectating player 1|life: dead -> alive'"
+lua_in "$A" "coop_revive_checkpoint()"; sleep 2
+check "  a checkpoint (or its cleared zone) brings it back" bash -c "tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -q 'life: dead -> alive'"
 # falling out of the world (F4 cycles decoy -> door -> void; the client used two already)
 mdk_key "$B" 62; sleep 3
-check "client fell out of the world and came back" has $C "^fell out of the world"
-check "no checkpoint reload after going down"   bash -c "$(declare -f reload_after_down); ! reload_after_down '$(mdk_log $H)' && ! reload_after_down '$(mdk_log $C)'"
+check "client fell out of the world: dead"      bash -c "tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -q 'life: alive -> dead (fell out of the world)'"
+lua_in "$A" "coop_revive_checkpoint()"; sleep 2
+check "  and back"                              bash -c "test \$(tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -c 'life: dead -> alive') -ge 2"
+mdk_key "$A" 61; sleep 2
+check "host in lava: dead too"                  bash -c "tail -n +$((h0 + 1)) '$(mdk_log $H)' | grep -q 'life: alive -> dead (no body to reach)'"
+lua_in "$A" "coop_revive_checkpoint()"; sleep 2
+check "  and back"                              bash -c "tail -n +$((h0 + 1)) '$(mdk_log $H)' | grep -q 'life: dead -> alive'"
+check "no checkpoint reload: one always stood"  bash -c "! tail -n +$((h0 + 1)) '$(mdk_log $H)' | grep -q '^level ' && ! tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -q '^level '"
 
 check "both games still running"                bash -c "$(declare -f mdk_alive); mdk_alive $A && mdk_alive $B"
 

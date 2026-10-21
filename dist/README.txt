@@ -49,7 +49,11 @@ Playing
 -------
 - Up to 16 players. Everyone sees the others, enemies are shared, and pickups and
   doors work for everyone.
-- When you would die, you come back next to another player instead.
+- When you would die you go down instead: a teammate can stand you up by holding R
+  next to you for 3 seconds. After 30 seconds down you are out: you watch a teammate
+  (click for the next one) and come back when your area is clear of enemies or at
+  the next checkpoint. Lava, black holes and falling out of the world are straight
+  out. If everyone is down, the checkpoint restarts for everyone.
 - Space jumps (and works the jetpack and parachute), right mouse toggles sniper mode.
 
 Uninstall
