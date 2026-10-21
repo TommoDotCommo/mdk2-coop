@@ -106,7 +106,9 @@ number, in two alternating files (`save\c<id><a|b>.sav`, recorded in `coop\saves
   returns.
 - When the host's game crashes, the clients wait the same way. The host's Load Game menu (title
   screen or pause) then offers "Resume co-op <level>-<checkpoint>", and every client loads its copy of
-  that save.
+  that save. Where the game cannot save (Max's tutorial at the start of level 2), the host's progress
+  (each level start and checkpoint) is newer than its last save, and Resume starts that checkpoint
+  instead of going back a level.
 
 Damage authority (`[net] role=host|client`): the bridge hooks the game's central damage function
 (0x40d590). The host applies everything and tells the client (APPLY); the client applies damage to its own
@@ -166,7 +168,7 @@ and resume, and a level change after it. `tools/copies.sh` makes the extra game 
 hard-linked, ~2 MB each). Folders and ports are set by `MDK2_DIR_BASE` / `MDK2_DIR<i>` and
 `MDK2_PORT` (see `tools/mdk.sh`), so two sets of copies can run side by side; `mdk_kill` only stops
 games running from its own copies. 2026-10-21: qa.sh 30/30, qa_n.sh 38/38 with 3 players and 53/53
-with 8 (~370 MB per game), qa_save.sh 31/31 with 3 and 41/41 with 8.
+with 8 (~370 MB per game), qa_save.sh 41/41 with 8; after adding the resume-at-checkpoint case, 38/38 with 3.
 
 Last runs (2026-10-20, Steam build 3902, level 1 cp 2): 21/21 on plain localhost (after the first
 manual session's client crash was fixed); earlier 17/17 with `[sim] latency_ms=120 jitter_ms=40

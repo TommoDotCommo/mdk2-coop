@@ -305,6 +305,8 @@ function level(l, cp, sec)
     coop.level = l
     coop.cp = cp
     coop_level(l, cp, announce, save)
+    -- host: how far the session has got (not when a save brought us back here) --
+    if (announce == 1 and save == 0) then coop_progress(l, cp) end
     -- a client that loaded a save has a world from back then: the host sends its own again --
     if (save > 0 and coop_role() ~= "host") then coop_ready() end
     coop.ScheduleSave(10)
@@ -332,6 +334,7 @@ function coop.SaveTick()
     if (cp >= 0 and cp ~= coop.cp) then
         coop_log(format("checkpoint %d reached", cp))
         coop.cp = cp
+        coop_progress(coop.level, cp)
         coop.ScheduleSave(3)
     end
     local now = coop_time()
@@ -382,10 +385,33 @@ function coop.Resume(file, no, l, cp)
     mdkStartInstantLoad(file)
 end
 
-function coop.ResumeLatest()
+-- host: where to resume: the newest co-op save, unless the session got further since (a level
+-- start or checkpoint after it, e.g. where the game cannot save): then that checkpoint.
+-- Returns { file, no, level, cp } for a save, { level, cp } for a checkpoint, or nil --
+function coop.ResumePoint()
     local file, no, l, cp = coop_save_find(coop_id(), 0, 0)
-    if (file and mdkSaveFileExists(file) == 1) then
-        coop.Resume(file, no, l, cp)
+    if (file and mdkSaveFileExists(file) ~= 1) then file = nil end
+    local pl, pcp, pafter = coop_progress_get()
+    if (pl and (not file or no <= pafter)) then
+        return { level = pl, cp = pcp }
+    end
+    if (file) then return { file = file, no = no, level = l, cp = cp } end
+    return nil
+end
+
+function coop.ResumeAt(rp)
+    if (rp.file) then
+        coop.Resume(rp.file, rp.no, rp.level, rp.cp)
+    else
+        coop_log(format("resuming co-op at level %d checkpoint %d (no save since)", rp.level, rp.cp))
+        mdkNewGame(rp.level, rp.cp)
+    end
+end
+
+function coop.ResumeLatest()
+    local rp = coop.ResumePoint()
+    if (rp) then
+        coop.ResumeAt(rp)
     else
         coop_log("no co-op save to resume")
     end
@@ -408,17 +434,21 @@ function BuildPCLoadMenu()
 end
 
 function coop.AddResumeItem()
-    local file, no, l, cp = coop_save_find(coop_id(), 0, 0)
-    if (not file or mdkSaveFileExists(file) ~= 1) then return end
-    local item = mdkCreateMenuItem(menu.pcload, format("Resume co-op %d-%d", l, cp))
-    item.save = { file = file, no = no, level = l, cp = cp }
+    local rp = coop.ResumePoint()
+    if (not rp) then return end
+    local item = mdkCreateMenuItem(menu.pcload, format("Resume co-op %d-%d", rp.level, rp.cp))
+    item.resume = rp
     item.Select = function(self)
         mdkHideInstantSaveScreenShot()
-        coop.Resume(self.save.file, self.save.no, self.save.level, self.save.cp)
         menu.pause.Cancel()
+        coop.ResumeAt(self.resume)
     end
     item.Highlight = function(self)
-        mdkShowInstantSaveScreenShot(self.save.file)
+        if (self.resume.file) then
+            mdkShowInstantSaveScreenShot(self.resume.file)
+        else
+            mdkHideInstantSaveScreenShot()
+        end
     end
 end
 

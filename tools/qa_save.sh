@@ -28,6 +28,15 @@ wait_log() {   # wait_log <instance> <regex> <seconds>
     local i; for i in $(seq 1 "$3"); do has "$1" "$2" && return 0; sleep 1; done; return 1; }
 wait_clients() {   # wait_clients <regex> <seconds>
     local i; for i in $(seq 1 "$2"); do every_client "$1" && return 0; sleep 1; done; return 1; }
+# counts <regex>: that line's count in each client's log; more_than <counts> <regex> <secs>: wait
+# until every client has more of it than then
+counts() { local i; for i in $(seq 2 "$MDK2_N"); do printf '%s ' "$(count "$i" "$1")"; done; }
+more_than() {
+    local base=($1) i k ok
+    for k in $(seq 1 "$3"); do ok=1
+        for i in $(seq 2 "$MDK2_N"); do [ "$(count "$i" "$2")" -gt "${base[$((i - 2))]}" ] || ok=0; done
+        [ $ok = 1 ] && return 0; sleep 1; done
+    return 1; }
 set_pid() { local i=0 p n=""; for p in $(mdk_pids); do i=$((i + 1)); [ $i = "$1" ] && p=$2; n="$n $p"; done; echo "$n" > "$MDK2_PIDS"; }
 # player line of a state dump: type hp x y z
 player_of() { sed -nE 's/^player ([0-9]+) (-?[0-9]+) (.*)$/\1 \2 \3/p' "$1"; }
@@ -111,6 +120,23 @@ check "state matches after the host resumed"            grep -q "^state: 0 fail"
 mdk_key "$(mdk_pid 1)" 66                                     # F8: next level
 check "F8 takes everyone to level 2 after the resume"   wait_clients "^level 2 checkpoint 1 started" 40
 sleep 10
+
+# 6. level 2 starts with Max's tutorial, where the game cannot save: a host crash there must
+#    resume at 2-1 (the checkpoint it got to), not at the last save back in level 1
+check "no co-op save possible in Max's tutorial"        bash -c "! grep -q 'co-op save [0-9]* written: level 2' '$(mdk_log 1)'"
+w0=$(counts "waiting: Connection to the host lost"); f0=$(counts "host started level 2 checkpoint 1: following")
+b0=$(counts "host is back: playing again")
+taskkill.exe /PID "$(mdk_pid 1)" /F >/dev/null 2>&1
+check "clients wait again"                              more_than "$w0" "waiting: Connection to the host lost" 8
+set_pid 1 "$(mdk_start 1)"
+check "host back on the title screen again"             wait_log 1 "^level 0 checkpoint 0 started" 40
+sleep 5
+mdk_cmd "$(mdk_pid 1)" "coop.ResumeLatest()"
+check "host resumes at level 2 checkpoint 1"            wait_log 1 "resuming co-op at level 2 checkpoint 1" 10
+check "every client follows into level 2"               more_than "$f0" "host started level 2 checkpoint 1: following" 40
+check "every client plays again after the second crash" more_than "$b0" "host is back: playing again" 40
+sleep 8
+check "state matches after resuming at the checkpoint"  state resumed2
 check "all $MDK2_N games still running"                 all_alive
 check "no Lua errors"                                   bash -c "! grep -l 'LUA ERROR' $(for i in $(mdk_seq); do printf '%q ' "$(mdk_log "$i")"; done)"
 for i in $(mdk_seq); do cp "$(mdk_log "$i")" "$out/game$i.log"; done

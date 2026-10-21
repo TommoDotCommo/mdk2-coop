@@ -10,6 +10,11 @@
  * dies half-written leaves the one before it. Save files are save\c<id><a|b>.sav in the
  * game's save folder: the game cuts save names after 16 characters, and every copy on one
  * PC shares the folder, so the name carries 4 hex digits of this copy's player id.
+ *
+ * The host also records how far the session has got (each level start and checkpoint, in
+ * [h<id>] p_level / p_cp, with the newest save number at that moment in p_after): where the
+ * game cannot save (Max's tutorial at the start of level 2), resuming the newest save would
+ * go back a whole level, and the checkpoint is the better place to resume.
  */
 #include <stdio.h>
 #include <string.h>
@@ -107,6 +112,37 @@ static unsigned int highest_no(unsigned int host)
     if (rec_read(host, 'b', &r) && r.no > n)
         n = r.no;
     return n;
+}
+
+/* coop_progress(level, checkpoint): host has got this far */
+static void l_coop_progress(void)
+{
+    char path[MAX_PATH], sect[16], val[16];
+
+    ini_path(path);
+    snprintf(sect, sizeof(sect), "h%08x", my_id);
+    snprintf(val, sizeof(val), "%d", (int)num_param(1));
+    WritePrivateProfileStringA(sect, "p_level", val, path);
+    snprintf(val, sizeof(val), "%d", (int)num_param(2));
+    WritePrivateProfileStringA(sect, "p_cp", val, path);
+    snprintf(val, sizeof(val), "%u", highest_no(my_id));
+    WritePrivateProfileStringA(sect, "p_after", val, path);
+}
+
+/* coop_progress_get() -> level, checkpoint, newest save number then; nil if none */
+static void l_coop_progress_get(void)
+{
+    char path[MAX_PATH], sect[16];
+    int level;
+
+    ini_path(path);
+    snprintf(sect, sizeof(sect), "h%08x", my_id);
+    level = (int)GetPrivateProfileIntA(sect, "p_level", 0, path);
+    if (level < 1)
+        return;
+    lua_pushnumber(level);
+    lua_pushnumber((int)GetPrivateProfileIntA(sect, "p_cp", 0, path));
+    lua_pushnumber((int)GetPrivateProfileIntA(sect, "p_after", 0, path));
 }
 
 /* ---- Lua ---- */
@@ -250,4 +286,6 @@ void saves_lua_init(void)
     tolua_function(NULL, "coop_host_status", l_coop_host_status);
     tolua_function(NULL, "coop_netblock", l_coop_netblock);
     tolua_function(NULL, "coop_time", l_coop_time);
+    tolua_function(NULL, "coop_progress", l_coop_progress);
+    tolua_function(NULL, "coop_progress_get", l_coop_progress_get);
 }
