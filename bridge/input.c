@@ -371,8 +371,11 @@ static void cap_frame(void)
     last = now_ms();
 }
 
+/* Every frame shown: the HUD goes into the back buffer first; in test mode, the frame cap
+ * and screenshots */
 static BOOL WINAPI hook_SwapBuffers(HDC dc)
 {
+    hud_frame(dc);
     if (fps_cap > 0)
         cap_frame();
     if (shot_path[0]) {
@@ -416,6 +419,7 @@ void input_init(void)
     char ini[MAX_PATH];
 
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
+    patch_import("gdi32.dll", "SwapBuffers", (void *)hook_SwapBuffers);
     test_background = GetPrivateProfileIntA("test", "background", 0, ini);
     if (!test_background)
         return;
@@ -428,7 +432,6 @@ void input_init(void)
     patch_import("user32.dll", "ShowWindow", (void *)hook_ShowWindow);
     patch_import("user32.dll", "SetWindowPos", (void *)hook_SetWindowPos);
     patch_import("user32.dll", "SetWindowPlacement", (void *)hook_SetWindowPlacement);
-    patch_import("gdi32.dll", "SwapBuffers", (void *)hook_SwapBuffers);
     logmsg("test: background mode at %d, %d, %d fps (scripted input only, window never activated)",
            place_x, place_y, fps_cap);
 }

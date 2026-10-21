@@ -75,7 +75,8 @@ Options > Co-op (on the title screen, or Esc > Options while playing):
 - Session: your name, host or join, the host's address, and on the host "Resume co-op"
   and "Save now".
 - Gameplay (the host's settings count): friendly fire, tougher enemies for more players,
-  how often co-op saves are made, modern controls (Space jumps, right mouse snipes) and
+  how often co-op saves are made, players on screen (names over heads and a panel with
+  everyone's health), modern controls (Space jumps, right mouse snipes) and
   developer keys (off: the F-keys are developer shortcuts that change the level for
   everyone; F2 always puts a marker in the logs when you want to report something).
 

@@ -205,6 +205,7 @@ function coop.Tick()
     coop_recv()
     coop.HandleEvents()
     coop.WaitTick()
+    coop.HudTick()
     coop.PendingSaveTick()
     if (coop_role() == "host") then coop.SaveTick() end
     if (not p or not coop.level or coop.level < 1) then return end
@@ -215,6 +216,17 @@ function coop.Tick()
         if (s ~= me) then coop.UpdatePuppet(p, s) end
         s = s + 1
     end
+end
+
+-- the players panel ([hud] show, Options > Co-op > Gameplay): in a level, no menu up --
+coop.hud_on = (coop_get("hud", "show", "1") == "1")
+function coop.HudTick()
+    local show = 0
+    if (coop.hud_on and coop.level and coop.level >= 1 and not coop.waiting and
+        not (gamecontrol and gamecontrol.showmenu == 1)) then
+        show = 1
+    end
+    coop_hud(show, mdkGetCameraGob())
 end
 
 -- slot whose puppet gob is, or nil --
@@ -979,6 +991,13 @@ function coop.BuildGame()
     item.Select = function(self, n)
         coop_set("controls", "modern", n)
         coop.ApplyControls(n == 1)
+    end
+
+    item = mdkCreateMenuItem(m, "Players on screen")
+    mdkMenuItemAddCheckBox(item, tonumber(coop_get("hud", "show", "1")) or 1)
+    item.Select = function(self, n)
+        coop_set("hud", "show", n)
+        coop.hud_on = (n == 1)
     end
 
     item = mdkCreateMenuItem(m, "Developer keys")

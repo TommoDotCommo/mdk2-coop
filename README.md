@@ -145,6 +145,16 @@ number, in two alternating files (`save\c<id><a|b>.sav`, recorded in `coop\saves
   (each level start and checkpoint) is newer than its last save, and Resume starts that checkpoint
   instead of going back a level.
 
+On screen (`bridge/hud.c`, Options > Co-op > Gameplay > Players on screen, `[hud] show`): a panel at
+the top left with each other player's number, name, health bar and hp, character, distance (game
+units; Kurt is about 1.45 tall) and ping, "loading" while they are not in our level; and a name tag over
+each partner's head, pinned to the screen edge with an arrow when they are out of view, stacked when
+they overlap. Drawn into the back buffer in the SwapBuffers hook (screenshots include it) with the
+fixed-function pipeline of the game's legacy GL context (Windows font through wglUseFontBitmaps), with
+the game's shader program, framebuffer, texture unit, matrices and attributes put back. The tags
+project through the game's camera gob (`mdkGetCameraGob`: looks along its +y, +z up) with a 64 degree
+vertical field of view, measured from puppets at known spots. Hidden under menus. `tools/qa_hud.sh`.
+
 Options > Co-op (the game's own menus, on the title screen and in the pause menu's Options):
 - Players: everyone connected, with player number, name and ping (the host measures every client, a
   client its host).

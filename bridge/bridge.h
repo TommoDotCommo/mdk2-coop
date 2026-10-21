@@ -180,6 +180,8 @@ int player_connected(int slot);
 int player_in_level(int slot);
 const char *player_name(int slot);
 int player_ping(int slot);
+void player_health(int slot, int *hp, int *hp_max);
+extern int local_max_hp;
 void net_set_name(const char *name);
 int net_retarget(const char *host, int port);
 unsigned int host_id(void);
@@ -247,6 +249,11 @@ void settings_lua_init(void);
 /* ---- saves.c ---- */
 
 void saves_lua_init(void);
+
+/* ---- hud.c ---- */
+
+void hud_frame(HDC dc);
+void hud_lua_init(void);
 
 /* ---- frame.c ---- */
 

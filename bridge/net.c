@@ -24,7 +24,7 @@
 #include <math.h>
 #include "bridge.h"
 
-#define PLAYER_MAGIC    0x384b444d      /* "MDK8" */
+#define PLAYER_MAGIC    0x394b444d      /* "MDK9" */
 #define PACKET_EVENTS   7      /* 7 x 128-byte events + player state fit in one datagram */
 #define MAX_DATAGRAM    1400
 #define PLAYER_TIMEOUT_MS 10000.0
@@ -49,6 +49,7 @@ struct player_packet {
     unsigned char level;        /* level of the state; a state from another level is ignored */
     unsigned short epoch;
     short player_type;          /* OBJ type of that player (Kurt, Max, Doc, Hyde) */
+    short hp, hp_max;           /* that player's hp, and the most it has had this level */
     struct snap state;
     unsigned int ack;           /* highest event id received in order on this link */
     unsigned char nevents;
@@ -124,6 +125,7 @@ struct player {
     unsigned short epoch;
     unsigned int seq;           /* latest state number */
     int type;                   /* OBJ type of their character, 0 if unknown */
+    int hp, hp_max;
     double clock_offset;        /* their clock - ours, least-delayed estimate */
     int have_clock;
     struct track track;
@@ -309,6 +311,13 @@ const char *player_name(int slot)
     if (slot == my_slot)
         return my_name;
     return player_connected(slot) ? players[slot].name : "";
+}
+
+/* A player's latest hp and highest hp this level (0, 0 unknown) */
+void player_health(int slot, int *hp, int *hp_max)
+{
+    *hp = player_connected(slot) ? players[slot].hp : 0;
+    *hp_max = player_connected(slot) ? players[slot].hp_max : 0;
 }
 
 int player_ping(int slot)
@@ -782,6 +791,8 @@ void net_send_player(BYTE *gob)
     if (gob) {
         p.flags = PK_STATE;
         p.player_type = (short)gob_type(gob);
+        p.hp = (short)gob_hp(gob);
+        p.hp_max = (short)(local_max_hp > p.hp ? local_max_hp : p.hp);
         snap_capture(gob, &p.state);
     }
     for (s = 0; s < MAX_PLAYERS; s++) {
@@ -839,6 +850,8 @@ static void accept_state(int slot, const struct player_packet *p, double arrived
     if ((p->flags & PK_STATE) && p->level == (unsigned char)cur_level && p->epoch == cur_epoch &&
         p->state.nanims <= SNAP_ANIMS) {
         pl->type = p->player_type;
+        pl->hp = p->hp;
+        pl->hp_max = p->hp_max;
         clock_sample(pl, p->state.time, arrived);
         track_add(&pl->track, &p->state);
     }

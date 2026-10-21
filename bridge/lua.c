@@ -12,7 +12,7 @@
 #define DEAL_DAMAGE_ADDR    0x40d590
 static const BYTE deal_damage_prologue[5] = { 0x55, 0x8b, 0x6c, 0x24, 0x0c };
 deal_damage_t deal_damage_orig;     /* trampoline into the original */
-static int max_hp;                  /* our player's highest hp seen this level: revive to this */
+int local_max_hp;                   /* our player's highest hp seen this level: revive to this */
 static char apply_from[EV_NAME];    /* attacker named in the event coop_event last returned */
 static int apply_slot;              /* and the slot of the player who sent it */
 static int applying_hit;            /* host: inside EV_HIT, damage from that player's puppet is real */
@@ -52,11 +52,11 @@ static void damage_local_player(void *from, int damage, int type, int part)
     /* none of the hit is applied: some damage types start the death sequence whatever the
      * hp (lava, 0x40, still reloaded the checkpoint when 99 of 500 got through) */
     info = *(BYTE **)(local_player + GOB_INFO);
-    if (info && max_hp > 0)
-        *(short *)(info + 0x12) = (short)max_hp;
+    if (info && local_max_hp > 0)
+        *(short *)(info + 0x12) = (short)local_max_hp;
     gob_set_position(local_player, ((float *)(puppet + GOB_POSITION))[0], ((float *)(puppet + GOB_POSITION))[1],
                      ((float *)(puppet + GOB_POSITION))[2]);
-    logmsg("down: %d damage (type 0x%x) on %d hp; revived at the partner with %d hp", damage, type, hp, max_hp);
+    logmsg("down: %d damage (type 0x%x) on %d hp; revived at the partner with %d hp", damage, type, hp, local_max_hp);
 }
 
 /* Client: is this attacker one of the host's (an actor or a projectile)? */
@@ -153,8 +153,8 @@ static void l_coop_send(void)
     int hp;
 
     local_player = gob;
-    if (gob && (hp = gob_hp(gob)) > max_hp)
-        max_hp = hp;
+    if (gob && (hp = gob_hp(gob)) > local_max_hp)
+        local_max_hp = hp;
     net_send_player(gob);
     if (gob)
         rooms_check_fall();
@@ -374,7 +374,7 @@ static void l_coop_level(void)
     net_level_reset(announce);
     memset(puppets, 0, sizeof(puppets));
     local_player = NULL;
-    max_hp = 0;
+    local_max_hp = 0;
     if (announce) {
         event_init(&e, EV_LEVEL);
         e.damage = (short)cp;
@@ -636,5 +636,6 @@ void l_coop_init(void)
     frame_init();
     saves_lua_init();
     settings_lua_init();
+    hud_lua_init();
     run_mod_script();
 }
