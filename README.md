@@ -86,7 +86,8 @@ It forwards DirectInput to the system DLL and adds Lua functions to the game:
 
 Enemies (`OBJ` types 200-259): the host scans the engine's gob table and announces each actor with
 a reliable SPAWN (network id = its gob handle; unnamed ones are called `n<id>`), then sends position,
-rotation and animation `ent_hz` (15) times a second; DESPAWN when it goes away. The client binds each to
+rotation and animation up to `ent_hz` (15) times a second, but only while the enemy changes (two more after
+it stops, then one a second while it rests: most are in sleeping rooms); DESPAWN when it goes away. The client binds each to
 its own gob of the same name, or creates one, skips the AI ("think" slot) of their classes, draws them
 from the host's snapshots, and deletes actors its own spawners make that the host never announced.
 
@@ -186,7 +187,16 @@ lower is smoother).
 
 UDP on localhost/LAN is a stand-in; Steam relay networking comes later.
 
-Untested: changing options in game probably rewrites settings.lua and drops the injection; if so, rerun the script.
+Network traffic. Snapshots go out compact (`snap_encode` in net.c): position, rotation as 4 x int16, and
+of each running animation only its non-zero values, play positions and weight as 16-bit numbers; a
+`struct snap` in memory is ~390 bytes, a resting enemy on the wire 23 and a running animation ~30. The
+host relays the other players' states to each client in one bundle per send tick ("MDKR"), with names
+about once a second. Packet magics are the protocol version: "MDKA" player, "MDKF" enemies, "MDKR"
+relays; builds that differ ignore each other. `bridge/netstats.c` logs `net out:` every 10 s (kbit/s by
+kind, per link). `MDK2_N=8 tools/netmeasure.sh [level checkpoint]` measures the host's upload at 2-1
+(71 enemies) while everyone stands and while everyone moves. 2026-10-21, 8 players at 2-1, everyone moving:
+27.0 Mbit/s before (enemies 21.7, relayed states 4.6), 1.3 Mbit/s (enemies 0.1, relay bundles 0.9, own state 0.3) after; a client uploads ~36 kbit/s.
+`MDK2_SIM="80 30 3" tools/<suite>.sh` runs a suite with 80 ms latency, 30 ms jitter and 3% loss in every game.
 
 ## Manual playtest on one PC
 
@@ -231,9 +241,15 @@ games running from its own copies. 2026-10-21: qa.sh 30/30, qa_n.sh 38/38 with 3
 with 8 (~370 MB per game), qa_save.sh 41/41 with 8; after adding the resume-at-checkpoint case, 38/38 with 3.
 
 Checkpoint sweep: `tools/sweep.sh [from] [to]` visits every checkpoint of the debug menu's list (96)
-with MDK2_N games (default 2), has everyone walk and fire and every client land a hit, then checks that all
-followed, all alive, puppets, every client bound the host's enemies, hp equal, no Lua errors, and diffs
-every game's world against the host's. About 55 minutes with two; `local/sweeps/<date>/results.md`.
+with MDK2_N games (default 2), has everyone walk and fire and every client land a hit (all games at
+once), then checks that all followed, all alive, puppets, every client bound the host's enemies, hp
+equal, no Lua errors, and diffs every game's world against the host's; `local/sweeps/<date>/results.md`.
+It waits on conditions, not fixed sleeps: until every client has bound every announced enemy, and
+until hits and revives stop showing up. A state difference is checked again 1.5 s later; one that is
+gone by then is reported as "transient" (a revive's teleport caught mid-way), not as a failure.
+Screenshots only where something failed (`MDK2_SHOTS=1`: always). `MDK2_SHARDS=4` runs four sets of
+games side by side on their own runs of checkpoints (copies 1..4*MDK2_N, ports +10 per set) and merges
+the results: about 4 minutes (236 s) for all 96 with two games per set, against 35 min one at a time before.
 2026-10-21: with `MDK2_N=3`, 1-1 .. 1-3 and 8-4 .. 8-5 all clean (every client bound every enemy, equal hp, no state differences).
 
 Last runs (2026-10-20, Steam build 3902, level 1 cp 2): 21/21 on plain localhost (after the first

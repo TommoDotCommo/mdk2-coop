@@ -13,7 +13,7 @@ import sys
 
 def load(path):
     s = {"level": None, "me": None, "player": None, "puppet": {}, "ent": {}, "gone": set(), "actor": [],
-         "item": {}, "door": {}}
+         "item": {}, "unplaced": 0, "door": {}}
     for line in open(path, encoding="latin-1"):
         f = line.split()
         if not f:
@@ -34,6 +34,12 @@ def load(path):
         elif k == "actor":
             s["actor"].append((int(f[1]), int(f[2]), tuple(map(float, f[3:6])), " ".join(f[6:])))
         elif k == "item":
+            # an item at exactly (0, 0, 0) is not placed yet: a gob caught while being made,
+            # still carrying its slot's old name ("chute" with item types 314, 323, 331 in
+            # three sweeps, on either side); counted apart and only warned about
+            if all(float(v) == 0.0 for v in f[2:5]):
+                s["unplaced"] += 1
+                continue
             name = " ".join(f[5:])
             s["item"][name] = s["item"].get(name, 0) + 1
         elif k == "door":
@@ -117,6 +123,8 @@ def compare_world(h, c, cn, tol, fail, warn):
         for t, hp, pos, name in h["actor"]:
             warn(f"host actor {name} (type {t}) not announced yet")
 
+    if h["unplaced"] or c["unplaced"]:
+        warn(f"items not placed yet (at 0,0,0): {h['unplaced']} on host, {c['unplaced']} on {cn}")
     # items: by name, counts
     for name in sorted(set(h["item"]) | set(c["item"])):
         if h["item"].get(name, 0) != c["item"].get(name, 0):

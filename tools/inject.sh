@@ -14,6 +14,9 @@ begin='-- >>> mdk2-coop >>>'
 end='-- <<< mdk2-coop <<<'
 
 [ -f "$settings" ] || { echo "no settings.lua at $settings (run the game once)"; exit 1; }
+# every game copy shares settings.lua: parallel installs (sweep shards) take turns editing it
+exec 9> /tmp/mdk2-inject.lock
+flock 9
 [ -f "$settings.coop-backup" ] || cp "$settings" "$settings.coop-backup"
 
 sed -i "/^$begin/,/^$end/d" "$settings"
