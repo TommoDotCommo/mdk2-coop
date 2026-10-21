@@ -406,10 +406,19 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
     return CallWindowProcA(wndproc_orig, wnd, msg, wp, lp);
 }
 
+/* The game's windows: the launcher runs before the first one; in background and couch mode they are
+ * placed and never activated */
 static HWND WINAPI hook_CreateWindowExA(DWORD ex, LPCSTR cls, LPCSTR name, DWORD style, int x, int y,
                                         int w, int h, HWND parent, HMENU menu, HINSTANCE inst, LPVOID param)
 {
+    static int launched;
     HWND wnd;
+    if (!parent && !launched) {
+        launched = 1;
+        launcher_run();
+    }
+    if (!synth)
+        return CreateWindowExA(ex, cls, name, style, x, y, w, h, parent, menu, inst, param);
     if (!parent) {
         x = place_x;
         y = place_y;
@@ -603,6 +612,7 @@ void input_init(void)
 
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
     patch_import("gdi32.dll", "SwapBuffers", (void *)hook_SwapBuffers);
+    patch_import("user32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA);
     test_background = GetPrivateProfileIntA("test", "background", 0, ini);
     /* [couch]: this game is player slot+1 of count on one screen, window at x, y of w x h, played
      * with gamepad `pad` (default slot); see pad.c and tools/win/couch.ps1 */
@@ -632,7 +642,6 @@ void input_init(void)
         fps_cap = GetPrivateProfileIntA("test", "fps", 60, ini);
     }
     timeBeginPeriod(1);     /* Sleep(1) granularity for the cap */
-    patch_import("user32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA);
     patch_import("user32.dll", "SetWindowLongA", (void *)hook_SetWindowLongA);
     patch_import("user32.dll", "ShowWindow", (void *)hook_ShowWindow);
     patch_import("user32.dll", "SetWindowPos", (void *)hook_SetWindowPos);

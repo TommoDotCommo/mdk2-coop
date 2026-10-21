@@ -13,6 +13,13 @@ listen_port=27900
 peer_host=127.0.0.1
 peer_port=27900
 
+[launcher]
+; 0: start the game straight away (hold Shift while it starts to see the launcher anyway)
+show=1
+; the last choice in the launcher: host, join or solo (solo: co-op off for that start only).
+; Host or join is taken from [net] role, so the installer and Options > Co-op change it too.
+mode=host
+
 [sync]
 ; updates sent per second
 send_hz=30

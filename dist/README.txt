@@ -15,9 +15,18 @@ Install
    - It finds MDK2 HD in your Steam libraries (or asks for the folder) and checks the
      game version. If the version is different it stops and changes nothing.
    - Choose steam (the default for new installs) or udp, then host or join.
-3. Start MDK2 HD from Steam as usual.
+3. Start MDK2 HD from Steam as usual. The co-op launcher opens first.
 
-Run Install.cmd again at any time to switch between hosting and joining, or to
+The launcher
+------------
+Before the game starts you choose Host a game, Join a friend or Play solo (plain
+MDK2 HD, co-op off for that start), Steam or direct UDP, the host's address or
+lobby ID, your name, co-op settings, and windowed/fullscreen and resolution. The
+About page has the version and links. Enter starts the game, Esc quits.
+Don't want it? Settings > Show at start: Off. Hold Shift while the game starts
+to bring it back. Accepting a Steam invite skips it and joins straight away.
+
+You can also run Install.cmd again to switch between hosting and joining, or to
 change the transport or address. Existing installs keep their previous transport.
 
 If Windows shows "Windows protected your PC", click "More info" > "Run anyway".
