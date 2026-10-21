@@ -131,7 +131,7 @@ struct track {
 };
 
 enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY,
-       EV_REVIVE, EV_RESPAWN, EV_DIED };
+       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_RULES };
 #define EV_NAME 32
 /* FIRE part: 0 replays create_object arguments; 1 restores a launched class 5 shot. */
 #define FIRE_LAUNCHED 1
@@ -304,6 +304,17 @@ void shots_reset(void);
 
 extern int cfg_friendly_fire;   /* [game] friendly_fire: players' hits hurt other players */
 extern int cfg_enemy_scale;     /* [game] enemy_scale: % more enemy hp per extra player (host) */
+extern int cfg_enemy_hp;        /* [game] enemy_hp: % of an enemy's normal hp (host) */
+/* The rules every player plays by: the host's [game] values, sent to the clients */
+extern int rule_dmg_taken;      /* % of the damage the world deals to players */
+extern int rule_dmg_dealt;      /* % of the damage players deal to the world */
+extern int rule_down_secs;      /* bleed-out time while downed */
+extern int rule_revive_secs;    /* revive key hold time */
+int scale_damage(int damage, int percent);
+void rules_fill(struct event *e);
+void rules_event(const struct event *e);
+void rules_broadcast(void);
+void settings_start(void);
 void settings_init(const char *ini);
 void settings_lua_init(void);
 

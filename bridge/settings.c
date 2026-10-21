@@ -4,7 +4,9 @@
  * one key and keeps the rest of the file (the player installer writes the [net] keys).
  *
  *   [net]      role, listen_port, peer_host, peer_port   (role and ports apply at the next start)
- *   [game]     friendly_fire=0|1, enemy_scale=<% more enemy hp per extra player>  (the host's count)
+ *   [game]     friendly_fire=0|1, enemy_scale=<% more enemy hp per extra player>  (the host's count),
+ *              enemy_hp=<% of normal>, dmg_taken=<%>, dmg_dealt=<%>, down_secs, revive_secs
+ *              (difficulty: the host's values rule; clients get them as EV_RULES)
  *   [save]     interval=<seconds between co-op saves>
  *   [controls] modern=1|0   (Space jumps, right mouse toggles sniper mode)
  *
@@ -17,6 +19,27 @@
 
 int cfg_friendly_fire;
 int cfg_enemy_scale = 50;
+int cfg_enemy_hp = 100;
+int rule_dmg_taken = 100;
+int rule_dmg_dealt = 100;
+int rule_down_secs = 30;
+int rule_revive_secs = 3;
+
+static int clamp(int v, int lo, int hi)
+{
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+/* a damage number scaled by a percentage; a hit that did anything still does at least 1 */
+int scale_damage(int damage, int percent)
+{
+    int d;
+
+    if (damage <= 0 || percent == 100)
+        return damage;
+    d = damage * percent / 100;
+    return d < 1 && percent > 0 ? 1 : d;
+}
 
 static char ini_path[MAX_PATH];
 
@@ -40,6 +63,49 @@ static void settings_load(void)
     cfg_enemy_scale = GetPrivateProfileIntA("game", "enemy_scale", 50, ini_path);
     if (cfg_enemy_scale < 0)
         cfg_enemy_scale = 0;
+    cfg_enemy_hp = clamp(GetPrivateProfileIntA("game", "enemy_hp", 100, ini_path), 10, 1000);
+    if (role_host) {
+        rule_dmg_taken = clamp(GetPrivateProfileIntA("game", "dmg_taken", 100, ini_path), 0, 1000);
+        rule_dmg_dealt = clamp(GetPrivateProfileIntA("game", "dmg_dealt", 100, ini_path), 10, 1000);
+        rule_down_secs = clamp(GetPrivateProfileIntA("game", "down_secs", 30, ini_path), 5, 600);
+        rule_revive_secs = clamp(GetPrivateProfileIntA("game", "revive_secs", 3, ini_path), 1, 30);
+    }
+}
+
+/* the rules go out as an event: percentages in type, times in extra[0] */
+void rules_fill(struct event *e)
+{
+    event_init(e, EV_RULES);
+    e->type = rule_dmg_taken | (rule_dmg_dealt << 16);
+    e->extra[0] = rule_down_secs | (rule_revive_secs << 16);
+}
+
+void rules_event(const struct event *e)
+{
+    if (role_host)
+        return;
+    rule_dmg_taken = clamp(e->type & 0xffff, 0, 1000);
+    rule_dmg_dealt = clamp((e->type >> 16) & 0xffff, 10, 1000);
+    rule_down_secs = clamp(e->extra[0] & 0xffff, 5, 600);
+    rule_revive_secs = clamp((e->extra[0] >> 16) & 0xffff, 1, 30);
+    logmsg("rules from the host: damage taken %d%%, dealt %d%%, down %d s, revive %d s", rule_dmg_taken,
+           rule_dmg_dealt, rule_down_secs, rule_revive_secs);
+}
+
+void rules_broadcast(void)
+{
+    struct event e;
+
+    if (!role_host)
+        return;
+    rules_fill(&e);
+    event_send(&e, TO_ALL);
+}
+
+/* once the role is known (net_open): the host's own rules */
+void settings_start(void)
+{
+    settings_load();
 }
 
 void settings_init(const char *ini)
@@ -47,6 +113,8 @@ void settings_init(const char *ini)
     snprintf(ini_path, sizeof(ini_path), "%s", ini);
     settings_load();
     logmsg("settings: friendly fire %d, enemy hp +%d%% per extra player", cfg_friendly_fire, cfg_enemy_scale);
+    logmsg("settings: enemy hp %d%%, damage taken %d%%, dealt %d%%, down %d s, revive %d s", cfg_enemy_hp,
+           rule_dmg_taken, rule_dmg_dealt, rule_down_secs, rule_revive_secs);
 }
 
 /* coop_get(section, key, default) -> the value in coop.ini, else default */
@@ -71,6 +139,8 @@ static void l_coop_set(void)
     snprintf(val, sizeof(val), "%s", str_param(3));
     WritePrivateProfileStringA(section, key, val, ini_path);
     settings_load();
+    if (!strcmp(section, "game"))
+        rules_broadcast();
     logmsg("setting [%s] %s = %s", section, key, val);
 }
 

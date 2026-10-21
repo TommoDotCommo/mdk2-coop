@@ -808,12 +808,14 @@ menu.coop = mdkCreateMenu(0.5, 0.25, 0.06, 0.06, 0.01, JUSTIFY_CENTER, 1)
 menu.coopplayers = mdkCreateMenu(0.5, 0.16, 0.045, 0.045, 0.005, JUSTIFY_CENTER, 1)
 menu.coopsession = mdkCreateMenu(0.5, 0.22, 0.05, 0.05, 0.01, JUSTIFY_CENTER, 1)
 menu.coopgame = mdkCreateMenu(0.7, 0.25, 0.05, 0.05, 0.01, JUSTIFY_RIGHT, 1)
+menu.coopdiff = mdkCreateMenu(0.7, 0.2, 0.045, 0.045, 0.005, JUSTIFY_RIGHT, 1)
 
 coop.pages = {
     coop = function() coop.BuildMain() end,
     coopplayers = function() coop.BuildPlayers() end,
     coopsession = function() coop.BuildSession() end,
     coopgame = function() coop.BuildGame() end,
+    coopdiff = function() coop.BuildDifficulty() end,
 }
 
 function coop.ShowPage(name)
@@ -1035,8 +1037,140 @@ menu.coopsession.Cancel = function()
 end
 
 -- gameplay page --
-coop.scales = { [0] = 0, [1] = 25, [2] = 50, [3] = 100 }
 coop.intervals = { [0] = 60, [1] = 120, [2] = 300, [3] = 600 }
+
+-- difficulty (this Lua is 3.1: no for loops, no getn): every setting is a [game] key; a preset is just a set of values for them, and
+-- the current preset is whichever one the keys match ("Custom" when none does) --
+coop.presets = {
+    { name = "Story",     friendly_fire = 0, enemy_hp = 75,  enemy_scale = 0,   dmg_taken = 50,  dmg_dealt = 100, down_secs = 60, revive_secs = 2 },
+    { name = "Normal",    friendly_fire = 0, enemy_hp = 100, enemy_scale = 50,  dmg_taken = 100, dmg_dealt = 100, down_secs = 30, revive_secs = 3 },
+    { name = "Hard",      friendly_fire = 0, enemy_hp = 125, enemy_scale = 75,  dmg_taken = 150, dmg_dealt = 100, down_secs = 20, revive_secs = 4 },
+    { name = "Nightmare", friendly_fire = 1, enemy_hp = 150, enemy_scale = 100, dmg_taken = 200, dmg_dealt = 100, down_secs = 10, revive_secs = 5 },
+}
+coop.diffkeys = { "friendly_fire", "enemy_hp", "enemy_scale", "dmg_taken", "dmg_dealt", "down_secs", "revive_secs" }
+-- the choices of each setting on the custom page, with how many there are --
+coop.diffopts = {
+    friendly_fire = { label = "Friendly fire",             values = { 0, 1 },                          texts = { "Off", "On" }, n = 2 },
+    enemy_hp      = { label = "Enemy health",              values = { 50, 75, 100, 125, 150, 200, 300 }, texts = { "50%", "75%", "100%", "125%", "150%", "200%", "300%" }, n = 7 },
+    enemy_scale   = { label = "More health per player",    values = { 0, 25, 50, 75, 100, 150, 200 },    texts = { "Off", "+25%", "+50%", "+75%", "+100%", "+150%", "+200%" }, n = 7 },
+    dmg_taken     = { label = "Damage you take",           values = { 25, 50, 75, 100, 150, 200, 300 },  texts = { "25%", "50%", "75%", "100%", "150%", "200%", "300%" }, n = 7 },
+    dmg_dealt     = { label = "Damage you deal",           values = { 50, 75, 100, 125, 150, 200 },      texts = { "50%", "75%", "100%", "125%", "150%", "200%" }, n = 6 },
+    down_secs     = { label = "Time before bleeding out",  values = { 10, 20, 30, 45, 60, 120 },         texts = { "10 s", "20 s", "30 s", "45 s", "60 s", "2 min" }, n = 6 },
+    revive_secs   = { label = "Time to revive",            values = { 1, 2, 3, 4, 5, 8 },                texts = { "1 s", "2 s", "3 s", "4 s", "5 s", "8 s" }, n = 6 },
+}
+
+function coop.DiffGet(key)
+    local normal = coop.presets[2][key]
+    return tonumber(coop_get("game", key, normal)) or normal
+end
+
+-- index (1-based) of the preset the settings match, or nil --
+function coop.PresetIndex()
+    local i = 1
+    while (coop.presets[i]) do
+        local match = 1
+        local k = 1
+        while (coop.diffkeys[k]) do
+            local key = coop.diffkeys[k]
+            if (coop.DiffGet(key) ~= coop.presets[i][key]) then match = nil end
+            k = k + 1
+        end
+        if (match) then return i end
+        i = i + 1
+    end
+    return nil
+end
+
+function coop.PresetName()
+    local i = coop.PresetIndex()
+    if (i) then return coop.presets[i].name end
+    return "Custom"
+end
+
+function coop.SetPreset(i)
+    local k = 1
+    while (coop.diffkeys[k]) do
+        coop_set("game", coop.diffkeys[k], coop.presets[i][coop.diffkeys[k]])
+        k = k + 1
+    end
+end
+
+-- the combo position (0-based) of a setting's current value; one not in the list (edited
+-- coop.ini) shows as the nearest choice below it --
+function coop.DiffAt(key)
+    local opt = coop.diffopts[key]
+    local at, v, n = 0, coop.DiffGet(key), 1
+    while (n <= opt.n) do
+        if (opt.values[n] <= v) then at = n - 1 end
+        n = n + 1
+    end
+    return at
+end
+
+-- after any change: every row and the Preset row show what the settings are now. The rows
+-- are changed in place; rebuilding the page from inside a row's own handler is not safe. --
+function coop.RefreshDifficulty()
+    local k = 1
+    while (coop.diffkeys[k]) do
+        mdkMenuItemSetWidgitValue(coop.diffrows[coop.diffkeys[k]], coop.DiffAt(coop.diffkeys[k]))
+        k = k + 1
+    end
+    mdkMenuItemSetWidgitValue(coop.diffpreset, (coop.PresetIndex() or 5) - 1)
+end
+
+-- difficulty page: the presets, then each setting on its own --
+function coop.BuildDifficulty()
+    local m = menu.coopdiff
+    mdkClearMenu(m)
+    coop.Heading(m, "Difficulty")
+
+    local item = mdkCreateMenuItem(m, "Preset")
+    mdkMenuItemAddComboBox(item)
+    local i = 1
+    while (coop.presets[i]) do
+        mdkMenuItemAddComboString(item, coop.presets[i].name)
+        i = i + 1
+    end
+    mdkMenuItemAddComboString(item, "Custom")
+    mdkMenuItemSetWidgitValue(item, (coop.PresetIndex() or i) - 1)
+    coop.diffpreset = item
+    item.Inc = function(self)
+        local n = mdkMenuItemGetWidgitValue(self) + 1
+        if (coop.presets[n]) then
+            coop.SetPreset(n)
+            coop.RefreshDifficulty()
+        end
+    end
+    item.Dec = item.Inc
+
+    coop.diffrows = {}
+    local k = 1
+    while (coop.diffkeys[k]) do
+        local key = coop.diffkeys[k]
+        local opt = coop.diffopts[key]
+        local row = mdkCreateMenuItem(m, opt.label)
+        mdkMenuItemAddComboBox(row)
+        local n = 1
+        while (n <= opt.n) do
+            mdkMenuItemAddComboString(row, opt.texts[n])
+            n = n + 1
+        end
+        mdkMenuItemSetWidgitValue(row, coop.DiffAt(key))
+        coop.diffrows[key] = row
+        row.key = key
+        row.opt = opt
+        row.Inc = function(self)
+            coop_set("game", self.key, self.opt.values[mdkMenuItemGetWidgitValue(self) + 1])
+            coop.RefreshDifficulty()
+        end
+        row.Dec = row.Inc
+        k = k + 1
+    end
+
+    coop.BackItem(m, "coopgame")
+end
+
+menu.coopdiff.Cancel = function() coop.ShowPage("coopgame") end
 
 -- index of value in a 0-based table, or dflt --
 function coop.IndexOf(t, value, dflt)
@@ -1057,15 +1191,8 @@ function coop.BuildGame()
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "friendly_fire", "0")) or 0)
     item.Select = function(self, n) coop_set("game", "friendly_fire", n) end
 
-    item = mdkCreateMenuItem(m, "Tougher enemies")
-    mdkMenuItemAddComboBox(item)
-    mdkMenuItemAddComboString(item, "Off")
-    mdkMenuItemAddComboString(item, "+25%")
-    mdkMenuItemAddComboString(item, "+50%")
-    mdkMenuItemAddComboString(item, "+100%")
-    mdkMenuItemSetWidgitValue(item, coop.IndexOf(coop.scales, tonumber(coop_get("game", "enemy_scale", "50")), 2))
-    item.Inc = function(self) coop_set("game", "enemy_scale", coop.scales[mdkMenuItemGetWidgitValue(self)]) end
-    item.Dec = item.Inc
+    item = mdkCreateMenuItem(m, "Difficulty: " .. coop.PresetName())
+    item.Select = function(self) coop.ShowPage("coopdiff") end
 
     item = mdkCreateMenuItem(m, "Co-op save every")
     mdkMenuItemAddComboBox(item)

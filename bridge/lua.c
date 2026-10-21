@@ -96,6 +96,19 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
             logmsg("friendly fire off: player %d's hit on %s dropped", from_slot + 1, name);
             return;
         }
+        /* difficulty: what the world does to players, and what players do to the world */
+        {
+            int scaled = damage;
+
+            if (from_slot < 0 && (target_slot >= 0 || target == local_player))
+                scaled = scale_damage(damage, rule_dmg_taken);
+            else if (from_slot >= 0 && target_slot < 0 && target != local_player)
+                scaled = scale_damage(damage, rule_dmg_dealt);
+            if (scaled != damage) {
+                logmsg("difficulty: %s -> %s damage %d -> %d", fromname, name, damage, scaled);
+                damage = scaled;
+            }
+        }
         if (target_slot >= 0) {
             snprintf(name, sizeof(name), "@p%d", target_slot + 1);
             event_queue_from(target_slot, EV_HURT, name, from, damage, type, part);
@@ -116,6 +129,8 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         /* enemies and their shots are mirrors of the host's; the host sends their hits as HURT */
         if (from_host_world(from))
             return;
+        if (attacker_slot(from) < 0)        /* lava and the like: ours to scale; the host's attackers come scaled */
+            damage = scale_damage(damage, rule_dmg_taken);
         damage_local_player(from, damage, type, part);
         return;
     }
@@ -235,6 +250,8 @@ static void l_coop_event(void)
             shots_replay(&e);
         else if (e.kind == EV_MARK)
             logmsg("lua: MARK %d (from player %d)", e.damage, from + 1);
+        else if (e.kind == EV_RULES)
+            rules_event(&e);
         else if (e.kind == EV_STATE)
             state_dump(e.name);     /* whatever level we are in: a mismatch is what it is for */
         else if (e.kind == EV_READY && role_host) {
@@ -670,6 +687,7 @@ void l_coop_init(void)
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
     settings_init(ini);
     net_open(ini);
+    settings_start();
     deal_damage_orig = hook_code((BYTE *)DEAL_DAMAGE_ADDR, deal_damage_prologue, 5, deal_damage_hook);
     logmsg("coop_init: lua functions registered, damage hook %s", deal_damage_orig ? "installed" : "NOT installed");
     shots_init();

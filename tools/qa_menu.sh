@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Options > Co-op checks with MDK2_N (default 3) games in background test mode: the menu
 # reached with real key presses, names, friendly fire (the host's setting, both ways), tougher
-# enemies, a client changing host address live, modern controls, and settings kept across a
+# enemies, difficulty presets and the rules they send, a client changing host address live, modern controls, and settings kept across a
 # restart. Screenshots of every page go to the output folder.
 #   MDK2_N=3 tools/qa_menu.sh
 # Game copies: see tools/mdk.sh. About 3 minutes.
@@ -45,7 +45,7 @@ mdk_shot "$HP" "$out/page_coop.png"
 mdk_key "$HP" 208 1; mdk_key "$HP" 28; sleep 2           # Players
 check "Players page opens"                              wait_log $H "^lua: menu: coopplayers" 5
 mdk_shot "$HP" "$out/page_players.png"
-for pg in coopsession coopgame; do lua 1 "coop.ShowPage(\"$pg\")"; sleep 1; mdk_shot "$HP" "$out/page_$pg.png"; done
+for pg in coopsession coopgame coopdiff; do lua 1 "coop.ShowPage(\"$pg\")"; sleep 1; mdk_shot "$HP" "$out/page_$pg.png"; done
 lua 1 'HideMenu() mdkPauseGame(0)'
 
 # 2. names: set on the last client, seen in the others' player lists
@@ -82,6 +82,39 @@ base=$(hp_of 1 coop_dog1); tough=$(hp_of 1 coop_dog2)
 want=$((base + base * 50 * (MDK2_N - 1) / 100))
 check "tougher enemy: $tough hp = $base + 50% x $((MDK2_N - 1))" test "$tough" = "$want"
 check "client 2 has the same hp for it"                 test "$(hp_of 2 'coop_gob("coop_dog2") or coop_dog2')" = "$tough"
+
+# 4a. difficulty: presets and Custom, the rules reaching the clients, then what they do
+lua 1 'coop_log("PRESET " .. coop.PresetName())'; sleep 0.5
+check "default settings read as the Normal preset"      has 1 "^lua: PRESET Normal"
+lua 1 'coop.SetPreset(4)'; sleep 1
+check "Nightmare preset written to coop.ini"            test "$(ini 1 dmg_taken coop.ini)-$(ini 1 down_secs coop.ini)-$(ini 1 friendly_fire coop.ini)" = "200-10-1"
+lua 1 'coop_log("PRESET " .. coop.PresetName())'; sleep 0.5
+check "and read back as Nightmare"                      has 1 "^lua: PRESET Nightmare"
+check "client 2 got the rules from the host"            has 2 "^rules from the host: damage taken 200%, dealt 100%, down 10 s, revive 5 s"
+check "the last client too"                             has $L "^rules from the host: damage taken 200%, dealt 100%, down 10 s, revive 5 s"
+lua 1 'coop_set("game", "dmg_taken", 75) coop_log("PRESET " .. coop.PresetName())'; sleep 0.5
+check "one value changed: Custom"                       has 1 "^lua: PRESET Custom"
+# damage taken (the world's hits on players), at 200%: the host's player, then a client's
+lua 1 'coop_set("game", "dmg_taken", 200)'; sleep 0.5
+lua 1 'mdkDealDamage(coop_dog1, mdkGetPlayerGob(), 7, 2, -1)'; sleep 2   # a size the Doganboys never deal
+check "damage taken 200%: host's player took 14 of a 7 hit" has 1 "^difficulty: coop_dog1 -> .* damage 7 -> 14"
+c1=$(hp_of $L "mdkGetPlayerGob()")
+lua 1 "mdkDealDamage(coop_dog1, coop_gob(\"@p$lastnum\"), 5, 2, -1)"; sleep 2
+check "damage taken 200%: client lost 10 too"           test "$(hp_of $L 'mdkGetPlayerGob()')" = "$((c1 - 10))"
+lua 1 'coop_set("game", "dmg_taken", 50)'; sleep 0.5
+lua 1 'mdkDealDamage(coop_dog1, mdkGetPlayerGob(), 9, 2, -1)'; sleep 2
+check "damage taken 50%: host's player took 4 of a 9 hit" has 1 "^difficulty: coop_dog1 -> .* damage 9 -> 4"
+# damage dealt (players' hits on the world), at 200%
+lua 1 'coop_set("game", "dmg_taken", 100) coop_set("game", "dmg_dealt", 200)'; sleep 0.5
+d0=$(hp_of 1 coop_dog2)
+lua 1 'mdkDealDamage(mdkGetPlayerGob(), coop_dog2, 5, 1, -1)'; sleep 2
+check "damage dealt 200%: enemy lost 10 of a 5 hit"     test "$(hp_of 1 coop_dog2)" = "$((d0 - 10))"
+# enemy health: 200% of normal, no per-player bonus
+lua 1 'coop_set("game", "dmg_dealt", 100) coop_set("game", "enemy_hp", 200) coop_set("game", "enemy_scale", 0)'
+mdk_key "$HP" 63; sleep 3                                     # F5: coop_dog3
+check "enemy health 200%: $(hp_of 1 coop_dog3) hp = 2 x $base" test "$(hp_of 1 coop_dog3)" = "$((base * 2))"
+lua 1 'coop.SetPreset(2)'; sleep 1                            # back to Normal for the rest
+check "back to the Normal preset"                       bash -c "test '$(ini 1 enemy_hp coop.ini)-$(ini 1 dmg_taken coop.ini)' = '100-100'"
 
 # 4b. developer keys off: F5 spawns nothing; on again: it does
 lua 1 'coop_set("controls", "devkeys", 0) coop.ApplyDevKeys(nil)'
