@@ -81,7 +81,7 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
     gob_netname(target, name, sizeof(name));
     logmsg("damage %s -> %s %d type 0x%x part %d", fromname, name, damage, type, part);
 
-    if (sock == INVALID_SOCKET || !have_remote) {
+    if (!net_ready() || !have_remote) {
         deal_damage_orig(from, target, damage, type, part);
         return;
     }

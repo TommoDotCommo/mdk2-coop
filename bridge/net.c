@@ -1,5 +1,5 @@
 /*
- * Network: UDP, star-shaped. The host (slot 0) talks to every client; a client talks to
+ * Network: UDP or Steam messages, star-shaped. The host (slot 0) talks to every client; a client talks to
  * the host only. Each sends its player state at send_hz in a player packet, which also
  * carries that link's reliable events and ack. The host passes each client's state on to
  * the other clients (relayed packets: state only). Entity snapshots have their own packet
@@ -163,7 +163,8 @@ int cur_level = -1;
 int cur_cp;
 unsigned short cur_epoch;
 int have_remote;
-SOCKET sock = INVALID_SOCKET;
+static SOCKET sock = INVALID_SOCKET;
+int net_steam;
 BYTE *local_player;             /* last gob passed to coop_send */
 BYTE *puppets[MAX_PLAYERS];
 
@@ -182,6 +183,7 @@ static int host_changed;                /* client: the host restarted since the 
 struct link {
     int used;
     struct sockaddr_in addr;
+    uint64_t steam_id;
     unsigned int nonce;
     unsigned int id;                    /* host: the client's player id */
     unsigned short gen;
@@ -198,6 +200,7 @@ struct link {
 
 static struct link links[MAX_PLAYERS];
 static unsigned int slot_id[MAX_PLAYERS];  /* host: player id each slot belongs to, kept after they leave */
+static uint64_t slot_steam_id[MAX_PLAYERS];
 static unsigned short next_gen = 1;
 static void slots_load(void);
 static void player_left(int slot, const char *why);
@@ -276,13 +279,15 @@ static void load_player_id(void)
 
 void net_open(const char *ini)
 {
-    char host[64], role[16];
+    char host[64], role[16], transport[16];
     int listen_port, peer_port;
     struct sockaddr_in local;
     u_long nonblock = 1;
     DWORD no_reset = FALSE, ret;
     WSADATA wsa;
 
+    GetPrivateProfileStringA("net", "transport", "udp", transport, sizeof(transport), ini);
+    net_steam = _stricmp(transport, "steam") == 0;
     listen_port = GetPrivateProfileIntA("net", "listen_port", 27900, ini);
     peer_port = GetPrivateProfileIntA("net", "peer_port", 27900, ini);
     GetPrivateProfileStringA("net", "peer_host", "127.0.0.1", host, sizeof(host), ini);
@@ -312,6 +317,14 @@ void net_open(const char *ini)
         slots_load();
     }
 
+    if (net_steam) {
+        steam_open(ini);
+        return;
+    }
+    if (_stricmp(transport, "udp") != 0) {
+        logmsg("unknown transport %s: choose steam or udp in coop.ini", transport);
+        return;
+    }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
         logmsg("WSAStartup failed");
         return;
@@ -349,7 +362,7 @@ static void send_to(int slot, const void *buf, int len)
 {
     if (block_until > now_ms())
         return;
-    if (sock != INVALID_SOCKET && links[slot].used) {
+    if (net_ready() && links[slot].used) {
         const struct player_packet *p = buf;
         int kind = 3;                                   /* netstats.c: player, relay, ent, other */
         if (len >= (int)sizeof(unsigned int) && p->magic == PLAYER_MAGIC)
@@ -358,8 +371,10 @@ static void send_to(int slot, const void *buf, int len)
             kind = 1;
         else if (ents_is_packet(buf, len))
             kind = 2;
-        sendto(sock, (const char *)buf, len, 0, (struct sockaddr *)&links[slot].addr, sizeof(links[slot].addr));
-        netstats_sent(kind, len);
+        int sent = net_steam ? steam_send(links[slot].steam_id, buf, len) :
+            sendto(sock, (const char *)buf, len, 0, (struct sockaddr *)&links[slot].addr, sizeof(links[slot].addr)) == len;
+        if (sent)
+            netstats_sent(kind, len);
     }
 }
 
@@ -470,7 +485,7 @@ int net_retarget(const char *host, int port)
     unsigned long a = inet_addr(host);
     int s;
 
-    if (role_host || a == INADDR_NONE || port <= 0 || port > 65535)
+    if (net_steam || role_host || a == INADDR_NONE || port <= 0 || port > 65535)
         return 0;
     l->addr.sin_family = AF_INET;
     l->addr.sin_port = htons((u_short)port);
@@ -1018,7 +1033,7 @@ void net_send_player(BYTE *gob)
     unsigned int id;
     int s;
 
-    if (sock == INVALID_SOCKET || now < next_send)
+    if (!net_ready() || now < next_send)
         return;
     next_send = (now - next_send > 1000.0 / send_hz) ? now + 1000.0 / send_hz : next_send + 1000.0 / send_hz;
     if (role_host)
@@ -1112,7 +1127,7 @@ static void accept_state(int slot, const struct player_packet *p, double arrived
  * everyone their old number back */
 static void slots_load(void)
 {
-    char path[MAX_PATH], key[8], buf[16];
+    char path[MAX_PATH], key[8], buf[24];
     int s;
 
     snprintf(path, MAX_PATH, "%s\\player.ini", coop_dir);
@@ -1120,33 +1135,40 @@ static void slots_load(void)
         snprintf(key, sizeof(key), "p%d", s + 1);
         GetPrivateProfileStringA("slots", key, "", buf, sizeof(buf), path);
         slot_id[s] = strtoul(buf, NULL, 16);
+        GetPrivateProfileStringA("steam_slots", key, "0", buf, sizeof(buf), path);
+        slot_steam_id[s] = strtoull(buf, NULL, 10);
     }
 }
 
-static void slot_keep(int s, unsigned int id)
+static void slot_keep(int s, unsigned int id, uint64_t steam_id)
 {
-    char path[MAX_PATH], key[8], buf[16];
+    char path[MAX_PATH], key[8], buf[24];
 
-    if (slot_id[s] == id)
+    if (slot_id[s] == id && slot_steam_id[s] == steam_id)
         return;
+    slot_steam_id[s] = steam_id;
     slot_id[s] = id;
     snprintf(path, MAX_PATH, "%s\\player.ini", coop_dir);
     snprintf(key, sizeof(key), "p%d", s + 1);
     snprintf(buf, sizeof(buf), "%08x", id);
     WritePrivateProfileStringA("slots", key, buf, path);
+    if (steam_id) {
+        snprintf(buf, sizeof(buf), "%llu", (unsigned long long)steam_id);
+        WritePrivateProfileStringA("steam_slots", key, buf, path);
+    }
 }
 
 /* Host: the slot for a player id: the one it had before if that is free, else a free one
  * nobody has had, else any free one */
-static int slot_for(unsigned int id)
+static int slot_for(unsigned int id, uint64_t steam_id)
 {
     int s;
 
     for (s = 1; s < MAX_PLAYERS; s++)
-        if (!links[s].used && slot_id[s] == id)
+        if (!links[s].used && (net_steam ? slot_steam_id[s] == steam_id : slot_id[s] == id))
             return s;
     for (s = 1; s < MAX_PLAYERS; s++)
-        if (!links[s].used && !slot_id[s])
+        if (!links[s].used && (net_steam ? !slot_steam_id[s] : !slot_id[s]))
             return s;
     for (s = 1; s < MAX_PLAYERS; s++)
         if (!links[s].used)
@@ -1179,21 +1201,21 @@ static void host_welcome(int s)
 }
 
 /* Host: a client's packet; its link is found by player id (else address), or made */
-static void host_accept(const struct player_packet *p, const struct sockaddr_in *from, double arrived)
+static void host_accept(const struct player_packet *p, const struct sockaddr_in *from, uint64_t steam_id, double arrived)
 {
     struct link *l = NULL;
     int s;
 
     for (s = 1; s < MAX_PLAYERS && !l; s++)
-        if (links[s].used && links[s].id == p->id)
+        if (links[s].used && (net_steam ? links[s].steam_id == steam_id : links[s].id == p->id))
             l = &links[s];
-    for (s = 1; s < MAX_PLAYERS && !l; s++)
+    for (s = 1; !net_steam && s < MAX_PLAYERS && !l; s++)
         if (links[s].used && links[s].addr.sin_addr.s_addr == from->sin_addr.s_addr &&
             links[s].addr.sin_port == from->sin_port)
             l = &links[s];
     if (l) {
         s = (int)(l - links);
-        if (l->addr.sin_addr.s_addr != from->sin_addr.s_addr || l->addr.sin_port != from->sin_port) {
+        if (!net_steam && (l->addr.sin_addr.s_addr != from->sin_addr.s_addr || l->addr.sin_port != from->sin_port)) {
             logmsg("player %d now at %s:%d", s + 1, inet_ntoa(from->sin_addr), ntohs(from->sin_port));
             l->addr = *from;
         }
@@ -1202,14 +1224,14 @@ static void host_accept(const struct player_packet *p, const struct sockaddr_in 
             player_left(s, "restarted");
             l->nonce = p->nonce;
             l->id = p->id;
-            slot_keep(s, p->id);
+            slot_keep(s, p->id, steam_id);
             host_welcome(s);
         }
     } else {
-        if ((s = slot_for(p->id)) < 0) {
+        if ((s = slot_for(p->id, steam_id)) < 0) {
             static double next_log;
             if (arrived > next_log) {
-                logmsg("game full: ignoring %s:%d", inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+                logmsg("game full: ignoring new peer");
                 next_log = arrived + 5000.0;
             }
             return;
@@ -1218,11 +1240,15 @@ static void host_accept(const struct player_packet *p, const struct sockaddr_in 
         memset(l, 0, sizeof(*l));
         l->used = 1;
         l->addr = *from;
+        l->steam_id = steam_id;
         l->nonce = p->nonce;
         l->id = p->id;
-        logmsg("player %d joined from %s:%d (id %08x%s)", s + 1, inet_ntoa(from->sin_addr), ntohs(from->sin_port),
-               p->id, slot_id[s] == p->id ? ", back again" : "");
-        slot_keep(s, p->id);
+        if (net_steam)
+            logmsg("player %d joined via Steam", s + 1);
+        else
+            logmsg("player %d joined from %s:%d (id %08x%s)", s + 1, inet_ntoa(from->sin_addr), ntohs(from->sin_port),
+                   p->id, slot_id[s] == p->id ? ", back again" : "");
+        slot_keep(s, p->id, steam_id);
         host_welcome(s);
     }
     l->last_heard = arrived;
@@ -1396,7 +1422,7 @@ static void client_accept(const struct player_packet *p, double arrived)
     accept_state(0, p, arrived);
 }
 
-static void accept_datagram(const BYTE *buf, int len, const struct sockaddr_in *from, double arrived)
+static void accept_datagram(const BYTE *buf, int len, const struct sockaddr_in *from, uint64_t steam_id, double arrived)
 {
     static struct player_packet unpacked;
     const struct player_packet *p = &unpacked;
@@ -1405,14 +1431,16 @@ static void accept_datagram(const BYTE *buf, int len, const struct sockaddr_in *
         if (!packet_unpack(buf, len, &unpacked))
             return;
         if (role_host)
-            host_accept(p, from, arrived);
-        else if (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port)
+            host_accept(p, from, steam_id, arrived);
+        else if (net_steam ? steam_id == links[0].steam_id :
+                 (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port))
             client_accept(p, arrived);      /* only the host we are set to (Options > Co-op > Host address) */
     } else if (!role_host && len >= (int)sizeof(unsigned int) && *(const unsigned int *)buf == RELAY_MAGIC) {
-        if (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port)
+        if (net_steam ? steam_id == links[0].steam_id :
+            (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port))
             relay_receive(buf, len, arrived);
-    } else if (have_remote && (role_host || (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr &&
-                                             from->sin_port == links[0].addr.sin_port))) {
+    } else if (have_remote && (role_host || (net_steam ? steam_id == links[0].steam_id :
+                (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port)))) {
         ents_receive(buf, len);
     }
 }
@@ -1470,9 +1498,83 @@ static struct {
     BYTE buf[MAX_DATAGRAM];
     int len;
     struct sockaddr_in from;
+    uint64_t steam_id;
     double due;
 } simq[SIM_QUEUE];
 static int nsimq;
+
+/* Both transports pass through the same loss/latency simulation and packet decoder. */
+static void received(const BYTE *buf, int len, const struct sockaddr_in *from, uint64_t steam_id, double now)
+{
+    if (block_until > now || len <= 0 || len > MAX_DATAGRAM)
+        return;
+    if (!sim_latency_ms && !sim_jitter_ms && !sim_loss_pct) {
+        accept_datagram(buf, len, from, steam_id, now);
+        return;
+    }
+    if (rand() % 100 < sim_loss_pct || nsimq == SIM_QUEUE)
+        return;
+    memcpy(simq[nsimq].buf, buf, len);
+    simq[nsimq].len = len;
+    simq[nsimq].from = *from;
+    simq[nsimq].steam_id = steam_id;
+    simq[nsimq].due = now + sim_latency_ms + (sim_jitter_ms ? rand() % (sim_jitter_ms + 1) : 0);
+    nsimq++;
+}
+
+int net_ready(void)
+{
+    return net_steam ? steam_ready() : sock != INVALID_SOCKET;
+}
+
+/* A new lobby cannot inherit reliable events, snapshots or peers from the old session. */
+void net_steam_session(int host, uint64_t peer)
+{
+    int s;
+
+    for (s = 0; s < MAX_PLAYERS; s++)
+        player_left(s, "Steam session changed");
+    memset(links, 0, sizeof(links));
+    memset(relay_pending, 0, sizeof(relay_pending));
+    nsimq = 0;
+    have_remote = 0;
+    role_host = host;
+    my_slot = host ? 0 : -1;
+    /* A new lobby may contain a different world at the same checkpoint. */
+    host_changed = !host && cur_level >= 1;
+    pending_epoch = 0;
+    last_save_no = 0;
+    last_save_epoch = 0;
+    if (host) {
+        cur_epoch = (unsigned short)(nonce + next_gen++);
+        slots_load();
+    } else if (peer) {
+        links[0].used = 1;
+        links[0].steam_id = peer;
+        link_reset(&links[0]);
+    }
+}
+
+void net_steam_receive(const void *buf, int len, uint64_t peer)
+{
+    const struct sockaddr_in unused = {0};
+
+    if (net_steam && steam_peer_allowed(peer))
+        received(buf, len, &unused, peer, now_ms());
+}
+
+void net_steam_left(uint64_t peer)
+{
+    int s;
+
+    for (s = 0; s < MAX_PLAYERS; s++)
+        if (links[s].used && links[s].steam_id == peer) {
+            player_left(s, "left Steam lobby");
+            /* A client keeps its host link so a transient disconnect can reconnect. */
+            if (role_host)
+                links[s].used = 0;
+        }
+}
 
 void net_poll(void)
 {
@@ -1481,32 +1583,23 @@ void net_poll(void)
     double now = now_ms();
     int n, i, fromlen;
 
-    if (sock == INVALID_SOCKET)
-        return;
-    for (;;) {
-        fromlen = sizeof(from);
-        n = recvfrom(sock, (char *)buf, sizeof(buf), 0, (struct sockaddr *)&from, &fromlen);
-        if (n < 0 && WSAGetLastError() == WSAECONNRESET)
-            continue;
-        if (n <= 0)
-            break;
-        if (block_until > now)
-            continue;
-        if (!sim_latency_ms && !sim_jitter_ms && !sim_loss_pct) {
-            accept_datagram(buf, n, &from, now);
-            continue;
+    if (net_steam) {
+        steam_poll();
+    } else if (sock != INVALID_SOCKET) {
+        for (i = 0; i < 256; i++) {
+            fromlen = sizeof(from);
+            n = recvfrom(sock, (char *)buf, sizeof(buf), 0, (struct sockaddr *)&from, &fromlen);
+            if (n < 0 && WSAGetLastError() == WSAECONNRESET)
+                continue;
+            if (n <= 0)
+                break;
+            received(buf, n, &from, 0, now);
         }
-        if (rand() % 100 < sim_loss_pct || nsimq == SIM_QUEUE)
-            continue;
-        memcpy(simq[nsimq].buf, buf, n);
-        simq[nsimq].len = n;
-        simq[nsimq].from = from;
-        simq[nsimq].due = now + sim_latency_ms + (sim_jitter_ms ? rand() % (sim_jitter_ms + 1) : 0);
-        nsimq++;
     }
     for (i = 0; i < nsimq; ) {
         if (simq[i].due <= now) {
-            accept_datagram(simq[i].buf, simq[i].len, &simq[i].from, simq[i].due);
+            if (!net_steam || steam_peer_allowed(simq[i].steam_id))
+                accept_datagram(simq[i].buf, simq[i].len, &simq[i].from, simq[i].steam_id, simq[i].due);
             simq[i] = simq[--nsimq];
         } else {
             i++;

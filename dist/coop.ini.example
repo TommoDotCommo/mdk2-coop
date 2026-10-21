@@ -1,7 +1,13 @@
 ; copy to <game dir>\coop\coop.ini
 [net]
-; host runs the world (player 1); clients send their hits to it. A client's peer_host /
-; peer_port are the host's address; the host learns the clients' from their packets.
+; steam: friends-only lobbies and Steam relay-capable P2P, no router setup.
+; udp: direct IPv4, for LAN/testing or hosts with port forwarding.
+; Older configurations without transport keep using UDP. Changing it needs a restart.
+transport=steam
+; A joining player may leave this empty and accept an invite or enter an ID in Session.
+lobby_id=
+; host runs the world (player 1); clients send their hits to it.
+; These listen_port / peer_host / peer_port settings are used only with transport=udp.
 role=host
 listen_port=27900
 peer_host=127.0.0.1

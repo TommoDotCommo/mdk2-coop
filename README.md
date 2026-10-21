@@ -13,26 +13,35 @@ No game files are in this repo. You need your own copy of MDK2 HD.
 Download the zip from [Releases](https://github.com/TommoDotCommo/mdk2-coop/releases), unzip it and
 double-click **Install.cmd**. No dev tools needed. The installer finds MDK2 HD in your Steam libraries (or asks
 for the folder), refuses any build other than Steam 3902 (SHA-256 of `mdk2hd.exe`
-`bf5faa81b18837b4c07f35941b107e5c23caa8b105536ccd9c8e5a8e37357f43`), asks *host or join* (and the host's
-address and port), and copies the mod in. **Uninstall.cmd** takes it out again. The zip's README.txt has the
-details; this is the short version.
+`bf5faa81b18837b4c07f35941b107e5c23caa8b105536ccd9c8e5a8e37357f43`), asks *Steam or UDP* and *host or join*,
+and copies the mod in. New installs default to Steam; existing configurations keep their transport. **Uninstall.cmd** takes it out again.
 
-**How to host**
-1. Install, answer *host* (UDP port 27900 unless you change it).
-2. Forward UDP 27900 on your router to your PC. Only the host needs this, until Steam networking replaces
-   direct connections.
-3. Tell your friends your public IP (search "what is my IP"), or your 192.168.x.x address on the same network.
-4. Start the game; allow MDK2 HD when Windows Firewall asks (Private and Public). If you missed the prompt,
-   run this in an administrator prompt:
-   `netsh advfirewall firewall add rule name="MDK2 co-op" dir=in action=allow protocol=UDP localport=27900`
-5. Start a New Game or load a save; players who join follow you into your level.
+**How to host over Steam**
+1. Install, choose *steam*, then *host*. Keep Steam running and online.
+2. Start MDK2 HD from Steam. In **Options > Co-op > Session**, choose **Invite Steam friends**,
+   or share the numeric **Lobby ID** shown there.
+3. Start a New Game or load a save. Friends follow you into your level.
 
-**How to join**
-1. Install, answer *join*, type the host's address and port.
-2. Start the game after the host. You arrive in the host's level next to them.
+**How to join over Steam**
+1. Install, choose *steam*, then *join*. Start MDK2 HD from Steam.
+2. Accept the host's Steam invite, use **Join Game** in Steam's friends list, or enter their
+   lobby ID in **Options > Co-op > Session > Join lobby by ID**. Start the game before accepting
+   an invite; Steam's launch argument `+connect_lobby <id>` is also supported.
+
+Steam sessions use friends-only lobbies and modern Steam P2P messages with relay support. No public
+IP, router port forwarding, SDK download, Steam DLL replacement, or Spacewar AppID is needed. Every
+player must use the Steam transport and a compatible mod version. If the overlay is disabled, share
+the lobby ID instead. Errors and the current lobby status appear in Session and `coop\bridge.log`.
+
+**Direct UDP (LAN/testing or manual internet setup)**
+Choose *udp* at install, then *host* or *join*. The host listens on UDP 27900 by default, forwards
+that port on their router for internet play, and gives friends their public IPv4 address and port.
+On the same LAN use the host's local IPv4 address. Allow MDK2 HD through Windows Firewall. A joining
+player enters that address and port. Old `coop.ini` files without a `transport` key keep using UDP.
 
 The installer's answers are only the first setup: run it again to switch, or change them in game in the
-Options > Co-op menu (being built). The installer changes `<game>\dinput8.dll`, `<game>\coop\coop.lua`, the
+Options > Co-op > Session menu (network and startup role changes need a restart). The installer changes
+`<game>\dinput8.dll`, `<game>\coop\coop.lua`, the
 `[net]` keys of `<game>\coop\coop.ini` (other keys are kept) and one loader block in
 `%LOCALAPPDATA%\MDK2HD\settings.lua` (backed up first as `settings.lua.coop-backup`, restored on uninstall).
 The game rewrites settings.lua whenever options are saved, which drops that block. The bridge puts it back
@@ -73,7 +82,7 @@ sweep.sh at every checkpoint.
 `bridge/` builds a dinput8.dll proxy (mingw-w64, `make -C bridge install GAME_DIR=/mnt/c/coop/mdk2-test`).
 It forwards DirectInput to the system DLL and adds Lua functions to the game:
 
-- `coop_init()` registers the others and opens a UDP socket (ports from `<game dir>\coop\coop.ini`,
+- `coop_init()` registers the others and starts the configured transport (Steam lobbies or UDP;
   see `dist/coop.ini.example`)
 - `coop_send(gob)` sends the gob's position and orientation to the others
 - `coop_recv()` reads the network
@@ -185,8 +194,10 @@ Options > Co-op (the game's own menus, on the title screen and in the pause menu
 - Players: everyone connected, with player number, name and ping (the host measures every client, a
   client its host).
 - Session: your name (`coop\player.ini`, the others see it at once), host or join (next start), the
-  host's address (a client reconnects at once; it only listens to the host it is set to), Resume co-op
-  and Save now on the host.
+  transport (next start), Steam lobby status/ID, invites, lobby joining/leaving, or the UDP
+  host's address (a client reconnects at once); Resume co-op and Save now on the host. Change lobbies
+  from the title screen. A disconnected Steam client can accept a new invite or press Esc on the
+  waiting screen to join by ID; its next LEVEL reloads the host's world, including at the same checkpoint.
 - Gameplay (`coop.ini`; the host's settings count): friendly fire (off by default; hits between
   players arrive as enemy gun damage, since the game ignores a player hitting a player), tougher
   enemies (+0/25/50/100% hp per extra player, default 50, set when an enemy first appears), co-op
@@ -210,7 +221,41 @@ between the two updates either side; `[sim]` fakes latency, jitter and loss for 
 player moves, bridge.log gets a `smooth:` line every 2 s (step size mean/sd/max, stalled frames, cv = sd/mean;
 lower is smoother).
 
-UDP on localhost/LAN is a stand-in; Steam relay networking comes later.
+Steam networking (`bridge/steam.c`): the game owns its original `steam_api.dll` and Steam connection.
+The bridge requests versioned `SteamNetworkingMessages002`, matchmaking, friends and utilities interfaces
+through that connection, under MDK2 HD's AppID 213350. It registers ordinary callbacks alongside the
+game's callbacks; it never takes over the game's callback queue or shuts Steam down. Lobby metadata
+identifies the mod and wire protocol. Only authenticated members of the current lobby can send packets;
+a client accepts only the original host. Steam owner election does not migrate the game simulation:
+when the host leaves, clients wait for a new invite or lobby ID. A transient P2P session failure restarts
+on the next send. Restarted hosts create new lobbies, so their clients must join those lobbies again.
+The existing event acknowledgements, snapshots, interpolation, loss simulation and timeouts run over
+both transports. Steam sends snapshots unreliably with NoNagle; events retain the bridge's own retries.
+Steam traffic counters report payload bytes; UDP counters also include the IPv4/UDP header.
+
+`tools/test_network.sh` builds and runs offline Win32 tests under WSL/Windows: simulated Steam interfaces
+exercise lobby lifecycle, invites, authentication, failures and real bridge packet handling; loopback
+sockets exercise the UDP path. Configuration storage is simulated too, because Windows profile APIs
+reject WSL UNC paths. No Steam account or game process is used.
+
+The opt-in `tools/steam_smoke.c` test uses the game's original Steam DLL and the logged-in account
+to create and leave friends-only lobbies, without starting the game or sending invites. On 2026-10-21
+it passed two real lobby create/leave cycles under AppID 213350, including interface access,
+owner/member IDs and protocol metadata. The offline network suite passed 234 assertions and the
+installer suite below passed 22 checks. Live two-account invites, relay connectivity and gameplay
+still need validation; the older campaign QA below used UDP.
+Steam requires a separate logged-in account for each player; same-PC multi-instance QA uses UDP.
+
+`tools/test_installer.ps1 -GameExe <original exe> -PackageDir <unpacked release> [-TestRoot <scratch>]`
+checks new installs, upgrades, transport selection, lobby IDs, settings preservation and uninstall in
+disposable fixtures. It copies the executable to check its hash, never runs it, and overrides the settings
+path so the real game settings stay untouched. Run it from a Windows filesystem; from WSL, give an
+NTFS scratch directory with `-TestRoot`.
+
+To build the Steam smoke test: `i686-w64-mingw32-gcc -O2 -o steam_smoke.exe tools/steam_smoke.c
+-static-libgcc`. With permission to use the Steam account, run it on Windows as
+`steam_smoke.exe "<game dir>\steam_api.dll" "<scratch directory>"` while Steam is online.
+The test leaves both lobbies and shuts down only its own Steam API instance.
 
 Network traffic. Snapshots go out compact (`snap_encode` in net.c): position, rotation as 4 x int16, and
 of each running animation only its non-zero values, play positions and weight as 16-bit numbers; a

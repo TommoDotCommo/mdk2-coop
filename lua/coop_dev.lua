@@ -540,7 +540,9 @@ end
 -- ---------------------------------------------------------------------------------------
 
 menu.coopwait = mdkCreateMenu(0.5, 0.42, 0.05, 0.05, 0, JUSTIFY_CENTER, 1)
-menu.coopwait.Cancel = function() end      -- Esc does not close it
+menu.coopwait.Cancel = function()
+    if (coop_transport() == "steam" and coop_steam_lobby() == "") then coop.ShowPage("coopsession") end
+end
 
 function coop.WaitTick()
     if (coop_role() == "host" or not coop.level or coop.level < 1) then
@@ -549,7 +551,9 @@ function coop.WaitTick()
     end
     local silent, hlevel = coop_host_status()
     local why = nil
-    if (silent > 2000) then
+    if (coop_transport() == "steam" and coop_steam_lobby() == "") then
+        why = "Steam lobby disconnected - accept an invite or press Esc"
+    elseif (silent > 2000) then
         why = "Connection to the host lost - reconnecting"
     elseif (hlevel < 1) then
         why = "The host left the level - waiting for the host"
@@ -558,7 +562,11 @@ function coop.WaitTick()
         coop_log(format("waiting: %s", why))
         mdkClearMenu(menu.coopwait)
         mdkCreateMenuItem(menu.coopwait, why)
-        mdkCreateMenuItem(menu.coopwait, "Your game is kept and resumes by itself")
+        if (coop_transport() == "steam" and coop_steam_lobby() == "") then
+            mdkCreateMenuItem(menu.coopwait, "Press Esc for Session to join by lobby ID")
+        else
+            mdkCreateMenuItem(menu.coopwait, "Your game is kept and resumes by itself")
+        end
         ShowMenu("coopwait")
         coop.waiting = why
     elseif (not why and coop.waiting) then
@@ -903,7 +911,7 @@ function coop.EditUpdate(m, page)
     coop.pages[page]()
 end
 
--- session page: name, host or join, host address, resume / save now --
+-- session page: name, transport, Steam lobby or UDP address, resume / save now --
 function coop.BuildSession()
     local m = menu.coopsession
     mdkClearMenu(m)
@@ -924,12 +932,42 @@ function coop.BuildSession()
         mdkMenuSetHighlighted(menu.coopsession, 2)
     end
 
-    local host, port = coop_get("net", "peer_host", "127.0.0.1"), coop_get("net", "peer_port", "27900")
-    item = mdkCreateMenuItem(m, "Host address: " .. host .. ":" .. port)
+    local transport = coop_get("net", "transport", "udp")
+    item = mdkCreateMenuItem(m, "Network: " .. transport .. " (next start)")
     item.Select = function(self)
-        local h, p = coop_get("net", "peer_host", "127.0.0.1"), coop_get("net", "peer_port", "27900")
-        coop.EditText(menu.coopsession, h .. ":" .. p, function(text) coop.SetHostAddress(text) end)
+        if (coop_get("net", "transport", "udp") == "steam") then coop_set("net", "transport", "udp")
+        else coop_set("net", "transport", "steam") end
+        coop.BuildSession()
     end
+    if (coop_transport() == "steam") then
+        coop.Heading(m, coop_steam_status())
+        local lobby = coop_steam_lobby()
+        if (lobby ~= "") then coop.Heading(m, "Lobby ID: " .. lobby) end
+        if (lobby ~= "" and coop_role() == "host") then
+            item = mdkCreateMenuItem(m, "Invite Steam friends")
+            item.Select = function(self) coop_steam_invite(); coop.BuildSession() end
+        end
+        item = mdkCreateMenuItem(m, "Join lobby by ID")
+        item.Select = function(self)
+            coop.EditText(menu.coopsession, "", function(text) coop_steam_join(text) end)
+        end
+        if (lobby == "") then
+            item = mdkCreateMenuItem(m, "Host a Steam lobby")
+            item.Select = function(self) coop_steam_host(); coop.BuildSession() end
+        else
+            item = mdkCreateMenuItem(m, "Leave Steam lobby")
+            item.Select = function(self) coop_steam_leave(); coop.BuildSession() end
+        end
+    else
+        local host, port = coop_get("net", "peer_host", "127.0.0.1"), coop_get("net", "peer_port", "27900")
+        item = mdkCreateMenuItem(m, "Host address: " .. host .. ":" .. port)
+        item.Select = function(self)
+            local h, p = coop_get("net", "peer_host", "127.0.0.1"), coop_get("net", "peer_port", "27900")
+            coop.EditText(menu.coopsession, h .. ":" .. p, function(text) coop.SetHostAddress(text) end)
+        end
+    end
+    coop.session_status = coop_steam_status()
+    coop.session_lobby = coop_steam_lobby()
     if (coop.role_changed or coop.host_note) then
         coop.Heading(m, coop.host_note or "Host or join applies when you next start the game")
     end
@@ -982,7 +1020,13 @@ function coop.SetHostAddress(text)
     end
 end
 
-menu.coopsession.Update = function() coop.EditUpdate(menu.coopsession, "coopsession") end
+menu.coopsession.Update = function()
+    coop.EditUpdate(menu.coopsession, "coopsession")
+    if (not menu.coopsession.editing and coop_transport() == "steam" and
+        (coop.session_status ~= coop_steam_status() or coop.session_lobby ~= coop_steam_lobby())) then
+        coop.BuildSession()
+    end
+end
 menu.coopsession.Cancel = function()
     if (not menu.coopsession.editing) then
         coop.save_note = nil

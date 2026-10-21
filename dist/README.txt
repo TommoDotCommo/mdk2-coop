@@ -14,36 +14,42 @@ Install
 2. Double-click Install.cmd.
    - It finds MDK2 HD in your Steam libraries (or asks for the folder) and checks the
      game version. If the version is different it stops and changes nothing.
-   - It asks: host or join? If you join, it asks for the host's address.
+   - Choose steam (the default for new installs) or udp, then host or join.
 3. Start MDK2 HD from Steam as usual.
 
 Run Install.cmd again at any time to switch between hosting and joining, or to
-change the address.
+change the transport or address. Existing installs keep their previous transport.
 
 If Windows shows "Windows protected your PC", click "More info" > "Run anyway".
 (The installer is a plain PowerShell script: mdk2-coop.ps1, readable in Notepad.)
 
 
-How to host
------------
-1. Install and answer "host" (port 27900 unless you have a reason to change it).
-2. Forward UDP port 27900 on your router to your PC. Look up your router's model
-   plus "port forwarding" for the steps. Only the host needs this.
-3. Give your friends your public IP address: search "what is my IP" in a browser.
-   (On the same home network, give them your PC's local address instead, which
-   looks like 192.168.x.x: run "ipconfig" in a command prompt.)
-4. Start MDK2 HD. When Windows Firewall asks about MDK2 HD, click "Allow access"
-   (tick both Private and Public networks).
-   Missed the prompt? In an administrator command prompt:
-     netsh advfirewall firewall add rule name="MDK2 co-op" dir=in action=allow protocol=UDP localport=27900
-5. Start a New Game (or load a save). Players who join follow you into your level,
-   and you can start before they arrive.
+How to host (Steam)
+-------------------
+1. Install, choose "steam", then "host". Keep Steam running and online.
+2. Start MDK2 HD from Steam. Open Options > Co-op > Session > Invite Steam friends.
+   Or share the numeric Lobby ID shown on that page.
+3. Start a New Game or load a save. Friends follow you into your level.
 
-How to join
------------
-1. Install and answer "join", then type the host's address and port (27900).
-2. Start MDK2 HD once the host's game is running. You land in the host's level
-   next to them. Allow MDK2 HD if Windows Firewall asks.
+How to join (Steam)
+-------------------
+1. Install, choose "steam", then "join". Start MDK2 HD from Steam.
+2. Accept a Steam invite, choose Join Game on the host in Steam's friends list,
+   or use Options > Co-op > Session > Join lobby by ID.
+
+No port forwarding or public IP is needed. Everyone needs Steam online, the Steam
+transport, and a compatible mod version. If the overlay is disabled, share the
+lobby ID. Start the game before accepting invites. The mod uses MDK2 HD's own
+Steam connection and AppID; do not replace steam_api.dll or add an AppID override.
+Errors and lobby status appear on the Session page and in coop\bridge.log.
+
+Direct UDP (optional)
+---------------------
+Choose "udp" at install for LAN/testing or direct internet connections. The host
+forwards UDP 27900 (or their chosen port) on their router for internet play and
+shares their public IPv4 address and port. On a LAN use their local IPv4 address.
+Joining players enter that address and port. Allow MDK2 HD through Windows Firewall.
+Older coop.ini files without a transport key continue to use UDP.
 
 Playing
 -------
@@ -76,8 +82,10 @@ Settings in the game
 --------------------
 Options > Co-op (on the title screen, or Esc > Options while playing):
 - Players: who is in the game, with ping.
-- Session: your name, host or join, the host's address, and on the host "Resume co-op"
-  and "Save now".
+- Session: your name, startup role and transport (restart to apply), Steam lobby
+  status/ID, invites and joining, or the UDP host address. On the host: Resume co-op
+  and Save now. Change lobbies from the title screen. If a Steam lobby closes,
+  clients can accept a new invite or press Esc on the waiting screen to join by ID.
 - Gameplay (the host's settings count): friendly fire, tougher enemies for more players,
   how often co-op saves are made, players on screen (names over heads and a panel with
   everyone's health), modern controls (Space jumps, right mouse snipes) and
@@ -95,7 +103,11 @@ it puts the original back too; run Upscale Textures.cmd again afterwards.
 
 Known issues
 ------------
-- Direct connection only: the host needs port forwarding until Steam networking is in.
+- Steam networking passed offline regression tests and a real lobby create/leave
+  smoke test with the original game DLL. Live two-account invites, relay connectivity
+  and gameplay still need validation. Existing campaign QA used UDP.
+- Host migration is not supported. A restarted host creates a new lobby; join its
+  new invite or ID to resume. Transient P2P failures reconnect within the same lobby.
 - The host uploads about 1.3 Mbit/s with 8 players in a busy level (less with fewer):
   check the host has that much upload to spare.
 - Nobody has finished the whole campaign in co-op yet. Please report what breaks.
