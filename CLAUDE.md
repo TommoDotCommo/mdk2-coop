@@ -28,9 +28,9 @@ apply to every session here.
 - Prepare the contribution on branch `game/mdk2-hd` of the coop-anything clone: NOTES.md,
   `games/mdk2-hd/README.md` (from `templates/game.md`), the `data/directory.yaml` entry plus
   `python tools/build_directory.py`, and lessons.
-- Publishing goes out under Tom's GitHub account. Show Tom the diff and get his OK before
+- Publishing goes out under the owner's GitHub account. Show the owner the diff and get their OK before
   `gh issue create`, pushing to the fork or `gh pr create --draft`. PRs are always drafts, one
-  game per PR, with the owner-review box left for Tom.
+  game per PR, with the owner-review box left for the owner.
 
 ## Testing
 Background mode only (`MDK2_BACKGROUND=1`, set by `tools/qa.sh` and `tools/sweep.sh`): games on the

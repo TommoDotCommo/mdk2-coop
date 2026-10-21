@@ -172,3 +172,7 @@ Last runs (2026-10-20, Steam build 3902, level 1 cp 2): 21/21 on plain localhost
 manual session's client crash was fixed); earlier 17/17 with `[sim] latency_ms=120 jitter_ms=40
 loss_pct=5` on both sides. The enemy-attack and shot-replay checks depend on the Doganboy acting during
 the window; in the lossy run it did not (0/0).
+
+## License
+
+MIT, see [LICENSE](LICENSE). Covers this repo's code only; MDK2 HD itself is not included.
