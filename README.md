@@ -180,6 +180,19 @@ the game's shader program, framebuffer, texture unit, matrices and attributes pu
 project through the game's camera gob (`mdkGetCameraGob`: looks along its +y, +z up) with a 64 degree
 vertical field of view, measured from puppets at known spots. Hidden under menus. `tools/qa_hud.sh`.
 
+Chat and pings (`bridge/chat.c`, drawn by `hud.c`): T opens a chat line at the bottom left, Enter sends
+it (up to 62 characters), Esc cancels. The text comes from a thread message hook that swallows the
+keyboard messages while the line is open, and the DirectInput keyboard reads empty meanwhile (and for
+a quarter second after), so the game sees no keys. V or the middle mouse button pings: the actor
+nearest the crosshair, else a point 40 units ahead (the bridge cannot cast a ray into the level). Both
+are events (`EV_CHAT`, `EV_PING`): a client's goes to the host, which stamps the sender's slot and passes it on.
+A ping shows for 6 s as a marker in the sender's colour with their name and the distance, pinned to the
+screen edge when out of view; one per player. Each player's latest message shows in a bubble over their head for 8 s, and "..." while they have a line open (`EV_TYPING`).
+Lua test hooks: `coop_say(text)`, `coop_typing(on)`, `coop_ping([x, y, z])`,
+`coop_chat_dump()`. `tools/qa_chat.sh`. The keys (T, V / middle mouse, and R for reviving) are set on the
+Controls page's Co-op tab (`coop_game_keys`, `input.c`); untested by hand in a focused game, the harness
+only covers the network path and the drawing.
+
 Options > Co-op (the game's own menus, on the title screen and in the pause menu's Options):
 - Players: everyone connected, with player number, name and ping (the host measures every client, a
   client its host).
@@ -199,12 +212,13 @@ Options > Co-op (the game's own menus, on the title screen and in the pause menu
   mouse to aim (Q / E cycle items, F opens the inventory), Custom is yours. Presets are tables in
   `coop_dev.lua` (`coop.preset_original`, `coop.preset_modern`) over a list of actions (`coop.actions`:
   the game commands each one's keys are bound to, as the game's own key menu ties them, and a page).
-  `coop.sets` lists the actions that are in use together; a key taken for one is taken away from
+  The Co-op tab holds the keys the bridge reads itself (chat, ping, revive: `coop_game_keys(which, k1, k2)`,
+  mouse buttons yes, wheel no). `coop.sets` lists the actions that are in use together; a key taken for one is taken away from
   another in its set. Applied after settings.lua, so they win over what the game saved.
   The page (`Options > Co-op > Controls`) draws a keyboard and mouse (`bridge/ctrlview.c`, through the
   HUD's GL state) with every bound key coloured by group and labelled, and the page's bindings in full
   under it; the game's own menu on the right (inside its middle 4:3, so beside the picture on a wide
-  window) picks the page (On foot, Kurt, Sniper, Max, Doc, Minigames, Menus, System) and preset and
+  window) picks the page (On foot, Kurt, Sniper, Max, Doc, Minigames, Co-op, Menus, System) and preset and
   rebinds: select an action, press a key (it joins the action's two keys and the older drops out);
   Delete clears. Lua sends a page with `coop_ctrl_clear / tab / bind / line / hint / focus / show`.
   `tools/qa_controls.sh` drives it with real key presses (pages, presets, rebinding, taking a key

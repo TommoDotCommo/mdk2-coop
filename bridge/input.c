@@ -69,6 +69,31 @@ static int held(int code)
     return now_ms() < release_at[code];
 }
 
+/* The keys of the co-op features that read the keyboard themselves (chat, ping, revive): set by
+ * Lua from the Controls page (coop_game_keys), two each. code is this file's (scan code, or
+ * 256 + mouse button), vk the Windows key for the focused-window read. */
+static struct { int code[2], vk[2]; } gamekeys[GK_COUNT] = {
+    { { 20, -1 }, { 'T', 0 } },
+    { { 47, 258 }, { 'V', VK_MBUTTON } },
+    { { 19, -1 }, { 'R', 0 } },
+};
+
+int gamekey_down(int which)
+{
+    int i;
+
+    for (i = 0; i < 2; i++)
+        if (gamekeys[which].code[i] >= 0 && input_down(gamekeys[which].code[i], gamekeys[which].vk[i]))
+            return 1;
+    return 0;
+}
+
+/* the Windows key of the first slot that is set (the chat line ignores that letter right after opening) */
+int gamekey_vk(int which)
+{
+    return gamekeys[which].code[0] >= 0 ? gamekeys[which].vk[0] : gamekeys[which].vk[1];
+}
+
 /* revive.c: is this key or mouse button down? Background test mode: the scripted presses;
  * otherwise the real one (vk), only while our game window has the focus */
 int input_down(int code, int vk)
@@ -191,6 +216,8 @@ static HRESULT WINAPI dev_get_state(void *self, DWORD size, void *out)
                 ((BYTE *)out)[12 + i] = code_state(d, MOUSE_BUTTON0 + i);
         }
     }
+    if (d->kind == DEV_KEYBOARD && chat_blocks_keys())
+        memset(out, 0, size);               /* typing a chat line: the game sees no keys */
     if (d->kind == DEV_KEYBOARD) {
         for (i = 0; i < 256 && i < (int)size; i++) capture_code(i, ((BYTE *)out)[i] & 0x80);
     } else {
@@ -211,6 +238,10 @@ static HRESULT WINAPI dev_get_data(void *self, DWORD objsize, DIDEVICEOBJECTDATA
         return get_data_orig(self, objsize, out, inout, flags);
     if (!test_background) {
         HRESULT hr = get_data_orig(self, objsize, out, inout, flags);
+        if (SUCCEEDED(hr) && d->kind == DEV_KEYBOARD && chat_blocks_keys()) {
+            *inout = 0;                     /* typing a chat line: read and dropped */
+            return hr;
+        }
         if (SUCCEEDED(hr) && out && !(flags & DIGDD_PEEK)) {
             for (DWORD i = 0; i < *inout; i++) {
                 DIDEVICEOBJECTDATA *e = (void *)((BYTE *)out + i * objsize);
@@ -527,4 +558,35 @@ void input_init(void)
     patch_import("user32.dll", "SetWindowPlacement", (void *)hook_SetWindowPlacement);
     logmsg("test: background mode at %d, %d, %d fps (scripted input only, window never activated)",
            place_x, place_y, fps_cap);
+}
+
+/* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1 or GK_REVIVE 2; keys are Lua's
+ * (DirectInput scan code, 1000 + mouse button, -1 none; the wheel cannot be used) */
+static void l_coop_game_keys(void)
+{
+    int which = (int)lua_getnumber(lua_getparam(1)), i;
+
+    if (which < 0 || which >= GK_COUNT)
+        return;
+    for (i = 0; i < 2; i++) {
+        unsigned int o = lua_getparam(2 + i);
+        int k = (o && lua_isnumber(o)) ? (int)lua_getnumber(o) : -1, code = -1, vk = 0;
+
+        if (k >= 1000 && k <= 1003) {
+            static const int mouse_vk[] = { VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1 };
+            code = 256 + (k - 1000);
+            vk = mouse_vk[k - 1000];
+        } else if (k > 0 && k < 256) {
+            code = k;       /* extended keys (arrows, Home...) are 0x80 + their base code */
+            vk = (int)MapVirtualKeyA(k >= 128 ? 0xE000u | (unsigned)(k & 0x7f) : (unsigned)k, 3 /* VSC_TO_VK_EX */);
+        }
+        gamekeys[which].code[i] = code;
+        gamekeys[which].vk[i] = vk;
+    }
+    logmsg("game keys %d: %d/%d", which, gamekeys[which].code[0], gamekeys[which].code[1]);
+}
+
+void input_lua_init(void)
+{
+    tolua_function(NULL, "coop_game_keys", l_coop_game_keys);
 }

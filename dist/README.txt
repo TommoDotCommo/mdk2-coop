@@ -94,7 +94,7 @@ Options > Co-op (on the title screen, or Esc > Options while playing):
 - Controls: pick Original (the game's own keys), Modern (WASD, Space jumps, right mouse
   snipes, Q / E cycle items, F opens the inventory) or Custom. A picture of the keyboard and
   mouse shows every key and what it does, one page per situation: on foot, Kurt, sniper
-  mode, Max, Doc, minigames, menus and system. Select an action and press a key to change
+  mode, Max, Doc, minigames, co-op (chat, ping, revive), menus and system. Select an action and press a key to change
   it; the first change starts Custom as a copy of the preset you were on. Delete clears an
   action. Your Custom keys are kept separately, so Original and Modern are always there.
 

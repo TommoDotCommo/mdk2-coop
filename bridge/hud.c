@@ -336,6 +336,134 @@ static void draw_tags(int w, int h)
     }
 }
 
+BYTE *hud_camera(void)
+{
+    return camera;
+}
+
+/* one colour per player, for chat names and pings */
+static void slot_colour(int slot, float *c)
+{
+    static const float pal[8][3] = { { 0.95f, 0.85f, 0.4f }, { 0.45f, 0.85f, 1.0f }, { 0.55f, 1.0f, 0.55f },
+                                     { 1.0f, 0.6f, 0.85f }, { 1.0f, 0.65f, 0.3f }, { 0.75f, 0.65f, 1.0f },
+                                     { 0.6f, 1.0f, 0.9f }, { 1.0f, 0.55f, 0.5f } };
+    memcpy(c, pal[slot & 7], sizeof(pal[0]));
+}
+
+/* Pings: a diamond-ish marker (two boxes) at the point, name and distance beside it; off screen,
+ * pinned to the edge in its direction like the name tags */
+static void draw_pings(int w, int h)
+{
+    int s;
+
+    for (s = 0; s < MAX_PLAYERS; s++) {
+        float p[3], sx, sy, c[3], d = -1.0f, a, m = font_h * 0.5f;
+        double age;
+        char label[PLAYER_NAME + 16];
+        int on;
+
+        if (!ping_get(s, p, &age))
+            continue;
+        a = ping_life_left(age) < 0.25f ? ping_life_left(age) * 4.0f : 1.0f;
+        slot_colour(s, c);
+        if (gob_alive(camera)) {
+            float *q = (float *)(camera + GOB_POSITION);
+            d = sqrtf((p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]) + (p[2] - q[2]) * (p[2] - q[2]));
+        }
+        snprintf(label, sizeof(label), d >= 0 ? "%s  %.0f" : "%s", player_name(s), d);
+        on = project(p, w, h, &sx, &sy);
+        if (!on) {
+            float cc[3], dd[3];
+            if (!gob_alive(camera))
+                continue;
+            dd[0] = p[0] - ((float *)(camera + GOB_POSITION))[0];
+            dd[1] = p[1] - ((float *)(camera + GOB_POSITION))[1];
+            dd[2] = p[2] - ((float *)(camera + GOB_POSITION))[2];
+            unrotate((float *)(camera + GOB_ORIENTATION), dd, cc);
+            sx = w * 0.5f + (cc[0] < 0 ? -1.0f : 1.0f) * w;
+            sy = h * 0.5f;
+        }
+        if (sx < m * 2) sx = m * 2;
+        if (sx > w - m * 2) sx = w - m * 2;
+        if (sy < m * 2) sy = m * 2;
+        if (sy > h - m * 2) sy = h - m * 2;
+        box(sx - m - 2, sy - m - 2, m * 2 + 4, m * 2 + 4, h, 0.0f, 0.0f, 0.0f, 0.6f * a);
+        box(sx - m, sy - m, m * 2, m * 2, h, c[0], c[1], c[2], 0.9f * a);
+        box(sx - m * 0.4f, sy - m * 0.4f, m * 0.8f, m * 0.8f, h, 0.0f, 0.0f, 0.0f, 0.7f * a);
+        text(sx - text_width(label) * 0.5f, sy - m - 6, h, label, c[0], c[1], c[2]);
+    }
+}
+
+/* Speech bubbles over heads: a player's latest message for a few seconds, "..." while they type */
+static void draw_bubbles(int w, int h)
+{
+    int s;
+
+    for (s = 0; s < MAX_PLAYERS; s++) {
+        BYTE *gob = s == my_slot ? local_player : puppets[s];
+        const char *msg = NULL;
+        char dots[4] = "...";
+        double age;
+        float p[3], sx, sy, tw, c[3];
+        int typing = chat_typing(s) || (s == my_slot && chat_is_open());
+
+        if (!gob_alive(gob) || (s != my_slot && (!player_in_level(s) || player_life(s) >= LIFE_DEAD)))
+            continue;
+        if (!typing && !(chat_last(s, &msg, &age) && age < 8000.0))
+            continue;
+        if (typing) {
+            snprintf(dots, sizeof(dots), "%.*s", 1 + (int)(now_ms() / 400) % 3, "...");
+            msg = dots;
+        }
+        memcpy(p, gob + GOB_POSITION, sizeof(p));
+        p[2] += head_z + 0.7f;
+        if (!project(p, w, h, &sx, &sy) || sx < 0 || sx > w || sy < 0 || sy > h)
+            continue;
+        tw = (float)text_width(msg);
+        slot_colour(s, c);
+        box(sx - tw * 0.5f - 6, sy - font_h - 3, tw + 12, font_h + 9, h, 0.0f, 0.0f, 0.0f, 0.6f);
+        box(sx - tw * 0.5f - 6, sy + font_h * 0.0f + 6, tw + 12, 2, h, c[0], c[1], c[2], 0.9f);
+        text(sx - tw * 0.5f, sy, h, msg, 0.97f, 0.97f, 0.97f);
+    }
+}
+
+/* Chat: the last messages above the bottom left corner, recent ones only unless the line is open;
+ * the typing line under them */
+static void draw_chat(int w, int h)
+{
+    const int keep = 6;
+    float x = font_h * 0.8f, y = h - font_h * 2.2f, line_h = font_h * 1.3f;
+    int open = chat_is_open(), i, slot, shown_lines = 0, idx[6];
+    const char *msg;
+    double age;
+    char buf[96];
+
+    for (i = 0; i < keep && chat_line(i, &slot, &msg, &age); i++)
+        if (open ? age < 60000.0 : age < 10000.0)
+            idx[shown_lines++] = i;
+    if (!shown_lines && !open)
+        return;
+    if (open)
+        y -= line_h;
+    for (i = 0; i < shown_lines; i++) {
+        float c[3], nw, base = y - (shown_lines - 1 - i) * line_h;
+        char name[PLAYER_NAME + 4];
+
+        chat_line(idx[i], &slot, &msg, &age);
+        slot_colour(slot, c);
+        snprintf(name, sizeof(name), "%s:", player_name(slot));
+        nw = (float)text_width(name) + text_width(" ");
+        box(x - 4, base - font_h, nw + text_width(msg) + 8, line_h, h, 0.0f, 0.0f, 0.0f, 0.4f);
+        text(x, base, h, name, c[0], c[1], c[2]);
+        text(x + nw, base, h, msg, 0.95f, 0.95f, 0.95f);
+    }
+    if (open) {
+        snprintf(buf, sizeof(buf), "Say: %s%s", chat_input(), (int)(now_ms() / 500) & 1 ? "_" : " ");
+        box(x - 4, y + line_h - font_h, w * 0.4f, line_h, h, 0.0f, 0.0f, 0.0f, 0.6f);
+        text(x, y + line_h, h, buf, 1.0f, 1.0f, 1.0f);
+    }
+}
+
 /* revive.c: one or two centred lines in the lower third, with a progress bar when >= 0 */
 static char status1[96], status2[96];
 static float status_progress = -1.0f;
@@ -455,6 +583,7 @@ void hud_frame(HDC dc)
     int prog = 0, fbo = 0, tex = 0, w, h;
     RECT rc;
 
+    chat_frame(have_remote && shown);
     /* the panel and tags follow coop_hud's "shown"; the revive status shows whenever it is set */
     if (!ctrlview_on() && (!have_remote || (!shown && !status1[0] && !status2[0])))
         return;
@@ -506,6 +635,9 @@ void hud_frame(HDC dc)
     if (shown) {
         draw_tags(w, h);
         draw_panel(w, h);
+        draw_pings(w, h);
+        draw_bubbles(w, h);
+        draw_chat(w, h);
     }
     draw_status(w, h);
     ctrlview_draw(w, h);

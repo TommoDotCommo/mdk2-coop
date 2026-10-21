@@ -38,8 +38,7 @@
 #define RIDE_BEHIND     3.0f
 #define ZONE_CLEAR_MS   2000.0      /* host: a dead player's zone empty this long */
 #define WIPE_MS         3000.0      /* host: nobody alive this long, then reload */
-#define KEY_REVIVE      19          /* R (scancode) */
-#define VK_REVIVE       'R'
+/* the revive key (R) is set on the Controls page: input.c gamekey_down(GK_REVIVE) */
 #define KEY_NEXT        256         /* left mouse: next teammate to watch */
 #define UNREACHABLE     (64 | 128 | 256 | 2048)   /* DAMAGE_LAVAFALL, LAVAFLOAT, BLACKHOLE, LAVADEATH */
 #define ANIM_DIE        17
@@ -360,7 +359,7 @@ static void host_frame(double now)
 static void reviver_frame(double now)
 {
     float *me = pos_of(my_slot);
-    int s, who = -1, key = input_down(KEY_REVIVE, VK_REVIVE);
+    int s, who = -1, key = gamekey_down(GK_REVIVE);
     float nd = 0.0f;
     char line[96];
 

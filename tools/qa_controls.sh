@@ -43,7 +43,7 @@ check "the picture starts on the On foot page"            has "^lua: controls pa
 mdk_shot "$HP" "$out/page_foot.png"
 
 # 2. Right on the Page combo walks the pages
-for pg in kurt sniper max doc mini menus system; do
+for pg in kurt sniper max doc mini coop menus system; do
     mdk_key "$HP" 205; sleep 1.2
     check "page $pg"                                      has "^lua: controls page: $pg"
     mdk_shot "$HP" "$out/page_$pg.png"
@@ -56,6 +56,13 @@ check "Original: Max equip E / Q, Doc up ] / wheel up"    bash -c "[ '$(bound me
 lua 'coop.SetPreset("modern")'; dump
 check "Modern: forward W / Up, jump Space"                bash -c "[ '$(bound fwd)' = '17 200' ] && [ '$(bound jump)' = '57 -1' ]"
 check "Modern: sniper is the right mouse, zoom on the wheel" bash -c "[ '$(bound sniper)' = '1001 -1' ] && [ '$(bound zoomin)' = '1008 17' ]"
+check "Modern: chat T, ping V / middle mouse, revive R"   bash -c "[ '$(bound chat)' = '20 -1' ] && [ '$(bound ping)' = '47 1002' ] && [ '$(bound revive)' = '19 -1' ]"
+check "chat, ping and revive keys reach the bridge"       has "^game keys 1: 47/258"
+lua 'coop.EditCustom() coop.custom.chat = { 34, -1 } coop.custom.revive = { 35, -1 } coop.ApplyControls()'; sleep 1
+check "a custom chat key is handed to the bridge (G)"     has "^game keys 0: 34/-1"
+check "a custom revive key is handed to the bridge (H)"   has "^game keys 2: 35/-1"
+lua 'coop.SetPreset("modern")'; sleep 1
+check "back on Modern the bridge has T again"             has "^game keys 0: 20/-1"
 check "preset kept in coop.ini"                           eq "$(ini preset)" modern
 # no key does two things in one set of actions, in either preset
 lua 'local bad = 0 local i, set = next(coop.sets, nil) while (i) do local seen = {} local n, id = next(set, nil) while (n) do local k = coop.Keys(id) local j = 1 while (j <= 2) do if (k[j] >= 0) then if (seen[k[j]]) then bad = bad + 1 coop_log("DUP "..id.." "..seen[k[j]].." "..k[j]) end seen[k[j]] = id end j = j + 1 end n, id = next(set, n) end i, set = next(coop.sets, i) end coop_log("DUPS "..bad)'; sleep 1

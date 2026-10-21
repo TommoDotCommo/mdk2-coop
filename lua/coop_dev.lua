@@ -88,8 +88,8 @@ function coop.KeyName(k)
 end
 
 -- pages: where an action is shown and rebound --
-coop.ctrlpages = { "On foot", "Kurt", "Sniper", "Max", "Doc", "Minigames", "Menus", "System" }
-coop.pageid = { "foot", "kurt", "sniper", "max", "doc", "mini", "menus", "system" }
+coop.ctrlpages = { "On foot", "Kurt", "Sniper", "Max", "Doc", "Minigames", "Co-op", "Menus", "System" }
+coop.pageid = { "foot", "kurt", "sniper", "max", "doc", "mini", "coop", "menus", "system" }
 
 -- groups (colours) are the bridge's: 1 move, 2 look, 3 jump, 4 combat, 5 inventory, 6 sniper,
 -- 7 system, 8 co-op, 9 menus. coms: every game command the action's keys are bound to
@@ -121,14 +121,19 @@ coop.actions = {
     { id="ddown", name="Inventory down", page="doc",    group=5, short="Down",   long="Inventory down",  coms={ COM_DOCINVDOWN } },
     { id="dleft", name="Inventory left", page="doc",    group=5, short="Left",   long="Inventory left",  coms={ COM_DOCINVENLEFT } },
     { id="dright", name="Inventory right", page="doc",    group=5, short="Right",  long="Inventory right", coms={ COM_DOCINVENRIGHT } },
+    -- the co-op features that read the keyboard themselves (the bridge, coop_game_keys): gk is
+    -- theirs; the mouse buttons work for them, the wheel does not
+    { id="chat",   name="Chat",   page="coop", group=8, short="Chat",   long="Open the chat line (Enter sends, Esc cancels)", coms={}, gk=0 },
+    { id="ping",   name="Ping",   page="coop", group=8, short="Ping",   long="Ping what you aim at: a marker for everyone", coms={}, gk=1 },
+    { id="revive", name="Revive", page="coop", group=8, short="Revive", long="Hold beside a downed teammate to stand them up", coms={}, gk=2 },
 }
 
 -- actions in use together: a key may not do two things in the same set --
 coop.sets = {
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "kinvl", "kinvr", "kuse", "kclose", "sniper" },
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "minvl", "minvr", "mequip", "munequip" },
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "dup", "ddown", "dleft", "dright" },
-    { "sniper", "zoomin", "zoomout", "strl", "strr", "shoot", "jump" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "kinvl", "kinvr", "kuse", "kclose", "sniper", "chat", "ping", "revive" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "minvl", "minvr", "mequip", "munequip", "chat", "ping", "revive" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "dup", "ddown", "dleft", "dright", "chat", "ping", "revive" },
+    { "sniper", "zoomin", "zoomout", "strl", "strr", "shoot", "jump", "chat", "ping", "revive" },
 }
 
 -- the presets: id = { key 1, key 2 } --
@@ -139,6 +144,7 @@ coop.preset_original = {
     sniper = { 57, -1 }, zoomin = { 200, 17 }, zoomout = { 208, 31 },
     minvl = { 26, 1008 }, minvr = { 27, 1009 }, mequip = { 18, 16 }, munequip = { 16, 18 },
     dup = { 27, 1008 }, ddown = { 26, 1009 }, dleft = { 12, 16 }, dright = { 13, 18 },
+    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 },
 }
 coop.preset_modern = {
     fwd = { 17, 200 }, back = { 31, 208 }, strl = { 30, 203 }, strr = { 32, 205 }, turnl = { 44, -1 }, turnr = { 46, -1 },
@@ -146,7 +152,8 @@ coop.preset_modern = {
     kinvl = { 16, 1008 }, kinvr = { 18, 1009 }, kuse = { 33, 15 }, kclose = { 34, -1 },
     sniper = { 1001, -1 }, zoomin = { 1008, 17 }, zoomout = { 1009, 31 },
     minvl = { 16, 1008 }, minvr = { 18, 1009 }, mequip = { 33, -1 }, munequip = { 34, -1 },
-    dup = { 19, 1008 }, ddown = { 33, 1009 }, dleft = { 16, -1 }, dright = { 18, -1 },
+    dup = { 34, 1008 }, ddown = { 33, 1009 }, dleft = { 16, -1 }, dright = { 18, -1 },
+    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 },
 }
 coop.preset_names = { original = "Original", modern = "Modern", custom = "Custom" }
 coop.preset_order = { "original", "modern", "custom" }
@@ -191,6 +198,7 @@ end
 
 function coop.BindAction(a)
     local k = coop.Keys(a.id)
+    if (a.gk) then coop_game_keys(a.gk, k[1], k[2]) end
     local n, c = next(a.coms, nil)
     while (n) do
         omBindCommandI(c, k[1])
@@ -211,7 +219,11 @@ end
 function coop.ControlsDump()
     local i, a = next(coop.actions, nil)
     while (i) do
-        coop_log(format("ctrl %s %d %d", a.id, omGetCommandBinding(a.coms[1]), omGetCommandBinding2(a.coms[1])))
+        if (a.gk) then
+            coop_log(format("ctrl %s %d %d", a.id, coop.Keys(a.id)[1], coop.Keys(a.id)[2]))
+        else
+            coop_log(format("ctrl %s %d %d", a.id, omGetCommandBinding(a.coms[1]), omGetCommandBinding2(a.coms[1])))
+        end
         i, a = next(coop.actions, i)
     end
 end
@@ -1382,6 +1394,10 @@ coop.derived = {
         { from = "strl", group = 1, short = "S2 L", long = "Stick 2 left" },
         { from = "strr", group = 1, short = "S2 R", long = "Stick 2 right" },
     },
+    coop = {
+        { codes = { 1000 }, group = 8, short = "Next", long = "While you are out of the fight: watch the next teammate" },
+        { codes = { 60 }, group = 8, short = "Mark", long = "Co-op marker: a note in every log and a screenshot, for bug reports" },
+    },
     menus = {
         { codes = { 200 }, group = 9, short = "Up", long = "Menu up" },
         { codes = { 208 }, group = 9, short = "Down", long = "Menu down" },
@@ -1394,7 +1410,6 @@ coop.derived = {
     system = {
         { codes = { 1 }, group = 7, short = "Pause", long = "Pause menu" },
         { codes = { 68 }, group = 7, short = "Shot", long = "Screenshot (saved by the game)" },
-        { codes = { 60 }, group = 8, short = "Mark", long = "Co-op marker: a note in every log and a screenshot, for bug reports" },
         { codes = { 41 }, group = 7, short = "Console", long = "Developer console" },
     },
 }
@@ -1580,7 +1595,9 @@ function coop.PollRebind()
         omEnableControl()
     end
     if (k == -1) then return end
-    if (k ~= 1) then
+    if (k ~= 1 and coop.ActionById(id).gk and (k == 1008 or k == 1009)) then
+        coop.ctrlnote = "  (the wheel cannot be used for " .. coop.MenuName(coop.ActionById(id)) .. ")"
+    elseif (k ~= 1) then
         local other = coop.Conflict(id, k)
         if (other) then
             coop.RemoveKey(other, k)
