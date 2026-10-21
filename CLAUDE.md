@@ -36,6 +36,8 @@ apply to every session here.
   provided every pushed commit has the identity below and no real names, emails, tokens, game files
   or usernamed paths (check `git log --format='%an %ae %cn %ce' origin/main..master` and the diff).
   Never force-push, and never `push --all` / `--mirror`.
+- Match the hub's conventions: look at recent `gh issue list` / `gh pr list` titles first. Claims are
+  titled "Claim: <Game> (<year>) - <approach>", PRs "<Game>: <what it adds>".
 - Already published: claim issue cranebeaker/coop-anything#94 and draft PR #95 (branch `game/mdk2-hd`
   on the fork, remote `fork`). Add to that PR while it is open (commit + `git push fork game/mdk2-hd`)
   instead of opening a new one.
