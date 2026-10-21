@@ -30,8 +30,8 @@
 #include <math.h>
 #include "bridge.h"
 
-#define DOWN_MS         30000.0     /* downed this long, unless someone is reviving */
-#define REVIVE_MS       3000.0      /* hold the revive key this long */
+#define DOWN_MS         (rule_down_secs * 1000.0)       /* downed this long, unless someone is reviving */
+#define REVIVE_MS       (rule_revive_secs * 1000.0)     /* hold the revive key this long */
 #define REVIVE_RANGE    5.0f        /* units from the downed player */
 #define REVIVE_SLACK    3.0f        /* the downed side allows this much more (positions lag) */
 #define RIDE_DELAY_MS   2500.0      /* a dead player sees their body this long before spectating */

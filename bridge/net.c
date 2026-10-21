@@ -1185,6 +1185,8 @@ static void host_welcome(int s)
 
     link_reset(l);
     l->gen = next_gen++;
+    rules_fill(&e);
+    event_put(l, &e);
     if (cur_level < 1)
         return;
     event_init(&e, EV_LEVEL);

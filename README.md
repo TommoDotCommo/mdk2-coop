@@ -204,10 +204,15 @@ Options > Co-op (the game's own menus, on the title screen and in the pause menu
   from the title screen. A disconnected Steam client can accept a new invite or press Esc on the
   waiting screen to join by ID; its next LEVEL reloads the host's world, including at the same checkpoint.
 - Gameplay (`coop.ini`; the host's settings count): friendly fire (off by default; hits between
-  players arrive as enemy gun damage, since the game ignores a player hitting a player), tougher
-  enemies (+0/25/50/100% hp per extra player, default 50, set when an enemy first appears), co-op
-  save interval, players on screen and developer keys (F1, F3-F11 and the F9 debug menu; off for
+  players arrive as enemy gun damage, since the game ignores a player hitting a player), difficulty
+  (see below), co-op save interval, players on screen and developer keys (F1, F3-F11 and the F9 debug menu; off for
   players, on in the test installs; F2 stays on as the report marker).
+- Difficulty (Gameplay > Difficulty; `[game]` keys, the host's values rule and reach the clients as they join
+  and whenever they change): presets Story, Normal (default), Hard and Nightmare, or each setting on its own, which
+  shows as Custom. Settings: friendly fire, enemy health (`enemy_hp`, % of normal), more health per extra player
+  (`enemy_scale`, set when an enemy first appears, so a change mid-level only reaches enemies not yet seen), damage
+  you take (`dmg_taken`, what enemies and the world do to players; friendly fire is not scaled), damage you deal
+  (`dmg_dealt`), time before bleeding out (`down_secs`) and time to revive (`revive_secs`).
 - Controls (`[controls] preset=original|modern|custom`, custom keys in `[controls_custom]`, one
   `action=key1,key2` line each; scan codes, mouse 1000 left, 1001 right, 1002 middle, 1008 wheel up,
   1009 wheel down, -1 none): Original is the game's own keys, Modern is WASD, Space to jump, right
