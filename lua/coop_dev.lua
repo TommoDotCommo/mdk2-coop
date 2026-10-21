@@ -321,6 +321,26 @@ end
 coop.LoadCustom()
 coop.ApplyControls()
 
+-- Couch co-op ([couch] in coop.ini, written by tools/win/couch.ps1 / dist/mdk2-couch.ps1): this
+-- game is one of 2-4 local players, each its own window on one screen. The window is sized by
+-- the bridge; the game is told the same size so it renders into all of it. Only player 1
+-- makes sound, and everyone plays with the modern controls the gamepad layout assumes. --
+do
+    local slot, count = coop_couch()
+    if (slot) then
+        coop.couch_slot, coop.couch_count = slot, count
+        local w = tonumber(coop_get("couch", "w", "960")) or 960
+        local h = tonumber(coop_get("couch", "h", "540")) or 540
+        chSetVideoMode('', 0, 0, w, h, 165, 0)
+        coop.ApplyControls(true)
+        if (slot > 1) then
+            chSndSetEffectsVolume(0)
+            chSndMusicVolume(0)
+            chSndSetVoiceVolume(0)
+        end
+    end
+end
+
 -- The game's quicksave (F6) and quickload (F7) are off in co-op: a quickload restores this
 -- game's own save, which the partner cannot follow (it showed up as level(l, -1) and the
 -- client crashed loading its own save); F6 / F7 are the checkpoint keys instead --

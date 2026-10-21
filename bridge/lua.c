@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "bridge.h"
+#include "pad.h"
 
 /* Central damage function: every hit, from scripts and from shots, goes through it.
  * deal_damage(from, target, damage, damagetype, part); first 5 bytes are
@@ -492,6 +493,40 @@ static void l_coop_press(void)
         input_press((int)num_param(1), (int)num_param(2));
 }
 
+/* coop_pad_fake(lx, ly, rx, ry, buttons, lt, rt): stand-in gamepad state (sticks -1..1, triggers
+ * 0..255, XInput button bits); with no argument the real pad again. Background test mode only. */
+static void l_coop_pad_fake(void)
+{
+    struct pad_raw raw;
+
+    if (!test_background && !couch_active)
+        return;
+    if (!lua_getparam(1)) {
+        pad_fake(NULL);
+        return;
+    }
+    raw.lx = (int)(num_param(1) * 32767);
+    raw.ly = (int)(num_param(2) * 32767);
+    raw.rx = (int)(num_param(3) * 32767);
+    raw.ry = (int)(num_param(4) * 32767);
+    raw.buttons = (unsigned)num_param(5);
+    raw.lt = (int)num_param(6);
+    raw.rt = (int)num_param(7);
+    pad_fake(&raw);
+}
+
+/* coop_couch(): this player's slot (1 = first) and the number of local players, or nothing when
+ * this is not a couch game */
+static void l_coop_couch(void)
+{
+    int slot, count;
+
+    if (input_couch(&slot, &count)) {
+        lua_pushnumber(slot + 1);
+        lua_pushnumber(count);
+    }
+}
+
 /* coop_shot(name): screenshot of the next frame to <game dir>\coop\<name>.tga (background
  * test mode; chScreenShot run from a script catches an empty buffer) */
 static void l_coop_shot(void)
@@ -705,6 +740,8 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_log", l_coop_log);
     tolua_function(NULL, "coop_press", l_coop_press);
     tolua_function(NULL, "coop_shot", l_coop_shot);
+    tolua_function(NULL, "coop_pad_fake", l_coop_pad_fake);
+    tolua_function(NULL, "coop_couch", l_coop_couch);
     tolua_function(NULL, "coop_state", l_coop_state);
     tolua_function(NULL, "coop_keep_spawner", l_coop_keep_spawner);
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);

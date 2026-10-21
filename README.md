@@ -305,6 +305,23 @@ kind, per link). `MDK2_N=8 tools/netmeasure.sh [level checkpoint]` measures the 
 27.0 Mbit/s before (enemies 21.7, relayed states 4.6), 1.3 Mbit/s (enemies 0.1, relay bundles 0.9, own state 0.3) after; a client uploads ~36 kbit/s.
 `MDK2_SIM="80 30 3" tools/<suite>.sh` runs a suite with 80 ms latency, 30 ms jitter and 3% loss in every game.
 
+## Couch co-op (2-4 players, one PC)
+
+`Couch.cmd` (release zip; needs the mod installed first) makes one game copy per player next to the game
+folder (`MDK 2 HD couch\p1`..`p4`, mdk2.tar hard-linked), tiles a borderless 16:9 window per player on a
+monitor (2 players stacked, 3-4 in a 2x2 grid) and starts them: player 1 hosts over localhost UDP, the others
+join and follow. Options: `-Players 2..4`, `-Monitor <n>`, `-Stop`. One gamepad (XInput) per player, pad N for
+window N; only player 1 has sound; the HUD, revive, saves and drop-out recovery are the normal co-op ones.
+It is not one engine drawing several viewports (the engine has one player and one camera): it is N games
+sharing the screen, so it costs N times the CPU/GPU/RAM (~370 MB each) and Steam online play is not combined
+with it (couch games use UDP on localhost).
+Pad: left stick/D-pad arrows, right stick look, RT fire, LT sniper, A jump/select, B/Start Esc, X revive (R),
+Y E, bumpers mouse wheel. `bridge/pad.c` maps it onto input.c's synthetic keyboard/mouse, so it works
+without focus. `coop.ini` `[couch]`: slot, count, pad, x, y, w, h, look, fps. `make -C bridge test-pad` checks
+the mapping; `coop_pad_fake(lx, ly, rx, ry, buttons, lt, rt)` (command.lua) stands in for a pad in tests.
+Checked 2026-10-21 with two windows on a 2560x1440 monitor: both joined, a faked stick moved and turned
+player 2 in the host's world. Real pads, 3-4 players and a Steam-installed run are untested.
+
 ## Manual playtest on one PC
 
     tools/play.sh          # install into the copies, start host (left) and client (right)
