@@ -16,7 +16,8 @@ rm -rf "$stage" "$out/$name.zip"
 mkdir -p "$stage/coop"
 cp "$here/bridge/dinput8.dll" "$stage/"
 sed 's/\r$//; s/$/\r/' "$here/lua/coop_dev.lua" > "$stage/coop/coop.lua"
-for f in Install.cmd Uninstall.cmd mdk2-coop.ps1; do sed 's/\r$//; s/$/\r/' "$here/dist/$f" > "$stage/$f"; done
+for f in Install.cmd Uninstall.cmd mdk2-coop.ps1 mdk2-textures.ps1 "Upscale Textures.cmd" "Restore Textures.cmd"; do
+    sed 's/\r$//; s/$/\r/' "$here/dist/$f" > "$stage/$f"; done
 sed 's/\r$//; s/$/\r/; s/@VERSION@/'"$ver"'/' "$here/dist/README.txt" > "$stage/README.txt"
 sed 's/\r$//; s/$/\r/' "$here/LICENSE" > "$stage/LICENSE.txt"
 (cd "$out" && python3 -c 'import sys, zipfile, os
