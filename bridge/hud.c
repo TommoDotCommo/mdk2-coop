@@ -41,6 +41,8 @@
 #define GL_UNSIGNED_BYTE        0x1401
 #define GL_BACK                 0x0405
 #define GL_FRAMEBUFFER_SRGB     0x8DB9
+#define GL_LINE_LOOP            0x0002
+#define GL_LINE_SMOOTH          0x0B20
 
 typedef void (WINAPI *gl_v_u)(unsigned);
 static struct {
@@ -58,6 +60,10 @@ static struct {
     void (WINAPI *Color4f)(float, float, float, float);
     void (WINAPI *Rectf)(float, float, float, float);
     void (WINAPI *RasterPos2f)(float, float);
+    void (WINAPI *Begin)(unsigned);
+    void (WINAPI *End)(void);
+    void (WINAPI *Vertex2f)(float, float);
+    void (WINAPI *LineWidth)(float);
     void (WINAPI *ListBase)(unsigned);
     void (WINAPI *CallLists)(int, unsigned, const void *);
     void (WINAPI *GetIntegerv)(unsigned, int *);
@@ -74,9 +80,12 @@ static struct {
 
 static int ready = -1;          /* -1 not tried, 0 failed, 1 ok */
 static int shown;               /* coop_hud(on) from Lua, this frame */
+static int outlines;            /* coop_hud's third argument: outline the players through walls */
 static BYTE *camera;            /* the game's camera gob (mdkGetCameraGob), from coop_hud */
 static float fov_deg = 64.0f;   /* vertical field of view: from where puppets at known spots appear (1-2) */
 static float head_z = 1.8f;     /* tag this far above a puppet's feet (Kurt is about 1.45 tall) */
+static float body_h = 1.5f;     /* outline height, feet to top of the head */
+static float body_hw = 0.5f;    /* and half its width */
 /* fonts: 0 is the HUD's, 1, 2 and 3 smaller / larger / tiny ones for the controls view (ctrlview.c) */
 struct fnt { unsigned base; int px, h; int w[128]; HFONT hf; };
 static struct fnt fn[4];
@@ -100,11 +109,13 @@ static int load_gl(void)
     GL1(Ortho); GL1(Viewport); GL1(Enable); GL1(Disable); GL1(BlendFunc); GL1(Color4f); GL1(Rectf);
     GL1(RasterPos2f); GL1(ListBase); GL1(CallLists); GL1(GetIntegerv); GL1(GetString); GL1(DrawBuffer);
     GL1(GenLists); GL1(DeleteLists);
+    GL1(Begin); GL1(End); GL1(Vertex2f); GL1(LineWidth);
     GLX(UseProgram); GLX(BindFramebuffer); GLX(ActiveTexture);
     *(FARPROC *)&gl.UseFontBitmapsA = GetProcAddress(m, "wglUseFontBitmapsA");
 #undef GL1
 #undef GLX
-    if (!gl.PushAttrib || !gl.Rectf || !gl.CallLists || !gl.GenLists || !gl.GetString || !gl.UseFontBitmapsA)
+    if (!gl.PushAttrib || !gl.Rectf || !gl.CallLists || !gl.GenLists || !gl.GetString || !gl.UseFontBitmapsA ||
+        !gl.Begin || !gl.End || !gl.Vertex2f || !gl.LineWidth)
         return 0;
     logmsg("hud: GL %s on %s; program %s, framebuffers %s", gl.GetString(GL_VERSION), gl.GetString(GL_RENDERER),
            gl.UseProgram ? "yes" : "no", gl.BindFramebuffer ? "yes" : "no");
@@ -270,6 +281,62 @@ static void place_tag(float *sx, float *sy, float tw)
     placed[nplaced][2] = *sx + tw * 0.5f + 4;
     placed[nplaced][3] = *sy + 4;
     nplaced++;
+}
+
+/* A rounded outline (capsule) around the centre (cx, cy), half width hw and half height hh pixels, y down.
+ * Drawn without a depth test, so it shows through walls. */
+static void outline(float cx, float cy, float hw, float hh, int h, float r, float g, float b)
+{
+    float rad = hw < hh ? hw : hh, ax = hw - rad, ay = hh - rad;
+    int i, pass;
+
+    for (pass = 0; pass < 2; pass++) {      /* a dark rim first, then the colour on top */
+        gl.LineWidth(pass ? 3.0f : 6.0f);
+        gl.Color4f(pass ? r : 0.0f, pass ? g : 0.0f, pass ? b : 0.0f, pass ? 1.0f : 0.5f);
+        gl.Begin(GL_LINE_LOOP);
+        for (i = 0; i < 32; i++) {          /* the four corner arcs, 8 steps each, clockwise from the right */
+            float a = (float)i / 32.0f * 6.2831853f, ca = cosf(a), sa = sinf(a);
+            float x = cx + (ca >= 0 ? ax : -ax) + ca * rad;
+            float y = cy + (sa >= 0 ? ay : -ay) + sa * rad;
+            gl.Vertex2f(x, (float)h - y);
+        }
+        gl.End();
+    }
+}
+
+/* Every other player in the level, outlined on screen whatever is in the way. Standing: a capsule from
+ * the feet up; downed: a flat one on the floor. Coloured by slot so they stay apart. */
+static void draw_outlines(int w, int h)
+{
+    static const float col[8][3] = {
+        {0.95f, 0.85f, 0.4f}, {0.4f, 0.85f, 0.95f}, {0.5f, 0.95f, 0.5f}, {0.95f, 0.5f, 0.85f},
+        {0.95f, 0.6f, 0.35f}, {0.7f, 0.6f, 0.95f}, {0.95f, 0.95f, 0.95f}, {0.6f, 0.8f, 0.4f}
+    };
+    int s;
+
+    gl.Enable(GL_LINE_SMOOTH);
+    for (s = 0; s < MAX_PLAYERS; s++) {
+        float feet[3], top[3], fx, fy, tx, ty, ppu, down;
+
+        if (!player_in_level(s) || !gob_alive(puppets[s]) || player_life(s) >= LIFE_DEAD)
+            continue;
+        down = player_life(s) == LIFE_DOWNED;
+        memcpy(feet, puppets[s] + GOB_POSITION, sizeof(feet));
+        memcpy(top, feet, sizeof(top));
+        top[2] += down ? body_h * 0.3f : body_h;
+        if (!project(feet, w, h, &fx, &fy) || !project(top, w, h, &tx, &ty))
+            continue;
+        ppu = fabsf(fy - ty) / (down ? body_h * 0.3f : body_h);     /* pixels per game unit at their depth */
+        if (ppu < 1.0f || fx < -w || fx > 2 * w || fy < -h || fy > 2 * h)
+            continue;
+        if (down)
+            outline(fx, fy - ppu * body_h * 0.15f, ppu * body_h * 0.5f, ppu * body_h * 0.15f, h,
+                    col[s % 8][0], col[s % 8][1], col[s % 8][2]);
+        else
+            outline(fx, (fy + ty) * 0.5f, ppu * body_hw, ppu * body_h * 0.5f, h,
+                    col[s % 8][0], col[s % 8][1], col[s % 8][2]);
+    }
+    gl.Disable(GL_LINE_SMOOTH);
 }
 
 /* Name tags over the other players' heads, nearest first so overlapping ones stack upwards;
@@ -633,6 +700,8 @@ void hud_frame(HDC dc)
     gl.MatrixMode(GL_MODELVIEW); gl.PushMatrix(); gl.LoadIdentity();
 
     if (shown) {
+        if (outlines)
+            draw_outlines(w, h);
         draw_tags(w, h);
         draw_panel(w, h);
         draw_pings(w, h);
@@ -657,13 +726,15 @@ void hud_frame(HDC dc)
         gl.UseProgram((unsigned)prog);
 }
 
-/* coop_hud(on, camera): show the HUD this frame (Lua: in a level, no menu, [hud] show), with
- * the game's camera gob for the name tags */
+/* coop_hud(on, camera, outlines): show the HUD this frame (Lua: in a level, no menu, [hud] show), with
+ * the game's camera gob for the name tags and outlines, and whether to outline the players ([hud] outline) */
 static void l_coop_hud(void)
 {
     unsigned int o = lua_getparam(1);
     shown = o && lua_isnumber(o) && lua_getnumber(o) != 0.0;
     camera = tolua_getusertype(2, NULL);
+    o = lua_getparam(3);
+    outlines = o && lua_isnumber(o) && lua_getnumber(o) != 0.0;
 }
 
 /* coop_hud_dump(): log the panel's rows as the next frame draws them, and the frames drawn so far */
