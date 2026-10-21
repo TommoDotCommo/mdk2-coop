@@ -347,6 +347,9 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part);
 /* ---- input.c ---- */
 
 extern int test_background;
+extern int couch_active;
+int input_couch(int *slot, int *count);
+void input_pad_frame(void);
 void input_init(void);
 void input_wrap_dinput(void *di);
 void input_press(int code, int hold_ms);

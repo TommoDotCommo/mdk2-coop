@@ -24,6 +24,14 @@ If Windows shows "Windows protected your PC", click "More info" > "Run anyway".
 (The installer is a plain PowerShell script: mdk2-coop.ps1, readable in Notepad.)
 
 
+Couch co-op (2-4 players on one PC)
+-----------------------------------
+After installing, double-click Couch.cmd (or run it with -Players 3, -Monitor 2, -Stop). It starts one
+game window per player on one screen, each played with its own Xbox-style gamepad (player 1 = first pad).
+Player 1 starts the game from the title screen; the others follow. Only player 1 has sound.
+Left stick move, right stick look, right trigger fire, left trigger sniper, A jump, X hold to revive,
+Y use, bumpers change item, B/Start pause. Each window is a full game: 4 players need a strong PC.
+
 How to host (Steam)
 -------------------
 1. Install, choose "steam", then "host". Keep Steam running and online.

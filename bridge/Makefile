@@ -4,9 +4,9 @@ LDFLAGS = -shared -static-libgcc -Wl,--enable-stdcall-fixup -Wl,--kill-at -lws2_
 
 GAME_DIR ?= /mnt/c/coop/mdk2-test
 
-SRCS = dinput8.c game.c net.c steam.c entities.c shots.c pickups.c doors.c rooms.c frame.c input.c state.c saves.c settings.c loader.c hud.c netstats.c revive.c lua.c route.c bot.c
+SRCS = dinput8.c game.c net.c steam.c entities.c shots.c pickups.c doors.c rooms.c frame.c input.c state.c saves.c settings.c loader.c hud.c netstats.c revive.c lua.c route.c bot.c pad.c
 
-dinput8.dll: $(SRCS) bridge.h steam_abi.h route.h dinput8.def
+dinput8.dll: $(SRCS) bridge.h steam_abi.h route.h pad.h dinput8.def
 	$(CC) $(CFLAGS) -o $@ $(SRCS) dinput8.def $(LDFLAGS)
 
 install: dinput8.dll
@@ -22,4 +22,11 @@ clean:
 test-shots: ../local/tests/shots_test.exe
 	../local/tests/shots_test.exe
 
-.PHONY: install clean test-shots
+../local/tests/pad_test.exe: tests/pad_test.c pad.c pad.h
+	mkdir -p ../local/tests
+	$(CC) $(CFLAGS) -o $@ tests/pad_test.c -static-libgcc
+
+test-pad: ../local/tests/pad_test.exe
+	../local/tests/pad_test.exe
+
+.PHONY: install clean test-shots test-pad

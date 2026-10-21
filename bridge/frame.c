@@ -45,6 +45,7 @@ static void run_command_file(void)
 
 static void __cdecl update_scene_and_tick(void *scene)
 {
+    input_pad_frame();
     bot_before_frame();
     ((void (*)(void *))UPDATE_SCENE_ADDR)(scene);
     run_command_file();

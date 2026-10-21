@@ -14,11 +14,15 @@
 #include <string.h>
 #include "bridge.h"
 #include "route.h"
+#include "pad.h"
 #include <mmsystem.h>
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
 
 int test_background;
+int couch_active;               /* [couch] in coop.ini: one of several local players on this PC */
+static int synth;               /* devices are ours (scripted presses or gamepad), not the real ones */
+static struct { int slot, count, pad, x, y, w, h; float look; } couch;
 
 /* ---- synthetic presses ---- */
 
@@ -62,8 +66,13 @@ void input_press(int code, int hold_ms)
     logmsg("press %d for %d ms", code, hold_ms);
 }
 
+static BYTE pad_keys[33];
+static unsigned pad_buttons;
+
 static int held(int code)
 {
+    if ((pad_keys[code / 8] >> (code % 8)) & 1)
+        return 1;
     if (replay_active)
         return (replay_input.keys[code / 8] >> (code % 8)) & 1;
     return now_ms() < release_at[code];
@@ -77,10 +86,44 @@ int input_down(int code, int vk)
 
     if (code < 0 || code >= CODES)
         return 0;
-    if (test_background)
+    if (synth)
         return held(code);
     GetWindowThreadProcessId(GetForegroundWindow(), &pid);
     return pid == GetCurrentProcessId() && (GetAsyncKeyState(vk) & 0x8000);
+}
+
+/* Once a frame, before the scene updates: the pad becomes held codes and mouse movement */
+void input_pad_frame(void)
+{
+    static double last;
+    struct pad_raw raw;
+    struct pad_out out;
+    double now = now_ms();
+    float dt = last ? (float)((now - last) / 1000.0) : 0;
+    int i;
+
+    last = now;
+    if (!couch_active)
+        return;
+    if (dt > 0.1f)
+        dt = 0.1f;
+    if (!pad_read(couch.pad, &raw)) {
+        memset(pad_keys, 0, sizeof(pad_keys));
+        pad_buttons = 0;
+        return;
+    }
+    pad_map(&raw, pad_buttons, dt, couch.look, &out);
+    pad_buttons = raw.buttons;
+    memcpy(pad_keys, out.keys, sizeof(pad_keys));
+    for (i = 0; i < 3; i++)
+        replay_input.mouse[i] += out.mouse[i];
+}
+
+int input_couch(int *slot, int *count)
+{
+    *slot = couch.slot;
+    *count = couch.count;
+    return couch_active;
 }
 
 /* ---- devices ---- */
@@ -139,22 +182,22 @@ static void *patch_slot(void *obj, int slot, void *fn)
 
 static HRESULT WINAPI dev_acquire(void *self)
 {
-    return test_background && dev_find(self) ? DI_OK : acquire_orig(self);
+    return synth && dev_find(self) ? DI_OK : acquire_orig(self);
 }
 
 static HRESULT WINAPI dev_unacquire(void *self)
 {
-    return test_background && dev_find(self) ? DI_OK : unacquire_orig(self);
+    return synth && dev_find(self) ? DI_OK : unacquire_orig(self);
 }
 
 static HRESULT WINAPI dev_poll(void *self)
 {
-    return test_background && dev_find(self) ? DI_OK : poll_orig(self);
+    return synth && dev_find(self) ? DI_OK : poll_orig(self);
 }
 
 static HRESULT WINAPI dev_set_coop(void *self, HWND wnd, DWORD flags)
 {
-    return test_background && dev_find(self) ? DI_OK : set_coop_orig(self, wnd, flags);
+    return synth && dev_find(self) ? DI_OK : set_coop_orig(self, wnd, flags);
 }
 
 /* Current synthetic state of one code, as the device reports it (0x80 = down) */
@@ -173,7 +216,7 @@ static HRESULT WINAPI dev_get_state(void *self, DWORD size, void *out)
 
     if (!d)
         return get_state_orig(self, size, out);
-    if (!test_background) {
+    if (!synth) {
         hr = get_state_orig(self, size, out);
         if (FAILED(hr)) return hr;
     } else {
@@ -209,7 +252,7 @@ static HRESULT WINAPI dev_get_data(void *self, DWORD objsize, DIDEVICEOBJECTDATA
 
     if (!d)
         return get_data_orig(self, objsize, out, inout, flags);
-    if (!test_background) {
+    if (!synth) {
         HRESULT hr = get_data_orig(self, objsize, out, inout, flags);
         if (SUCCEEDED(hr) && out && !(flags & DIGDD_PEEK)) {
             for (DWORD i = 0; i < *inout; i++) {
@@ -339,6 +382,11 @@ static HWND WINAPI hook_CreateWindowExA(DWORD ex, LPCSTR cls, LPCSTR name, DWORD
     if (!parent) {
         x = place_x;
         y = place_y;
+        if (couch_active) {         /* borderless, exactly this player's share of the screen */
+            style = WS_POPUP | (style & WS_VISIBLE);
+            w = couch.w;
+            h = couch.h;
+        }
     }
     wnd = CreateWindowExA(ex | WS_EX_NOACTIVATE, cls, name, style, x, y, w, h, parent, menu, inst, param);
     if (wnd && !parent && !game_wnd) {
@@ -360,10 +408,12 @@ static LONG WINAPI hook_SetWindowLongA(HWND wnd, int index, LONG value)
         wndproc_orig = (WNDPROC)value;
         return old;
     }
+    if (couch_active && wnd == game_wnd && index == GWL_STYLE)
+        value = WS_POPUP | (value & WS_VISIBLE);
     return SetWindowLongA(wnd, index, value);
 }
 
-/* Shown behind every other window, without activation */
+/* Shown without activation: behind every other window in test mode, in front for couch play */
 static BOOL WINAPI hook_ShowWindow(HWND wnd, int cmd)
 {
     BOOL r;
@@ -372,7 +422,7 @@ static BOOL WINAPI hook_ShowWindow(HWND wnd, int cmd)
     else if (cmd == SW_SHOWMINIMIZED)
         cmd = SW_SHOWMINNOACTIVE;
     r = ShowWindow(wnd, cmd);
-    SetWindowPos(wnd, HWND_BOTTOM, place_x, place_y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+    SetWindowPos(wnd, test_background ? HWND_BOTTOM : HWND_TOP, place_x, place_y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
     return r;
 }
 
@@ -383,6 +433,11 @@ static BOOL WINAPI hook_SetWindowPos(HWND wnd, HWND after, int x, int y, int w, 
     if (wnd == game_wnd) {
         x = place_x;
         y = place_y;
+        if (couch_active) {
+            w = couch.w;
+            h = couch.h;
+            flags &= ~SWP_NOSIZE;
+        }
     }
     return SetWindowPos(wnd, after, x, y, w, h, flags | SWP_NOACTIVATE | SWP_NOZORDER);
 }
@@ -392,6 +447,10 @@ static BOOL WINAPI hook_SetWindowPlacement(HWND wnd, const WINDOWPLACEMENT *wp)
     WINDOWPLACEMENT p = *wp;
     if (wnd == game_wnd) {
         OffsetRect(&p.rcNormalPosition, place_x - p.rcNormalPosition.left, place_y - p.rcNormalPosition.top);
+        if (couch_active) {
+            p.rcNormalPosition.right = p.rcNormalPosition.left + couch.w;
+            p.rcNormalPosition.bottom = p.rcNormalPosition.top + couch.h;
+        }
         if (p.showCmd == SW_SHOW || p.showCmd == SW_SHOWNORMAL || p.showCmd == SW_RESTORE)
             p.showCmd = SW_SHOWNOACTIVATE;
     }
@@ -506,7 +565,7 @@ static void patch_import(const char *dll, const char *name, void *fn)
     logmsg("test: no import %s", name);
 }
 
-/* DllMain: read the switch and, when on, take over the window calls before WinMain runs */
+/* DllMain: read the switches and, when on, take over the window calls before WinMain runs */
 void input_init(void)
 {
     char ini[MAX_PATH];
@@ -514,17 +573,43 @@ void input_init(void)
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
     patch_import("gdi32.dll", "SwapBuffers", (void *)hook_SwapBuffers);
     test_background = GetPrivateProfileIntA("test", "background", 0, ini);
-    if (!test_background)
+    /* [couch]: this game is player slot+1 of count on one screen, window at x, y of w x h, played
+     * with gamepad `pad` (default slot); see pad.c and tools/win/couch.ps1 */
+    couch.slot = GetPrivateProfileIntA("couch", "slot", -1, ini);
+    couch.count = GetPrivateProfileIntA("couch", "count", 0, ini);
+    couch_active = couch.slot >= 0 && couch.count >= 2;
+    if (couch_active) {
+        char look[32];
+        couch.pad = GetPrivateProfileIntA("couch", "pad", couch.slot, ini);
+        couch.x = GetPrivateProfileIntA("couch", "x", 0, ini);
+        couch.y = GetPrivateProfileIntA("couch", "y", 0, ini);
+        couch.w = GetPrivateProfileIntA("couch", "w", 960, ini);
+        couch.h = GetPrivateProfileIntA("couch", "h", 540, ini);
+        GetPrivateProfileStringA("couch", "look", "700", look, sizeof(look), ini);
+        couch.look = (float)atof(look);
+    }
+    synth = test_background || couch_active;
+    if (!synth)
         return;
-    place_x = GetPrivateProfileIntA("test", "x", 0, ini);
-    place_y = GetPrivateProfileIntA("test", "y", 0, ini);
-    fps_cap = GetPrivateProfileIntA("test", "fps", 60, ini);
+    if (couch_active && !test_background) {
+        place_x = couch.x;
+        place_y = couch.y;
+        fps_cap = GetPrivateProfileIntA("couch", "fps", 60, ini);
+    } else {
+        place_x = GetPrivateProfileIntA("test", "x", 0, ini);
+        place_y = GetPrivateProfileIntA("test", "y", 0, ini);
+        fps_cap = GetPrivateProfileIntA("test", "fps", 60, ini);
+    }
     timeBeginPeriod(1);     /* Sleep(1) granularity for the cap */
     patch_import("user32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA);
     patch_import("user32.dll", "SetWindowLongA", (void *)hook_SetWindowLongA);
     patch_import("user32.dll", "ShowWindow", (void *)hook_ShowWindow);
     patch_import("user32.dll", "SetWindowPos", (void *)hook_SetWindowPos);
     patch_import("user32.dll", "SetWindowPlacement", (void *)hook_SetWindowPlacement);
-    logmsg("test: background mode at %d, %d, %d fps (scripted input only, window never activated)",
-           place_x, place_y, fps_cap);
+    if (couch_active)
+        logmsg("couch: player %d of %d, pad %d, window %dx%d at %d, %d, %d fps", couch.slot + 1, couch.count,
+               couch.pad, couch.w, couch.h, place_x, place_y, fps_cap);
+    else
+        logmsg("test: background mode at %d, %d, %d fps (scripted input only, window never activated)",
+               place_x, place_y, fps_cap);
 }
