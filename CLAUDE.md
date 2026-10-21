@@ -31,6 +31,16 @@ apply to every session here.
 - Publishing goes out under the owner's GitHub account. Show the owner the diff and get their OK before
   `gh issue create`, pushing to the fork or `gh pr create --draft`. PRs are always drafts, one
   game per PR, with the owner-review box left for the owner.
+- Already published: claim issue cranebeaker/coop-anything#94 and draft PR #95 (branch `game/mdk2-hd`
+  on the fork, remote `fork`). Add to that PR while it is open (commit + `git push fork game/mdk2-hd`)
+  instead of opening a new one.
+
+## Public repo and identity
+- This repo is public at github.com/TommoDotCommo/mdk2-coop (MIT; `origin`, branch `main` there,
+  `master` here). Push with `git push origin master:main`.
+- Commits must carry only the GitHub identity: `TommoDotCommo <15873245+TommoDotCommo@users.noreply.github.com>`
+  (set in this repo's and the coop-anything clone's local git config; check `git config user.email`
+  in any new worktree or clone). No real names, emails or usernamed paths in files or commit messages.
 
 ## Testing
 Background mode only (`MDK2_BACKGROUND=1`, set by `tools/qa.sh` and `tools/sweep.sh`): games on the
