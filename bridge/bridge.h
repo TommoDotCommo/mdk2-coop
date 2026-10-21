@@ -190,6 +190,7 @@ void net_send_player(BYTE *gob);
 void net_level_reset(int announce);
 void net_level_event(const struct event *e);
 void net_send(const void *buf, int len);
+void net_send_to(int slot, const void *buf, int len);
 int player_connected(int slot);
 int player_in_level(int slot);
 const char *player_name(int slot);
@@ -270,6 +271,7 @@ int ents_alive_in_zone(const float *zone_pos);
 
 /* ---- netstats.c ---- */
 
+enum { NS_PLAYER, NS_RELAY, NS_ENT, NS_VOICE, NS_OTHER, NS_KINDS };
 void netstats_sent(int kind, int len);
 
 /* ---- steam.c: uses the game's Steam connection, never replaces steam_api.dll ---- */
@@ -285,6 +287,16 @@ int steam_leave_lobby(void);
 int steam_invite(void);
 const char *steam_status(void);
 const char *steam_lobby_id(void);
+
+/* ---- voice.c: proximity voice chat ---- */
+
+void voice_init(const char *ini);
+void voice_reload(const char *ini);
+void voice_frame(void);
+void voice_lua_init(void);
+int voice_is_packet(const void *buf, int len);
+void voice_receive(int from, const void *buf, int len);
+int voice_talking(int slot);        /* slot -1: us */
 
 /* ---- state.c ---- */
 

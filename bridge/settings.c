@@ -5,6 +5,7 @@
  *
  *   [net]      role, listen_port, peer_host, peer_port   (role and ports apply at the next start)
  *   [game]     friendly_fire=0|1, enemy_scale=<% more enemy hp per extra player>  (the host's count)
+ *   [voice]    enabled, key, volume, range   (voice.c; range is the host's)
  *   [save]     interval=<seconds between co-op saves>
  *   [controls] modern=1|0   (Space jumps, right mouse toggles sniper mode)
  *
@@ -36,6 +37,7 @@ static const char *str_param(int n)
 
 static void settings_load(void)
 {
+    voice_reload(ini_path);
     cfg_friendly_fire = GetPrivateProfileIntA("game", "friendly_fire", 0, ini_path) != 0;
     cfg_enemy_scale = GetPrivateProfileIntA("game", "enemy_scale", 50, ini_path);
     if (cfg_enemy_scale < 0)

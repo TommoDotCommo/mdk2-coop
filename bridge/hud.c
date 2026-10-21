@@ -258,6 +258,22 @@ static void place_tag(float *sx, float *sy, float tw)
 
 /* Name tags over the other players' heads, nearest first so overlapping ones stack upwards;
  * the ones off screen at its edge with an arrow */
+/* a small speaker with sound bars, centred on cx, its bottom at `bottom` (screen y, down): above a
+ * talking player's name tag */
+static void draw_talk_icon(float cx, float bottom, int h)
+{
+    float u = font_h * 0.32f, x = cx - u * 3.5f, y = bottom;
+    int i;
+
+    box(x - 4, y - u * 5 - 4, u * 7 + 8, u * 5 + 8, h, 0.0f, 0.0f, 0.0f, 0.45f);
+    box(x, y - u * 3.5f, u * 1.5f, u * 2, h, 0.45f, 1.0f, 0.55f, 1.0f);          /* speaker body */
+    box(x + u * 1.5f, y - u * 4.5f, u * 1.2f, u * 4, h, 0.45f, 1.0f, 0.55f, 1.0f);
+    for (i = 0; i < 2; i++) {                                                    /* sound bars */
+        float bh = u * (2.0f + i * 1.6f);
+        box(x + u * (3.4f + i * 1.7f), y - u * 2.5f - bh * 0.5f, u * 0.8f, bh, h, 0.45f, 1.0f, 0.55f, 1.0f);
+    }
+}
+
 static void draw_tags(int w, int h)
 {
     int order[MAX_PLAYERS], n = 0, i, j, s;
@@ -286,7 +302,12 @@ static void draw_tags(int w, int h)
         if (on && sx >= 0 && sx <= w && sy >= 0 && sy <= h) {
             place_tag(&sx, &sy, tw);
             box(sx - tw * 0.5f - 4, sy - font_h - 2, tw + 8, font_h + 6, h, 0.0f, 0.0f, 0.0f, 0.35f);
-            text(sx - tw * 0.5f, sy, h, name, 0.95f, 0.85f, 0.4f);
+            if (voice_talking(s)) {
+                draw_talk_icon(sx, sy - font_h - 6, h);
+                placed[nplaced - 1][1] -= font_h * 1.9f;        /* the icon's room: tags stack above it */
+                text(sx - tw * 0.5f, sy, h, name, 0.45f, 1.0f, 0.55f);
+            } else
+                text(sx - tw * 0.5f, sy, h, name, 0.95f, 0.85f, 0.4f);
         } else {
             /* off screen or behind us: pin to the nearest edge in its direction */
             float cx = w * 0.5f, cy = h * 0.5f, dx, dy, m;
@@ -314,7 +335,12 @@ static void draw_tags(int w, int h)
             sy = cy + dy / m;
             place_tag(&sx, &sy, tw);
             box(sx - tw * 0.5f - 4, sy - font_h - 2, tw + 8, font_h + 6, h, 0.0f, 0.0f, 0.0f, 0.5f);
-            text(sx - tw * 0.5f, sy, h, name, 0.95f, 0.85f, 0.4f);
+            if (voice_talking(s)) {
+                draw_talk_icon(sx, sy - font_h - 6, h);
+                placed[nplaced - 1][1] -= font_h * 1.9f;
+            }
+            text(sx - tw * 0.5f, sy, h, name, voice_talking(s) ? 0.45f : 0.95f, voice_talking(s) ? 1.0f : 0.85f,
+                 voice_talking(s) ? 0.55f : 0.4f);
             text(dx < 0 ? sx - tw * 0.5f - font_h : sx + tw * 0.5f + 6, sy, h, dx < 0 ? "<" : ">", 0.95f, 0.85f, 0.4f);
         }
     }
@@ -387,7 +413,10 @@ static void draw_panel(int w, int h)
         snprintf(num, sizeof(num), "%d", s + 1);
         text(x, base, h, num, 1.0f, 0.78f, 0.25f);
         x += numw;
-        text(x, base, h, name[s], 0.92f, 0.95f, 1.0f);
+        if (voice_talking(s))
+            text(x, base, h, name[s], 0.45f, 1.0f, 0.55f);
+        else
+            text(x, base, h, name[s], 0.92f, 0.95f, 1.0f);
         x += namew + gap;
         if (player_in_level(s) && maxhp[s] > 0) {
             float f = hp[s] > 0 ? (float)hp[s] / maxhp[s] : 0.0f, bh = font_h * 0.5f, by = y + font_h * 0.3f;
@@ -412,6 +441,11 @@ static void draw_status(int w, int h)
 {
     float y = h * 0.70f, bw = w * 0.30f;
 
+    if (voice_talking(-1)) {
+        float mw = text_width("MIC") + 16.0f;
+        box(font_h * 0.8f, h - font_h * 2.4f, mw, font_h + 8, h, 0.0f, 0.0f, 0.0f, 0.5f);
+        text(font_h * 0.8f + 8.0f, h - font_h * 1.4f, h, "MIC", 0.45f, 1.0f, 0.55f);
+    }
     if (!status1[0] && !status2[0]) {
         if (dump_status)
             logmsg("hud status: (none)");
@@ -440,7 +474,7 @@ void hud_frame(HDC dc)
     RECT rc;
 
     /* the panel and tags follow coop_hud's "shown"; the revive status shows whenever it is set */
-    if (!have_remote || (!shown && !status1[0] && !status2[0]))
+    if (!have_remote || (!shown && !status1[0] && !status2[0] && !voice_talking(-1)))
         return;
     if (ready < 0)
         ready = load_gl();
