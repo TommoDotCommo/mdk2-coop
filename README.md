@@ -1,6 +1,8 @@
 # mdk2-coop
 
-Co-op for MDK2 HD (Steam app 213350, build 3902). Work in progress, nothing playable yet.
+Co-op for MDK2 HD (Steam app 213350, build 3902). Alpha: two or more players can play through the
+campaign together (host runs the world, up to 16 players), but there is no release build yet and the whole
+campaign has not been finished in co-op. Every checkpoint passes an automated two-client sweep.
 Built with the [Co-op Anything](https://github.com/cranebeaker/coop-anything) playbook; research notes live in
 `games/mdk2-hd/NOTES.md` there.
 
