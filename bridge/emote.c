@@ -16,6 +16,9 @@
 #define ANIMSTYLE_PLAYONCE  3
 #define DEFAULT_RATE        1.0f
 
+static void stop(const char *why);
+static int active = -1;             /* animation id, or -1 */
+
 /* the keys that end an emote (input.c codes; 256 and up are the mouse): moving, jumping, firing and
  * sniper mode as the Controls page has them bound (Lua: coop_emote_keys); the Modern keys until then */
 #define MAX_CANCEL 24
@@ -25,12 +28,107 @@ static struct { int code, vk; } cancel_keys[MAX_CANCEL] = {
 };
 static int ncancel = 11;
 
-static int active = -1;             /* animation id, or -1 */
 static int loop = 1;
 static float rate, phase;
 static double last_ms;
 static BYTE *on_gob;
 static int hp_at_start;
+
+/* ---- the wheel: hold the emote key, move the mouse toward a slot, let go to play it (letting go in
+ * the middle stops the emote that is playing). The mouse is held back from the game while it is open. ---- */
+#define MAX_SLOTS   8
+#define WHEEL_RANGE 90.0f           /* mouse counts from the middle to the rim */
+#define WHEEL_DEAD  0.35f           /* inside this fraction of the range: no slot */
+static struct { int id; char label[24]; } slots[MAX_SLOTS];
+static int nslots;
+static int wheel_on, wheel_sel = -1;
+static float wvx, wvy;
+
+int emote_wheel_open(void)
+{
+    return wheel_on;
+}
+
+/* for the HUD: the slots, the selected one (or -1) and the pointer, -1..1 */
+int emote_wheel_info(int *n, int *sel, float *vx, float *vy, const char **labels)
+{
+    int i;
+
+    if (!wheel_on)
+        return 0;
+    *n = nslots;
+    *sel = wheel_sel;
+    *vx = wvx / WHEEL_RANGE;
+    *vy = wvy / WHEEL_RANGE;
+    for (i = 0; i < nslots; i++)
+        labels[i] = slots[i].label;
+    return 1;
+}
+
+static void wheel_close(int play)
+{
+    int sel = wheel_sel;
+
+    if (!wheel_on)
+        return;
+    wheel_on = 0;
+    input_mouse_hold(0);
+    wheel_sel = -1;
+    if (!play)
+        return;
+    if (sel >= 0)
+        emote_play(slots[sel].id, 1);
+    else if (active >= 0)
+        stop("wheel");
+}
+
+/* Every frame: open, steer and close the wheel */
+static void wheel_frame(void)
+{
+    int down = nslots > 0 && gamekey_down(GK_EMOTE) && local_player && gob_alive(local_player) &&
+               revive_life() == LIFE_ALIVE;
+    long dx, dy;
+    float len;
+
+    if (!down) {
+        wheel_close(0);
+        return;
+    }
+    if (!wheel_on) {
+        wheel_on = 1;
+        wvx = wvy = 0.0f;
+        wheel_sel = -1;
+        input_mouse_hold(1);
+    }
+    input_mouse_take(&dx, &dy);
+    wvx += (float)dx;
+    wvy += (float)dy;
+    len = sqrtf(wvx * wvx + wvy * wvy);
+    if (len > WHEEL_RANGE) {
+        wvx *= WHEEL_RANGE / len;
+        wvy *= WHEEL_RANGE / len;
+        len = WHEEL_RANGE;
+    }
+    if (len < WHEEL_RANGE * WHEEL_DEAD) {
+        wheel_sel = -1;
+    } else {
+        float a = atan2f(wvx, -wvy);            /* 0 straight up, clockwise */
+        float sector = 6.2831853f / (float)nslots;
+        int k;
+
+        if (a < 0.0f)
+            a += 6.2831853f;
+        k = (int)((a + sector * 0.5f) / sector) % nslots;
+        wheel_sel = k;
+    }
+}
+
+/* the key was let go: play the chosen emote (checked next frame, before it is drawn again) */
+static void wheel_release_check(void)
+{
+    if (wheel_on && !(nslots > 0 && gamekey_down(GK_EMOTE)))
+        wheel_close(1);
+}
 
 static void stop(const char *why)
 {
@@ -91,6 +189,8 @@ void emote_frame(void)
     float one = 1.0f, four = 4.0f;
     unsigned i;
 
+    wheel_release_check();
+    wheel_frame();
     if (active < 0)
         return;
     if (!local_player || local_player != on_gob || !gob_alive(local_player)) {
@@ -149,7 +249,27 @@ static void l_coop_emote_keys(void)
     ncancel = n;
 }
 
+/* coop_emote_wheel(id1, label1, id2, label2, ...): the wheel's slots, clockwise from the top (none clears) */
+static void l_coop_emote_wheel(void)
+{
+    int i;
+
+    nslots = 0;
+    for (i = 1; nslots < MAX_SLOTS; i += 2) {
+        unsigned int o = lua_getparam(i), t = lua_getparam(i + 1);
+        long len;
+
+        if (!o || !lua_isnumber(o))
+            break;
+        slots[nslots].id = (int)lua_getnumber(o);
+        snprintf(slots[nslots].label, sizeof(slots[nslots].label), "%s", t ? luaL_check_lstr(i + 1, &len) : "");
+        nslots++;
+    }
+    wheel_close(0);
+}
+
 void emote_lua_init(void)
 {
+    tolua_function(NULL, "coop_emote_wheel", l_coop_emote_wheel);
     tolua_function(NULL, "coop_emote_keys", l_coop_emote_keys);
 }

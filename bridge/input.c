@@ -86,7 +86,26 @@ static struct { int code[2], vk[2]; } gamekeys[GK_COUNT] = {
     { { 47, 258 }, { 'V', VK_MBUTTON } },
     { { 19, -1 }, { 'R', 0 } },
     { { 48, -1 }, { 'B', 0 } },
+    { { 35, -1 }, { 'H', 0 } },
 };
+
+/* the emote wheel (emote.c) holds the mouse back from the game while it is open and steers with it */
+static int mouse_held;
+static long held_dx, held_dy;
+
+void input_mouse_hold(int on)
+{
+    mouse_held = on;
+    if (on)
+        held_dx = held_dy = 0;
+}
+
+void input_mouse_take(long *dx, long *dy)
+{
+    *dx = held_dx;
+    *dy = held_dy;
+    held_dx = held_dy = 0;
+}
 
 /* none of them while a chat line is being typed (the letters are text then) */
 int gamekey_down(int which)
@@ -265,6 +284,11 @@ static HRESULT WINAPI dev_get_state(void *self, DWORD size, void *out)
     }
     if (d->kind == DEV_KEYBOARD && chat_blocks_keys())
         memset(out, 0, size);               /* typing a chat line: the game sees no keys */
+    if (d->kind == DEV_MOUSE && mouse_held && size >= 8) {
+        held_dx += ((LONG *)out)[0];        /* emote wheel open: the movement steers it, not the camera */
+        held_dy += ((LONG *)out)[1];
+        ((LONG *)out)[0] = ((LONG *)out)[1] = 0;
+    }
     if (d->kind == DEV_KEYBOARD) {
         for (i = 0; i < 256 && i < (int)size; i++) capture_code(i, ((BYTE *)out)[i] & 0x80);
     } else {
@@ -293,8 +317,14 @@ static HRESULT WINAPI dev_get_data(void *self, DWORD objsize, DIDEVICEOBJECTDATA
             for (DWORD i = 0; i < *inout; i++) {
                 DIDEVICEOBJECTDATA *e = (void *)((BYTE *)out + i * objsize);
                 if (d->kind == DEV_KEYBOARD && e->dwOfs < 256) capture_code(e->dwOfs, e->dwData & 0x80);
-                else if (d->kind == DEV_MOUSE && e->dwOfs < 12 && e->dwOfs % 4 == 0)
+                else if (d->kind == DEV_MOUSE && e->dwOfs < 12 && e->dwOfs % 4 == 0) {
                     captured.mouse[e->dwOfs / 4] += (LONG)e->dwData;
+                    if (mouse_held && e->dwOfs < 8) {
+                        if (e->dwOfs == 0) held_dx += (LONG)e->dwData;
+                        else held_dy += (LONG)e->dwData;
+                        e->dwData = 0;
+                    }
+                }
                 else if (d->kind == DEV_MOUSE && e->dwOfs >= 12 && e->dwOfs < 20)
                     capture_code(256 + e->dwOfs - 12, e->dwData & 0x80);
             }
@@ -310,6 +340,12 @@ static HRESULT WINAPI dev_get_data(void *self, DWORD objsize, DIDEVICEOBJECTDATA
                 memset(e, 0, objsize);
                 e->dwOfs = axis * 4;
                 e->dwData = replay_input.mouse[axis];
+                if (mouse_held && axis < 2) {
+                    if (!(flags & DIGDD_PEEK)) {
+                        if (axis == 0) held_dx += replay_input.mouse[0]; else held_dy += replay_input.mouse[1];
+                    }
+                    e->dwData = 0;
+                }
                 e->dwTimeStamp = GetTickCount();
             }
             if (!(flags & DIGDD_PEEK)) {
@@ -675,7 +711,7 @@ int input_lua_key(int k, int *code, int *vk)
     return *code >= 0;
 }
 
-/* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1, GK_REVIVE 2 or GK_VOICE 3; keys
+/* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1, GK_REVIVE 2, GK_VOICE 3 or GK_EMOTE 4; keys
  * are Lua's (input_lua_key; the wheel cannot be used) */
 static void l_coop_game_keys(void)
 {
@@ -691,7 +727,19 @@ static void l_coop_game_keys(void)
     logmsg("game keys %d: %d/%d", which, gamekeys[which].code[0], gamekeys[which].code[1]);
 }
 
+/* coop_mouse(dx, dy): scripted mouse movement (background test mode only; the real mouse is not touched) */
+static void l_coop_mouse(void)
+{
+    unsigned int a = lua_getparam(1), b = lua_getparam(2);
+
+    if (!synth)
+        return;
+    replay_input.mouse[0] += (a && lua_isnumber(a)) ? (LONG)lua_getnumber(a) : 0;
+    replay_input.mouse[1] += (b && lua_isnumber(b)) ? (LONG)lua_getnumber(b) : 0;
+}
+
 void input_lua_init(void)
 {
+    tolua_function(NULL, "coop_mouse", l_coop_mouse);
     tolua_function(NULL, "coop_game_keys", l_coop_game_keys);
 }

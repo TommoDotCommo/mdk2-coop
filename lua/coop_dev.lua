@@ -127,14 +127,15 @@ coop.actions = {
     { id="ping",   name="Ping",   page="coop", group=8, short="Ping",   long="Ping what you aim at: a marker for everyone", coms={}, gk=1 },
     { id="revive", name="Revive", page="coop", group=8, short="Revive", long="Hold beside a downed teammate to stand them up", coms={}, gk=2 },
     { id="voice",  name="Push to talk", page="coop", group=8, short="Talk", long="Hold to talk: players near you hear you (Options > Co-op > Voice chat)", coms={}, gk=3 },
+    { id="emote",  name="Emote wheel", page="coop", group=8, short="Emote", long="Hold, move the mouse to an emote and let go to play it (moving ends it)", coms={}, gk=4 },
 }
 
 -- actions in use together: a key may not do two things in the same set --
 coop.sets = {
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "kinvl", "kinvr", "kuse", "kclose", "sniper", "chat", "ping", "revive", "voice" },
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "minvl", "minvr", "mequip", "munequip", "chat", "ping", "revive", "voice" },
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "dup", "ddown", "dleft", "dright", "chat", "ping", "revive", "voice" },
-    { "sniper", "zoomin", "zoomout", "strl", "strr", "shoot", "jump", "chat", "ping", "revive", "voice" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "kinvl", "kinvr", "kuse", "kclose", "sniper", "chat", "ping", "revive", "voice", "emote" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "minvl", "minvr", "mequip", "munequip", "chat", "ping", "revive", "voice", "emote" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "dup", "ddown", "dleft", "dright", "chat", "ping", "revive", "voice", "emote" },
+    { "sniper", "zoomin", "zoomout", "strl", "strr", "shoot", "jump", "chat", "ping", "revive", "voice", "emote" },
 }
 
 -- the presets: id = { key 1, key 2 } --
@@ -145,7 +146,7 @@ coop.preset_original = {
     sniper = { 57, -1 }, zoomin = { 200, 17 }, zoomout = { 208, 31 },
     minvl = { 26, 1008 }, minvr = { 27, 1009 }, mequip = { 18, 16 }, munequip = { 16, 18 },
     dup = { 27, 1008 }, ddown = { 26, 1009 }, dleft = { 12, 16 }, dright = { 13, 18 },
-    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 },
+    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 }, emote = { 35, -1 },
 }
 coop.preset_modern = {
     fwd = { 17, 200 }, back = { 31, 208 }, strl = { 30, 203 }, strr = { 32, 205 }, turnl = { 44, -1 }, turnr = { 46, -1 },
@@ -154,7 +155,7 @@ coop.preset_modern = {
     sniper = { 1001, -1 }, zoomin = { 1008, 17 }, zoomout = { 1009, 31 },
     minvl = { 16, 1008 }, minvr = { 18, 1009 }, mequip = { 33, -1 }, munequip = { 34, -1 },
     dup = { 34, 1008 }, ddown = { 33, 1009 }, dleft = { 16, -1 }, dright = { 18, -1 },
-    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 },
+    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 }, emote = { 35, -1 },
 }
 coop.preset_names = { original = "Original", modern = "Modern", custom = "Custom" }
 coop.preset_order = { "original", "modern", "custom" }
@@ -357,13 +358,16 @@ omMakeCommand(COM_LOADINSTANT, "", CON_BUTTON_FALL, 0, 0)
 -- Developer keys ([controls] devkeys, Options > Co-op > Gameplay; off for players, on in
 -- the test installs): F1 hit / spawn, F3 lava, F4 teleport, F5 Doganboy, F6 / F7 / F8
 -- checkpoints and levels for everyone, F9 BioWare debug menu, F10 test error, F11 anim log,
--- keypad + / - / 0 step through the player's animations as emotes (0 stops).
+-- PgDn / PgUp (keypad 6 / 4) step through the player's animations as emotes (Home / End, keypad 9 / 7,
+-- jump 10; Insert, keypad 5, keeps; Delete, keypad 8, lists; Backspace, keypad 0, stops).
 -- F2 (marker in every log, and a screenshot) stays on: it is how players report a problem. --
 coop.devkeys = {
     { COM_SHOWBARS, "F1" }, { COM_CLEARCONSOLE, "F3" }, { COM_TOGLG, "F4" }, { COM_NEXTSECTION, "F5" },
     { COM_TOGL1, "F6" }, { COM_TOGL2, "F7" }, { COM_TOGL3, "F8" }, { COM_DEBUGMENUTOG, "F9" },
     { COM_PRINTCOL, "F10" }, { COM_TOGL4, "F11" },
-    { COM_LIGHTNEXT, "NUM PLUS" }, { COM_LIGHTPREV, "NUM MINUS" }, { COM_LIGHTRESET, "NUM 0" },
+    { COM_LIGHTRESET, "NUM 0", 14 }, { COM_LIGHTDEFAULT4, "NUM 4", 201 }, { COM_LIGHTDEFAULT5, "NUM 5", 210 },
+    { COM_LIGHTDEFAULT6, "NUM 6", 209 }, { COM_LIGHTDEFAULT7, "NUM 7", 207 }, { COM_LIGHTDEFAULT8, "NUM 8", 211 },
+    { COM_LIGHTDEFAULT9, "NUM 9", 199 },
 }
 
 function coop.ApplyDevKeys(on)
@@ -371,6 +375,9 @@ function coop.ApplyDevKeys(on)
     while (i) do
         if (on) then omMakeCommand(k[1], k[2], CON_BUTTON_FALL, 0, 0)
         else omMakeCommand(k[1], "", CON_BUTTON_FALL, 0, 0) end
+        if (k[3]) then              -- the emote browser's keys on the keypad-less keys too (scan codes)
+            if (on) then omBindCommandI(k[1], k[3]) else omBindCommandI(k[1], -1) end
+        end
         i, k = next(coop.devkeys, i)
     end
 end
@@ -957,7 +964,7 @@ comfuncs.fkey[COM_TOGL4] = function()
     if (not coop.typeslogged) then coop.LogObjTypes() coop.typeslogged = 1 end
 end
 
--- Emote browser (dev keys): keypad + / - play the next / previous animation the character has
+-- Emote browser (dev keys): PgDn / PgUp (keypad 6 / 4) play the next / previous animation the character has
 -- on loop, keypad 0 stops; the id and ANIM_* name go to bridge.log --
 function coop.AnimNames()
     if (coop.animnames) then return coop.animnames end
@@ -970,25 +977,63 @@ function coop.AnimNames()
     return coop.animnames
 end
 
+coop.emotekept = {}
+
+-- The emote wheel (hold the Emote key, Options > Co-op > Controls): the picks from the browser,
+-- clockwise from the top. coop_emote_wheel(id, label, ...) takes up to 8.
+coop_emote_wheel(2, "Ready 2", 3, "Ready 3", 4, "Ready 4", 16, "Knockdown", 57, "Throw", 81, "Action 4", 82, "Action 5")
+
+function coop.EmoteCaption()
+    local id = coop.emoteid
+    local mark = ""
+    if (id and coop.emotekept[id]) then mark = "   [KEPT]" end
+    coop_emote_caption(format("emote %s: %s%s", tostring(id), tostring(coop.AnimNames()[id]), mark),
+        "PgDn / PgUp: next / prev   Home / End: +10 / -10   Insert: keep   Delete: list kept   Backspace: stop")
+end
+
 function coop.EmoteStep(dir)
     local names = coop.AnimNames()
     local id = coop.emoteid or -1
     local tries = 0
     while (tries < 160) do
         id = id + dir
-        if (id > 159) then id = 0 end
-        if (id < 0) then id = 159 end
+        if (id > 159) then id = id - 160 end
+        if (id < 0) then id = id + 160 end
         if (coop_emote(id, 1) == 1) then
             coop.emoteid = id
             coop_log(format("emote %d %s", id, tostring(names[id])))
+            coop.EmoteCaption()
             return
         end
         tries = tries + 1
+        if (dir > 9 or dir < -9) then dir = dir / abs(dir) end      -- a jump lands on a missing id: walk on from there
     end
 end
 
-comfuncs.fkey[COM_LIGHTNEXT] = function() coop.EmoteStep(1) end
-comfuncs.fkey[COM_LIGHTPREV] = function() coop.EmoteStep(-1) end
+function coop.EmoteKeep()
+    local id = coop.emoteid
+    if (not id or coop_emoting() ~= id) then return end
+    if (coop.emotekept[id]) then coop.emotekept[id] = nil else coop.emotekept[id] = 1 end
+    coop_log(format("EMOTE %s %d %s", coop.emotekept[id] and "KEEP" or "UNKEEP", id, tostring(coop.AnimNames()[id])))
+    coop.EmoteCaption()
+end
+
+function coop.EmoteList()
+    local out = ""
+    local i = 0
+    while (i < 160) do
+        if (coop.emotekept[i]) then out = out .. format(" %d=%s", i, tostring(coop.AnimNames()[i])) end
+        i = i + 1
+    end
+    coop_log("EMOTE KEPT:" .. out)
+end
+
+comfuncs.fkey[COM_LIGHTDEFAULT6] = function() coop.EmoteStep(1) end
+comfuncs.fkey[COM_LIGHTDEFAULT4] = function() coop.EmoteStep(-1) end
+comfuncs.fkey[COM_LIGHTDEFAULT9] = function() coop.EmoteStep(10) end
+comfuncs.fkey[COM_LIGHTDEFAULT7] = function() coop.EmoteStep(-10) end
+comfuncs.fkey[COM_LIGHTDEFAULT5] = function() coop.EmoteKeep() end
+comfuncs.fkey[COM_LIGHTDEFAULT8] = function() coop.EmoteList() end
 comfuncs.fkey[COM_LIGHTRESET] = function() coop_emote(-1) end
 
 -- F4: teleport the player onto the next test spot: level 1's decoy item (next room, standing

@@ -570,6 +570,9 @@ void hud_status(const char *line1, const char *line2, float progress)
     status_progress = progress;
 }
 
+/* coop_emote_caption: what the emote browser (coop_dev.lua) is playing, drawn at the top while an emote runs */
+static char caption1[96], caption2[96];
+
 static int dump_rows;           /* coop_hud_dump: log the next frame's rows */
 static int dump_status;         /* and its status lines */
 static int frames_drawn;        /* frames with the HUD drawn, for tests */
@@ -649,10 +652,49 @@ static void draw_panel(int w, int h)
     dump_rows = 0;
 }
 
+/* emote.c's wheel: the slots round the middle of the screen, the chosen one lit, a dot for the pointer */
+static void draw_emote_wheel(int w, int h)
+{
+    const char *labels[8];
+    int n, sel, k;
+    float vx, vy, cx = w * 0.5f, cy = h * 0.5f, rad = h * 0.22f, dot = font_h * 0.5f;
+    const char *mid;
+
+    if (!emote_wheel_info(&n, &sel, &vx, &vy, labels))
+        return;
+    box(cx - rad - font_h * 4.0f, cy - rad - font_h * 2.0f, (rad + font_h * 4.0f) * 2, (rad + font_h * 2.0f) * 2, h,
+        0.0f, 0.0f, 0.0f, 0.35f);
+    for (k = 0; k < n; k++) {
+        float a = 6.2831853f * (float)k / (float)n, tw = (float)text_width(labels[k]);
+        float bx = cx + rad * sinf(a), by = cy - rad * cosf(a), bw = tw + font_h, bh = font_h * 1.6f;
+
+        if (k == sel) {
+            box(bx - bw * 0.5f - 3, by - bh * 0.5f - 3, bw + 6, bh + 6, h, 1.0f, 0.85f, 0.3f, 0.95f);
+            box(bx - bw * 0.5f, by - bh * 0.5f, bw, bh, h, 0.25f, 0.2f, 0.05f, 0.95f);
+            text(bx - tw * 0.5f, by + font_h * 0.35f, h, labels[k], 1.0f, 0.9f, 0.4f);
+        } else {
+            box(bx - bw * 0.5f, by - bh * 0.5f, bw, bh, h, 0.02f, 0.03f, 0.06f, 0.75f);
+            text(bx - tw * 0.5f, by + font_h * 0.35f, h, labels[k], 0.8f, 0.85f, 0.9f);
+        }
+    }
+    box(cx - 2, cy - rad * 0.35f, 4, rad * 0.7f, h, 1.0f, 1.0f, 1.0f, 0.06f);
+    box(cx - rad * 0.35f, cy - 2, rad * 0.7f, 4, h, 1.0f, 1.0f, 1.0f, 0.06f);
+    box(cx + vx * rad * 0.6f - dot * 0.5f, cy + vy * rad * 0.6f - dot * 0.5f, dot, dot, h, 1.0f, 0.85f, 0.3f, 0.95f);
+    mid = sel >= 0 ? "Let go to play" : "Let go to stop";
+    text(cx - text_width(mid) * 0.5f, cy + rad + font_h * 2.4f, h, mid, 0.9f, 0.9f, 0.9f);
+}
+
 /* SwapBuffers hook, before the game's frame is shown */
 static void draw_status(int w, int h)
 {
     float y = h * 0.70f, bw = w * 0.30f;
+
+    if (caption1[0] && emote_active() >= 0) {
+        float cw = (float)(text_width(caption1) > text_width(caption2) ? text_width(caption1) : text_width(caption2));
+        box(w * 0.5f - cw * 0.5f - 12, font_h * 0.8f, cw + 24, font_h * 2.4f, h, 0, 0, 0, 0.55f);
+        text(w * 0.5f - text_width(caption1) * 0.5f, font_h * 2.0f, h, caption1, 1.0f, 0.85f, 0.3f);
+        text(w * 0.5f - text_width(caption2) * 0.5f, font_h * 3.0f, h, caption2, 0.9f, 0.9f, 0.9f);
+    }
 
     if (voice_talking(-1)) {        /* bottom right: the chat line has the bottom left */
         float mw = text_width("MIC") + 16.0f, mx = w - font_h * 0.8f - mw;
@@ -688,7 +730,8 @@ void hud_frame(HDC dc)
 
     chat_frame(have_remote && shown);
     /* the panel and tags follow coop_hud's "shown"; the revive status shows whenever it is set */
-    if (!ctrlview_on() && (!have_remote || (!shown && !status1[0] && !status2[0] && !voice_talking(-1))))
+    if (!ctrlview_on() && !emote_wheel_open() && !(caption1[0] && emote_active() >= 0) &&
+        (!have_remote || (!shown && !status1[0] && !status2[0] && !voice_talking(-1))))
         return;
     if (ready < 0)
         ready = load_gl();
@@ -735,7 +778,7 @@ void hud_frame(HDC dc)
     gl.Ortho(0, w, 0, h, -1, 1);
     gl.MatrixMode(GL_MODELVIEW); gl.PushMatrix(); gl.LoadIdentity();
 
-    if (shown) {
+    if (shown && have_remote) {
         if (outlines)
             draw_outlines(w, h);
         draw_tags(w, h);
@@ -744,6 +787,7 @@ void hud_frame(HDC dc)
         draw_bubbles(w, h);
         draw_chat(w, h);
     }
+    draw_emote_wheel(w, h);
     draw_status(w, h);
     ctrlview_draw(w, h);
     fsel = 0;
@@ -771,6 +815,20 @@ static void l_coop_hud(void)
     camera = tolua_getusertype(2, NULL);
     o = lua_getparam(3);
     outlines = o && lua_isnumber(o) && lua_getnumber(o) != 0.0;
+}
+
+/* a string argument, or "" */
+static const char *str_param(int n)
+{
+    long len;
+    return lua_getparam(n) ? luaL_check_lstr(n, &len) : "";
+}
+
+/* coop_emote_caption(line1, line2) */
+static void l_coop_emote_caption(void)
+{
+    snprintf(caption1, sizeof(caption1), "%s", str_param(1));
+    snprintf(caption2, sizeof(caption2), "%s", str_param(2));
 }
 
 /* coop_hud_dump(): log the panel's rows as the next frame draws them, and the frames drawn so far */
@@ -802,4 +860,5 @@ void hud_lua_init(void)
     tolua_function(NULL, "coop_hud", l_coop_hud);
     tolua_function(NULL, "coop_hud_tune", l_coop_hud_tune);
     tolua_function(NULL, "coop_hud_dump", l_coop_hud_dump);
+    tolua_function(NULL, "coop_emote_caption", l_coop_emote_caption);
 }
