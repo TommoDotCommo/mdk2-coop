@@ -352,6 +352,8 @@ void saves_lua_init(void);
 /* ---- hud.c ---- */
 
 void hud_frame(HDC dc);
+struct image { int w, h; DWORD *px; };      /* 0xAARRGGBB, top row first */
+int art_font(struct image *img, float adv[256]);   /* the game's menu font (launcher.c); 0 without mdk2.tar */
 void hud_font_use(int i);
 int hud_font_h(void);
 int hud_text_w(const char *s);
