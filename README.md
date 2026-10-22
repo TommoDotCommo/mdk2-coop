@@ -164,7 +164,7 @@ scripts itself (`StartMovie`), so the mod keeps them together instead of copying
 level load (the lounge scene, the skydive, the end movies) and the ones those start from their Done begin on the host's
 go, once every player in the level is ready (at most 20 s). **Backspace** (the game's abort-movie key) is a skip vote:
 a majority of the players watching skips for everyone (two players: both), the vote stays open 15 s and a banner shows
-the count and the countdown. The skydive and the other minigames cannot be skipped, everyone plays their own fall. A
+the count and the countdown. The skydive and the torpedo minigames (levels 2, 5, 9) cannot be skipped: everyone plays their own copy and sees the others' ships as ghosts (`tools/qa_minigames.sh`). A
 movie's Done (usually the next level) waits until every player has seen the end; the first to finish sees "waiting for
 the others" with a countdown, and the others have 20 s after the host's own movie ends. A movie a trigger starts in the
 host's game (a boss entrance, the fan cutscene) is announced to the clients, which play it from their own copy of the

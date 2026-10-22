@@ -42,7 +42,7 @@ FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
                 ("multiplayer", "qa_n", 3, "counts"), ("save-reconnect", "qa_save", 3, "counts"),
                 ("level-epochs", "qa_epoch", 2, "counts"), ("enemy-targeting", "qa_ai", 3, "counts"),
                 ("revive", "qa_revive", 3, "counts"), ("menu", "qa_menu", 3, "counts"),
-                ("cutscenes", "qa_cutscene", 2, "counts"),
+                ("cutscenes", "qa_cutscene", 2, "counts"), ("minigames", "qa_minigames", 2, "counts"),
                 ("controls", "qa_controls", 1, "counts"), ("launcher", "qa_launcher", 2, "counts"),
                 ("character-motion", "qa_motion", 2, "counts"),
                 ("hud", "qa_hud", 3, "counts"), ("chat", "qa_chat", 3, "counts"),

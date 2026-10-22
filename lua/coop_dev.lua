@@ -1101,13 +1101,38 @@ function coop.MovieEvent(name, a, serial, op, from, x, y, z, e0, e1)
     end
 end
 
--- The skydive (level 1's minigame): everyone falls in their own game, and sees the others fall beside them as ghosts
--- (the cutscene's stunt Kurt) at the places they send, 8 times a second, through the host. A player who is hit
--- drops out of the others' sky until their next try.
+-- The minigames (level 1's skydive, the torpedo runs of levels 2, 5 and 9): everyone plays their own copy and sees the
+-- others as ghosts of the player's own ship (the skydive: the cutscene's stunt Kurt) at the places they send, 8 times a
+-- second, through the host. A player who is hit drops out of the others' sky until their next try.
+-- Per level: the gob the player steers, the ghost's model, and how its two numbers become a place.
+coop.fallspec = {
+    [1] = { name = "ktgame_kurt", model = "ml1_stuntkurt" },
+    [2] = { name = "torpgob", model = "torpgob" },
+    [5] = { name = "podgob", model = "podgob" },
+    [9] = { name = "jdgob", model = "jdgob" },
+}
 coop.fall_ms = 125
 coop.fallghost = {}     -- slot -> ghost gob
 coop.fallpos = {}       -- slot -> { x, y, dead } last heard
 coop.fallseq = 0
+
+-- the two numbers that place a ship, and the place they give --
+function coop.FallNumbers(l, g)
+    if (l == 1) then return g.x, g.y end
+    return g.x or 0, g.z
+end
+
+function coop.FallPlace(l, g, a, b)
+    if (l == 1) then
+        mdkGobSetPositionXYZ(g, a, b, ktgame_kurt.z)
+    elseif (l == 2) then
+        mdkGobSetPositionXYZ(g, 1012, 500, b)
+    elseif (l == 5) then
+        mdkGobSetPositionXYZ(g, a, 100, b)
+    else
+        mdkGobSetPositionXYZ(g, a, -1000, b)
+    end
+end
 
 function coop.FallHear(slot, dead, x, y)
     if (slot == coop_slot()) then return end
@@ -1135,7 +1160,11 @@ end
 
 function coop.FallTick()
     local m = coop.mv
-    if (not (Save.inminigame and ktgame_kurt and ktgame_kurt.x and coop.level == 1 and m and m.state == "play")) then
+    local l = coop.level
+    local spec = coop.fallspec[l or 0]
+    local own = spec and getglobal(spec.name)
+    if (not (spec and own and type(own) ~= "number" and Save.inminigame and m and m.state == "play" and
+             (own.x or own.z))) then
         if (coop.fallactive) then coop.FallClear() end
         return
     end
@@ -1143,7 +1172,8 @@ function coop.FallTick()
     local now = coop_ms()
     if (not coop.fall_next or now >= coop.fall_next) then
         coop.fall_next = now + coop.fall_ms
-        coop_movie_send(MV_FALL, ktgame_kurt.dead or 0, m.serial, -1, ktgame_kurt.x, ktgame_kurt.y, 0, 0, 0, "")
+        local a, b = coop.FallNumbers(l, own)
+        coop_movie_send(MV_FALL, own.dead or 0, m.serial, -1, a, b, 0, 0, 0, "")
     end
     local ease = chGetDeltaT() * 12
     if (ease > 1) then ease = 1 end
@@ -1159,17 +1189,18 @@ function coop.FallTick()
             p.x = p.tx
             p.y = p.ty
             g = mdkCreateObjectLua(format("coop_fall%d_%d", s, coop.fallseq), OBJ_SCENERY, mdkGetScene(), nil, nil,
-                                   p.x, p.y, ktgame_kurt.z, 1,0,0,0, "ml1_stuntkurt",0,0,0,0)
+                                   0, 0, 0, 1,0,0,0, spec.model,0,0,0,0)
             if (g) then
-                omAnimPlay(g, ANIM_ACTION19, 0)
+                if (l == 1) then omAnimPlay(g, ANIM_ACTION19, 0) else omAnimPlay(g, ANIM_ACTION00, ANIMFLAG_NOTRANS) end
+                if (l == 2 or l == 9) then mdkGobSetOrientation(g, PI/2, 0, 0) end
                 coop.fallghost[s] = g
-                coop_log(format("skydive: player %d falls beside you", s + 1))
+                coop_log(format("minigame: player %d plays beside you (level %d)", s + 1, l))
             end
         end
         if (g and p.dead == 0) then
             p.x = p.x + (p.tx - p.x) * ease
             p.y = p.y + (p.ty - p.y) * ease
-            mdkGobSetPositionXYZ(g, p.x, p.y, ktgame_kurt.z)
+            coop.FallPlace(l, g, p.x, p.y)
         end
         s, p = next(coop.fallpos, s)
     end

@@ -96,8 +96,8 @@ inmini() { for _ in $(seq 1 30); do lua "$1" 'if Save.inminigame then coop_log("
            tail -n +"$((${2}+1))" "$(mdk_log $3)" | grep -q "lua: T minigame" && return 0; done; return 1; }
 check "host is in the minigame" inmini 1 "$off1" 1
 check "client is in the minigame" inmini 2 "$off2" 2
-check "host sees the client fall beside it" wait_since 1 'skydive: player 2 falls beside you' 10
-check "client sees the host fall beside it" wait_since 2 'skydive: player 1 falls beside you' 10
+check "host sees the client fall beside it" wait_since 1 'minigame: player 2 plays beside you \(level 1\)' 10
+check "client sees the host fall beside it" wait_since 2 'minigame: player 1 plays beside you \(level 1\)' 10
 lua 2 'ktgame_kurt.x = ktgame_kurt.x + 1.6'; sleep 0.8       # the client steers aside: its ghost leaves the host's Kurt
 mdk_shot "$(mdk_pid 1)" "$out/skydive_host.png" || true      # evidence: the friend's ghost in the sky
 mark_all
