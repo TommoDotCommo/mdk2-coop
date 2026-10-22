@@ -658,9 +658,9 @@ static void draw_emote_wheel(int w, int h)
     const char *labels[8];
     int n, sel, k;
     float vx, vy, cx = w * 0.5f, cy = h * 0.5f, rad = h * 0.22f, dot = font_h * 0.5f;
-    const char *mid;
+    const char *mid, *stay;
 
-    if (!emote_wheel_info(&n, &sel, &vx, &vy, labels))
+    if (!emote_wheel_info(&n, &sel, &vx, &vy, labels, &stay))
         return;
     box(cx - rad - font_h * 4.0f, cy - rad - font_h * 2.0f, (rad + font_h * 4.0f) * 2, (rad + font_h * 2.0f) * 2, h,
         0.0f, 0.0f, 0.0f, 0.35f);
@@ -680,7 +680,7 @@ static void draw_emote_wheel(int w, int h)
     box(cx - 2, cy - rad * 0.35f, 4, rad * 0.7f, h, 1.0f, 1.0f, 1.0f, 0.06f);
     box(cx - rad * 0.35f, cy - 2, rad * 0.7f, 4, h, 1.0f, 1.0f, 1.0f, 0.06f);
     box(cx + vx * rad * 0.6f - dot * 0.5f, cy + vy * rad * 0.6f - dot * 0.5f, dot, dot, h, 1.0f, 0.85f, 0.3f, 0.95f);
-    mid = sel >= 0 ? "Let go to play" : "Let go to stop";
+    mid = sel >= 0 ? "Let go to choose" : stay;
     text(cx - text_width(mid) * 0.5f, cy + rad + font_h * 2.4f, h, mid, 0.9f, 0.9f, 0.9f);
 }
 

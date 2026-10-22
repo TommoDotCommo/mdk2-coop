@@ -128,14 +128,15 @@ coop.actions = {
     { id="revive", name="Revive", page="coop", group=8, short="Revive", long="Hold beside a downed teammate to stand them up", coms={}, gk=2 },
     { id="voice",  name="Push to talk", page="coop", group=8, short="Talk", long="Hold to talk: players near you hear you (Options > Co-op > Voice chat)", coms={}, gk=3 },
     { id="emote",  name="Emote wheel", page="coop", group=8, short="Emote", long="Hold, move the mouse to an emote and let go to play it (moving ends it)", coms={}, gk=4 },
+    { id="char",   name="Character wheel", page="coop", group=8, short="Char", long="Hold, move the mouse to Kurt, Max or Doc and let go to switch to them", coms={}, gk=5 },
 }
 
 -- actions in use together: a key may not do two things in the same set --
 coop.sets = {
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "kinvl", "kinvr", "kuse", "kclose", "sniper", "chat", "ping", "revive", "voice", "emote" },
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "minvl", "minvr", "mequip", "munequip", "chat", "ping", "revive", "voice", "emote" },
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "dup", "ddown", "dleft", "dright", "chat", "ping", "revive", "voice", "emote" },
-    { "sniper", "zoomin", "zoomout", "strl", "strr", "shoot", "jump", "chat", "ping", "revive", "voice", "emote" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "kinvl", "kinvr", "kuse", "kclose", "sniper", "chat", "ping", "revive", "voice", "emote", "char" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "minvl", "minvr", "mequip", "munequip", "chat", "ping", "revive", "voice", "emote", "char" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "dup", "ddown", "dleft", "dright", "chat", "ping", "revive", "voice", "emote", "char" },
+    { "sniper", "zoomin", "zoomout", "strl", "strr", "shoot", "jump", "chat", "ping", "revive", "voice", "emote", "char" },
 }
 
 -- the presets: id = { key 1, key 2 } --
@@ -146,7 +147,7 @@ coop.preset_original = {
     sniper = { 57, -1 }, zoomin = { 200, 17 }, zoomout = { 208, 31 },
     minvl = { 26, 1008 }, minvr = { 27, 1009 }, mequip = { 18, 16 }, munequip = { 16, 18 },
     dup = { 27, 1008 }, ddown = { 26, 1009 }, dleft = { 12, 16 }, dright = { 13, 18 },
-    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 }, emote = { 35, -1 },
+    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 }, emote = { 35, -1 }, char = { 36, -1 },
 }
 coop.preset_modern = {
     fwd = { 17, 200 }, back = { 31, 208 }, strl = { 30, 203 }, strr = { 32, 205 }, turnl = { 44, -1 }, turnr = { 46, -1 },
@@ -155,7 +156,7 @@ coop.preset_modern = {
     sniper = { 1001, -1 }, zoomin = { 1008, 17 }, zoomout = { 1009, 31 },
     minvl = { 16, 1008 }, minvr = { 18, 1009 }, mequip = { 33, -1 }, munequip = { 34, -1 },
     dup = { 34, 1008 }, ddown = { 33, 1009 }, dleft = { 16, -1 }, dright = { 18, -1 },
-    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 }, emote = { 35, -1 },
+    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 }, emote = { 35, -1 }, char = { 36, -1 },
 }
 coop.preset_names = { original = "Original", modern = "Modern", custom = "Custom" }
 coop.preset_order = { "original", "modern", "custom" }
@@ -490,6 +491,7 @@ function coop.Tick()
     coop_recv()
     coop.HandleEvents()
     coop.ReviveTick(p)
+    coop.CharTick(p)
     coop.WaitTick()
     coop.HudTick()
     coop.PendingSaveTick()
@@ -545,6 +547,14 @@ function coop.UpdatePuppet(p, s)
     end
     local x, y, z = coop_peer(s)
     if (not x) then return end
+    if (gob and mdkGetGobType(gob) ~= coop.PuppetType(p, s)) then
+        coop_log(format("player %d changed character: puppet replaced", s + 1))
+        coop_face(nil, s)
+        if (coop_alive(gob)) then omGobDelete(gob) end
+        coop.puppets[s] = nil
+        coop.parked[s] = nil
+        gob = nil
+    end
     if (not gob) then gob = coop.SpawnPuppet(p, s) end
     if (not gob) then return end
     -- a dead player spectating someone rides along behind them, hidden: park their puppet
@@ -618,13 +628,19 @@ end
 function coop.PuppetOnUpdate(gob)
 end
 
--- the puppet is the same character as our player: each level fixes who you play and only
--- loads that model, so another type could be missing --
+-- the puppet is the character its player plays (they can change at any time: the character wheel);
+-- a type that is not Kurt, Max or Doc gets ours --
+function coop.PuppetType(p, s)
+    local peer = coop_peer_type(s)
+    if (peer == OBJ_KURT or peer == OBJ_MAX or peer == OBJ_DOC) then return peer end
+    return mdkGetGobType(p)
+end
+
 function coop.SpawnPuppet(p, s)
-    local ptype = mdkGetGobType(p)
+    local ptype = coop.PuppetType(p, s)
     local peer = coop_peer_type(s)
     if (peer and peer ~= ptype) then
-        coop_log(format("player %d plays type %d, we play %d: puppet uses ours", s + 1, peer, ptype))
+        coop_log(format("player %d plays type %d, we use %d for the puppet", s + 1, peer, ptype))
     end
     local gob = mdkCreateObjectLua(format("coop_p%d", s + 1), ptype, mdkGetScene(), nil, nil, 0,0,0, 1,0,0,0, nil,0,0,0,0)
     if (not gob) then
@@ -641,6 +657,7 @@ end
 -- new level and, on the host, ask the client to follow; Tick adds the puppet --
 coop.level_orig = level
 function level(l, cp, sec)
+    coop.NewLevelChar()
     coop.level_orig(l, cp, sec)
     -- only the host's level changes count: both games run the same scripts, so script-driven
     -- loads (new game: 0 -> 1,9 -> 1,12 -> 1,1) happen on both and must not echo --
@@ -982,6 +999,68 @@ coop.emotekept = {}
 -- The emote wheel (hold the Emote key, Options > Co-op > Controls): the picks from the browser,
 -- clockwise from the top. coop_emote_wheel(id, label, ...) takes up to 8.
 coop_emote_wheel(2, "Ready 2", 3, "Ready 3", 4, "Ready 4", 16, "Knockdown", 57, "Throw", 81, "Action 4", 82, "Action 5")
+
+-- ---- Changing character at any time (the character wheel, Options > Co-op > Controls) ----
+-- Each level script creates one hero (CreateKurt / CreateMax / CreateDoctor); the switch does what the
+-- debug menu's "Switch Player Character" does: new hero, same spot, the old one deleted. With
+-- [game] char_follow on (the default) the next level load puts you back on the hero the game
+-- picks; off, your choice is applied again after every load. Doc's levels with Hyde (6, 12) keep
+-- the game's pair. --
+coop.gamechar = nil         -- the hero the game created for this level
+coop.pickchar = nil         -- the hero the player chose (OBJ type), or nil
+coop.charapplied = 0        -- this level's hero has been checked against the choice
+coop.hyde = nil
+coop.chars = {}
+coop.charcreate = { [OBJ_KURT] = CreateKurt, [OBJ_MAX] = CreateMax, [OBJ_DOC] = CreateDoctor }
+coop.hydecreate = CreateHyde
+
+function CreateKurt() coop.gamechar = OBJ_KURT coop.charcreate[OBJ_KURT]() end
+function CreateMax() coop.gamechar = OBJ_MAX coop.charcreate[OBJ_MAX]() end
+function CreateDoctor() coop.gamechar = OBJ_DOC coop.charcreate[OBJ_DOC]() end
+function CreateHyde() coop.hyde = 1 coop.hydecreate() end
+
+coop_char_wheel(OBJ_KURT, "Kurt", OBJ_MAX, "Max", OBJ_DOC, "Doc", 0, "Level's own")
+
+function coop.CharFollow()
+    return coop_get("game", "char_follow", "1") == "1"
+end
+
+-- called as a level starts, before its script runs
+function coop.NewLevelChar()
+    coop.gamechar = nil
+    coop.hyde = nil
+    coop.charapplied = 0
+    if (coop.CharFollow()) then coop.pickchar = nil end
+end
+
+function coop.SwitchChar(p, t)
+    if (coop.hyde or not p or mdkGetGobType(p) == t or not coop.charcreate[t]) then return end
+    local x, y, z = p.position.x, p.position.y, p.position.z
+    coop_log(format("character: %d -> %d", mdkGetGobType(p), t))
+    local camera = mdkGetCameraGob()
+    if (camera) then omGobDelete(camera) end
+    coop.charcreate[t]()
+    mdkGobSetPositionXYZ(bob, x, y, z)
+    omGobDelete(p)
+end
+
+function coop.CharTick(p)
+    local t = coop_char_pick()
+    if (t) then
+        if (t == 0) then
+            coop.pickchar = nil
+            t = coop.gamechar
+        else
+            coop.pickchar = t
+        end
+        if (t) then coop.SwitchChar(p, t) end
+        return
+    end
+    if (p and coop.charapplied == 0 and coop.level and coop.level >= 1) then
+        coop.charapplied = 1
+        if (coop.pickchar and not coop.CharFollow()) then coop.SwitchChar(p, coop.pickchar) end
+    end
+end
 
 function coop.EmoteCaption()
     local id = coop.emoteid
@@ -1555,6 +1634,10 @@ function coop.BuildGame()
     local item = mdkCreateMenuItem(m, "Friendly fire")
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "friendly_fire", "0")) or 0)
     item.Select = function(self, n) coop_set("game", "friendly_fire", n) end
+
+    item = mdkCreateMenuItem(m, "Back to level's hero")
+    mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "char_follow", "1")) or 1)
+    item.Select = function(self, n) coop_set("game", "char_follow", n) end
 
     item = mdkCreateMenuItem(m, "Difficulty: " .. coop.DiffPresetName())
     item.Select = function(self) coop.ShowPage("coopdiff") end

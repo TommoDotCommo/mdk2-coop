@@ -357,10 +357,16 @@ Controls while the mod is on: Space jumps (jetpack, parachute), right mouse togg
 (the game's defaults are the other way round). F2 drops a numbered marker in
 both logs, F8 skips to the next level.
 
+Character wheel: hold J (Options > Co-op > Controls), move the mouse to Kurt, Max or Doc and let go to
+switch to them on the spot (letting go in the middle changes nothing; "Level's own" goes back to the hero the
+level gave you). Your partner's puppet becomes the same hero. With Options > Co-op > Gameplay > "Back to
+level's hero" on (the default) the next level load puts you back on the game's hero; off keeps your choice.
+Levels with Hyde (6, 12) keep the game's pair. `tools/qa_char.sh` and `tools/qa_char2.sh` check it.
+
 The puppet is never placed within 3 units of your own player (it is solid and moved every frame;
 both players spawn on the same point and an overlapping puppet shoved the host 25 units into a wall).
-The puppet is the same character as your own player (each level fixes Kurt, Max or Doc and only loads
-that model); a different partner type is logged.
+The puppet is the character its player plays at that moment (Kurt, Max or Doc; the character wheel changes
+it); any other type is logged and gets your own.
 
 ## Automated checks
 

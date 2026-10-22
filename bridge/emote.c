@@ -34,100 +34,124 @@ static double last_ms;
 static BYTE *on_gob;
 static int hp_at_start;
 
-/* ---- the wheel: hold the emote key, move the mouse toward a slot, let go to play it (letting go in
- * the middle stops the emote that is playing). The mouse is held back from the game while it is open. ---- */
+/* ---- the wheels: hold a key, move the mouse toward a slot, let go to choose it. Two of them, never
+ * both at once: the emote wheel (letting go in the middle stops the emote that is playing) and the
+ * character wheel (letting go in the middle changes nothing; a pick is handed to Lua, coop_char_pick).
+ * The mouse is held back from the game while one is open. ---- */
 #define MAX_SLOTS   8
 #define WHEEL_RANGE 90.0f           /* mouse counts from the middle to the rim */
 #define WHEEL_DEAD  0.35f           /* inside this fraction of the range: no slot */
-static struct { int id; char label[24]; } slots[MAX_SLOTS];
-static int nslots;
-static int wheel_on, wheel_sel = -1;
-static float wvx, wvy;
+enum { W_EMOTE, W_CHAR, W_COUNT };
+static struct wheel {
+    int key;                        /* GK_ */
+    struct { int id; char label[24]; } slots[MAX_SLOTS];
+    int nslots, on, sel;
+    float vx, vy;
+} wheels[W_COUNT] = {
+    { .key = GK_EMOTE },
+    { .key = GK_CHAR },
+};
+static int char_pick = -1;          /* the character wheel's choice, until Lua takes it */
 
-int emote_wheel_open(void)
-{
-    return wheel_on;
-}
-
-/* for the HUD: the slots, the selected one (or -1) and the pointer, -1..1 */
-int emote_wheel_info(int *n, int *sel, float *vx, float *vy, const char **labels)
+static struct wheel *wheel_open_one(void)
 {
     int i;
 
-    if (!wheel_on)
+    for (i = 0; i < W_COUNT; i++)
+        if (wheels[i].on)
+            return &wheels[i];
+    return NULL;
+}
+
+int emote_wheel_open(void)
+{
+    return wheel_open_one() != NULL;
+}
+
+/* for the HUD: the open wheel's slots, the selected one (or -1) and the pointer, -1..1; mid is what
+ * letting go in the middle does */
+int emote_wheel_info(int *n, int *sel, float *vx, float *vy, const char **labels, const char **mid)
+{
+    struct wheel *w = wheel_open_one();
+    int i;
+
+    if (!w)
         return 0;
-    *n = nslots;
-    *sel = wheel_sel;
-    *vx = wvx / WHEEL_RANGE;
-    *vy = wvy / WHEEL_RANGE;
-    for (i = 0; i < nslots; i++)
-        labels[i] = slots[i].label;
+    *n = w->nslots;
+    *sel = w->sel;
+    *vx = w->vx / WHEEL_RANGE;
+    *vy = w->vy / WHEEL_RANGE;
+    for (i = 0; i < w->nslots; i++)
+        labels[i] = w->slots[i].label;
+    *mid = w == &wheels[W_EMOTE] ? "Let go to stop" : "Let go to stay";
     return 1;
 }
 
-static void wheel_close(int play)
+static void wheel_close(struct wheel *w, int play)
 {
-    int sel = wheel_sel;
+    int sel = w->sel;
 
-    if (!wheel_on)
+    if (!w->on)
         return;
-    wheel_on = 0;
+    w->on = 0;
     input_mouse_hold(0);
-    wheel_sel = -1;
+    w->sel = -1;
     if (!play)
         return;
-    if (sel >= 0)
-        emote_play(slots[sel].id, 1);
-    else if (active >= 0)
+    if (w == &wheels[W_CHAR]) {
+        if (sel >= 0)
+            char_pick = w->slots[sel].id;
+    } else if (sel >= 0) {
+        emote_play(w->slots[sel].id, 1);
+    } else if (active >= 0) {
         stop("wheel");
+    }
 }
 
-/* Every frame: open, steer and close the wheel */
-static void wheel_frame(void)
+/* Every frame: open, steer and close one wheel */
+static void wheel_frame(struct wheel *w)
 {
-    int down = nslots > 0 && gamekey_down(GK_EMOTE) && local_player && gob_alive(local_player) &&
-               revive_life() == LIFE_ALIVE;
+    int down = w->nslots > 0 && gamekey_down(w->key) && local_player && gob_alive(local_player) &&
+               revive_life() == LIFE_ALIVE && (w->on || !wheel_open_one());
     long dx, dy;
     float len;
 
     if (!down) {
-        wheel_close(0);
+        wheel_close(w, 0);
         return;
     }
-    if (!wheel_on) {
-        wheel_on = 1;
-        wvx = wvy = 0.0f;
-        wheel_sel = -1;
+    if (!w->on) {
+        w->on = 1;
+        w->vx = w->vy = 0.0f;
+        w->sel = -1;
         input_mouse_hold(1);
     }
     input_mouse_take(&dx, &dy);
-    wvx += (float)dx;
-    wvy += (float)dy;
-    len = sqrtf(wvx * wvx + wvy * wvy);
+    w->vx += (float)dx;
+    w->vy += (float)dy;
+    len = sqrtf(w->vx * w->vx + w->vy * w->vy);
     if (len > WHEEL_RANGE) {
-        wvx *= WHEEL_RANGE / len;
-        wvy *= WHEEL_RANGE / len;
+        w->vx *= WHEEL_RANGE / len;
+        w->vy *= WHEEL_RANGE / len;
         len = WHEEL_RANGE;
     }
     if (len < WHEEL_RANGE * WHEEL_DEAD) {
-        wheel_sel = -1;
+        w->sel = -1;
     } else {
-        float a = atan2f(wvx, -wvy);            /* 0 straight up, clockwise */
-        float sector = 6.2831853f / (float)nslots;
-        int k;
+        float a = atan2f(w->vx, -w->vy);        /* 0 straight up, clockwise */
+        float sector = 6.2831853f / (float)w->nslots;
 
         if (a < 0.0f)
             a += 6.2831853f;
-        k = (int)((a + sector * 0.5f) / sector) % nslots;
-        wheel_sel = k;
+        w->sel = (int)((a + sector * 0.5f) / sector) % w->nslots;
     }
 }
 
-/* the key was let go: play the chosen emote (checked next frame, before it is drawn again) */
-static void wheel_release_check(void)
+/* the key was let go: choose (checked next frame, before it is drawn again) */
+static void wheel_release_check(struct wheel *w)
 {
-    if (wheel_on && !(nslots > 0 && gamekey_down(GK_EMOTE)))
-        wheel_close(1);
+    if (w->on && !(w->nslots > 0 && gamekey_down(w->key)))
+        wheel_close(w, 1);
 }
 
 static void stop(const char *why)
@@ -189,8 +213,10 @@ void emote_frame(void)
     float one = 1.0f, four = 4.0f;
     unsigned i;
 
-    wheel_release_check();
-    wheel_frame();
+    for (i = 0; i < W_COUNT; i++) {
+        wheel_release_check(&wheels[i]);
+        wheel_frame(&wheels[i]);
+    }
     if (active < 0)
         return;
     if (!local_player || local_player != on_gob || !gob_alive(local_player)) {
@@ -249,27 +275,53 @@ static void l_coop_emote_keys(void)
     ncancel = n;
 }
 
-/* coop_emote_wheel(id1, label1, id2, label2, ...): the wheel's slots, clockwise from the top (none clears) */
-static void l_coop_emote_wheel(void)
+/* the slots of wheel w from Lua's (id, label, ...) arguments, clockwise from the top (none clears) */
+static void set_slots(struct wheel *w)
 {
     int i;
 
-    nslots = 0;
-    for (i = 1; nslots < MAX_SLOTS; i += 2) {
+    w->nslots = 0;
+    for (i = 1; w->nslots < MAX_SLOTS; i += 2) {
         unsigned int o = lua_getparam(i), t = lua_getparam(i + 1);
         long len;
 
         if (!o || !lua_isnumber(o))
             break;
-        slots[nslots].id = (int)lua_getnumber(o);
-        snprintf(slots[nslots].label, sizeof(slots[nslots].label), "%s", t ? luaL_check_lstr(i + 1, &len) : "");
-        nslots++;
+        w->slots[w->nslots].id = (int)lua_getnumber(o);
+        snprintf(w->slots[w->nslots].label, sizeof(w->slots[0].label), "%s",
+                 t ? luaL_check_lstr(i + 1, &len) : "");
+        w->nslots++;
     }
-    wheel_close(0);
+    wheel_close(w, 0);
+}
+
+/* coop_emote_wheel(id1, label1, id2, label2, ...) */
+static void l_coop_emote_wheel(void)
+{
+    set_slots(&wheels[W_EMOTE]);
+}
+
+/* coop_char_wheel(type1, label1, ...): the character wheel's slots (OBJ types; 0 is "the level's own") */
+static void l_coop_char_wheel(void)
+{
+    set_slots(&wheels[W_CHAR]);
+}
+
+/* coop_char_pick() -> the type picked on the character wheel since the last call, or nil */
+static void l_coop_char_pick(void)
+{
+    if (char_pick < 0) {
+        lua_pushnil();
+        return;
+    }
+    lua_pushnumber((double)char_pick);
+    char_pick = -1;
 }
 
 void emote_lua_init(void)
 {
     tolua_function(NULL, "coop_emote_wheel", l_coop_emote_wheel);
+    tolua_function(NULL, "coop_char_wheel", l_coop_char_wheel);
+    tolua_function(NULL, "coop_char_pick", l_coop_char_pick);
     tolua_function(NULL, "coop_emote_keys", l_coop_emote_keys);
 }

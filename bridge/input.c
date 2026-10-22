@@ -87,6 +87,7 @@ static struct { int code[2], vk[2]; } gamekeys[GK_COUNT] = {
     { { 19, -1 }, { 'R', 0 } },
     { { 48, -1 }, { 'B', 0 } },
     { { 35, -1 }, { 'H', 0 } },
+    { { 36, -1 }, { 'J', 0 } },
 };
 
 /* the emote wheel (emote.c) holds the mouse back from the game while it is open and steers with it */
@@ -711,7 +712,7 @@ int input_lua_key(int k, int *code, int *vk)
     return *code >= 0;
 }
 
-/* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1, GK_REVIVE 2, GK_VOICE 3 or GK_EMOTE 4; keys
+/* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1, GK_REVIVE 2, GK_VOICE 3, GK_EMOTE 4 or GK_CHAR 5; keys
  * are Lua's (input_lua_key; the wheel cannot be used) */
 static void l_coop_game_keys(void)
 {
