@@ -29,6 +29,10 @@ struct pad_out {
     int mouse[3];               /* x, y, wheel movement this frame */
 };
 
+/* what the pad's buttons press: the keys of these actions (set from the Controls page) */
+enum { PA_FWD, PA_BACK, PA_LEFT, PA_RIGHT, PA_JUMP, PA_FIRE, PA_SNIPER, PA_USE, PA_REVIVE, PA_PING, PA_COUNT };
+
+void pad_bind(int action, int code);    /* code: input.c's numbering; negative restores the default */
 void pad_map(const struct pad_raw *p, unsigned prev_buttons, float dt, float look, struct pad_out *o);
 int pad_read(int index, struct pad_raw *out);
 void pad_fake(const struct pad_raw *raw);

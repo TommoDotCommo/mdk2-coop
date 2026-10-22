@@ -1,6 +1,7 @@
 /*
- * Controls view: a keyboard and a mouse drawn over the frame, every bound key coloured by what
- * it does and labelled, with the full list of bindings below (Options > Co-op > Controls).
+ * Controls view: a keyboard and a mouse (or, on the Gamepad page, a controller) drawn over the
+ * frame, every bound key coloured by what it does and labelled, with the full list of bindings
+ * below (Options > Co-op > Controls). The look is the game's: black and amber, notched panels.
  * Lua (coop_dev.lua) owns the data: one page per situation (on foot, sniper mode, ...), it sends
  * the page with coop_ctrl_* and this file only draws it, through the HUD's GL state (hud.c).
  *
@@ -20,16 +21,16 @@
 enum { G_NONE, G_MOVE, G_LOOK, G_JUMP, G_COMBAT, G_ITEM, G_SNIPER, G_SYSTEM, G_COOP, G_MENU, G_COUNT };
 
 static const float group_rgb[G_COUNT][3] = {
-    { 0.35f, 0.38f, 0.45f },    /* none */
+    { 0.42f, 0.34f, 0.26f },    /* none */
     { 0.25f, 0.55f, 0.95f },    /* move */
     { 0.20f, 0.75f, 0.80f },    /* look */
     { 0.65f, 0.45f, 0.95f },    /* jump, jet, parachute */
     { 0.90f, 0.35f, 0.35f },    /* combat */
     { 0.35f, 0.80f, 0.45f },    /* inventory */
     { 0.95f, 0.65f, 0.25f },    /* sniper */
-    { 0.70f, 0.72f, 0.78f },    /* system */
+    { 0.78f, 0.74f, 0.66f },    /* system */
     { 0.95f, 0.50f, 0.80f },    /* co-op */
-    { 0.85f, 0.80f, 0.40f },    /* menus */
+    { 0.95f, 0.85f, 0.35f },    /* menus */
 };
 
 static struct {
@@ -42,7 +43,12 @@ static struct {
     struct { int group; char keys[48]; char desc[96]; } line[CV_LINES];
     int nlines;
     int focus;                  /* a key to outline (the one being rebound), or 0 */
+    int pad;                    /* the Gamepad page: a controller instead of the keyboard */
 } cv;
+
+/* the pad's buttons are bound like keys, with these codes (coop_ctrl_padbtn) */
+#define PAD_CODE 2000
+static const char *const pad_btn[] = { "LS", "RS", "A", "B", "X", "Y", "START", "BACK", "LT", "RT", "LB", "RB" };
 
 int ctrlview_on(void)
 {
@@ -112,7 +118,7 @@ static void l_ctrl_show(void)
 static void l_ctrl_clear(void)
 {
     cv.nkeys = cv.nlines = cv.ntabs = 0;
-    cv.focus = 0;
+    cv.focus = cv.pad = 0;
     cv.hint[0] = 0;
     snprintf(cv.title, sizeof(cv.title), "%s", str_param(1));
     snprintf(cv.sub, sizeof(cv.sub), "%s", str_param(2));
@@ -129,11 +135,9 @@ static void l_ctrl_tab(void)
     cv.ntabs++;
 }
 
-/* coop_ctrl_bind(code, group, label): this key (scan code, or 1000.. for the mouse) does this */
-static void l_ctrl_bind(void)
+static void bind_key(int code, int group, const char *label)
 {
-    int code = (int)num_param(1), group = (int)num_param(2), i;
-    const char *label = str_param(3);
+    int i;
 
     for (i = 0; i < cv.nkeys; i++)
         if (cv.key[i].code == code) {         /* two actions on one key: "Fwd/Zoom" */
@@ -148,6 +152,30 @@ static void l_ctrl_bind(void)
     cv.key[cv.nkeys].group = group >= 0 && group < G_COUNT ? group : 0;
     snprintf(cv.key[cv.nkeys].label, sizeof(cv.key[0].label), "%s", label);
     cv.nkeys++;
+}
+
+/* coop_ctrl_bind(code, group, label): this key (scan code, or 1000.. for the mouse) does this */
+static void l_ctrl_bind(void)
+{
+    bind_key((int)num_param(1), (int)num_param(2), str_param(3));
+}
+
+/* coop_ctrl_padmode(on): draw a controller instead of the keyboard and mouse */
+static void l_ctrl_padmode(void)
+{
+    cv.pad = num_param(1) != 0.0;
+}
+
+/* coop_ctrl_padbtn(name, group, label): this pad button (LS, RS, A, B, X, Y, START, BACK, LT, RT,
+ * LB, RB) does this */
+static void l_ctrl_padbtn(void)
+{
+    const char *name = str_param(1);
+    unsigned i;
+
+    for (i = 0; i < sizeof(pad_btn) / sizeof(pad_btn[0]); i++)
+        if (!strcmp(name, pad_btn[i]))
+            bind_key(PAD_CODE + (int)i, (int)num_param(2), str_param(3));
 }
 
 /* coop_ctrl_line(group, keys, description): one row of the list */
@@ -175,13 +203,37 @@ static void l_ctrl_focus(void)
 }
 
 /* ---- drawing ---- */
-static void outline(float x, float y, float w, float bh, int h, float t, const float *rgb, float a)
+/* The game's panels have cut corners: fill and edge of a box whose corners are notched by c pixels
+ * (the diagonal is a staircase of t-pixel steps) */
+static void panel(float x, float y, float w, float bh, int h, float c, float t, const float *fill, float fa,
+                  const float *edge, float ea)
 {
-    hud_box(x, y, w, t, h, rgb[0], rgb[1], rgb[2], a);
-    hud_box(x, y + bh - t, w, t, h, rgb[0], rgb[1], rgb[2], a);
-    hud_box(x, y, t, bh, h, rgb[0], rgb[1], rgb[2], a);
-    hud_box(x + w - t, y, t, bh, h, rgb[0], rgb[1], rgb[2], a);
+    float i;
+
+    if (c > w * 0.3f) c = w * 0.3f;
+    if (c > bh * 0.3f) c = bh * 0.3f;
+    if (fill) {
+        hud_box(x, y + c, w, bh - 2 * c, h, fill[0], fill[1], fill[2], fa);
+        hud_box(x + c, y, w - 2 * c, c, h, fill[0], fill[1], fill[2], fa);
+        hud_box(x + c, y + bh - c, w - 2 * c, c, h, fill[0], fill[1], fill[2], fa);
+    }
+    if (!edge)
+        return;
+    hud_box(x + c, y, w - 2 * c, t, h, edge[0], edge[1], edge[2], ea);
+    hud_box(x + c, y + bh - t, w - 2 * c, t, h, edge[0], edge[1], edge[2], ea);
+    hud_box(x, y + c, t, bh - 2 * c, h, edge[0], edge[1], edge[2], ea);
+    hud_box(x + w - t, y + c, t, bh - 2 * c, h, edge[0], edge[1], edge[2], ea);
+    for (i = 0; i < c; i += t) {                /* the four diagonals */
+        hud_box(x + c - i - t, y + i, t, t, h, edge[0], edge[1], edge[2], ea);
+        hud_box(x + w - c + i, y + i, t, t, h, edge[0], edge[1], edge[2], ea);
+        hud_box(x + c - i - t, y + bh - i - t, t, t, h, edge[0], edge[1], edge[2], ea);
+        hud_box(x + w - c + i, y + bh - i - t, t, t, h, edge[0], edge[1], edge[2], ea);
+    }
 }
+
+static const float amber[3] = { 1.00f, 0.72f, 0.18f };
+static const float amber_dim[3] = { 0.55f, 0.36f, 0.08f };
+static const float ink[3] = { 0.07f, 0.045f, 0.02f };
 
 /* s cut to fit maxw pixels in the current font, ending in "." when it was cut */
 static void fit(char *dst, size_t size, const char *s, float maxw)
@@ -216,29 +268,30 @@ static void draw_cap(float x, float y, float kw, float kh, int h, int code, cons
     char buf[48];
     int sh = (hud_font_use(3), hud_font_h());
 
+    float c = kh * 0.2f > 6 ? 6 : kh * 0.2f;
+
     if (b >= 0) {
-        hud_box(x, y, kw, kh, h, rgb[0] * 0.45f, rgb[1] * 0.45f, rgb[2] * 0.45f, 0.95f);
-        outline(x, y, kw, kh, h, 2.0f, rgb, 1.0f);
+        float fill[3] = { rgb[0] * 0.40f, rgb[1] * 0.40f, rgb[2] * 0.40f };
+        panel(x, y, kw, kh, h, c, 2.0f, fill, 0.95f, rgb, 1.0f);
     } else {
-        hud_box(x, y, kw, kh, h, 0.10f, 0.11f, 0.14f, 0.9f);
-        outline(x, y, kw, kh, h, 1.0f, group_rgb[G_NONE], 0.45f);
+        panel(x, y, kw, kh, h, c, 1.0f, ink, 0.9f, group_rgb[G_NONE], 0.5f);
     }
     if (code && code == cv.focus)
-        outline(x - 3, y - 3, kw + 6, kh + 6, h, 3.0f, group_rgb[G_SYSTEM], 1.0f);
+        panel(x - 4, y - 4, kw + 8, kh + 8, h, c + 2, 3.0f, NULL, 0, amber, 1.0f);
     hud_font_use(3);
     if (kh < sh * 2.6f) {                       /* too low for two lines: what it does, else its name */
         fit(buf, sizeof(buf), b >= 0 ? cv.key[b].label : name, kw - 6);
-        hud_text(x + 4, y + kh * 0.5f + sh * 0.4f, h, buf, b >= 0 ? 1.0f : 0.45f, b >= 0 ? 1.0f : 0.48f, b >= 0 ? 1.0f : 0.55f);
+        hud_text(x + 4, y + kh * 0.5f + sh * 0.4f, h, buf, b >= 0 ? 1.0f : 0.5f, b >= 0 ? 0.97f : 0.42f, b >= 0 ? 0.88f : 0.32f);
         return;
     }
     fit(buf, sizeof(buf), name, kw - 6);
     if (b >= 0)
-        hud_text(x + 4, y + sh + 1, h, buf, 0.85f, 0.88f, 0.95f);
+        hud_text(x + 4, y + sh + 1, h, buf, 0.95f, 0.82f, 0.55f);
     else
-        hud_text(x + 4, y + sh + 1, h, buf, 0.45f, 0.48f, 0.55f);
+        hud_text(x + 4, y + sh + 1, h, buf, 0.5f, 0.42f, 0.32f);
     if (b >= 0) {
         fit(buf, sizeof(buf), cv.key[b].label, kw - 6);
-        hud_text(x + 4, y + kh - 5, h, buf, 1.0f, 1.0f, 1.0f);
+        hud_text(x + 4, y + kh - 5, h, buf, 1.0f, 0.97f, 0.88f);
     }
 }
 
@@ -249,9 +302,8 @@ static void draw_mouse(float x0, float y0, float u, int h)
     float by = y0 + u * 0.9f, ry = by + bh + u * 0.2f;
 
     hud_font_use(1);
-    hud_text(x0, y0 + hud_font_h(), h, "Mouse", 0.7f, 0.74f, 0.82f);
-    hud_box(x0 - 5, by - 5, tot + 10, bh + u * 2.5f + 10, h, 0.07f, 0.08f, 0.10f, 0.9f);
-    outline(x0 - 5, by - 5, tot + 10, bh + u * 2.5f + 10, h, 1.0f, none, 0.45f);
+    hud_text(x0, y0 + hud_font_h(), h, "Mouse", amber[0], amber[1], amber[2]);
+    panel(x0 - 5, by - 5, tot + 10, bh + u * 2.5f + 10, h, 8, 1.0f, ink, 0.9f, none, 0.5f);
     draw_cap(x0, by, bw, bh, h, 1000, "Left");
     draw_cap(x0 + bw + g, by, cw - g * 2, bh * 0.34f, h, 1002, "Mid");
     draw_cap(x0 + bw + g, by + bh * 0.36f, cw - g * 2, bh * 0.31f, h, 1008, "Whl+");
@@ -260,6 +312,48 @@ static void draw_mouse(float x0, float y0, float u, int h)
     draw_cap(x0, ry, tot * 0.5f - g, u * 0.95f, h, 1004, "Move X");
     draw_cap(x0 + tot * 0.5f + g, ry, tot * 0.5f - g, u * 0.95f, h, 1006, "Move Y");
     draw_cap(x0, ry + u * 1.1f, tot, u * 0.95f, h, 1003, "Side button");
+}
+
+/* the controller, in units of q pixels: 12 wide, 7.2 high */
+static void draw_pad(float x0, float y0, float q, int h)
+{
+    const float *none = group_rgb[G_NONE];
+    float cx = x0, cy = y0;
+    int i;
+    struct { const char *name; float x, y, w, hh; } el[] = {
+        { "LT", 1.5f, 0.0f, 2.2f, 1.3f }, { "RT", 8.3f, 0.0f, 2.2f, 1.3f },
+        { "LB", 1.0f, 1.45f, 3.4f, 0.8f }, { "RB", 7.6f, 1.45f, 3.4f, 0.8f },
+        { "LS", 1.9f, 2.9f, 2.0f, 2.0f }, { "RS", 5.9f, 4.7f, 1.9f, 1.9f },
+        { "Y", 8.55f, 2.7f, 1.1f, 1.1f }, { "X", 7.45f, 3.8f, 1.1f, 1.1f },
+        { "B", 9.65f, 3.8f, 1.1f, 1.1f }, { "A", 8.55f, 4.9f, 1.1f, 1.1f },
+        { "BACK", 4.5f, 3.1f, 1.2f, 0.6f }, { "START", 6.3f, 3.1f, 1.2f, 0.6f },
+    };
+
+    static const float body[3] = { 0.13f, 0.09f, 0.05f };
+
+    hud_font_use(1);
+    /* shoulders sit behind the body, which has two grips */
+    panel(cx + 0.2f * q, cy + 2.4f * q, 11.6f * q, 3.0f * q, h, q * 0.9f, 1.5f, body, 0.95f, none, 0.8f);
+    panel(cx + 0.7f * q, cy + 5.0f * q, 2.6f * q, 2.2f * q, h, q * 0.6f, 1.5f, body, 0.95f, none, 0.8f);
+    panel(cx + 8.7f * q, cy + 5.0f * q, 2.6f * q, 2.2f * q, h, q * 0.6f, 1.5f, body, 0.95f, none, 0.8f);
+    panel(cx + 5.3f * q, cy + 2.35f * q, 1.4f * q, 0.6f * q, h, q * 0.2f, 1.0f, NULL, 0, none, 0.5f);
+    /* the D-pad is never bound on its own: it follows the left stick */
+    {
+        int b = find_binding(PAD_CODE);
+        const float *rgb = group_rgb[b >= 0 ? cv.key[b].group : G_NONE];
+        float fill[3] = { rgb[0] * 0.40f, rgb[1] * 0.40f, rgb[2] * 0.40f };
+        float dx = cx + 3.45f * q, dy = cy + 4.9f * q;
+        panel(dx, dy + 0.55f * q, 1.7f * q, 0.6f * q, h, 3, 1.5f, fill, 0.95f, rgb, 1.0f);
+        panel(dx + 0.55f * q, dy, 0.6f * q, 1.7f * q, h, 3, 1.5f, fill, 0.95f, rgb, 1.0f);
+    }
+    for (i = 0; i < (int)(sizeof(el) / sizeof(el[0])); i++) {
+        unsigned k;
+        int code = 0;
+        for (k = 0; k < sizeof(pad_btn) / sizeof(pad_btn[0]); k++)
+            if (!strcmp(el[i].name, pad_btn[k]))
+                code = PAD_CODE + (int)k;
+        draw_cap(cx + el[i].x * q, cy + el[i].y * q, el[i].w * q, el[i].hh * q, h, code, el[i].name);
+    }
 }
 
 /* The game's menus live in the middle 4:3 of the window (x in 0..1 is that part), so on a wide
@@ -285,18 +379,22 @@ void ctrlview_draw(int w, int h)
     kbr = menu_l - m;                           /* keys end here */
 
     /* dim everything but the menu's column */
-    hud_box(0, 0, menu_l - m * 0.4f, h, h, 0.02f, 0.03f, 0.06f, 0.92f);
-    hud_box(menu_l - m * 0.4f, 0, 2, h, h, 0.4f, 0.45f, 0.55f, 0.6f);
-    if (side)
-        hud_box(menu_r, 0, w - menu_r, h, h, 0.02f, 0.03f, 0.06f, 0.92f);
+    hud_box(0, 0, menu_l - m * 0.4f, h, h, 0.03f, 0.02f, 0.01f, 0.93f);
+    hud_box(menu_l - m * 0.4f, 0, 3, h, h, amber_dim[0], amber_dim[1], amber_dim[2], 0.9f);
+    if (side) {
+        hud_box(menu_r, 0, w - menu_r, h, h, 0.03f, 0.02f, 0.01f, 0.93f);
+        hud_box(menu_r - 3, 0, 3, h, h, amber_dim[0], amber_dim[1], amber_dim[2], 0.9f);
+    }
 
     hud_font_use(2);
     th = hud_font_h();
-    hud_text(m, h * 0.03f + th, h, cv.title, 1.0f, 0.95f, 0.8f);
+    hud_text(m, h * 0.03f + th, h, cv.title, amber[0], amber[1], amber[2]);
+    hud_box(m, h * 0.03f + th + 6, (kbr - m) * 0.5f, 4, h, amber[0], amber[1], amber[2], 1.0f);
+    hud_box(m + (kbr - m) * 0.5f, h * 0.03f + th + 6, (kbr - m) * 0.5f, 2, h, amber_dim[0], amber_dim[1], amber_dim[2], 0.8f);
     hud_font_use(0);
     sh = hud_font_h();
-    hud_text(m, h * 0.03f + th + sh * 1.4f, h, cv.sub, 0.7f, 0.8f, 0.95f);
-    y = h * 0.03f + th + sh * 2.3f;
+    hud_text(m, h * 0.03f + th + sh * 1.6f + 6, h, cv.sub, 0.95f, 0.68f, 0.35f);
+    y = h * 0.03f + th + sh * 2.5f + 6;
     tabh = sh + 12;
     x = m;
     hud_font_use(1);
@@ -305,9 +403,11 @@ void ctrlview_draw(int w, int h)
         float tw = (float)hud_text_w(cv.tab[i]) + 20;
         int on = i == cv.active;
 
-        hud_box(x, y, tw, tabh, h, on ? 0.20f : 0.08f, on ? 0.30f : 0.09f, on ? 0.50f : 0.12f, 0.95f);
-        outline(x, y, tw, tabh, h, on ? 2.0f : 1.0f, group_rgb[on ? G_MOVE : G_NONE], on ? 1.0f : 0.5f);
-        hud_text(x + 10, y + sh + 7, h, cv.tab[i], on ? 1.0f : 0.6f, on ? 1.0f : 0.65f, on ? 1.0f : 0.72f);
+        if (on)
+            panel(x, y, tw, tabh, h, 6, 2.0f, amber_dim, 0.95f, amber, 1.0f);
+        else
+            panel(x, y, tw, tabh, h, 6, 1.0f, ink, 0.95f, group_rgb[G_NONE], 0.6f);
+        hud_text(x + 10, y + sh + 7, h, cv.tab[i], on ? 1.0f : 0.6f, on ? 0.97f : 0.5f, on ? 0.85f : 0.38f);
         x += tw + 5;
     }
 
@@ -321,15 +421,24 @@ void ctrlview_draw(int w, int h)
         u = h * 0.085f;
     kx = m;
     nx = kx + u * 15.5f;
-    for (i = 0; i < (int)(sizeof(main_keys) / sizeof(main_keys[0])); i++) {
-        const struct kcap *k = &main_keys[i];
-        draw_cap(kx + k->x * u, ky + k->y * u, k->w * u - 3, u - 3, h, k->code, k->name);
+    if (cv.pad) {
+        float q = (kbr - m) / 12.0f;
+        if (q > u * 6.4f / 7.2f)
+            q = u * 6.4f / 7.2f;
+        draw_pad(m + ((kbr - m) - q * 12.0f) * 0.5f, ky - u * 0.4f, q, h);
+    } else {
+        for (i = 0; i < (int)(sizeof(main_keys) / sizeof(main_keys[0])); i++) {
+            const struct kcap *k = &main_keys[i];
+            draw_cap(kx + k->x * u, ky + k->y * u, k->w * u - 3, u - 3, h, k->code, k->name);
+        }
+        for (i = 0; i < (int)(sizeof(nav_keys) / sizeof(nav_keys[0])); i++) {
+            const struct kcap *k = &nav_keys[i];
+            draw_cap(nx + k->x * u, ky + k->y * u, k->w * u - 3, u - 3, h, k->code, k->name);
+        }
     }
-    for (i = 0; i < (int)(sizeof(nav_keys) / sizeof(nav_keys[0])); i++) {
-        const struct kcap *k = &nav_keys[i];
-        draw_cap(nx + k->x * u, ky + k->y * u, k->w * u - 3, u - 3, h, k->code, k->name);
-    }
-    if (side) {
+    if (cv.pad) {
+        /* no mouse here */
+    } else if (side) {
         float mu = (w - menu_r - m * 2) / 3.7f;
         if (mu > u * 1.2f)
             mu = u * 1.2f;
@@ -345,7 +454,7 @@ void ctrlview_draw(int w, int h)
     sh = hud_font_h();
     rowh = sh * 1.55f;
     y = ky + u * 6.4f + h * 0.025f;
-    hud_box(m, y - 6, kbr - m, 1.5f, h, 0.4f, 0.45f, 0.55f, 0.6f);
+    hud_box(m, y - 6, kbr - m, 2, h, amber_dim[0], amber_dim[1], amber_dim[2], 0.8f);
     y += sh * 1.2f;
     cols = 1;
     colw = (kbr - m) / cols;
@@ -363,13 +472,13 @@ void ctrlview_draw(int w, int h)
 
         hud_box(lx, ly - sh + 3, 6, sh, h, rgb[0], rgb[1], rgb[2], 1.0f);
         fit(buf, sizeof(buf), cv.line[i].keys, keyw - 12);
-        hud_text(lx + 14, ly + 2, h, buf, 1.0f, 1.0f, 1.0f);
+        hud_text(lx + 14, ly + 2, h, buf, 1.0f, 0.93f, 0.75f);
         fit(buf, sizeof(buf), cv.line[i].desc, colw - keyw - 18);
-        hud_text(lx + keyw, ly + 2, h, buf, 0.78f, 0.82f, 0.9f);
+        hud_text(lx + keyw, ly + 2, h, buf, 0.86f, 0.74f, 0.56f);
     }
     if (cv.hint[0]) {
         fit(buf, sizeof(buf), cv.hint, kbr - m);
-        hud_text(m, h * 0.985f, h, buf, 0.55f, 0.62f, 0.72f);
+        hud_text(m, h * 0.985f, h, buf, 0.72f, 0.55f, 0.3f);
     }
     hud_font_use(0);
 }
@@ -383,4 +492,6 @@ void ctrlview_lua_init(void)
     tolua_function(NULL, "coop_ctrl_line", l_ctrl_line);
     tolua_function(NULL, "coop_ctrl_hint", l_ctrl_hint);
     tolua_function(NULL, "coop_ctrl_focus", l_ctrl_focus);
+    tolua_function(NULL, "coop_ctrl_padmode", l_ctrl_padmode);
+    tolua_function(NULL, "coop_ctrl_padbtn", l_ctrl_padbtn);
 }
