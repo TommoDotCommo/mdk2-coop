@@ -521,6 +521,21 @@ static void l_coop_pad_fake(void)
     pad_fake(&raw);
 }
 
+/* coop_pad_keys(fwd, back, left, right, jump, fire, sniper, use, revive, ping): the keys the pad's
+ * buttons press, as the Controls page numbers them (scan code, 1000 + n mouse button, -1 default) */
+static void l_coop_pad_keys(void)
+{
+    int i, codes[PA_COUNT];
+
+    for (i = 0; i < PA_COUNT; i++) {
+        int c = (int)num_param(i + 1);
+        pad_bind(i, c >= 1000 && c < 1008 ? 256 + c - 1000 : c < 256 ? c : -1);
+        codes[i] = c;
+    }
+    logmsg("pad keys: %d %d %d %d | jump %d fire %d sniper %d use %d revive %d ping %d",
+           codes[0], codes[1], codes[2], codes[3], codes[4], codes[5], codes[6], codes[7], codes[8], codes[9]);
+}
+
 /* coop_couch(): this player's slot (1 = first) and the number of local players, or nothing when
  * this is not a couch game */
 static void l_coop_couch(void)
@@ -773,6 +788,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_shot", l_coop_shot);
     tolua_function(NULL, "coop_pad_fake", l_coop_pad_fake);
     tolua_function(NULL, "coop_couch", l_coop_couch);
+    tolua_function(NULL, "coop_pad_keys", l_coop_pad_keys);
     tolua_function(NULL, "coop_state", l_coop_state);
     tolua_function(NULL, "coop_keep_spawner", l_coop_keep_spawner);
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);

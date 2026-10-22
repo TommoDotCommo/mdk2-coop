@@ -88,8 +88,8 @@ function coop.KeyName(k)
 end
 
 -- pages: where an action is shown and rebound --
-coop.ctrlpages = { "On foot", "Kurt", "Sniper", "Max", "Doc", "Minigames", "Co-op", "Menus", "System" }
-coop.pageid = { "foot", "kurt", "sniper", "max", "doc", "mini", "coop", "menus", "system" }
+coop.ctrlpages = { "On foot", "Kurt", "Sniper", "Max", "Doc", "Minigames", "Co-op", "Gamepad", "Menus", "System" }
+coop.pageid = { "foot", "kurt", "sniper", "max", "doc", "mini", "coop", "pad", "menus", "system" }
 
 -- groups (colours) are the bridge's: 1 move, 2 look, 3 jump, 4 combat, 5 inventory, 6 sniper,
 -- 7 system, 8 co-op, 9 menus. coms: every game command the action's keys are bound to
@@ -220,6 +220,18 @@ function coop.ApplyControls()
     local f, b, l, r = coop.Keys("fwd"), coop.Keys("back"), coop.Keys("strl"), coop.Keys("strr")
     local j, s, n = coop.Keys("jump"), coop.Keys("shoot"), coop.Keys("sniper")
     coop_emote_keys(f[1], f[2], b[1], b[2], l[1], l[2], r[1], r[2], j[1], j[2], s[1], s[2], n[1], n[2])
+    -- the gamepad (bridge/pad.c) presses the keys of these actions
+    coop_pad_keys(coop.PadKey("fwd"), coop.PadKey("back"), coop.PadKey("strl"), coop.PadKey("strr"),
+        coop.PadKey("jump"), coop.PadKey("shoot"), coop.PadKey("sniper"), coop.PadKey("kuse"),
+        coop.PadKey("revive"), coop.PadKey("ping"))
+end
+
+-- the first key of an action a pad button can press (keys and mouse buttons, not the wheel), or -1 --
+function coop.PadKey(id)
+    local k = coop.Keys(id)
+    if (k[1] >= 0 and k[1] < 1008) then return k[1] end
+    if (k[2] >= 0 and k[2] < 1008) then return k[2] end
+    return -1
 end
 
 -- log what is bound now, first command of each action (tests) --
@@ -1739,14 +1751,52 @@ coop.derived = {
         { codes = { 211, 14 }, group = 9, short = "Clear", long = "Clear a key in the key lists" },
     },
     system = {
-        { codes = { 1 }, group = 7, short = "Pause", long = "Pause menu" },
+        { codes = { 1 }, group = 7, short = "Esc",   long = "Pause menu" },
         { codes = { 68 }, group = 7, short = "Shot", long = "Screenshot (saved by the game)" },
         { codes = { 41 }, group = 7, short = "Console", long = "Developer console" },
     },
 }
 
 -- the game's own pages of keys that cannot be changed here --
-coop.fixedpage = { mini = 1, menus = 1, system = 1 }
+coop.fixedpage = { mini = 1, menus = 1, system = 1, pad = 1 }
+
+-- the gamepad page: button, colour group, label on the picture, what it does (act: the action whose
+-- key it presses, shown beside it). Menus use the stick / D-pad as arrows, A as Enter, B / Start as Esc --
+coop.padrows = {
+    { btn = "LS",   group = 1, short = "Move",   long = "Move and strafe (the D-pad too); menus: up / down / left / right" },
+    { btn = "RS",   group = 2, short = "Look",   long = "Look around (mouse look)" },
+    { btn = "A",    group = 3, short = "Jump",   long = "Jump, jetpack, parachute; menus: select", act = "jump" },
+    { btn = "B",    group = 9, short = "Back",   long = "Pause, menus: back" },
+    { btn = "START", group = 9, short = "Esc",   long = "Pause, menus: back" },
+    { btn = "X",    group = 8, short = "Rev",    long = "Hold beside a downed teammate", act = "revive" },
+    { btn = "Y",    group = 5, short = "Inv",    long = "Open the inventory (Max: equip)", act = "kuse" },
+    { btn = "BACK", group = 8, short = "Ping",   long = "Ping what you aim at", act = "ping" },
+    { btn = "RT",   group = 4, short = "Fire",   long = "Fire, melee, use the selected item", act = "shoot" },
+    { btn = "LT",   group = 6, short = "Sniper", long = "Sniper mode on / off (Kurt)", act = "sniper" },
+    { btn = "RB",   group = 5, short = "Next",   long = "Next item (mouse wheel up)" },
+    { btn = "LB",   group = 5, short = "Prev",   long = "Previous item (mouse wheel down)" },
+}
+
+function coop.FeedPad()
+    coop_ctrl_padmode(1)
+    local n, r = next(coop.padrows, nil)
+    while (n) do
+        local keys = r.btn
+        if (r.btn == "LS") then keys = "Left stick / D-pad"
+        elseif (r.btn == "RS") then keys = "Right stick"
+        elseif (r.btn == "START") then keys = "Start"
+        elseif (r.btn == "BACK") then keys = "Back" end
+        local long = r.long
+        if (r.act) then
+            local c = coop.PadKey(r.act)
+            if (c >= 0) then long = long .. "  [" .. coop.KeyName(c) .. "]" end
+        end
+        coop_ctrl_padbtn(r.btn, r.group, r.short)
+        coop_ctrl_line(r.group, keys, long)
+        n, r = next(coop.padrows, n)
+    end
+    coop_ctrl_hint("A pad (XInput) plays too: it presses the keys of your preset, set on the other pages      Left / Right on Page: next page")
+end
 
 function coop.KeysOfRow(r)
     if (r.from) then
@@ -1771,6 +1821,10 @@ function coop.FeedControls()
         if (i == coop.ctrlpage) then on = 1 end
         coop_ctrl_tab(coop.ctrlpages[i], on)
         i = i + 1
+    end
+    if (pid == "pad") then
+        coop.FeedPad()
+        return
     end
     local n, a = next(coop.actions, nil)
     while (n) do
