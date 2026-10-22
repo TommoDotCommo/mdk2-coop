@@ -1,2 +1,3 @@
 local/
 bridge/*.dll
+__pycache__/
