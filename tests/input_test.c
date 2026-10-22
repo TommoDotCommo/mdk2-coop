@@ -6,6 +6,11 @@ char coop_dir[MAX_PATH] = ".";
 double now_ms(void) { return 1000; }
 void logmsg(const char *fmt, ...) { (void)fmt; }
 void hud_frame(HDC dc) { (void)dc; }
+void launcher_run(void) {}
+int chat_blocks_keys(void) { return 0; }
+int pad_read(int index, struct pad_raw *out) { return 0; }
+void pad_map(const struct pad_raw *p, unsigned prev, float dt, float look, struct pad_out *out)
+{ memset(out, 0, sizeof(*out)); }
 
 static HRESULT WINAPI real_state(void *self, DWORD size, void *out)
 {
@@ -28,6 +33,7 @@ int main(void)
     mouse_dev->ptr = &mouse;
     mouse_dev->kind = DEV_MOUSE;
     test_background = 1;
+    synth = 1;
     in.keys[17/8] = 1 << (17%8);
     in.keys[256/8] = 1 << (256%8);
     in.mouse[0] = 4; in.mouse[1] = -7; in.mouse[2] = 120;
@@ -60,6 +66,7 @@ int main(void)
     assert(count == 0);
     input_replay(NULL);
     test_background = 0;
+    synth = 0;
     get_state_orig = real_state;
     dev_get_state(&token, sizeof(keyboard), keyboard);
     assert(keyboard[17] == 0x80); /* foreground recording passes real input through */

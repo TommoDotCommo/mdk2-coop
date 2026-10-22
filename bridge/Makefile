@@ -30,4 +30,7 @@ test-shots: ../local/tests/shots_test.exe
 test-pad: ../local/tests/pad_test.exe
 	../local/tests/pad_test.exe
 
-.PHONY: install clean test-shots test-pad
+test-revive:
+	../tools/test_revive.sh
+
+.PHONY: install clean test-shots test-pad test-revive

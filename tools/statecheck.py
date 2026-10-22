@@ -9,17 +9,24 @@ Last line: "state: <n> fail, <n> warn, <n> enemies compared". Exit status 1 on a
 """
 import math
 import sys
+import argparse
 
 
 def load(path):
     s = {"level": None, "me": None, "life": 0, "player": None, "puppet": {}, "ent": {}, "gone": set(), "actor": [],
          "item": {}, "unplaced": 0, "door": {}}
-    for line in open(path, encoding="latin-1"):
+    seen = set()
+    with open(path, encoding="latin-1") as stream:
+        lines = stream.readlines()
+    for line in lines:
         f = line.split()
         if not f:
             continue
         k = f[0]
-        if k == "level":
+        seen.add(k)
+        if k == "role":
+            s["role"] = f[1]
+        elif k == "level":
             s["level"] = int(f[1])
         elif k == "life":
             s["life"] = int(f[1])
@@ -46,22 +53,46 @@ def load(path):
             s["item"][name] = s["item"].get(name, 0) + 1
         elif k == "door":
             s["door"][" ".join(f[2:])] = int(f[1])
+    if not {"role", "level", "me", "life"} <= seen:
+        raise ValueError(f"{path}: incomplete state header")
+    if s["role"] not in ("host", "client") or not 1 <= s["me"] <= 16 or s["level"] < 1 or not 0 <= s["life"] <= 3:
+        raise ValueError(f"{path}: invalid state header")
+    positions = list(s["puppet"].values())
+    if s["player"]:
+        positions.append(s["player"][2])
+    positions.extend(e[2] for e in s["ent"].values())
+    positions.extend(a[2] for a in s["actor"])
+    # NaN compares false to every distance threshold, so reject it before comparing worlds.
+    positions.extend(tuple(map(float, line.split()[2:5])) for line in lines if line.startswith("item "))
+    if any(len(p) != 3 or not all(math.isfinite(v) for v in p) for p in positions):
+        raise ValueError(f"{path}: invalid position")
     return s
 
 
 def main():
-    args = sys.argv[1:]
-    tol = 4.0
-    if "--tol" in args:
-        i = args.index("--tol")
-        tol = float(args[i + 1])
-        del args[i:i + 2]
-    dumps = [load(a) for a in args]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("dumps", nargs="+")
+    parser.add_argument("--tol", type=float, default=4.0)
+    args = parser.parse_args()
+    tol = args.tol
+    if len(args.dumps) < 2 or not math.isfinite(tol) or tol <= 0:
+        parser.error("supply a host and at least one client, and a finite positive tolerance")
+    try:
+        dumps = [load(a) for a in args.dumps]
+    except (OSError, ValueError, IndexError) as exc:
+        print(f"FAIL  invalid state dump: {exc}")
+        print("state: 1 fail, 0 warn, 0 enemies compared")
+        return 1
     h, clients = dumps[0], dumps[1:]
     out = []
     fail = lambda m: out.append("FAIL  " + m)
     warn = lambda m: out.append("warn  " + m)
     who = lambda d: "host" if d is h else ("client" if len(clients) == 1 else f"client {d['me']}")
+
+    if h["role"] != "host" or h["me"] != 1 or any(c["role"] != "client" for c in clients):
+        fail("invalid host/client roles")
+    if len({d["me"] for d in dumps}) != len(dumps):
+        fail("duplicate participant slots")
 
     bad_level = [c for c in clients if c["level"] != h["level"]]
     for c in bad_level:
@@ -70,7 +101,7 @@ def main():
     # players: each one's character against its puppet in every other game
     for me in dumps:
         if not me["player"]:
-            warn(f"{who(me)} has no player")
+            (warn if me["life"] >= 2 else fail)(f"{who(me)} has no player")
             continue
         if me["life"] >= 2:
             # dead: the body rides along behind a teammate and its puppet is parked (revive.c)

@@ -364,11 +364,17 @@ that model); a different partner type is logged.
 
 ## Automated checks
 
+`python3 tools/qa_all.py full` runs the build, game-free tests, every feature suite,
+a lossy-network projectile regression and all 96 campaign checkpoints. `smoke` is
+the shorter default; `offline` needs no game slots. The runner manages isolated lab
+copies, timeouts, cleanup and combined JSON/Markdown reports. See
+[the automated testing guide](docs/TESTING.md) for profiles, coverage and limits.
+
 `tools/qa.sh` runs two real game instances on this PC (host + client over localhost UDP), drives them
 with key and mouse input and checks each side's bridge.log: level following, enemy binding, damage
 through the host with identical enemy hp, HURT-only damage on the client, shots both ways, pickups,
 doors opening for the puppet, reviving at the partner, no crash. About 2 minutes; the game windows
-take focus. `tools/mdk.sh` has the helpers (start, keys, mouse, window screenshots).
+run muted in the background. `tools/mdk.sh` has the helpers (start, keys, mouse, window screenshots).
 
 `tools/qa.sh` installs the current build first (`tools/install.sh`), so it always tests the repo.
 
@@ -400,7 +406,7 @@ It waits on conditions, not fixed sleeps: until every client has bound every ann
 until hits and revives stop showing up. A state difference is checked again 1.5 s later; one that is
 gone by then is reported as "transient" (a revive's teleport caught mid-way), not as a failure.
 Screenshots only where something failed (`MDK2_SHOTS=1`: always). `MDK2_SHARDS=4` runs four sets of
-games side by side on their own runs of checkpoints (copies 1..4*MDK2_N, ports +10 per set) and merges
+games side by side on their own runs of checkpoints (lease 4*MDK2_N slots; ports follow the lab slots) and merges
 the results: about 4 minutes (236 s) for all 96 with two games per set, against 35 min one at a time before.
 2026-10-21: with `MDK2_N=3`, 1-1 .. 1-3 and 8-4 .. 8-5 all clean (every client bound every enemy, equal hp, no state differences).
 

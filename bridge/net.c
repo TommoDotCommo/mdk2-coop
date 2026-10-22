@@ -1504,14 +1504,12 @@ void net_level_reset(int announce)
 }
 
 /* Client: the host's LEVEL event (level in type, checkpoint in damage, epoch in netid).
- * Followed, the load takes the epoch; already there, we take it now. */
+ * Only the completed load adopts a new epoch. Matching checkpoint numbers can
+ * still describe different worlds; adopting early would apply new spawns to old gobs.
+ * A same-epoch reconnect already has this epoch and needs no load. */
 void net_level_event(const struct event *e)
 {
     pending_epoch = (unsigned short)e->netid;
-    if (e->type == cur_level && e->damage == cur_cp && cur_epoch != pending_epoch) {
-        cur_epoch = pending_epoch;
-        logmsg("already in level %d checkpoint %d: epoch %u", cur_level, cur_cp, cur_epoch);
-    }
 }
 
 /* ---- simulated network: hold datagrams back, drop some ---- */

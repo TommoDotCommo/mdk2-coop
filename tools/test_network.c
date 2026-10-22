@@ -25,7 +25,10 @@ static UINT fake_profile_int(const char *, const char *, int, const char *);
 #undef GetModuleHandleA
 #undef GetProcAddress
 #undef GetCommandLineA
-#include "../bridge/net.c"
+#ifndef NET_SOURCE
+#define NET_SOURCE "../bridge/net.c"
+#endif
+#include NET_SOURCE
 
 #define LOBBY_A UINT64_C(109775241000000001)
 #define LOBBY_B UINT64_C(109775241000000002)
@@ -78,6 +81,9 @@ int revive_life(void) { return 0; }
 int revive_reviving(void) { return -1; }
 void ents_resend(int to) { }
 void pickups_resend(int to) { }
+void rules_fill(struct event *e) { event_init(e, EV_RULES); }
+int voice_is_packet(const void *buf, int len) { return 0; }
+void voice_receive(int from, const void *buf, int len) { }
 static int entity_packets, sent_packets;
 void ents_receive(const void *buf, int len) { entity_packets++; }
 int ents_is_packet(const void *buf, int len) { return len >= 4 && *(const unsigned int *)buf == 0x464b444d; }
@@ -255,14 +261,17 @@ int main(void)
     before=sent_packets; net_send_player(NULL); CHECK(send_calls>=2 && sent_packets==before+2);
     CHECK(last_flags==(1|32) && last_channel==STEAM_CHANNEL && sent_size>0);
     send_result=2; before=sent_packets; net_send("test",4); CHECK(sent_packets==before); send_result=1;
-    event_queue(EV_MARK,"marker",0,0,0); CHECK(links[1].out_next==2);
-    p.ack=1; p.seq=2; queue_packet(PEER,&p,16); steam_poll(); CHECK(links[1].out_acked==1);
+    /* Welcome now queues the host's rules before gameplay events. Acknowledge both. */
+    CHECK(links[1].out_next==2 && links[1].outbox[1].kind==EV_RULES);
+    event_queue(EV_MARK,"marker",0,0,0); CHECK(links[1].out_next==3);
+    p.ack=2; p.seq=2; queue_packet(PEER,&p,16); steam_poll(); CHECK(links[1].out_acked==2);
     sim_loss_pct=100; p.seq=3; queue_packet(PEER,&p,16); steam_poll(); CHECK(players[1].seq==2); sim_loss_pct=0;
     sim_latency_ms=100; p.seq=4; queue_packet(PEER,&p,16); steam_poll(); CHECK(nsimq==1 && players[1].seq==2);
     simq[0].due=now_ms()-1; net_poll(); CHECK(nsimq==0 && players[1].seq==4); sim_latency_ms=0;
     net_steam_left(PEER); CHECK(!links[1].used && !players[1].connected);
     queue_packet(PEER,&p,16); steam_poll(); CHECK(links[1].used && links[1].steam_id==PEER);
-    p.nonce++; p.seq=1; queue_packet(PEER,&p,16); steam_poll(); CHECK(links[1].out_next==1 && links[1].nonce==p.nonce);
+    p.nonce++; p.seq=1; queue_packet(PEER,&p,16); steam_poll();
+    CHECK(links[1].out_next==2 && links[1].outbox[1].kind==EV_RULES && links[1].nonce==p.nonce);
     memset(slot_steam_id,0,sizeof(slot_steam_id)); slots_load();
     CHECK(slot_steam_id[1]==PEER && slot_steam_id[2]==OTHER);
     before=join_count; cur_level=1; CHECK(!steam_join_lobby("109775241000000002") && join_count==before); cur_level=0;
@@ -319,6 +328,24 @@ int main(void)
         CHECK(received_len>0 && packet_unpack(data,received_len,&p));
         role_host=0; CHECK(net_retarget("127.0.0.1",27900)); net_steam=1; CHECK(!net_retarget("127.0.0.1",27900));
         closesocket(peer); closesocket(sock); sock=INVALID_SOCKET; WSACleanup();
+    }
+    /* A checkpoint number does not identify a world. A new epoch at the same
+     * checkpoint must wait for the actual load; a reconnect in the same epoch must not. */
+    {
+        struct event level, spawn;
+        role_host=0; cur_level=1; cur_cp=2; cur_epoch=pending_epoch=7;
+        event_init(&level,EV_LEVEL); level.type=1; level.damage=2; level.netid=8;
+        net_level_event(&level);
+        CHECK(pending_epoch==8 && cur_epoch==7);
+        event_init(&spawn,EV_SPAWN); spawn.epoch=8;
+        CHECK(event_must_wait(&spawn) && !event_must_wait(&level));
+        spawn.epoch=7; CHECK(!event_must_wait(&spawn));
+        net_level_reset(0); CHECK(cur_epoch==8);
+        spawn.epoch=8; CHECK(!event_must_wait(&spawn));
+        net_level_event(&level); CHECK(cur_epoch==8 && !event_must_wait(&spawn));
+        cur_epoch=pending_epoch=65535; level.netid=0; spawn.epoch=0;
+        net_level_event(&level); CHECK(cur_epoch==65535 && event_must_wait(&spawn));
+        net_level_reset(0); CHECK(cur_epoch==0 && !event_must_wait(&spawn));
     }
     DeleteFileA(path);
     printf("PASS: %d network checks (simulated Steam + real loopback UDP)\n",passed);

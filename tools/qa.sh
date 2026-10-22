@@ -8,7 +8,7 @@
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/mdk.sh"
-MDK2_BACKGROUND=1 MDK2_START="1 2" "$here/install.sh" >/dev/null   # always test what is in the repo; host autostarts 1-2
+MDK2_BACKGROUND=1 MDK2_START="1 2" "$here/install.sh" >/dev/null || exit 1   # always test what is in the repo; host autostarts 1-2
 
 pass=0; fail=0; results=()
 out="$here/../local/qa/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$out"   # state dumps and reports
@@ -22,6 +22,9 @@ check() {   # check <name> <command...>
 has()   { grep -qE "$2" "$(mdk_log "$1")"; }
 count() { grep -cE "$2" "$(mdk_log "$1")"; }
 
+trap mdk_kill EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 mdk_boot
 read -r A B < "$MDK2_PIDS"
 H=1; C=2
@@ -85,28 +88,78 @@ mdk_key "$B" 62; sleep 3
 check "host opened dr1_03 for the puppet"       has $H "door dr1_03 opening \(nearer player: puppet 2\)"
 check "state matches after pickup and door"     state pickup
 
-# 6. going down (revive.c; tools/qa_revive.sh has the rest): lava and the void leave no body
-# to reach, so straight to dead and spectating; a checkpoint (here called by hand) brings
-# the dead back. One of the two always stands, so no checkpoint reload.
+# 6. Death tests get a fresh checkpoint: enemies spawned during combat above must not
+# decide whether the survivor is still standing. Read native life state and wait for
+# replication before asking the host to respawn a peer; fixed sleeps raced those updates.
 lua_in() { mdk_cmd "$1" "$2"; }
-lua_in "$A" "coop_revive_checkpoint()"; sleep 1          # stand up anyone the dogs put down above
+wait_since() {
+    local instance=$1 offset=$2 pattern=$3 seconds=$4 n
+    for n in $(seq 1 $((seconds * 4))); do
+        tail -n +"$((offset + 1))" "$(mdk_log "$instance")" | grep -E "$pattern" >/dev/null && return 0
+        sleep 0.25
+    done
+    return 1
+}
+# life <game instance> <zero-based player slot> <allowed values regex> <timeout seconds>
+# coop_life reads the bridge state, including the life byte actually received from a peer.
+life() {
+    local instance=$1 slot=$2 expected=$3 deadline=$((SECONDS + $4)) tag value n
+    while [ "$SECONDS" -le "$deadline" ]; do
+        tag="life_${BASHPID}_${RANDOM}"
+        lua_in "$(mdk_pid "$instance")" "coop_log(\"$tag \" .. tostring(coop_life($slot)))" || return 1
+        for n in $(seq 1 20); do
+            value=$(sed -n "s/^lua: $tag //p" "$(mdk_log "$instance")" | tail -1 | tr -d '\r')
+            [ -z "$value" ] || break
+            sleep 0.05
+        done
+        [[ "$value" =~ $expected ]] && return 0
+        sleep 0.1
+    done
+    echo "life: game $instance slot $slot expected $expected, got ${value:-no reply}" >&2
+    return 1
+}
+# A same-checkpoint host reload is intentionally treated as "already here" by clients.
+# Hop through 1-1 first so both sides actually discard their previous combat world.
+for fixture_cp in 1 2; do
+    hload=$(wc -l < "$(mdk_log $H)"); cload=$(wc -l < "$(mdk_log $C)")
+    lua_in "$A" "mdkNewGame(1, $fixture_cp)"
+    check "death fixture 1-$fixture_cp loaded on host"   wait_since $H "$hload" "^level 1 checkpoint $fixture_cp started" 40
+    check "death fixture 1-$fixture_cp loaded on client" wait_since $C "$cload" "^level 1 checkpoint $fixture_cp started" 40
+done
+check "host starts the fixture alive"          life $H 0 '^0$' 5
+check "client starts the fixture alive"        life $C 1 '^0$' 5
+check "both worlds agree before death tests"   state death_start
 h0=$(wc -l < "$(mdk_log $H)"); c0=$(wc -l < "$(mdk_log $C)")
-mdk_key "$B" 61; sleep 2                                    # F3: 200 lava damage to self
-check "client in lava: dead, no body to reach"  bash -c "tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -q 'life: alive -> dead (no body to reach)'"
-sleep 3
-check "  and spectating the host, or back"      bash -c "tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -qE 'revive: spectating player 1|life: dead -> alive'"
-lua_in "$A" "coop_revive_checkpoint()"; sleep 2
-check "  a checkpoint (or its cleared zone) brings it back" bash -c "tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -q 'life: dead -> alive'"
-# falling out of the world (F4 cycles decoy -> door -> void; the client used two already)
-mdk_key "$B" 62; sleep 3
-check "client fell out of the world: dead"      bash -c "tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -q 'life: alive -> dead (fell out of the world)'"
-lua_in "$A" "coop_revive_checkpoint()"; sleep 2
-check "  and back"                              bash -c "test \$(tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -c 'life: dead -> alive') -ge 2"
-mdk_key "$A" 61; sleep 2
-check "host in lava: dead too"                  bash -c "tail -n +$((h0 + 1)) '$(mdk_log $H)' | grep -q 'life: alive -> dead (no body to reach)'"
-lua_in "$A" "coop_revive_checkpoint()"; sleep 2
-check "  and back"                              bash -c "tail -n +$((h0 + 1)) '$(mdk_log $H)' | grep -q 'life: dead -> alive'"
-check "no checkpoint reload: one always stood"  bash -c "! tail -n +$((h0 + 1)) '$(mdk_log $H)' | grep -q '^level ' && ! tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -q '^level '"
+
+mdk_key "$B" 61                                           # F3: lava to self, ordinary damage hook
+check "client in lava: dead, no body to reach"  wait_since $C "$c0" 'life: alive -> dead \(no body to reach\)' 4
+check "host sees its dead client"              life $H 1 '^[23]$' 4
+check "host remains alive for its client"      life $H 0 '^0$' 3
+check "  and spectating the host, or back"      life $C 1 '^[03]$' 6
+lua_in "$A" "coop_revive_checkpoint()"
+check "  a checkpoint (or its cleared zone) brings it back" life $C 1 '^0$' 6
+check "host sees the client alive again"       life $H 1 '^0$' 4
+
+# Select the void test spot explicitly; this phase no longer depends on earlier F4 presses.
+cvoid=$(wc -l < "$(mdk_log $C)")
+lua_in "$B" "coop.tpnext = 3"
+mdk_key "$B" 62
+check "client fell out of the world: dead"      wait_since $C "$cvoid" 'life: alive -> dead \(fell out of the world\)' 4
+check "host sees its client fall"              life $H 1 '^[23]$' 4
+check "host still stands after the fall"       life $H 0 '^0$' 3
+lua_in "$A" "coop_revive_checkpoint()"
+check "  and back"                             life $C 1 '^0$' 6
+check "host sees the client back after falling" life $H 1 '^0$' 4
+
+hdeath=$(wc -l < "$(mdk_log $H)")
+mdk_key "$A" 61
+check "host in lava: dead too"                  wait_since $H "$hdeath" 'life: alive -> dead \(no body to reach\)' 4
+check "client sees its dead host"              life $C 0 '^[23]$' 4
+check "client remains alive for its host"      life $C 1 '^0$' 3
+lua_in "$A" "coop_revive_checkpoint()"
+check "  and back"                             life $H 0 '^0$' 6
+check "client sees its host alive again"       life $C 0 '^0$' 4
+check "no checkpoint reload: one always stood" bash -c "! tail -n +$((h0 + 1)) '$(mdk_log $H)' | grep -q '^level ' && ! tail -n +$((c0 + 1)) '$(mdk_log $C)' | grep -q '^level '"
 
 check "both games still running"                bash -c "$(declare -f mdk_alive); mdk_alive $A && mdk_alive $B"
 
@@ -121,6 +174,7 @@ check "F8 took both games to level 2"           has $C "^level 2 checkpoint 1 st
 sleep 20
 check "both games survive 20 s of level 2 (Max)" bash -c "$(declare -f mdk_alive); mdk_alive $A && mdk_alive $B"
 check "state matches in level 2"                state level2
+for i in $(mdk_seq); do cp "$(mdk_log "$i")" "$out/game$i.log"; done
 mdk_kill
 
 printf '%s\n' "${results[@]}"

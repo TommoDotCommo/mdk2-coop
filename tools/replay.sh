@@ -138,7 +138,7 @@ while [ "$SECONDS" -lt "$deadline" ]; do
         fi
     fi
     if [ "$status" = pass ]; then
-        # statecheck treats a missing/dead local player as a warning; progression QA must fail it.
+        # Progression QA also requires living participants and clean logs.
         for i in $(mdk_seq); do cp "$(mdk_log "$i")" "$out/game-$i.log"; done
         python3 "$here/tools/replay_check.py" "$out" "$MDK2_N" | tee "$out/participants.txt" || {
             reason='client, life or log check failed'; exit 1;

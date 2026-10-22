@@ -448,9 +448,9 @@ function coop.FollowLevel(l, cp, same, save, hostid)
         -- a reload from the host's autosave: ours does not match, and loading it
         -- crashed the client (mdkGobCreateInstant) --
         coop_log(format("host reloaded level %d from its save: not followed", l))
-    elseif (coop.level == l and coop.cp == cp and same ~= 1) then
-        coop_log(format("host started level %d checkpoint %d: already here", l, cp))
     else
+        -- same == 2 above is the only safe reuse: the epoch identifies the world.
+        -- A host reset can load a different world at exactly this level/checkpoint.
         coop_log(format("host started level %d checkpoint %d: following", l, cp))
         coop.following = l * 1000 + cp
         mdkNewGame(l, cp)
