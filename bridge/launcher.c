@@ -14,6 +14,11 @@
  * "key <vk>", "click <x> <y>" on the 1280x720 canvas, "text <s>", "shot <name>" saving
  * coop\<name>.tga); the file is deleted once read.
  *
+ * The Saves page lists the co-op sessions saves.ini knows (saves.c): who played, how many,
+ * when, and how far they got, and picks what Host starts: a new game at a level and
+ * checkpoint, or a session to continue. The choice goes to coop.ini for coop_dev.lua, which
+ * uses it once:  [start] action=new|resume  level= cp=  sid=
+ *
  * Art comes from the player's own mdk2.tar (the title screen and the menu font); without it
  * the launcher still works, plainer.
  */
@@ -21,6 +26,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <time.h>
 #include "bridge.h"
 #include <shellapi.h>
 
@@ -153,6 +159,64 @@ static const int diff_presets[4][NDIFF] = {
 static const char *diff_names[] = { "Story", "Normal", "Hard", "Nightmare", "Custom" };
 #define DIFF_CUSTOM 4
 static int diff[NDIFF], diff_read[NDIFF];      /* the values now, and as coop.ini had them */
+
+/* Every checkpoint of the campaign in play order (tools/checkpoints.txt: the debug menu's list;
+ * 3-16 sits between 3-6 and 3-7), for the Saves page's level selector and "how far along" */
+static const short checkpoints[][2] = {
+    {1,1}, {1,2}, {1,3}, {1,4}, {1,5}, {1,6}, {1,7}, {1,8}, {2,1}, {2,2}, {2,3}, {2,4},
+    {2,5}, {2,6}, {2,7}, {2,8}, {2,9}, {2,10}, {3,1}, {3,2}, {3,3}, {3,4}, {3,5}, {3,6},
+    {3,16}, {3,7}, {3,8}, {3,9}, {3,10}, {3,11}, {4,1}, {4,2}, {4,3}, {4,4}, {4,5}, {4,6},
+    {4,7}, {4,8}, {4,9}, {4,10}, {4,11}, {4,14}, {5,1}, {5,2}, {5,3}, {5,4}, {5,5}, {5,6},
+    {5,7}, {5,8}, {5,9}, {5,10}, {6,1}, {6,2}, {6,3}, {6,4}, {6,5}, {6,6}, {6,7}, {7,1},
+    {7,2}, {7,3}, {7,4}, {7,5}, {7,6}, {7,7}, {7,8}, {8,1}, {8,2}, {8,3}, {8,4}, {8,5},
+    {8,6}, {8,7}, {9,1}, {9,3}, {9,4}, {9,5}, {9,6}, {9,7}, {9,8}, {9,11}, {9,12}, {10,1},
+    {10,2}, {10,3}, {10,4}, {10,5}, {10,6}, {10,11}, {11,1}, {11,6}, {11,11}, {12,1}, {12,6},
+    {12,11},
+};
+#define NCP ((int)(sizeof(checkpoints) / sizeof(checkpoints[0])))
+
+/* index into checkpoints[] of level l checkpoint cp, or of the last one before it; -1 if none */
+static int cp_index(int l, int cp)
+{
+    int i, found = -1;
+
+    for (i = 0; i < NCP; i++)
+        if (checkpoints[i][0] == l && checkpoints[i][1] == cp)
+            return i;
+    for (i = 0; i < NCP; i++)
+        if (checkpoints[i][0] < l || (checkpoints[i][0] == l && checkpoints[i][1] <= cp))
+            found = i;
+    return found;
+}
+
+/* the first checkpoint of level l in checkpoints[], and how many it has */
+static int level_first(int l)
+{
+    int i;
+
+    for (i = 0; i < NCP; i++)
+        if (checkpoints[i][0] == l)
+            return i;
+    return 0;
+}
+
+static int level_count(int l)
+{
+    int i, n = 0;
+
+    for (i = 0; i < NCP; i++)
+        n += checkpoints[i][0] == l;
+    return n;
+}
+
+#define NLEVELS 12
+
+/* The Saves page: the sessions saves.ini has (newest first), what Host starts (sel: a session,
+ * or -1 for a new game at start_level / start_cp, which is only started when start_set) */
+static struct coop_session sessions[12];
+static int nsessions, sel = -1, saves_top, delete_ask = -1;
+static int start_level = 1, start_cp, start_set;
+static unsigned int own_id;
 
 /* Controls page presets ([controls] preset) */
 static const char *ctrl_ids[] = { "original", "modern", "custom" };
@@ -322,6 +386,9 @@ static void settings_read(void)
         cfg.controls = GetPrivateProfileIntA("controls", "modern", 1, ini) ? 1 : 0;
     cfg.hud = GetPrivateProfileIntA("hud", "show", 1, ini) != 0;
     cfg.show = GetPrivateProfileIntA("launcher", "show", 1, ini) != 0;
+    GetPrivateProfileStringA("player", "id", "", s, sizeof(s), player_ini);
+    own_id = strtoul(s, NULL, 16);
+    nsessions = sessions_list(sessions, 12, 0);
     video_load();
 }
 
@@ -329,6 +396,16 @@ static void settings_read(void)
 static void settings_apply(void)
 {
     put("launcher", "mode", mode_names[cfg.mode]);
+    /* what the host starts (coop_dev.lua uses it once; cleared otherwise so an old one never repeats) */
+    put("start", "action", "");
+    if (cfg.mode == MODE_HOST && sel >= 0 && sel < nsessions && sessions[sel].host == own_id) {
+        put("start", "action", "resume");
+        put_int("start", "sid", sessions[sel].sid);
+    } else if (cfg.mode == MODE_HOST && start_set) {
+        put("start", "action", "new");
+        put_int("start", "level", start_level);
+        put_int("start", "cp", checkpoints[level_first(start_level) + start_cp][1]);
+    }
     coop_enabled = cfg.mode != MODE_SOLO;
     if (!coop_enabled)
         return;
@@ -569,7 +646,7 @@ static float gdi_width(HFONT f, const char *s)
 
 /* ---- immediate-mode widgets ---- */
 
-enum { PAGE_PLAY, PAGE_SETTINGS, PAGE_ABOUT };
+enum { PAGE_PLAY, PAGE_SAVES, PAGE_SETTINGS, PAGE_ABOUT };
 static int page;
 
 static int mouse_x = -1, mouse_y = -1;      /* logical */
@@ -835,6 +912,209 @@ static void page_play(void)
     }
 }
 
+/* "3 days ago" */
+static void ago(long t, char *out, int size)
+{
+    long d = (long)time(NULL) - t;
+
+    if (t <= 0)
+        snprintf(out, size, "some time ago");
+    else if (d < 90)
+        snprintf(out, size, "just now");
+    else if (d < 3600)
+        snprintf(out, size, "%ld min ago", d / 60);
+    else if (d < 86400)
+        snprintf(out, size, "%ld h ago", d / 3600);
+    else if (d < 2 * 86400)
+        snprintf(out, size, "yesterday");
+    else if (d < 30 * 86400L)
+        snprintf(out, size, "%ld days ago", d / 86400);
+    else
+        strftime(out, size, "%d %b %Y", localtime(&t));
+}
+
+/* "You, Alice, Bob" (our own name as "You"), cut to fit w */
+static void who_text(const struct coop_session *s, float w, char *out, int size)
+{
+    int i, n;
+
+    out[0] = 0;
+    for (i = 0; i < s->nmembers; i++) {
+        const char *name = !strcmp(s->members[i], s->me) ? "You" : s->members[i];
+
+        if (i)
+            strncat(out, ", ", size - strlen(out) - 1);
+        strncat(out, name, size - strlen(out) - 1);
+    }
+    if (!out[0])
+        snprintf(out, size, s->host == own_id ? "Just you so far" : "Players not recorded");
+    n = (int)strlen(out);
+    while (n > 4 && gdi_width(f_small, out) > w) {
+        out[--n] = 0;
+        if (n > 3)
+            strcpy(out + n - 3, "...");
+    }
+}
+
+/* How far into the campaign, 0..100 */
+static int session_percent(const struct coop_session *s)
+{
+    int i = cp_index(s->level, s->cp);
+
+    return i < 0 ? 0 : (i + 1) * 100 / NCP;
+}
+
+/* One saved co-op game: where it is up to, who played, how many, when */
+static int session_card(int id, float x, float y, float w, const struct coop_session *s, int on, int usable)
+{
+    float h = 90, pw;
+    int hit = control(id, x, y, w, h), hot = over(x, y, w, h) && usable, pct = session_percent(s);
+    char line[96], when[32], pill[40];
+
+    fill(x, y, w, h, on ? 0x2a2014 : hot ? C_TILE_HOT : C_TILE, 235);
+    fill(x, y, 5, h, on ? C_ORANGE : usable ? C_FAINT : 0x2a3a42, 255);
+    if (on)
+        frame_rect(x, y, w, h, 2, C_ORANGE, 255);
+    snprintf(line, sizeof(line), "Level %d - Checkpoint %d", s->level, s->cp);
+    heading(x + 20, y + 9, 24, line, on ? C_ORANGE : usable ? C_TEXT : C_DIM, DT_LEFT);
+    {
+        int players = s->peak > 0 ? s->peak : s->nmembers;
+
+        if (players > 0)
+            snprintf(pill, sizeof(pill), "CO-OP  %d PLAYER%s", players, players == 1 ? "" : "S");
+        else
+            snprintf(pill, sizeof(pill), "CO-OP");
+    }
+    pw = gdi_width(f_small, pill) + 18;
+    fill(x + w - pw - 10, y + 9, pw, 24, 0x1c4a5e, 255);
+    gdi_text(f_small, x + w - pw / 2 - 10, y + 12, C_BLUE, pill, DT_CENTER);
+    who_text(s, w - 40, line, sizeof(line));
+    gdi_text(f_small, x + 20, y + 38, usable ? C_TEXT : C_DIM, line, DT_LEFT);
+    ago(s->updated, when, sizeof(when));
+    if (s->host == own_id)
+        snprintf(line, sizeof(line), "Hosted by you  -  %s", when);
+    else
+        snprintf(line, sizeof(line), "Hosted by %s  -  %s", s->host_name[0] ? s->host_name : "a friend", when);
+    gdi_text(f_small, x + 20, y + 58, C_DIM, line, DT_LEFT);
+    snprintf(line, sizeof(line), "%d%%", pct);
+    gdi_text(f_small, x + w - 12, y + 58, C_DIM, line, DT_RIGHT);
+    fill(x + 5, y + h - 5, w - 5, 5, 0x0d1a20, 255);
+    fill(x + 5, y + h - 5, (w - 5) * pct / 100, 5, on ? C_ORANGE : C_BLUE, 255);
+    focus_ring(id, x, y, w, h);
+    return hit;
+}
+
+#define CARDS 3
+
+static void page_saves(void)
+{
+    static char level_text[NLEVELS][12], cp_text[24][12];
+    static const char *level_names[NLEVELS], *cp_names[24];
+    float y = 92;
+    int i, lv = start_level - 1, n, host = cfg.mode == MODE_HOST;
+    char line[96];
+
+    heading(PX, y, 18, "New game", C_BLUE, DT_LEFT);
+    y += 24;
+    if (host) {
+        for (i = 0; i < NLEVELS; i++) {
+            snprintf(level_text[i], sizeof(level_text[i]), "Level %d", i + 1);
+            level_names[i] = level_text[i];
+        }
+        n = level_count(start_level);
+        if (start_cp >= n)
+            start_cp = n - 1;
+        for (i = 0; i < n && i < 24; i++) {
+            snprintf(cp_text[i], sizeof(cp_text[i]), "%d of %d", i + 1, n);
+            cp_names[i] = cp_text[i];
+        }
+        if (choice(ID, PX, y, PW, "Start at level", sel < 0 && start_set ? "Chosen: the host starts here" :
+                   "Pick one to start a new game there", level_names, NLEVELS, &lv)) {
+            start_level = lv + 1;
+            start_cp = 0;
+            start_set = 1;
+            sel = -1;
+        }
+        y += ROW + 2;
+        if (choice(ID, PX, y, PW, "Checkpoint", NULL, cp_names, n, &start_cp)) {
+            start_set = 1;
+            sel = -1;
+        }
+        y += ROW + 6;
+    } else {
+        gdi_para(f_small, PX, y + 4, PW, C_DIM, cfg.mode == MODE_JOIN ?
+                 "The host picks the level and checkpoint. You follow." :
+                 "Solo is plain MDK2: use the game's own menus. Pick Host on the Play tab to choose a level.");
+        y += 58;
+    }
+
+    heading(PX, y, 18, "Saved co-op games", C_BLUE, DT_LEFT);
+    if (nsessions > CARDS) {
+        snprintf(line, sizeof(line), "%d-%d of %d", saves_top + 1,
+                 saves_top + CARDS < nsessions ? saves_top + CARDS : nsessions, nsessions);
+        gdi_text(f_small, PX + PW, y + 2, C_DIM, line, DT_RIGHT);
+    }
+    y += 26;
+    if (!nsessions) {
+        gdi_para(f_small, PX, y + 6, PW, C_DIM, "None yet. A co-op game saves by itself 10 seconds into each "
+                 "level, after every checkpoint and every couple of minutes. It shows up here with who you "
+                 "played with and how far you got.");
+        return;
+    }
+    for (i = saves_top; i < nsessions && i < saves_top + CARDS; i++) {
+        int mine = sessions[i].host == own_id;
+
+        if (session_card(ID + 5000 + i, PX, y, PW, &sessions[i], sel == i, host && mine) && host && mine) {
+            sel = sel == i ? -1 : i;
+            delete_ask = -1;
+            changed = 1;
+        }
+        y += 96;
+    }
+    if (nsessions > CARDS) {
+        if (saves_top > 0 && link(ID, PX, y + 2, "Newer")) {
+            saves_top -= CARDS;
+            changed = 1;
+        }
+        if (saves_top + CARDS < nsessions && link(ID, PX + PW - 60, y + 2, "Older")) {
+            saves_top += CARDS;
+            changed = 1;
+        }
+    }
+    if (sel >= 0 && sel < nsessions) {
+        if (link(ID, PX + 120, y + 2, delete_ask == sel ? "Click again to delete" : "Delete this save")) {
+            if (delete_ask == sel) {
+                session_remove(sessions[sel].sect);
+                nsessions = sessions_list(sessions, 12, 0);
+                sel = delete_ask = -1;
+                saves_top = 0;
+            } else {
+                delete_ask = sel;
+            }
+            changed = 1;
+        }
+    }
+}
+
+/* what Host will start, above the button */
+static void start_summary(char *out, int size)
+{
+    out[0] = 0;
+    if (cfg.mode != MODE_HOST)
+        return;
+    if (sel >= 0 && sel < nsessions) {
+        char who[64];
+
+        who_text(&sessions[sel], PW - 200, who, sizeof(who));
+        snprintf(out, size, "Continue level %d-%d: %s", sessions[sel].level, sessions[sel].cp, who);
+    } else if (start_set) {
+        snprintf(out, size, "New game at level %d, checkpoint %d of %d", start_level, start_cp + 1,
+                 level_count(start_level));
+    } else {
+        snprintf(out, size, "New game from the beginning (pick a level on the Saves tab)");
+    }
+}
+
 static void page_settings(void)
 {
     static const char *window[] = { "Windowed", "Fullscreen" };
@@ -922,7 +1202,7 @@ static void page_about(void)
 
 static void render(void)
 {
-    char line[64];
+    char line[160];
 
     nids = nhits = 0;
     memcpy(fb, bg, fw * fh * 4);
@@ -935,22 +1215,35 @@ static void render(void)
 
     /* right: tabs, page, play */
     fill(600 + 150, 0, 3, LH, C_BLUE, 60);
-    if (tab(ID, PX, 32, "Play", page == PAGE_PLAY)) page = PAGE_PLAY, changed = 1;
-    if (tab(ID, PX + 120, 32, "Settings", page == PAGE_SETTINGS)) page = PAGE_SETTINGS, changed = 1;
-    if (tab(ID, PX + 300, 32, "About", page == PAGE_ABOUT)) page = PAGE_ABOUT, changed = 1;
+    {
+        static const char *tabs[] = { "Play", "Saves", "Settings", "About" };
+        float tx = PX;
+        int t;
+
+        for (t = 0; t < 4; t++) {
+            if (tab(ID + 6000 + t, tx, 32, tabs[t], page == t))
+                page = t, changed = 1;
+            tx += (font.px ? title_width(tabs[t], 26) : gdi_width(f_label, tabs[t])) + 30;
+        }
+    }
     if (button(ID, LW - 52, 18, 34, 34, "x", 0))
         quit = 1;
     fill(PX, 80, PW, 1, 0x22343c, 255);
 
     if (page == PAGE_PLAY)
         page_play();
+    else if (page == PAGE_SAVES)
+        page_saves();
     else if (page == PAGE_SETTINGS)
         page_settings();
     else
         page_about();
 
+    start_summary(line, sizeof(line));
+    if (line[0])
+        gdi_text(f_small, PX, LH - 118, C_ORANGE, line, DT_LEFT);
     if (button(ID, PX, LH - 92, PW, 64, cfg.mode == MODE_SOLO ? "Play solo" :
-               cfg.mode == MODE_JOIN ? "Join" : "Host", 1))
+               cfg.mode == MODE_JOIN ? "Join" : sel >= 0 ? "Continue" : "Host", 1))
         done = 1;
 }
 

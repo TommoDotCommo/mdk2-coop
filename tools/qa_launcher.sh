@@ -35,7 +35,7 @@ BS=(); for i in $(seq 1 24); do BS+=("key 8"); done     # backspaces: empty a fi
 
 # canvas spots (1280x720): tabs, Play page tiles, the connection selector, the UDP join fields,
 # the Play button; Settings rows
-T_PLAY="click 780 50"; T_SET="click 900 50"; T_ABOUT="click 1080 50"
+T_PLAY="click 780 50"; T_SAVES="click 880 50"; T_SET="click 1000 50"; T_ABOUT="click 1130 50"
 HOST="click 1000 200"; JOIN="click 1000 283"; SOLO="click 1000 367"
 ADDR="click 900 532"; PORT="click 1170 532"; PLAY="click 1000 660"
 FF="click 1000 139"; RES="click 1180 459"
@@ -49,6 +49,51 @@ setini 2 net role host; setini 2 net peer_host 10.9.9.9; setini 2 net peer_port 
 mdk_kill; sleep 2
 for i in 1 2; do rm -f "$(dir $i)/coop/launcher.txt"; done
 
+# three co-op sessions in the host's saves.ini: one it hosted with 3 players (newest), an older
+# one with 2, and one hosted by a friend. The player id is made up for this run.
+now=$(date +%s)
+printf '[player]\r\nid=0a0b0c0d\r\nname=Tom\r\n' > "$(dir 1)/coop/player.ini"
+cat > "$(dir 1)/coop/saves.ini" <<SEED
+[h0a0b0c0d_1234]
+a_no=3
+a_level=4
+a_cp=3
+a_file=save\\c0c0d1234a.sav
+started=$((now - 259200))
+updated=$((now - 7200))
+peak=3
+m_n=3
+m0=Tom
+m1=Alice
+m2=Bob
+host_name=Tom
+me=Tom
+[h0a0b0c0d_5678]
+b_no=2
+b_level=2
+b_cp=5
+b_file=save\\c0c0d5678b.sav
+updated=$((now - 600000))
+peak=2
+m_n=2
+m0=Tom
+m1=Carol
+host_name=Tom
+me=Tom
+[h1f2e3d4c_9abc]
+a_no=7
+a_level=7
+a_cp=2
+a_file=save\\c0c0d9abca.sav
+updated=$((now - 100000))
+peak=2
+m_n=2
+m0=Dave
+m1=Tom
+host_name=Dave
+me=Tom
+SEED
+
 # 1. host: pages, friendly fire on, Host with Enter (Play has the focus at first)
 P1=$(start 1); P2=$(start 2); echo "$P1 $P2" > "$MDK2_PIDS"
 check "host: launcher up before the game window"        wait_log 1 "^launcher: shown at 1280x720" 30
@@ -56,10 +101,16 @@ check "client: launcher up"                             wait_log 2 "^launcher: s
 check "no co-op before Play"                            bash -c "! grep -q 'coop_init' '$(mdk_log 1)'"
 shot 1 play; lcmd 1 "$T_SET"; shot 1 settings; lcmd 1 "$T_ABOUT"; shot 1 about
 lcmd 1 "$T_SET" "$FF"; shot 1 settings_ff
+# saves: the sessions are listed with players and progress; a card picks what Host starts
+SAVE1="click 1000 290"
+lcmd 1 "$T_SAVES"; shot 1 saves
+lcmd 1 "$SAVE1"; shot 1 saves_picked
 lcmd 1 "$T_PLAY" "$HOST" "key 9" "key 9" "key 9" "key 9" "key 13"   # Tab to the port field, Enter plays
 check "host: Host chosen"                               wait_log 1 "^launcher: play, host over UDP" 10
 check "host: friendly fire written on Play"             test "$(ini 1 friendly_fire coop.ini)" = 1
 check "host: co-op on"                                  wait_log 1 "^coop_init: lua functions registered" 30
+check "host: the picked session is what the game starts"  wait_log 1 "launcher start: resume" 60
+check "host: it resumes session 4660 (0x1234)"          wait_log 1 "autostart: resuming co-op session 4660" 60
 
 # 2. client: join over UDP at a typed address
 lcmd 2 "$JOIN"; shot 2 join_udp_old
@@ -105,6 +156,20 @@ check "show=0: no launcher"                             wait_log 2 "^launcher: o
 check "show=0: co-op on"                                wait_log 2 "^coop_init: lua functions registered" 30
 mdk_kill; sleep 2
 setini 2 launcher show 1
+
+# 5b. a new game at a chosen level: Saves page, level 2, checkpoint 3 of 10, then Host; the game
+#     loads it by itself from the title screen
+setini 2 net role host
+P2=$(start 2)
+check "level picker: launcher up"                       wait_log 2 "^launcher: shown" 30
+lcmd 2 "$T_PLAY" "$HOST" "$T_SAVES"; shot 2 saves_empty
+lcmd 2 "click 1220 139" "click 1220 187" "click 1220 187"; shot 2 saves_level
+lcmd 2 "$PLAY"
+check "level picker: new game written for the game"     wait_log 2 "^launcher: play, host" 10
+check "level picker: the game starts level 2 checkpoint 3 by itself" wait_log 2 "autostart: level 2 checkpoint 3" 90
+check "level picker: the level loaded"                  wait_log 2 "^level 2 checkpoint 3 started" 60
+mdk_kill; sleep 2
+setini 2 start action ""
 
 # 6. Steam's join launch (+connect_lobby) skips the launcher
 if [ "${MDK2_PROCESS_SERVICE:-0}" = 1 ]; then     # as mdk_start: see tools/mdk.sh

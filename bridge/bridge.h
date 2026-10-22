@@ -349,6 +349,20 @@ void settings_lua_init(void);
 
 void saves_lua_init(void);
 
+/* A co-op session as saves.ini records it (saves.c; the launcher lists them too) */
+#define SESSION_SECT 24
+struct coop_session {
+    char sect[SESSION_SECT];            /* section of saves.ini */
+    unsigned int host, sid;
+    int level, cp;                      /* how far it has got */
+    long started, updated;              /* unix time */
+    int peak, nmembers;                 /* most players at once; everyone who has played */
+    char host_name[PLAYER_NAME], me[PLAYER_NAME];
+    char members[MAX_PLAYERS][PLAYER_NAME];
+};
+int sessions_list(struct coop_session *out, int max, unsigned int host);
+void session_remove(const char *sect);
+
 /* ---- hud.c ---- */
 
 void hud_frame(HDC dc);

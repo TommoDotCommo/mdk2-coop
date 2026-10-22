@@ -47,7 +47,7 @@ mdk_shot "$HP" "$out/page_coop.png"
 mdk_key "$HP" 208 1; mdk_key "$HP" 28; sleep 2           # Players
 check "Players page opens"                              wait_log $H "^lua: menu: coopplayers" 5
 mdk_shot "$HP" "$out/page_players.png"
-for pg in coopsession coopgame coopdiff coopvoice; do lua 1 "coop.ShowPage(\"$pg\")"; sleep 1; mdk_shot "$HP" "$out/page_$pg.png"; done
+for pg in coopsession coopstart coopgame coopdiff coopvoice; do lua 1 "coop.ShowPage(\"$pg\")"; sleep 1; mdk_shot "$HP" "$out/page_$pg.png"; done
 lua 1 'HideMenu() mdkPauseGame(0)'
 
 # 2. names: set on the last client, seen in the others' player lists
