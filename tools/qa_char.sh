@@ -39,6 +39,17 @@ pick 80 0
 pick -80 0
 check "wheel left is the level's own hero ($K)"         test "$(ptype)" = "$K"
 
+# hp: half of Kurt's goes over as half of Max's (a hero's max hp is read from the fresh one)
+hpof() { lua 'coop_log(format("HP %d", coop_hp(mdkGetPlayerGob())))'; sleep 1; grep -E "lua: HP " "$(log)" | tail -1 | tr -d '\r' | awk '{print $NF}'; }
+pick -80 0; pick 0 -80                                  # Kurt, full hp
+full=$(hpof)
+lua 'local p = mdkGetPlayerGob() mdkDealDamage(nil, p, coop_hp(p) / 2, DAMAGE_BADGUY, -1)'; sleep 1
+half=$(hpof)
+pick 80 0
+pct=$(grep -E "hp carried over, [0-9]+%" "$(log)" | tail -1 | tr -d '\r' | sed 's/.*over, //; s/%//')
+check "Max keeps Kurt's share of hp (Kurt $half/$full, Max ${pct}%)"  python3 -c "import sys; sys.exit(0 if 40 <= int('${pct:-0}') <= 60 else 1)"
+check "Max's hp is a real value ($(hpof))"                test "$(hpof)" -gt 0
+
 # the choice survives a level load only with char_follow off
 lua 'coop_set("game", "char_follow", 0)'
 pick 80 0

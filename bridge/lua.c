@@ -580,6 +580,26 @@ static void l_coop_hp(void)
         lua_pushnumber(gob_hp(gob));
 }
 
+/* coop_carry_hp(old, new): the new hero (just made, at its full hp) gets the share of its hp the old one had
+ * left (of the most it has had this level), at least 1; what revive.c counts as full follows */
+static void l_coop_carry_hp(void)
+{
+    BYTE *from = tolua_getusertype(1, NULL), *to = tolua_getusertype(2, NULL);
+    int hp, full, max;
+
+    if (!gob_alive(from) || !gob_alive(to))
+        return;
+    hp = gob_hp(from);
+    max = local_max_hp > hp ? local_max_hp : hp;
+    full = gob_hp(to);
+    if (hp <= 0 || max <= 0 || full <= 0)
+        return;
+    hp = (int)((double)hp * full / max + 0.5);
+    gob_set_hp(to, hp > 0 ? hp : 1);
+    local_max_hp = full;
+    logmsg("character: hp carried over, %d%%", hp * 100 / full);
+}
+
 /* coop_slot() -> our slot (0 = host), or nil on a client the host has not answered yet */
 static void l_coop_slot(void)
 {
@@ -726,6 +746,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_face", l_coop_face);
     tolua_function(NULL, "coop_slot", l_coop_slot);
     tolua_function(NULL, "coop_hp", l_coop_hp);
+    tolua_function(NULL, "coop_carry_hp", l_coop_carry_hp);
     tolua_function(NULL, "coop_connected", l_coop_connected);
     tolua_function(NULL, "coop_players", l_coop_players);
     tolua_function(NULL, "coop_event", l_coop_event);

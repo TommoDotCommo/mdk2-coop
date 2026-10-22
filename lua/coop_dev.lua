@@ -1002,7 +1002,7 @@ coop_emote_wheel(2, "Ready 2", 3, "Ready 3", 4, "Ready 4", 16, "Knockdown", 57, 
 
 -- ---- Changing character at any time (the character wheel, Options > Co-op > Controls) ----
 -- Each level script creates one hero (CreateKurt / CreateMax / CreateDoctor); the switch does what the
--- debug menu's "Switch Player Character" does: new hero, same spot, the old one deleted. With
+-- debug menu's "Switch Player Character" does: new hero, same spot, the old one deleted, and the share of hp left carried over. With
 -- [game] char_follow on (the default) the next level load puts you back on the hero the game
 -- picks; off, your choice is applied again after every load. Doc's levels with Hyde (6, 12) keep
 -- the game's pair. --
@@ -1041,6 +1041,7 @@ function coop.SwitchChar(p, t)
     if (camera) then omGobDelete(camera) end
     coop.charcreate[t]()
     mdkGobSetPositionXYZ(bob, x, y, z)
+    coop_carry_hp(p, bob)
     omGobDelete(p)
 end
 

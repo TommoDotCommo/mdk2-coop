@@ -358,7 +358,7 @@ Controls while the mod is on: Space jumps (jetpack, parachute), right mouse togg
 both logs, F8 skips to the next level.
 
 Character wheel: hold J (Options > Co-op > Controls), move the mouse to Kurt, Max or Doc and let go to
-switch to them on the spot (letting go in the middle changes nothing; "Level's own" goes back to the hero the
+switch to them on the spot, keeping the same share of hp (letting go in the middle changes nothing; "Level's own" goes back to the hero the
 level gave you). Your partner's puppet becomes the same hero. With Options > Co-op > Gameplay > "Back to
 level's hero" on (the default) the next level load puts you back on the game's hero; off keeps your choice.
 Levels with Hyde (6, 12) keep the game's pair. `tools/qa_char.sh` and `tools/qa_char2.sh` check it.
