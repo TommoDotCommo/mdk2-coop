@@ -520,8 +520,8 @@ coop.hud_on = (coop_get("hud", "show", "1") == "1")
 coop.hud_outline = (coop_get("hud", "outline", "1") == "1")
 function coop.HudTick()
     local show = 0
-    if (coop.hud_on and coop.level and coop.level >= 1 and not coop.waiting and
-        not (gamecontrol and gamecontrol.showmenu == 1)) then
+    if (coop.hud_on and coop.level and coop.level >= 1 and not coop.waiting and not coop.mv and
+        not Save.movietocancel and not Save.inminigame and not (gamecontrol and gamecontrol.showmenu == 1)) then
         show = 1
     end
     coop_hud(show, mdkGetCameraGob(), coop.hud_outline and 1 or 0)
@@ -655,6 +655,9 @@ function level(l, cp, sec)
     coop.mvgo = {}
     coop.mvcount = 0
     coop.level_ready = nil
+    coop.fallghost = {}
+    coop.fallpos = {}
+    coop.fallactive = nil
     coop.level_ms = coop_ms()
     coop_banner()
     coop.level_orig(l, cp, sec)
@@ -715,6 +718,7 @@ MV_SKIP = 5         -- host -> all: the vote passed
 MV_DONE = 6         -- client -> host: my movie reached its end and waits
 MV_FINISH = 7       -- host -> all: everyone has seen the end (or ran out of time): run Done
 MV_BEGIN = 8        -- host -> all: start movie `name` (a function in coop.moviehooks); type = the serial it has here
+MV_FALL = 9         -- the skydive: where a player's Kurt is (x, y; damage = its dead state; extra 0 = whose, from the host)
 
 coop.mv_start_ms = 20000    -- longest wait for the others to load and be ready
 coop.mv_vote_ms = 15000     -- a skip vote stays open this long
@@ -1025,7 +1029,10 @@ end
 
 function coop.MovieTick()
     local m = coop.mv
-    if (not m) then return end
+    if (not m) then
+        if (coop.fallactive) then coop.FallClear() end
+        return
+    end
     if (not coop.MovieOthers()) then
         -- everyone left: carry on alone --
         if (m.state == "wait") then
@@ -1045,6 +1052,7 @@ function coop.MovieTick()
     end
     if (coop_role() == "host") then coop.MovieHostTick(m) else coop.MovieClientTick(m) end
     if (coop.mv == m) then coop.MovieBanner(m) else coop_banner() end
+    coop.FallTick()
 end
 
 -- an EV_MOVIE: op, a (damage), serial (type), from (netid), then the numbers --
@@ -1063,6 +1071,15 @@ function coop.MovieEvent(name, a, serial, op, from, x, y, z, e0, e1)
             r[from].vote = a
         elseif (op == MV_DONE) then
             r[from].done = 1
+        elseif (op == MV_FALL) then
+            -- on to the other clients, with whose it is --
+            coop.FallHear(from, a, x, y)
+            local _, slots = coop_players()
+            local s = 1
+            while (s < slots) do
+                if (s ~= from and coop_connected(s)) then coop_movie_send(MV_FALL, a, serial, s, x, y, 0, from, 0, "") end
+                s = s + 1
+            end
         end
         return
     end
@@ -1079,6 +1096,82 @@ function coop.MovieEvent(name, a, serial, op, from, x, y, z, e0, e1)
         if (m and m.serial == serial and m.state == "hold") then coop.MovieFinish(m) end
     elseif (op == MV_BEGIN) then
         coop.MovieBegin(name, serial)
+    elseif (op == MV_FALL) then
+        coop.FallHear(e0, a, x, y)
+    end
+end
+
+-- The skydive (level 1's minigame): everyone falls in their own game, and sees the others fall beside them as ghosts
+-- (the cutscene's stunt Kurt) at the places they send, 8 times a second, through the host. A player who is hit
+-- drops out of the others' sky until their next try.
+coop.fall_ms = 125
+coop.fallghost = {}     -- slot -> ghost gob
+coop.fallpos = {}       -- slot -> { x, y, dead } last heard
+coop.fallseq = 0
+
+function coop.FallHear(slot, dead, x, y)
+    if (slot == coop_slot()) then return end
+    local p = coop.fallpos[slot]
+    if (not p) then
+        p = { x = x, y = y }
+        coop.fallpos[slot] = p
+    end
+    p.tx = x
+    p.ty = y
+    p.dead = dead
+end
+
+function coop.FallClear()
+    local s, g = next(coop.fallghost, nil)
+    while (s) do
+        if (g and coop_alive(g)) then omGobDelete(g) end
+        s, g = next(coop.fallghost, s)
+    end
+    coop.fallghost = {}
+    coop.fallpos = {}
+    coop.fallactive = nil
+    coop.fall_next = nil
+end
+
+function coop.FallTick()
+    local m = coop.mv
+    if (not (Save.inminigame and ktgame_kurt and ktgame_kurt.x and coop.level == 1 and m and m.state == "play")) then
+        if (coop.fallactive) then coop.FallClear() end
+        return
+    end
+    coop.fallactive = 1
+    local now = coop_ms()
+    if (not coop.fall_next or now >= coop.fall_next) then
+        coop.fall_next = now + coop.fall_ms
+        coop_movie_send(MV_FALL, ktgame_kurt.dead or 0, m.serial, -1, ktgame_kurt.x, ktgame_kurt.y, 0, 0, 0, "")
+    end
+    local ease = chGetDeltaT() * 12
+    if (ease > 1) then ease = 1 end
+    local s, p = next(coop.fallpos, nil)
+    while (s) do
+        local g = coop.fallghost[s]
+        if (p.dead ~= 0 and g) then
+            if (coop_alive(g)) then omGobDelete(g) end
+            coop.fallghost[s] = nil
+            g = nil
+        elseif (p.dead == 0 and not g) then
+            coop.fallseq = coop.fallseq + 1
+            p.x = p.tx
+            p.y = p.ty
+            g = mdkCreateObjectLua(format("coop_fall%d_%d", s, coop.fallseq), OBJ_SCENERY, mdkGetScene(), nil, nil,
+                                   p.x, p.y, ktgame_kurt.z, 1,0,0,0, "ml1_stuntkurt",0,0,0,0)
+            if (g) then
+                omAnimPlay(g, ANIM_ACTION19, 0)
+                coop.fallghost[s] = g
+                coop_log(format("skydive: player %d falls beside you", s + 1))
+            end
+        end
+        if (g and p.dead == 0) then
+            p.x = p.x + (p.tx - p.x) * ease
+            p.y = p.y + (p.ty - p.y) * ease
+            mdkGobSetPositionXYZ(g, p.x, p.y, ktgame_kurt.z)
+        end
+        s, p = next(coop.fallpos, s)
     end
 end
 
