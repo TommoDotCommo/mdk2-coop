@@ -104,6 +104,7 @@ lcmd 1 "$T_SET" "$FF"; shot 1 settings_ff
 # saves: the sessions are listed with players and progress; a card picks what Host starts
 SAVE1="click 1000 290"
 lcmd 1 "$T_SAVES"; shot 1 saves
+check "saves page: the level captions came from mdk2.str" wait_log 1 "^launcher: level captions read \(10\)" 5
 lcmd 1 "$SAVE1"; shot 1 saves_picked
 lcmd 1 "$T_PLAY" "$HOST" "key 9" "key 9" "key 9" "key 9" "key 13"   # Tab to the port field, Enter plays
 check "host: Host chosen"                               wait_log 1 "^launcher: play, host over UDP" 10

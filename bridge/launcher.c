@@ -211,6 +211,138 @@ static int level_count(int l)
 
 #define NLEVELS 12
 
+/* What the player sees of each level: where and when it is set (the loading screen caption in
+ * the game's own text, mdk2.str of the player's mdk2.tar, read at run time: nothing of it is
+ * kept in this repo) and who plays it. Levels 11 and 12 have no caption: placeholders. */
+struct level_info { char place[72], time[16]; const char *hero; int known; };
+static struct level_info linfo[NLEVELS + 1];
+static int linfo_done;
+static const char *level_heroes[NLEVELS + 1] = { "", "Kurt", "Max", "Doc", "Kurt", "Max", "Doc and Hyde", "Kurt",
+                                                 "Max", "Doc", "Kurt", "Max", "Doc and Hyde" };
+
+/* "Aboard the Alien Minecrawler, Edmonton: 9:05AM " -> place, "9:05 AM"; 0 if it has no time */
+static int caption_split(const char *text, char *place, int psize, char *time, int tsize)
+{
+    int n = (int)strlen(text), i;
+
+    while (n > 0 && text[n - 1] == ' ')
+        n--;
+    if (n < 12 || text[n - 1] != 'M' || (text[n - 2] != 'A' && text[n - 2] != 'P'))
+        return 0;
+    for (i = n - 3; i > 0 && (isdigit((BYTE)text[i - 1]) || text[i - 1] == ':'); i--)
+        ;
+    if (!isdigit((BYTE)text[i]) || !strchr(text + i, ':') || i < 4)
+        return 0;
+    snprintf(time, tsize, "%.*s %cM", n - 2 - i, text + i, text[n - 2]);
+    n = i;
+    while (n > 0 && (text[n - 1] == ' ' || text[n - 1] == ',' || text[n - 1] == ':'))
+        n--;
+    snprintf(place, psize, "%.*s", n, text);
+    return 1;
+}
+
+static void level_info_load(void)
+{
+    DWORD size, i, run = 0;
+    BYTE *d;
+    char text[160];
+    int l, found = 0;
+
+    linfo_done = 1;
+    for (l = 1; l <= NLEVELS; l++) {
+        linfo[l].hero = level_heroes[l];
+        snprintf(linfo[l].place, sizeof(linfo[l].place), l > 10 ? "Location to be named" : "");
+        snprintf(linfo[l].time, sizeof(linfo[l].time), "%s", l > 10 ? "time unknown" : "");
+    }
+    if (!(d = tar_read("mdk2.str", &size)))
+        return;
+    /* UTF-16 text that is all ASCII; the loading screen captions of levels 1 to 10 come first in
+     * the file, in level order (the later one, 8:59AM, is the intro of level 1) */
+    for (i = 0; i + 1 < size && found < 10; i += 2) {
+        if (d[i] >= 32 && d[i] < 127 && d[i + 1] == 0) {
+            if (run < sizeof(text) - 1)
+                text[run++] = (char)d[i];
+            continue;
+        }
+        if (run > 10) {
+            char place[72], time[16];
+
+            text[run] = 0;
+            if (caption_split(text, place, sizeof(place), time, sizeof(time))) {
+                found++;
+                snprintf(linfo[found].place, sizeof(linfo[found].place), "%s", place);
+                snprintf(linfo[found].time, sizeof(linfo[found].time), "%s", time);
+                linfo[found].known = 1;
+            }
+        }
+        run = 0;
+    }
+    free(d);
+    if (found == 10)
+        logmsg("launcher: level captions read (%d)", found);
+    if (found < 10) {
+        logmsg("launcher: only %d level captions found in mdk2.str: names not shown", found);
+        for (l = 1; l <= 10; l++) {
+            linfo[l].place[0] = linfo[l].time[0] = 0;
+            linfo[l].known = 0;
+        }
+    }
+}
+
+static const struct level_info *level_info(int l)
+{
+    if (!linfo_done)
+        level_info_load();
+    return &linfo[l >= 1 && l <= NLEVELS ? l : 0];
+}
+
+/* "Alien Orbiter, Earth Orbit - 11:50 AM - Kurt" (what the game says about level l) */
+static void level_line(int l, char *out, int size)
+{
+    const struct level_info *li = level_info(l);
+
+    out[0] = 0;
+    if (!li->hero)
+        return;
+    if (li->place[0])
+        snprintf(out, size, "%s  -  %s  -  %s", li->place, li->time, li->hero);
+    else
+        snprintf(out, size, "%s", li->hero);
+}
+
+/* the level's checkpoints in play order: the 1-based number of cp in level l, and how many it has;
+ * a checkpoint that is not in the list counts as the last one before it (0 if none) */
+static int cp_ordinal(int l, int cp, int *of)
+{
+    int i = cp_index(l, cp);
+
+    *of = level_count(l);
+    if (i < 0 || checkpoints[i][0] != l)
+        return 0;
+    return i - level_first(l) + 1;
+}
+
+/* for coop_level_info (saves.c) */
+void level_info_get(int l, const char **place, const char **time, const char **hero)
+{
+    const struct level_info *li = level_info(l);
+
+    *place = li->place;
+    *time = li->time;
+    *hero = li->hero ? li->hero : "";
+}
+
+/* "Checkpoint 7 of 12" for raw checkpoint number cp of level l */
+static void cp_text_of(int l, int cp, char *out, int size)
+{
+    int of, k = cp_ordinal(l, cp, &of);
+
+    if (k)
+        snprintf(out, size, "Checkpoint %d of %d", k, of);
+    else
+        snprintf(out, size, "Checkpoint %d", cp);
+}
+
 /* The Saves page: the sessions saves.ini has (newest first), what Host starts (sel: a session,
  * or -1 for a new game at start_level / start_cp, which is only started when start_set) */
 static struct coop_session sessions[12];
@@ -934,9 +1066,21 @@ static void ago(long t, char *out, int size)
 }
 
 /* "You, Alice, Bob" (our own name as "You"), cut to fit w */
+/* cut out to fit w logical pixels in the small font, ending in "..." */
+static void clip_text(char *out, float w)
+{
+    int n = (int)strlen(out);
+
+    while (n > 4 && gdi_width(f_small, out) > w) {
+        out[--n] = 0;
+        if (n > 3)
+            strcpy(out + n - 3, "...");
+    }
+}
+
 static void who_text(const struct coop_session *s, float w, char *out, int size)
 {
-    int i, n;
+    int i;
 
     out[0] = 0;
     for (i = 0; i < s->nmembers; i++) {
@@ -948,12 +1092,7 @@ static void who_text(const struct coop_session *s, float w, char *out, int size)
     }
     if (!out[0])
         snprintf(out, size, s->host == own_id ? "Just you so far" : "Players not recorded");
-    n = (int)strlen(out);
-    while (n > 4 && gdi_width(f_small, out) > w) {
-        out[--n] = 0;
-        if (n > 3)
-            strcpy(out + n - 3, "...");
-    }
+    clip_text(out, w);
 }
 
 /* How far into the campaign, 0..100 */
@@ -967,16 +1106,17 @@ static int session_percent(const struct coop_session *s)
 /* One saved co-op game: where it is up to, who played, how many, when */
 static int session_card(int id, float x, float y, float w, const struct coop_session *s, int on, int usable)
 {
-    float h = 90, pw;
+    float h = 98, pw;
     int hit = control(id, x, y, w, h), hot = over(x, y, w, h) && usable, pct = session_percent(s);
-    char line[96], when[32], pill[40];
+    char line[160], when[32], pill[40];
 
     fill(x, y, w, h, on ? 0x2a2014 : hot ? C_TILE_HOT : C_TILE, 235);
     fill(x, y, 5, h, on ? C_ORANGE : usable ? C_FAINT : 0x2a3a42, 255);
     if (on)
         frame_rect(x, y, w, h, 2, C_ORANGE, 255);
-    snprintf(line, sizeof(line), "Level %d - Checkpoint %d", s->level, s->cp);
-    heading(x + 20, y + 9, 24, line, on ? C_ORANGE : usable ? C_TEXT : C_DIM, DT_LEFT);
+    cp_text_of(s->level, s->cp, when, sizeof(when));
+    snprintf(line, sizeof(line), "Level %d - %s", s->level, when);
+    heading(x + 20, y + 9, 22, line, on ? C_ORANGE : usable ? C_TEXT : C_DIM, DT_LEFT);
     {
         int players = s->peak > 0 ? s->peak : s->nmembers;
 
@@ -988,16 +1128,19 @@ static int session_card(int id, float x, float y, float w, const struct coop_ses
     pw = gdi_width(f_small, pill) + 18;
     fill(x + w - pw - 10, y + 9, pw, 24, 0x1c4a5e, 255);
     gdi_text(f_small, x + w - pw / 2 - 10, y + 12, C_BLUE, pill, DT_CENTER);
+    level_line(s->level, line, sizeof(line));
+    clip_text(line, w - 40);
+    gdi_text(f_small, x + 20, y + 38, on ? C_ORANGE : C_BLUE, line, DT_LEFT);
     who_text(s, w - 40, line, sizeof(line));
-    gdi_text(f_small, x + 20, y + 38, usable ? C_TEXT : C_DIM, line, DT_LEFT);
+    gdi_text(f_small, x + 20, y + 56, usable ? C_TEXT : C_DIM, line, DT_LEFT);
     ago(s->updated, when, sizeof(when));
     if (s->host == own_id)
         snprintf(line, sizeof(line), "Hosted by you  -  %s", when);
     else
         snprintf(line, sizeof(line), "Hosted by %s  -  %s", s->host_name[0] ? s->host_name : "a friend", when);
-    gdi_text(f_small, x + 20, y + 58, C_DIM, line, DT_LEFT);
+    gdi_text(f_small, x + 20, y + 73, C_DIM, line, DT_LEFT);
     snprintf(line, sizeof(line), "%d%%", pct);
-    gdi_text(f_small, x + w - 12, y + 58, C_DIM, line, DT_RIGHT);
+    gdi_text(f_small, x + w - 12, y + 73, C_DIM, line, DT_RIGHT);
     fill(x + 5, y + h - 5, w - 5, 5, 0x0d1a20, 255);
     fill(x + 5, y + h - 5, (w - 5) * pct / 100, 5, on ? C_ORANGE : C_BLUE, 255);
     focus_ring(id, x, y, w, h);
@@ -1040,7 +1183,11 @@ static void page_saves(void)
             start_set = 1;
             sel = -1;
         }
-        y += ROW + 6;
+        y += ROW;
+        level_line(start_level, line, sizeof(line));
+        clip_text(line, PW);
+        gdi_text(f_small, PX, y + 2, C_BLUE, line, DT_LEFT);
+        y += 26;
     } else {
         gdi_para(f_small, PX, y + 4, PW, C_DIM, cfg.mode == MODE_JOIN ?
                  "The host picks the level and checkpoint. You follow." :
@@ -1069,7 +1216,7 @@ static void page_saves(void)
             delete_ask = -1;
             changed = 1;
         }
-        y += 96;
+        y += 102;
     }
     if (nsessions > CARDS) {
         if (saves_top > 0 && link(ID, PX, y + 2, "Newer")) {
@@ -1103,10 +1250,11 @@ static void start_summary(char *out, int size)
     if (cfg.mode != MODE_HOST)
         return;
     if (sel >= 0 && sel < nsessions) {
-        char who[64];
+        char who[64], cp[32];
 
-        who_text(&sessions[sel], PW - 200, who, sizeof(who));
-        snprintf(out, size, "Continue level %d-%d: %s", sessions[sel].level, sessions[sel].cp, who);
+        who_text(&sessions[sel], PW - 280, who, sizeof(who));
+        cp_text_of(sessions[sel].level, sessions[sel].cp, cp, sizeof(cp));
+        snprintf(out, size, "Continue level %d, %s: %s", sessions[sel].level, cp, who);
     } else if (start_set) {
         snprintf(out, size, "New game at level %d, checkpoint %d of %d", start_level, start_cp + 1,
                  level_count(start_level));

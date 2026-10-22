@@ -234,7 +234,10 @@ The Saves tab is the save browser and the level selector. "Saved co-op games" li
 who played (you as "You"), who hosted, when it was last played and a bar for how far into the campaign
 it is. Click one of your own (hosted by you) to make Host start with "Continue"; click it again to
 unselect it; "Delete this save" removes a session and its files. Sessions hosted by a friend are shown
-for reference (they continue theirs and you follow). "New game" picks a level and one of its
+for reference (they continue theirs and you follow). Every level is shown as its number, the loading screen caption (place and time of day, read at run
+time from `mdk2.str` in the player's own `mdk2.tar`; none of that text is in this repo) and its character; levels 11 and 12
+have no caption and show a placeholder. Checkpoints are numbered in play order ("Checkpoint 7 of 12": level 3's
+3-16 sits between 3-6 and 3-7), not by their raw numbers. "New game" picks a level and one of its
 checkpoints (the debug menu's list, so anywhere in the campaign); Host then loads that checkpoint by itself
 once the title screen is up, as a new session. The choice is written to `coop.ini` `[start] action=new|resume`
 (`level`, `cp`, `sid`) and `coop_dev.lua` uses it once and clears it. In game, Options > Co-op > Session >

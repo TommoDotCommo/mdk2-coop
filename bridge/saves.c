@@ -398,6 +398,17 @@ static void l_coop_progress_get(void)
     lua_pushnumber(ini_int(sect, "p_after", 0));
 }
 
+/* coop_level_info(level) -> place, time, character of that level ("" when unknown) */
+static void l_coop_level_info(void)
+{
+    const char *place, *time, *hero;
+
+    level_info_get((int)num_param(1), &place, &time, &hero);
+    lua_pushstring((char *)place);
+    lua_pushstring((char *)time);
+    lua_pushstring((char *)hero);
+}
+
 /* coop_session_new() -> the id of a new session of this host (1 to 1295, not one in use) */
 static void l_coop_session_new(void)
 {
@@ -588,5 +599,6 @@ void saves_lua_init(void)
     tolua_function(NULL, "coop_progress", l_coop_progress);
     tolua_function(NULL, "coop_progress_get", l_coop_progress_get);
     tolua_function(NULL, "coop_session_new", l_coop_session_new);
+    tolua_function(NULL, "coop_level_info", l_coop_level_info);
     tolua_function(NULL, "coop_session_info", l_coop_session_info);
 }

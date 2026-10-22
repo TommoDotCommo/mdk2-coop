@@ -862,6 +862,23 @@ function coop.ShortNames(names)
     return out
 end
 
+-- "checkpoint 7 of 12": the checkpoints of a level numbered in play order (3-16 sits between 3-6
+-- and 3-7), not by their raw numbers --
+function coop.CpText(l, cp)
+    local i = 1
+    local first, count, at = 0, 0, 0
+    while (i <= coop.ncheckpoints) do
+        if (coop.checkpoints[i][1] == l) then
+            if (first == 0) then first = i end
+            count = count + 1
+            if (coop.checkpoints[i][2] == cp) then at = count end
+        end
+        i = i + 1
+    end
+    if (at == 0) then return format("checkpoint %d", cp) end
+    return format("checkpoint %d of %d", at, count)
+end
+
 function coop.AddResumeItem()
     local i = 1
     local sid, l, cp, updated, peak, names = coop_session_info(i)
@@ -869,7 +886,7 @@ function coop.AddResumeItem()
         local rp = coop.ResumePoint(sid)
         if (rp) then
             local who = coop.ShortNames(names)
-            local label = format("Resume co-op %d-%d", rp.level, rp.cp)
+            local label = format("Resume co-op: level %d, %s", rp.level, coop.CpText(rp.level, rp.cp))
             if (who ~= "") then label = label .. " with " .. who end
             local item = mdkCreateMenuItem(menu.pcload, label)
             item.resume = rp
@@ -1416,7 +1433,7 @@ function coop.BuildSession()
         item.Select = function(self) coop.ShowPage("coopstart") end
         local rp = coop.ResumePoint()
         if (rp) then
-            item = mdkCreateMenuItem(m, format("Resume co-op %d-%d", rp.level, rp.cp))
+            item = mdkCreateMenuItem(m, format("Resume co-op: level %d, %s", rp.level, coop.CpText(rp.level, rp.cp)))
             item.resume = rp
             item.Select = function(self)
                 menu.pause.Cancel()
@@ -1462,6 +1479,7 @@ function coop.BuildStart()
     local n, of = coop.CheckpointOfLevel(i)
     local c = coop.checkpoints[i]
     coop.Heading(m, "Start a new game at")
+    local place, time, hero = coop_level_info(c[1])
     local item = mdkCreateMenuItem(m, format("Level: %d", c[1]))
     item.Select = function(self)
         -- the first checkpoint of the next level (this Lua has no upvalues: look it up again) --
@@ -1473,14 +1491,16 @@ function coop.BuildStart()
         coop.BuildStart()
         mdkMenuSetHighlighted(menu.coopstart, 1)
     end
-    item = mdkCreateMenuItem(m, format("Checkpoint: %d of %d (%d-%d)", n, of, c[1], c[2]))
+    item = mdkCreateMenuItem(m, format("Checkpoint: %d of %d", n, of))
     item.Select = function(self)
         local n, of, first = coop.CheckpointOfLevel(coop.start_i)
         if (n >= of) then coop.start_i = first else coop.start_i = coop.start_i + 1 end
         coop.BuildStart()
         mdkMenuSetHighlighted(menu.coopstart, 2)
     end
-    item = mdkCreateMenuItem(m, format("Start at %d-%d", c[1], c[2]))
+    if (place ~= "") then coop.Heading(m, format("%s, %s", place, time)) end
+    if (hero ~= "") then coop.Heading(m, hero) end
+    item = mdkCreateMenuItem(m, format("Start at level %d, checkpoint %d", c[1], n))
     item.Select = function(self)
         menu.pause.Cancel()
         coop.StartAt(coop.checkpoints[coop.start_i][1], coop.checkpoints[coop.start_i][2])

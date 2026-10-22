@@ -70,6 +70,15 @@ check "one session so far"                              test "$(sessions_in 1)" 
 mdk_cmd "$(mdk_pid 1)" "coop_log(coop.ShortNames('A, B, C, D, E'))"
 check "long player lists are shortened (A, B, C +2)"    wait_log 1 "^lua: A, B, C \+2\s*\$" 5
 
+# 1c. checkpoints are numbered in play order (3-16 sits between 3-6 and 3-7); levels have captions,
+#     and 11 and 12 a placeholder
+mdk_cmd "$(mdk_pid 1)" "coop_log(coop.CpText(3, 7))"
+check "checkpoint 3-7 is the 8th of 12 in level 3"      wait_log 1 "^lua: checkpoint 8 of 12\s*\$" 5
+mdk_cmd "$(mdk_pid 1)" "local p, t, h = coop_level_info(10) coop_log(p .. '|' .. t .. '|' .. h)"
+check "level 10 has a place, a time and a character"    wait_log 1 "^lua: .+[|][0-9]+:[0-9][0-9] PM[|]Kurt\s*\$" 5
+mdk_cmd "$(mdk_pid 1)" "local p, t, h = coop_level_info(11) coop_log(p .. '|' .. t .. '|' .. h)"
+check "level 11 has the placeholder"                    wait_log 1 "^lua: Location to be named[|]time unknown[|]Max\s*\$" 5
+
 # 2. the last client takes 30 damage and moves; a save catches that; then its game crashes
 mdk_cmd "$(mdk_pid $L)" "mdkDealDamage(nil, mdkGetPlayerGob(), 30, 2, -1)"
 mdk_key "$(mdk_pid $L)" 17 1 1200; sleep 2

@@ -362,6 +362,7 @@ struct coop_session {
 };
 int sessions_list(struct coop_session *out, int max, unsigned int host);
 void session_remove(const char *sect);
+void level_info_get(int l, const char **place, const char **time, const char **hero);
 
 /* ---- hud.c ---- */
 
