@@ -6,14 +6,16 @@
  * co-op key bindings need nothing special: the keys are the Modern preset's, which a couch game
  * always uses (coop_dev.lua). It works without focus, which is how four windows can be played at once.
  *
- *   left stick / D-pad   arrow keys (move and strafe in game, navigate in menus)
+ *   left stick / D-pad   the arrow keys (menus) and the move / strafe keys
  *   right stick          mouse look
- *   A                    Space (jump) and Enter (menu select)
+ *   A                    jump, and Enter (menu select)
  *   B, Start             Esc (pause, back)
- *   X                    R (revive)          Y   E (inventory, Max's equip)
- *   Back                 V (ping what you aim at)
- *   right trigger        left mouse (fire)   left trigger   right mouse (sniper mode)
+ *   X                    revive              Y   open the inventory / equip
+ *   Back                 ping what you aim at
+ *   right trigger        fire                left trigger   sniper mode
  *   right / left bumper  mouse wheel up / down (next / previous item)
+ * The action keys follow the Controls page (pad_bind), so Original, Modern and Custom all work.
+ * The same list is drawn on the Controls page's Gamepad tab (coop_dev.lua).
  */
 #include <math.h>
 #include <string.h>
@@ -22,6 +24,16 @@
 
 #define CODE_MOUSE_LEFT  256
 #define CODE_MOUSE_RIGHT 257
+
+/* the defaults are the Modern preset's keys; 256 + n is mouse button n */
+static int bound[PA_COUNT] = { 17, 31, 30, 32, 57, CODE_MOUSE_LEFT, CODE_MOUSE_RIGHT, 18, 19, 47 };
+static const int bound_default[PA_COUNT] = { 17, 31, 30, 32, 57, CODE_MOUSE_LEFT, CODE_MOUSE_RIGHT, 18, 19, 47 };
+
+void pad_bind(int action, int code)
+{
+    if (action >= 0 && action < PA_COUNT)
+        bound[action] = code >= 0 && code < 264 ? code : bound_default[action];
+}
 
 static void set(struct pad_out *o, int code)
 {
@@ -48,17 +60,18 @@ void pad_map(const struct pad_raw *p, unsigned prev_buttons, float dt, float loo
     unsigned b = p->buttons, edge = b & ~prev_buttons;
 
     memset(o, 0, sizeof(*o));
-    if (ly > 0.5f || (b & PAD_UP))      set(o, 200);
-    if (ly < -0.5f || (b & PAD_DOWN))   set(o, 208);
-    if (lx < -0.5f || (b & PAD_LEFT))   set(o, 203);
-    if (lx > 0.5f || (b & PAD_RIGHT))   set(o, 205);
-    if (b & PAD_A)                      { set(o, 57); set(o, 28); }
+    /* the arrow keys always (menus), the action keys on top of them (in game) */
+    if (ly > 0.5f || (b & PAD_UP))      { set(o, 200); set(o, bound[PA_FWD]); }
+    if (ly < -0.5f || (b & PAD_DOWN))   { set(o, 208); set(o, bound[PA_BACK]); }
+    if (lx < -0.5f || (b & PAD_LEFT))   { set(o, 203); set(o, bound[PA_LEFT]); }
+    if (lx > 0.5f || (b & PAD_RIGHT))   { set(o, 205); set(o, bound[PA_RIGHT]); }
+    if (b & PAD_A)                      { set(o, bound[PA_JUMP]); set(o, 28); }
     if (b & (PAD_B | PAD_START))        set(o, 1);
-    if (b & PAD_X)                      set(o, 19);
-    if (b & PAD_Y)                      set(o, 18);
-    if (b & PAD_BACK)                   set(o, 47);
-    if (p->rt > PAD_TRIGGER)            set(o, CODE_MOUSE_LEFT);
-    if (p->lt > PAD_TRIGGER)            set(o, CODE_MOUSE_RIGHT);
+    if (b & PAD_X)                      set(o, bound[PA_REVIVE]);
+    if (b & PAD_Y)                      set(o, bound[PA_USE]);
+    if (b & PAD_BACK)                   set(o, bound[PA_PING]);
+    if (p->rt > PAD_TRIGGER)            set(o, bound[PA_FIRE]);
+    if (p->lt > PAD_TRIGGER)            set(o, bound[PA_SNIPER]);
     /* squared response: fine aim near the centre, full speed at the edge */
     o->mouse[0] = (int)lroundf(rx * fabsf(rx) * look * dt);
     o->mouse[1] = (int)lroundf(-ry * fabsf(ry) * look * dt);

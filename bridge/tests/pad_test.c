@@ -40,6 +40,15 @@ int main(void)
     CHECK(o.mouse[2] == 120);
     pad_map(&p, PAD_RB, 0.016f, 700, &o);
     CHECK(o.mouse[2] == 0);
+    /* the action keys follow the bindings (Original: jump on the right mouse button, sniper on Space) */
+    pad_bind(PA_JUMP, 257); pad_bind(PA_SNIPER, 57); pad_bind(PA_FWD, 16);
+    memset(&p, 0, sizeof(p));
+    p.buttons = PAD_A | PAD_UP; p.lt = 255;
+    pad_map(&p, 0, 0.016f, 700, &o);
+    CHECK(down(&o, 257) && down(&o, 28) && down(&o, 57) && down(&o, 16) && down(&o, 200) && !down(&o, 17));
+    pad_bind(PA_JUMP, -1); pad_bind(PA_SNIPER, -1); pad_bind(PA_FWD, -1);
+    pad_map(&p, 0, 0.016f, 700, &o);
+    CHECK(down(&o, 57) && down(&o, 17) && down(&o, 257));
     printf(fails ? "%d failed\n" : "pad mapping: all passed\n", fails);
     return fails != 0;
 }

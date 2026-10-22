@@ -269,13 +269,13 @@ int emote_play(int id, int looping);
 void emote_frame(void);
 int emote_active(void);
 void emote_lua_init(void);
-int emote_wheel_info(int *n, int *sel, float *vx, float *vy, const char **labels);
+int emote_wheel_info(int *n, int *sel, float *vx, float *vy, const char **labels, const char **mid);
 int emote_wheel_open(void);
 
 /* ---- input.c / hud.c / rooms.c / entities.c, for revive.c ---- */
 
 int input_down(int code, int vk);
-enum { GK_CHAT, GK_PING, GK_REVIVE, GK_VOICE, GK_EMOTE, GK_COUNT };    /* keys Lua sets: coop_game_keys */
+enum { GK_CHAT, GK_PING, GK_REVIVE, GK_VOICE, GK_EMOTE, GK_CHAR, GK_COUNT };    /* keys Lua sets: coop_game_keys */
 int gamekey_down(int which);
 int input_lua_key(int k, int *code, int *vk);
 int gamekey_vk(int which);
@@ -356,6 +356,8 @@ void saves_lua_init(void);
 /* ---- hud.c ---- */
 
 void hud_frame(HDC dc);
+struct image { int w, h; DWORD *px; };      /* 0xAARRGGBB, top row first */
+int art_font(struct image *img, float adv[256]);   /* the game's menu font (launcher.c); 0 without mdk2.tar */
 void hud_font_use(int i);
 int hud_font_h(void);
 int hud_text_w(const char *s);

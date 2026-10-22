@@ -67,6 +67,10 @@ void input_press(int code, int hold_ms)
 }
 
 static BYTE pad_keys[33];
+static int pad_enabled = 1;       /* [pad] enabled in coop.ini: a pad plays a normal game too */
+static float pad_look = 700;      /* [pad] look: counts per second at full stick */
+static long padm[3];
+static int pad_index = -1;
 static unsigned pad_buttons;
 
 static int held(int code)
@@ -87,6 +91,7 @@ static struct { int code[2], vk[2]; } gamekeys[GK_COUNT] = {
     { { 19, -1 }, { 'R', 0 } },
     { { 48, -1 }, { 'B', 0 } },
     { { 35, -1 }, { 'H', 0 } },
+    { { 36, -1 }, { 'J', 0 } },
 };
 
 /* the emote wheel (emote.c) holds the mouse back from the game while it is open and steers with it */
@@ -140,6 +145,16 @@ int input_down(int code, int vk)
     return pid == GetCurrentProcessId() && (GetAsyncKeyState(vk) & 0x8000);
 }
 
+/* Not a couch game: the first connected pad plays this window, while it has the focus. The pad
+ * is merged into the real keyboard and mouse (pad_merge_*), and its look movement waits in padm. */
+static int own_window_focused(void)
+{
+    DWORD pid = 0;
+
+    GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+    return pid == GetCurrentProcessId();
+}
+
 /* Once a frame, before the scene updates: the pad becomes held codes and mouse movement */
 void input_pad_frame(void)
 {
@@ -148,23 +163,54 @@ void input_pad_frame(void)
     struct pad_out out;
     double now = now_ms();
     float dt = last ? (float)((now - last) / 1000.0) : 0;
-    int i;
+    int i, ok;
 
     last = now;
-    if (!couch_active)
-        return;
     if (dt > 0.1f)
         dt = 0.1f;
-    if (!pad_read(couch.pad, &raw)) {
+    if (couch_active) {
+        ok = pad_read(couch.pad, &raw);
+    } else if (!synth && !pad_enabled) {
+        return;
+    } else {
+        /* 4 pads are looked at every ~second until one is found, then only that one */
+        static double next_scan;
+
+        ok = 0;
+        if (synth || own_window_focused()) {
+            if (pad_index >= 0) {
+                ok = pad_read(pad_index, &raw);
+                if (!ok)
+                    pad_index = -1;
+            } else if (now >= next_scan) {
+                next_scan = now + 1000;
+                for (i = 0; i < 4 && !ok; i++)
+                    if ((ok = pad_read(i, &raw)))
+                        pad_index = i;
+                if (ok)
+                    logmsg("pad: %d plays this game", pad_index);
+            }
+        }
+    }
+    if (!ok) {
         memset(pad_keys, 0, sizeof(pad_keys));
         pad_buttons = 0;
         return;
     }
-    pad_map(&raw, pad_buttons, dt, couch.look, &out);
+    pad_map(&raw, pad_buttons, dt, couch_active ? couch.look : pad_look, &out);
     pad_buttons = raw.buttons;
     memcpy(pad_keys, out.keys, sizeof(pad_keys));
-    for (i = 0; i < 3; i++)
-        replay_input.mouse[i] += out.mouse[i];
+    for (i = 0; i < 3; i++) {
+        if (synth)
+            replay_input.mouse[i] += out.mouse[i];
+        else
+            padm[i] += out.mouse[i];
+    }
+}
+
+static int pad_down(int code)
+{
+    return (pad_keys[code / 8] >> (code % 8)) & 1;
 }
 
 int input_couch(int *slot, int *count)
@@ -182,6 +228,7 @@ struct dev {
     void *ptr;
     int kind;
     BYTE reported[CODES];   /* last state given out through GetDeviceData */
+    BYTE padrep[CODES];     /* the same for the pad's codes, when the real device is read */
 };
 
 static struct dev devs[8];
@@ -193,6 +240,69 @@ static struct dev *dev_find(void *ptr)
         if (devs[i].ptr == ptr)
             return &devs[i];
     return NULL;
+}
+
+/* real devices (not synth): the pad's held codes and look movement added to what the device says */
+static void pad_merge_state(struct dev *d, void *out, DWORD size)
+{
+    int i;
+
+    if (d->kind == DEV_KEYBOARD) {
+        for (i = 0; i < 256 && i < (int)size; i++)
+            if (pad_down(i))
+                ((BYTE *)out)[i] = 0x80;
+    } else {
+        for (i = 0; i < 3 && (i + 1) * 4 <= (int)size; i++) {
+            ((LONG *)out)[i] += padm[i];
+            padm[i] = 0;
+        }
+        for (i = 0; i < 8 && 12 + i < (int)size; i++)
+            if (pad_down(256 + i))
+                ((BYTE *)out)[12 + i] = 0x80;
+    }
+}
+
+/* real devices, buffered: events for what the pad changed, after the device's own (room: the size
+ * of the caller's buffer, *n how many are in it) */
+static void pad_merge_events(struct dev *d, DIDEVICEOBJECTDATA *out, DWORD objsize, DWORD room, DWORD *n)
+{
+    int code, first = d->kind == DEV_KEYBOARD ? 0 : MOUSE_BUTTON0, last = d->kind == DEV_KEYBOARD ? 256 : CODES;
+
+    if (d->kind == DEV_MOUSE) {
+        int axis;
+        for (axis = 0; axis < 3; axis++) {
+            DIDEVICEOBJECTDATA *e;
+            if (!padm[axis])
+                continue;
+            if (mouse_held && axis < 2) {
+                if (axis == 0) held_dx += padm[0]; else held_dy += padm[1];
+                padm[axis] = 0;
+                continue;
+            }
+            if (*n >= room)
+                break;
+            e = (DIDEVICEOBJECTDATA *)((BYTE *)out + *n * objsize);
+            memset(e, 0, objsize);
+            e->dwOfs = axis * 4;
+            e->dwData = (DWORD)padm[axis];
+            e->dwTimeStamp = GetTickCount();
+            padm[axis] = 0;
+            (*n)++;
+        }
+    }
+    for (code = first; code < last && *n < room; code++) {
+        BYTE s = pad_down(code) ? 0x80 : 0;
+        DIDEVICEOBJECTDATA *e;
+        if (s == d->padrep[code])
+            continue;
+        e = (DIDEVICEOBJECTDATA *)((BYTE *)out + *n * objsize);
+        memset(e, 0, objsize);
+        e->dwOfs = d->kind == DEV_KEYBOARD ? (DWORD)code : (DWORD)(12 + code - MOUSE_BUTTON0);
+        e->dwData = s;
+        e->dwTimeStamp = GetTickCount();
+        d->padrep[code] = s;
+        (*n)++;
+    }
 }
 
 /* vtable slots, IDirectInput8A and IDirectInputDevice8A */
@@ -267,6 +377,7 @@ static HRESULT WINAPI dev_get_state(void *self, DWORD size, void *out)
     if (!synth) {
         hr = get_state_orig(self, size, out);
         if (FAILED(hr)) return hr;
+        pad_merge_state(d, out, size);
     } else {
         memset(out, 0, size);
         if (d->kind == DEV_KEYBOARD) {
@@ -308,7 +419,10 @@ static HRESULT WINAPI dev_get_data(void *self, DWORD objsize, DIDEVICEOBJECTDATA
     if (!d)
         return get_data_orig(self, objsize, out, inout, flags);
     if (!synth) {
+        DWORD room0 = *inout;
         HRESULT hr = get_data_orig(self, objsize, out, inout, flags);
+        if (SUCCEEDED(hr) && out && !(flags & DIGDD_PEEK) && *inout <= room0)
+            pad_merge_events(d, out, objsize, room0, inout);
         if (SUCCEEDED(hr) && d->kind == DEV_KEYBOARD && chat_blocks_keys()) {
             *inout = 0;                     /* typing a chat line: read and dropped */
             return hr;
@@ -669,6 +783,12 @@ void input_init(void)
         GetPrivateProfileStringA("couch", "look", "700", look, sizeof(look), ini);
         couch.look = (float)atof(look);
     }
+    pad_enabled = GetPrivateProfileIntA("pad", "enabled", 1, ini) != 0;
+    {
+        char look[32];
+        GetPrivateProfileStringA("pad", "look", "700", look, sizeof(look), ini);
+        pad_look = (float)atof(look);
+    }
     synth = test_background || couch_active;
     if (!synth)
         return;
@@ -711,7 +831,7 @@ int input_lua_key(int k, int *code, int *vk)
     return *code >= 0;
 }
 
-/* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1, GK_REVIVE 2, GK_VOICE 3 or GK_EMOTE 4; keys
+/* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1, GK_REVIVE 2, GK_VOICE 3, GK_EMOTE 4 or GK_CHAR 5; keys
  * are Lua's (input_lua_key; the wheel cannot be used) */
 static void l_coop_game_keys(void)
 {

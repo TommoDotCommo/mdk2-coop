@@ -523,6 +523,21 @@ static void l_coop_pad_fake(void)
     pad_fake(&raw);
 }
 
+/* coop_pad_keys(fwd, back, left, right, jump, fire, sniper, use, revive, ping): the keys the pad's
+ * buttons press, as the Controls page numbers them (scan code, 1000 + n mouse button, -1 default) */
+static void l_coop_pad_keys(void)
+{
+    int i, codes[PA_COUNT];
+
+    for (i = 0; i < PA_COUNT; i++) {
+        int c = (int)num_param(i + 1);
+        pad_bind(i, c >= 1000 && c < 1008 ? 256 + c - 1000 : c < 256 ? c : -1);
+        codes[i] = c;
+    }
+    logmsg("pad keys: %d %d %d %d | jump %d fire %d sniper %d use %d revive %d ping %d",
+           codes[0], codes[1], codes[2], codes[3], codes[4], codes[5], codes[6], codes[7], codes[8], codes[9]);
+}
+
 /* coop_couch(): this player's slot (1 = first) and the number of local players, or nothing when
  * this is not a couch game */
 static void l_coop_couch(void)
@@ -580,6 +595,26 @@ static void l_coop_hp(void)
 
     if (gob_alive(gob))
         lua_pushnumber(gob_hp(gob));
+}
+
+/* coop_carry_hp(old, new): the new hero (just made, at its full hp) gets the share of its hp the old one had
+ * left (of the most it has had this level), at least 1; what revive.c counts as full follows */
+static void l_coop_carry_hp(void)
+{
+    BYTE *from = tolua_getusertype(1, NULL), *to = tolua_getusertype(2, NULL);
+    int hp, full, max;
+
+    if (!gob_alive(from) || !gob_alive(to))
+        return;
+    hp = gob_hp(from);
+    max = local_max_hp > hp ? local_max_hp : hp;
+    full = gob_hp(to);
+    if (hp <= 0 || max <= 0 || full <= 0)
+        return;
+    hp = (int)((double)hp * full / max + 0.5);
+    gob_set_hp(to, hp > 0 ? hp : 1);
+    local_max_hp = full;
+    logmsg("character: hp carried over, %d%%", hp * 100 / full);
 }
 
 /* coop_slot() -> our slot (0 = host), or nil on a client the host has not answered yet */
@@ -728,6 +763,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_face", l_coop_face);
     tolua_function(NULL, "coop_slot", l_coop_slot);
     tolua_function(NULL, "coop_hp", l_coop_hp);
+    tolua_function(NULL, "coop_carry_hp", l_coop_carry_hp);
     tolua_function(NULL, "coop_connected", l_coop_connected);
     tolua_function(NULL, "coop_players", l_coop_players);
     tolua_function(NULL, "coop_event", l_coop_event);
@@ -754,6 +790,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_shot", l_coop_shot);
     tolua_function(NULL, "coop_pad_fake", l_coop_pad_fake);
     tolua_function(NULL, "coop_couch", l_coop_couch);
+    tolua_function(NULL, "coop_pad_keys", l_coop_pad_keys);
     tolua_function(NULL, "coop_state", l_coop_state);
     tolua_function(NULL, "coop_keep_spawner", l_coop_keep_spawner);
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);

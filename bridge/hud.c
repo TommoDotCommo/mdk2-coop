@@ -43,6 +43,19 @@
 #define GL_FRAMEBUFFER_SRGB     0x8DB9
 #define GL_LINE_LOOP            0x0002
 #define GL_LINE_SMOOTH          0x0B20
+#define GL_QUADS                0x0007
+#define GL_TEXTURE_ENV          0x2300
+#define GL_TEXTURE_ENV_MODE     0x2200
+#define GL_MODULATE             0x2100
+#define GL_TEXTURE_MIN_FILTER   0x2801
+#define GL_TEXTURE_MAG_FILTER   0x2800
+#define GL_TEXTURE_WRAP_S       0x2802
+#define GL_TEXTURE_WRAP_T       0x2803
+#define GL_LINEAR               0x2601
+#define GL_CLAMP_TO_EDGE        0x812F
+#define GL_BGRA                 0x80E1
+#define GL_RGBA                 0x1908
+#define GL_UNPACK_ROW_LENGTH    0x0CF2
 
 typedef void (WINAPI *gl_v_u)(unsigned);
 static struct {
@@ -71,6 +84,13 @@ static struct {
     void (WINAPI *DrawBuffer)(unsigned);
     unsigned (WINAPI *GenLists)(int);
     void (WINAPI *DeleteLists)(unsigned, int);
+    void (WINAPI *GenTextures)(int, unsigned *);
+    void (WINAPI *BindTexture)(unsigned, unsigned);
+    void (WINAPI *TexImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);
+    void (WINAPI *TexParameteri)(unsigned, unsigned, int);
+    void (WINAPI *TexEnvi)(unsigned, unsigned, int);
+    void (WINAPI *TexCoord2f)(float, float);
+    void (WINAPI *PixelStorei)(unsigned, int);
     /* 1.3+ through wglGetProcAddress */
     void (WINAPI *UseProgram)(unsigned);
     void (WINAPI *BindFramebuffer)(unsigned, unsigned);
@@ -86,8 +106,10 @@ static float fov_deg = 64.0f;   /* vertical field of view: from where puppets at
 static float head_z = 1.8f;     /* tag this far above a puppet's feet (Kurt is about 1.45 tall) */
 static float body_h = 1.5f;     /* outline height, feet to top of the head */
 static float body_hw = 0.5f;    /* and half its width */
+#define OUT_NEAR 3.0f           /* outlines fade out between this distance (game units) and OUT_FAR */
+#define OUT_FAR  11.0f
 /* fonts: 0 is the HUD's, 1, 2 and 3 smaller / larger / tiny ones for the controls view (ctrlview.c) */
-struct fnt { unsigned base; int px, h; int w[128]; HFONT hf; };
+struct fnt { unsigned base; int px, h; int w[128]; HFONT hf; int game; };
 static struct fnt fn[4];
 static int fsel;                /* the font in use */
 #define font_base fn[fsel].base
@@ -95,6 +117,7 @@ static int fsel;                /* the font in use */
 #define font_h    fn[fsel].h
 #define char_w    fn[fsel].w    /* advance widths, for measuring text */
 #define font      fn[fsel].hf
+#define font_game fn[fsel].game  /* drawn with the game's own menu font instead of a Windows one */
 
 static int load_gl(void)
 {
@@ -110,6 +133,8 @@ static int load_gl(void)
     GL1(RasterPos2f); GL1(ListBase); GL1(CallLists); GL1(GetIntegerv); GL1(GetString); GL1(DrawBuffer);
     GL1(GenLists); GL1(DeleteLists);
     GL1(Begin); GL1(End); GL1(Vertex2f); GL1(LineWidth);
+    GL1(GenTextures); GL1(BindTexture); GL1(TexImage2D); GL1(TexParameteri); GL1(TexEnvi); GL1(TexCoord2f);
+    GL1(PixelStorei);
     GLX(UseProgram); GLX(BindFramebuffer); GLX(ActiveTexture);
     *(FARPROC *)&gl.UseFontBitmapsA = GetProcAddress(m, "wglUseFontBitmapsA");
 #undef GL1
@@ -122,6 +147,76 @@ static int load_gl(void)
     return 1;
 }
 
+/* The game's menu font (font.dds / font.lua from mdk2.tar, the launcher reads them): a sheet of 16x16 cells of
+ * 32 pixels, any letter case. Used for the HUD's text; without the files the bold Windows font below. */
+#define GFONT_SCALE 1.15f       /* a cell is this times the text height (the caps fill about 0.6 of a cell) */
+#define GFONT_BASE  0.80f       /* the baseline is this far down a cell */
+static struct image gfont_img;
+static float gfont_adv[256];
+static unsigned gfont_tex;
+static int gfont_state;         /* 0 not tried, 1 loaded, -1 not there */
+
+static int gfont_load(void)
+{
+    if (!gfont_state)
+        gfont_state = art_font(&gfont_img, gfont_adv) && gfont_img.w == 512 && gfont_img.h == 512 ? 1 : -1;
+    if (gfont_state < 0 && gfont_img.px) {
+        free(gfont_img.px);
+        gfont_img.px = NULL;
+    }
+    return gfont_state > 0;
+}
+
+/* the sheet as a texture, the first time text is drawn (the GL state is saved around the HUD) */
+static int gfont_upload(void)
+{
+    if (gfont_tex)
+        return 1;
+    gl.GenTextures(1, &gfont_tex);
+    gl.BindTexture(GL_TEXTURE_2D, gfont_tex);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 512, 512, 0, GL_BGRA, GL_UNSIGNED_BYTE, gfont_img.px);
+    return gfont_tex != 0;
+}
+
+/* one pass of glyph quads at (x, y) baseline, y down */
+static void gfont_pass(float x, float y, int h, const char *s, float r, float g, float b, float a)
+{
+    float cell = font_px * GFONT_SCALE, top = y - GFONT_BASE * cell;
+
+    gl.Color4f(r, g, b, a);
+    gl.Begin(GL_QUADS);
+    for (; *s; s++) {
+        int c = (unsigned char)*s < 128 && (unsigned char)*s >= 32 ? (unsigned char)*s : '?';
+        float u0 = ((c % 16) * 32 + 0.5f) / 512.0f, u1 = ((c % 16) * 32 + 31.5f) / 512.0f;
+        float v0 = ((c / 16) * 32 + 0.5f) / 512.0f, v1 = ((c / 16) * 32 + 31.5f) / 512.0f;
+
+        gl.TexCoord2f(u0, v0); gl.Vertex2f(x, (float)h - top);
+        gl.TexCoord2f(u1, v0); gl.Vertex2f(x + cell, (float)h - top);
+        gl.TexCoord2f(u1, v1); gl.Vertex2f(x + cell, (float)h - top - cell);
+        gl.TexCoord2f(u0, v1); gl.Vertex2f(x, (float)h - top - cell);
+        x += char_w[c];
+    }
+    gl.End();
+}
+
+static void gfont_text(float x, float y, int h, const char *s, float r, float g, float b)
+{
+    if (!gfont_upload())
+        return;
+    gl.Enable(GL_TEXTURE_2D);
+    gl.BindTexture(GL_TEXTURE_2D, gfont_tex);
+    gl.TexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    gfont_pass(x + 1.5f, y + 1.5f, h, s, 0.0f, 0.0f, 0.0f, 0.75f);
+    /* the sheet is grey chrome: lift the colour so the text keeps the brightness it had */
+    gfont_pass(x, y, h, s, r * 1.3f > 1 ? 1 : r * 1.3f, g * 1.3f > 1 ? 1 : g * 1.3f, b * 1.3f > 1 ? 1 : b * 1.3f, 1.0f);
+    gl.Disable(GL_TEXTURE_2D);
+}
+
 /* A bold Windows font as display lists, sized to the window */
 static int make_font(HDC dc, int px)
 {
@@ -129,6 +224,15 @@ static int make_font(HDC dc, int px)
     ABC abc[96];
     int i;
 
+    if ((fsel == 0 || fsel == 2) && gfont_load()) {     /* the HUD text and the big headings: the game's font */
+        int c;
+        font_game = 1;
+        font_px = font_h = px;
+        for (c = 0; c < 128; c++)
+            char_w[c] = (int)((gfont_adv[c] + 0.06f) * px * GFONT_SCALE + 0.5f);
+        return 1;
+    }
+    font_game = 0;
     if (font_base && font_px == px)
         return 1;
     if (font_base)
@@ -176,6 +280,10 @@ static void text(float x, float y, int h, const char *s, float r, float g, float
 {
     int n = (int)strlen(s);
 
+    if (font_game) {
+        gfont_text(x, y, h, s, r, g, b);
+        return;
+    }
     gl.ListBase(font_base - 32);
     gl.Color4f(0.0f, 0.0f, 0.0f, 0.85f);
     gl.RasterPos2f(x + 1.0f, (float)h - y - 1.0f);
@@ -283,58 +391,105 @@ static void place_tag(float *sx, float *sy, float tw)
     nplaced++;
 }
 
-/* A rounded outline (capsule) around the centre (cx, cy), half width hw and half height hh pixels, y down.
- * Drawn without a depth test, so it shows through walls. */
-static void outline(float cx, float cy, float hw, float hh, int h, float r, float g, float b)
-{
-    float rad = hw < hh ? hw : hh, ax = hw - rad, ay = hh - rad;
-    int i, pass;
+/* The outline of a person (not the mesh: the engine's renderer is not hooked), as the right half of a
+ * silhouette in units of the body: x across, as a fraction of the half width, y up from the feet to 1.
+ * Drawn through a closed Catmull-Rom curve, so it has no corners. */
+static const float person[][2] = {
+    {0.00f, 1.00f}, {0.17f, 0.97f}, {0.21f, 0.89f}, {0.15f, 0.82f}, {0.11f, 0.77f},    /* head, neck */
+    {0.30f, 0.74f}, {0.52f, 0.68f}, {0.60f, 0.52f}, {0.57f, 0.40f}, {0.47f, 0.41f},    /* shoulder, arm */
+    {0.40f, 0.52f}, {0.33f, 0.50f}, {0.32f, 0.40f}, {0.30f, 0.20f}, {0.30f, 0.03f},    /* body, leg */
+    {0.40f, 0.00f}, {0.06f, 0.00f}, {0.05f, 0.38f},                                    /* foot, crotch */
+};
+#define PERSON_N   ((int)(sizeof(person) / sizeof(person[0])))
+#define OUT_PTS    (2 * PERSON_N - 1)
 
-    for (pass = 0; pass < 2; pass++) {      /* a dark rim first, then the colour on top */
-        gl.LineWidth(pass ? 3.0f : 6.0f);
-        gl.Color4f(pass ? r : 0.0f, pass ? g : 0.0f, pass ? b : 0.0f, pass ? 1.0f : 0.5f);
+/* control point i of the whole loop: the right half down, then the left half back up */
+static void person_pt(int i, float *x, float *y)
+{
+    i = (i % OUT_PTS + OUT_PTS) % OUT_PTS;
+    if (i < PERSON_N) {
+        *x = person[i][0];
+        *y = person[i][1];
+    } else {
+        *x = -person[2 * PERSON_N - 1 - i][0];
+        *y = person[2 * PERSON_N - 1 - i][1];
+    }
+}
+
+/* A person's outline with its feet at (fx, fy), ppu pixels per game unit, wide: width factor, lying: on the
+ * floor. Thin and soft: the colour at alpha a, with a faint dark line under it so it reads on bright
+ * walls. No depth test, so it shows through walls. */
+static void outline(float fx, float fy, float ppu, float wide, int lying, int h, float r, float g, float b, float a)
+{
+    float hw = body_hw * ppu * wide, ht = body_h * ppu;
+    int i, k, pass;
+
+    for (pass = 0; pass < 2; pass++) {
+        gl.LineWidth(pass ? 1.5f : 3.0f);
+        gl.Color4f(pass ? r : 0.0f, pass ? g : 0.0f, pass ? b : 0.0f, pass ? a : a * 0.3f);
         gl.Begin(GL_LINE_LOOP);
-        for (i = 0; i < 32; i++) {          /* the four corner arcs, 8 steps each, clockwise from the right */
-            float a = (float)i / 32.0f * 6.2831853f, ca = cosf(a), sa = sinf(a);
-            float x = cx + (ca >= 0 ? ax : -ax) + ca * rad;
-            float y = cy + (sa >= 0 ? ay : -ay) + sa * rad;
-            gl.Vertex2f(x, (float)h - y);
+        for (i = 0; i < OUT_PTS; i++) {
+            float p[4][2];
+            for (k = 0; k < 4; k++)
+                person_pt(i - 1 + k, &p[k][0], &p[k][1]);
+            for (k = 0; k < 4; k++) {           /* 4 steps from point i to i + 1 */
+                float t = k / 4.0f, t2 = t * t, t3 = t2 * t, nx, ny, x, y;
+                nx = 0.5f * (2 * p[1][0] + (-p[0][0] + p[2][0]) * t + (2 * p[0][0] - 5 * p[1][0] + 4 * p[2][0] - p[3][0]) * t2 +
+                             (-p[0][0] + 3 * p[1][0] - 3 * p[2][0] + p[3][0]) * t3);
+                ny = 0.5f * (2 * p[1][1] + (-p[0][1] + p[2][1]) * t + (2 * p[0][1] - 5 * p[1][1] + 4 * p[2][1] - p[3][1]) * t2 +
+                             (-p[0][1] + 3 * p[1][1] - 3 * p[2][1] + p[3][1]) * t3);
+                if (lying) {                    /* head to the right, flattened by the view */
+                    x = fx + (ny - 0.5f) * ht;
+                    y = fy - 0.12f * ht - nx * hw * 0.45f;
+                } else {
+                    x = fx + nx * hw * 1.6f;
+                    y = fy - ny * ht;
+                }
+                gl.Vertex2f(x, (float)h - y);
+            }
         }
         gl.End();
     }
 }
 
-/* Every other player in the level, outlined on screen whatever is in the way. Standing: a capsule from
- * the feet up; downed: a flat one on the floor. Coloured by slot so they stay apart. */
+/* Every other player in the level, outlined on screen whatever is in the way. Standing: a person's outline
+ * from the feet up; downed: lying down. Coloured by slot so they stay apart, faded out when close (where you
+ * can see them and the line is only in the way). */
 static void draw_outlines(int w, int h)
 {
     static const float col[8][3] = {
-        {0.95f, 0.85f, 0.4f}, {0.4f, 0.85f, 0.95f}, {0.5f, 0.95f, 0.5f}, {0.95f, 0.5f, 0.85f},
-        {0.95f, 0.6f, 0.35f}, {0.7f, 0.6f, 0.95f}, {0.95f, 0.95f, 0.95f}, {0.6f, 0.8f, 0.4f}
+        {0.95f, 0.80f, 0.45f}, {0.50f, 0.80f, 0.90f}, {0.60f, 0.88f, 0.60f}, {0.90f, 0.62f, 0.80f},
+        {0.92f, 0.65f, 0.45f}, {0.72f, 0.65f, 0.92f}, {0.90f, 0.90f, 0.90f}, {0.68f, 0.80f, 0.50f}
     };
     int s;
 
+    if (!gob_alive(camera))
+        return;
     gl.Enable(GL_LINE_SMOOTH);
     for (s = 0; s < MAX_PLAYERS; s++) {
-        float feet[3], top[3], fx, fy, tx, ty, ppu, down;
+        float feet[3], top[3], fx, fy, tx, ty, ppu, dist, a, wide;
+        const float *cp = (float *)(camera + GOB_POSITION);
+        int type;
 
         if (!player_in_level(s) || !gob_alive(puppets[s]) || player_life(s) >= LIFE_DEAD)
             continue;
-        down = player_life(s) == LIFE_DOWNED;
         memcpy(feet, puppets[s] + GOB_POSITION, sizeof(feet));
         memcpy(top, feet, sizeof(top));
-        top[2] += down ? body_h * 0.3f : body_h;
+        top[2] += body_h;
+        dist = sqrtf((feet[0] - cp[0]) * (feet[0] - cp[0]) + (feet[1] - cp[1]) * (feet[1] - cp[1]) +
+                     (feet[2] - cp[2]) * (feet[2] - cp[2]));
+        a = (dist - OUT_NEAR) / (OUT_FAR - OUT_NEAR);       /* gone when close, full at a distance */
+        if (a <= 0.02f)
+            continue;
+        a = (a > 1.0f ? 1.0f : a) * 0.6f;
         if (!project(feet, w, h, &fx, &fy) || !project(top, w, h, &tx, &ty))
             continue;
-        ppu = fabsf(fy - ty) / (down ? body_h * 0.3f : body_h);     /* pixels per game unit at their depth */
+        ppu = fabsf(fy - ty) / body_h;                      /* pixels per game unit at their depth */
         if (ppu < 1.0f || fx < -w || fx > 2 * w || fy < -h || fy > 2 * h)
             continue;
-        if (down)
-            outline(fx, fy - ppu * body_h * 0.15f, ppu * body_h * 0.5f, ppu * body_h * 0.15f, h,
-                    col[s % 8][0], col[s % 8][1], col[s % 8][2]);
-        else
-            outline(fx, (fy + ty) * 0.5f, ppu * body_hw, ppu * body_h * 0.5f, h,
-                    col[s % 8][0], col[s % 8][1], col[s % 8][2]);
+        type = player_type(s);
+        wide = type == 101 ? 1.35f : type == 102 ? 1.15f : 1.0f;      /* Max is broad, Doc a little */
+        outline(fx, fy, ppu, wide, player_life(s) == LIFE_DOWNED, h, col[s % 8][0], col[s % 8][1], col[s % 8][2], a);
     }
     gl.Disable(GL_LINE_SMOOTH);
 }
@@ -662,9 +817,9 @@ static void draw_emote_wheel(int w, int h)
     const char *labels[8];
     int n, sel, k;
     float vx, vy, cx = w * 0.5f, cy = h * 0.5f, rad = h * 0.22f, dot = font_h * 0.5f;
-    const char *mid;
+    const char *mid, *stay;
 
-    if (!emote_wheel_info(&n, &sel, &vx, &vy, labels))
+    if (!emote_wheel_info(&n, &sel, &vx, &vy, labels, &stay))
         return;
     box(cx - rad - font_h * 4.0f, cy - rad - font_h * 2.0f, (rad + font_h * 4.0f) * 2, (rad + font_h * 2.0f) * 2, h,
         0.0f, 0.0f, 0.0f, 0.35f);
@@ -684,7 +839,7 @@ static void draw_emote_wheel(int w, int h)
     box(cx - 2, cy - rad * 0.35f, 4, rad * 0.7f, h, 1.0f, 1.0f, 1.0f, 0.06f);
     box(cx - rad * 0.35f, cy - 2, rad * 0.7f, 4, h, 1.0f, 1.0f, 1.0f, 0.06f);
     box(cx + vx * rad * 0.6f - dot * 0.5f, cy + vy * rad * 0.6f - dot * 0.5f, dot, dot, h, 1.0f, 0.85f, 0.3f, 0.95f);
-    mid = sel >= 0 ? "Let go to play" : "Let go to stop";
+    mid = sel >= 0 ? "Let go to choose" : stay;
     text(cx - text_width(mid) * 0.5f, cy + rad + font_h * 2.4f, h, mid, 0.9f, 0.9f, 0.9f);
 }
 

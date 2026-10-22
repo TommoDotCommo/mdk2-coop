@@ -345,10 +345,13 @@ window N; only player 1 has sound; the HUD, revive, saves and drop-out recovery 
 It is not one engine drawing several viewports (the engine has one player and one camera): it is N games
 sharing the screen, so it costs N times the CPU/GPU/RAM (~370 MB each) and Steam online play is not combined
 with it (couch games use UDP on localhost).
-Pad: left stick/D-pad arrows, right stick look, RT fire, LT sniper, A jump/select, B/Start Esc, X revive (R),
-Y E, Back ping (V), bumpers mouse wheel. `bridge/pad.c` maps it onto input.c's synthetic keyboard/mouse, so it works
-without focus. `coop.ini` `[couch]`: slot, count, pad, x, y, w, h, look, fps. `make -C bridge test-pad` checks
-the mapping; `coop_pad_fake(lx, ly, rx, ry, buttons, lt, rt)` (command.lua) stands in for a pad in tests.
+Pad: left stick/D-pad move (and arrows in menus), right stick look, RT fire, LT sniper, A jump/select, B/Start Esc,
+X revive, Y inventory, Back ping, bumpers mouse wheel. Fire, jump, sniper, revive, ping and the move keys are the keys of
+the active Controls preset (`coop_pad_keys`, `bridge/pad.c`), so Original, Modern and Custom all work; the Controls
+page has a Gamepad tab that draws it. It also plays a normal (non-couch) game: the first XInput pad found, only while
+the game window has the focus (`coop.ini` `[pad]` `enabled=1`, `look=700`); couch pads work without focus. `[couch]`:
+slot, count, pad, x, y, w, h, look, fps. `make -C bridge test-pad` checks the mapping;
+`coop_pad_fake(lx, ly, rx, ry, buttons, lt, rt)` (command.lua) stands in for a pad in tests.
 Checked 2026-10-21 with two windows on a 2560x1440 monitor: both joined, a faked stick moved and turned
 player 2 in the host's world. Real pads, 3-4 players and a Steam-installed run are untested.
 
@@ -368,10 +371,16 @@ Controls while the mod is on: Space jumps (jetpack, parachute), right mouse togg
 (the game's defaults are the other way round). F2 drops a numbered marker in
 both logs, F8 skips to the next level.
 
+Character wheel: hold J (Options > Co-op > Controls), move the mouse to Kurt, Max or Doc and let go to
+switch to them on the spot, keeping the same share of hp (letting go in the middle changes nothing; "Level's own" goes back to the hero the
+level gave you). Your partner's puppet becomes the same hero. With Options > Co-op > Gameplay > "Back to
+level's hero" on (the default) the next level load puts you back on the game's hero; off keeps your choice.
+Levels with Hyde (6, 12) keep the game's pair. `tools/qa_char.sh` and `tools/qa_char2.sh` check it.
+
 The puppet is never placed within 3 units of your own player (it is solid and moved every frame;
 both players spawn on the same point and an overlapping puppet shoved the host 25 units into a wall).
-The puppet is the same character as your own player (each level fixes Kurt, Max or Doc and only loads
-that model); a different partner type is logged.
+The puppet is the character its player plays at that moment (Kurt, Max or Doc; the character wheel changes
+it); any other type is logged and gets your own.
 
 ## Automated checks
 

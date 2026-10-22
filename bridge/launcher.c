@@ -36,8 +36,6 @@ int coop_enabled = 1;           /* 0: the player chose solo, coop_init does noth
 
 /* ---- art from mdk2.tar ---- */
 
-struct image { int w, h; DWORD *px; };      /* 0xAARRGGBB, top row first */
-
 static struct image title, font;
 static float glyph_adv[256];                /* font.lua dim[col][row]: advance in cells */
 
@@ -103,8 +101,9 @@ static int dds_load(const char *name, struct image *img)
     return 1;
 }
 
-/* font.lua: 16 rows of 16 widths, dim[col][row] for the character row * 16 + col */
-static int font_load(void)
+/* font.lua: 16 rows of 16 widths, dim[col][row] for the character row * 16 + col; font.dds is the
+ * 512x512 sheet of 32x32 cells. Also the HUD's text (hud.c). */
+int art_font(struct image *img, float adv[256])
 {
     DWORD size;
     char *s = (char *)tar_read("font.lua", &size), *p;
@@ -114,7 +113,7 @@ static int font_load(void)
         return 0;
     for (p = strchr(s, '{'); p && *p && k < 256; ) {
         if (isdigit((unsigned char)*p) || *p == '.') {
-            glyph_adv[(k % 16) * 16 + k / 16] = (float)strtod(p, &p);
+            adv[(k % 16) * 16 + k / 16] = (float)strtod(p, &p);
             k++;
         } else {
             p++;
@@ -123,7 +122,12 @@ static int font_load(void)
     free(s);
     if (k != 256)
         return 0;
-    return dds_load("font.dds", &font);
+    return dds_load("font.dds", img);
+}
+
+static int font_load(void)
+{
+    return art_font(&font, glyph_adv);
 }
 
 /* ---- settings ---- */

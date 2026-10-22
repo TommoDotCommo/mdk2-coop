@@ -43,7 +43,7 @@ check "the picture starts on the On foot page"            has "^lua: controls pa
 mdk_shot "$HP" "$out/page_foot.png"
 
 # 2. Right on the Page combo walks the pages
-for pg in kurt sniper max doc mini coop menus system; do
+for pg in kurt sniper max doc mini coop pad menus system; do
     mdk_key "$HP" 205; sleep 1.2
     check "page $pg"                                      has "^lua: controls page: $pg"
     mdk_shot "$HP" "$out/page_$pg.png"
@@ -52,9 +52,11 @@ done
 # 3. the presets: what the game has bound
 lua 'coop.SetPreset("original")'; dump
 check "Original: forward Up / W, jump right mouse"        bash -c "[ '$(bound fwd)' = '200 17' ] && [ '$(bound jump)' = '1001 -1' ] && [ '$(bound sniper)' = '57 -1' ]"
+check "the pad follows Original: jump is the right mouse, sniper Space"  has "^pad keys: 200 208 203 205 [|] jump 1001 fire 1000 sniper 57 "
 check "Original: Max equip E / Q, Doc up ] / wheel up"    bash -c "[ '$(bound mequip)' = '18 16' ] && [ '$(bound dup)' = '27 1008' ]"
 lua 'coop.SetPreset("modern")'; dump
 check "Modern: forward W / Up, jump Space"                bash -c "[ '$(bound fwd)' = '17 200' ] && [ '$(bound jump)' = '57 -1' ]"
+check "the pad follows Modern: jump Space, sniper the right mouse"  has "^pad keys: 17 31 30 32 [|] jump 57 fire 1000 sniper 1001 "
 check "Modern: sniper is the right mouse, zoom on the wheel" bash -c "[ '$(bound sniper)' = '1001 -1' ] && [ '$(bound zoomin)' = '1008 17' ]"
 check "Modern: chat T, ping V / middle mouse, revive R"   bash -c "[ '$(bound chat)' = '20 -1' ] && [ '$(bound ping)' = '47 1002' ] && [ '$(bound revive)' = '19 -1' ]"
 check "chat, ping and revive keys reach the bridge"       has "^game keys 1: 47/258"
