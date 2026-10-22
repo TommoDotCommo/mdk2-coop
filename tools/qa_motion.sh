@@ -41,7 +41,7 @@ for level in 1 2 3; do
         mdk_cmd "$(mdk_pid 1)" "mdkNewGame($level, 2)" || exit 1
         check "level $level loaded on host" wait_since 1 "$h0" "^level $level checkpoint 2 started" 40
         check "level $level loaded on client" wait_since 2 "$c0" "^level $level checkpoint 2 started" 40
-        sleep 1
+        sleep 5     # a fresh level takes control back a moment after it starts (level 2 walked 0.3 to 4.2 units at 1 s)
     fi
     for specification in idle:-1 forward:17 back:31 left:30 right:32 jump:57; do
         name=${specification%:*}; code=${specification#*:}; tag="l${level}_$name"

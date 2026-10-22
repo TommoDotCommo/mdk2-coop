@@ -54,6 +54,7 @@ apply 80 ms latency, 30 ms jitter and 3% loss; this is one simulated condition.
 | Projectiles | Fake engine and real native launches, flight, client relay, simulated loss | Launch identity/transforms, movement, replay damage suppression, duplicate counts |
 | Multiplayer | Two and three players, relays, joining/leaving | Logs and cross-process world snapshots |
 | Campaign fixtures | 96 debug-menu checkpoints across characters/levels; walk, fire, strafe, client hits | Load following, survival, puppet/enemy counts, HP and world comparisons |
+| Enemy targeting | A live Doganboy is put beside one client only, then beside the other (3 games) | The host's AI bites that client (`damage coop_dog1 -> coop_p<n>`), its game applies HURT events, its hp falls; others, and the faraway client in the control phase, stay unhurt; mutant without HURT sends fails |
 | Death/revive | Native state-machine tests plus real clients: down, damage suppression, revive hold, bleed-out, spectating, lava, team wipe | 69 game-free assertions, ten broken source twins, life/HP/animation reads and HUD text |
 | Level epochs | Same-checkpoint reset after a spawn/pickup, then a same-epoch network outage | Actual loads, restored items/actors, world comparisons, retained world on reconnect; native spawn deferral and epoch-wrap assertions |
 | Save/reconnect | Client/host crash, resume, network cut, subsequent level change | Saved identity, HP/position and world state |
@@ -73,6 +74,11 @@ Default features use at most three players; historical eight-player results are
 not revalidated by this profile.
 
 ## Failures must be detectable
+
+`tools/qa_ai.sh` (gate `enemy-targeting`) checks that enemy AI attacks players who are not the host.
+Teleporting the dog sometimes drops it through the floor, so the script confirms it stands beside the
+target (retrying up to three times) before it asserts anything; baselines for the target are taken
+before the move because the first bites land during that check.
 
 `tests/qa_oracles_test.py` mutates evidence and runs the production scorers:
 wrong level/role/slot, enemy type/HP/deletion/extra enemy, missing item/puppet,

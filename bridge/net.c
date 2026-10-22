@@ -629,7 +629,8 @@ void event_queue(int kind, const char *name, int damage, int type, int part)
     event_send(&e, TO_ALL);
 }
 
-void event_queue_from(int to, int kind, const char *name, BYTE *from, int damage, int type, int part)
+/* hp >= 0: the target's hp after the hit on the host, for the clients' mirror (APPLY only) */
+static void event_queue_hit(int to, int kind, const char *name, BYTE *from, int damage, int type, int part, int hp)
 {
     struct event e;
 
@@ -637,9 +638,20 @@ void event_queue_from(int to, int kind, const char *name, BYTE *from, int damage
     e.damage = (short)damage;
     e.type = type;
     e.part = (signed char)part;
+    e.extra[0] = (DWORD)(hp + 1);       /* 0: not sent */
     snprintf(e.name, EV_NAME, "%s", name);
     gob_peername(from, e.from, EV_NAME);
     event_send(&e, to);
+}
+
+void event_queue_from(int to, int kind, const char *name, BYTE *from, int damage, int type, int part)
+{
+    event_queue_hit(to, kind, name, from, damage, type, part, -1);
+}
+
+void event_queue_applied(const char *name, BYTE *from, int damage, int type, int part, int hp)
+{
+    event_queue_hit(TO_ALL, EV_APPLY, name, from, damage, type, part, hp);
 }
 
 /* SPAWN: an enemy with its current hp (a late joiner's copy starts fresh) */

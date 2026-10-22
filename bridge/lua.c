@@ -15,6 +15,7 @@ static const BYTE deal_damage_prologue[5] = { 0x55, 0x8b, 0x6c, 0x24, 0x0c };
 deal_damage_t deal_damage_orig;     /* trampoline into the original */
 int local_max_hp;                   /* our player's highest hp seen this level: revive to this */
 static char apply_from[EV_NAME];    /* attacker named in the event coop_event last returned */
+static int apply_hp;                /* the host's hp for the target after an APPLY, -1 unknown */
 static int apply_slot;              /* and the slot of the player who sent it */
 static int applying_hit;            /* host: inside EV_HIT, damage from that player's puppet is real */
 
@@ -121,7 +122,7 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
         }
         deal_damage_orig(from, target, damage, type, part);
         if (target != local_player && name[0])
-            event_queue_from(TO_ALL, EV_APPLY, name, from, damage, type, part);
+            event_queue_applied(name, from, damage, type, part, gob_hp(target));
         if (name[0] && gob_is_actor(target))
             logmsg("hp %s %d", name, gob_hp(target));
         return;
@@ -282,6 +283,7 @@ static void l_coop_event(void)
         e.part = host_changed_take() || e.extra[2] ? 1 : same ? 2 : 0;
     }
     apply_slot = from;
+    apply_hp = (int)e.extra[0] - 1;
     memcpy(apply_from, e.from, sizeof(apply_from));
     apply_from[EV_NAME - 1] = 0;
     lua_pushnumber(e.kind);
@@ -328,16 +330,12 @@ static void l_coop_apply(void)
         applying_hit = 0;
         break;
     case EV_APPLY:      /* client: the host applied this */
-    {
-        int before = gob_hp(gob);
-
         deal_damage_orig(apply_attacker(), gob, damage, type, part);
-        /* a mirror that survives the hit keeps its old hp (the game's handler leaves it alone),
-         * so follow the host's arithmetic; death comes from the host's despawn */
-        if (before > 1 && damage > 0 && gob_is_actor(gob) && gob_hp(gob) == before)
-            gob_set_hp(gob, before > damage ? before - damage : 1);
+        /* a mirror keeps its old hp through the hit (the game's handler leaves it alone, and
+         * the host may have ignored the hit): take the host's, death comes from its despawn */
+        if (apply_hp > 0 && gob_is_actor(gob) && gob_hp(gob) != apply_hp)
+            gob_set_hp(gob, apply_hp);
         break;
-    }
     case EV_HURT:       /* client: the host's world hurt our player */
         if (gob == local_player)
             damage_local_player(apply_attacker(), damage, type, part);

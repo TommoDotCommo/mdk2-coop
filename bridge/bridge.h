@@ -213,6 +213,7 @@ void event_send(const struct event *e, int to);
 void event_relay(const struct event *e, int from);
 void event_queue(int kind, const char *name, int damage, int type, int part);
 void event_queue_from(int to, int kind, const char *name, BYTE *from, int damage, int type, int part);
+void event_queue_applied(const char *name, BYTE *from, int damage, int type, int part, int hp);
 void event_queue_spawn(int to, int kind, unsigned int netid, int objtype, int hp, const float *pos, const char *name);
 int event_next(struct event *out, int *from);
 void event_unget(int from);
