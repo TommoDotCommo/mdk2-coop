@@ -26,9 +26,11 @@ all_alive() { local p; for p in $(mdk_pids); do mdk_alive "$p" || return 1; done
 set_pid() { local i=0 p n=""; for p in $(mdk_pids); do i=$((i + 1)); [ $i = "$1" ] && p=$2; n="$n $p"; done; echo "$n" > "$MDK2_PIDS"; }
 lua() { mdk_cmd "$(mdk_pid "$1")" "$2"; }
 ini() { grep -E "^$2=" "$(mdk_wsl "$(mdk_dir "$1")")/coop/$3" | tail -1 | cut -d= -f2 | tr -d '\r'; }
-hp_of() {   # hp_of <instance> <lua gob expression>: logs and prints its hp
-    lua "$1" "coop_log(format(\"HP %d\", coop_hp($2) or -1))"; sleep 0.5
-    grep -E "^lua: HP " "$(mdk_log "$1")" | tail -1 | sed 's/.* //' | tr -d '\r'; }
+hp_of() {   # hp_of <instance> <lua gob expression>: logs and prints its hp (waits for its own line)
+    local tag="HP$RANDOM$RANDOM"   # unique per call (runs in a subshell: no counter)
+    lua "$1" "coop_log(format(\"$tag %d\", coop_hp($2) or -1))"
+    wait_log "$1" "^lua: $tag " 10 >/dev/null
+    grep -E "^lua: $tag " "$(mdk_log "$1")" | tail -1 | sed 's/.* //' | tr -d '\r'; }
 H=1; L=$MDK2_N
 
 mdk_boot
@@ -105,12 +107,12 @@ lua 1 'coop_set("game", "dmg_taken", 50)'; sleep 0.5
 lua 1 'mdkDealDamage(coop_dog1, mdkGetPlayerGob(), 9, 2, -1)'; sleep 2
 check "damage taken 50%: host's player took 4 of a 9 hit" has 1 "^difficulty: coop_dog1 -> .* damage 9 -> 4"
 # damage dealt (players' hits on the world), at 200%
-lua 1 'coop_set("game", "dmg_taken", 100) coop_set("game", "dmg_dealt", 200)'; sleep 0.5
+lua 1 'coop_set("game", "dmg_taken", 10) coop_set("game", "dmg_dealt", 200)'; sleep 0.5   # the live dogs must not wipe the team
 d0=$(hp_of 1 coop_dog2)
 lua 1 'mdkDealDamage(mdkGetPlayerGob(), coop_dog2, 5, 1, -1)'; sleep 2
 check "damage dealt 200%: enemy lost 10 of a 5 hit"     test "$(hp_of 1 coop_dog2)" = "$((d0 - 10))"
 # enemy health: 200% of normal, no per-player bonus
-lua 1 'coop_set("game", "dmg_dealt", 100) coop_set("game", "enemy_hp", 200) coop_set("game", "enemy_scale", 0)'
+lua 1 'coop_set("game", "dmg_taken", 10) coop_set("game", "dmg_dealt", 100) coop_set("game", "enemy_hp", 200) coop_set("game", "enemy_scale", 0)'
 mdk_key "$HP" 63; sleep 3                                     # F5: coop_dog3
 check "enemy health 200%: $(hp_of 1 coop_dog3) hp = 2 x $base" test "$(hp_of 1 coop_dog3)" = "$((base * 2))"
 lua 1 'coop.SetDiffPreset(2)'; sleep 1                            # back to Normal for the rest
