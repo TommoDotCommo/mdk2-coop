@@ -250,6 +250,8 @@ static void l_coop_event(void)
             event_relay(&e, from);
             continue;
         }
+        if (e.kind == EV_MOVIE)
+            movie_event(&e, from);      /* Lua gets it, with the sender's slot in netid */
         /* the host passes the clients' shots, pickups and markers on to the others */
         if (e.kind == EV_FIRE || e.kind == EV_PICKUP || e.kind == EV_MARK)
             event_relay(&e, from);
@@ -772,6 +774,7 @@ void l_coop_init(void)
     input_lua_init();
     emote_lua_init();
     chat_lua_init();
+    movie_lua_init();
     voice_lua_init();
     bot_lua_init();
     run_mod_script();

@@ -131,7 +131,7 @@ struct track {
 };
 
 enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY,
-       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES };
+       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE };
 #define EV_NAME 32
 /* FIRE part: 0 replays create_object arguments; 1 restores a launched class 5 shot. */
 #define FIRE_LAUNCHED 1
@@ -281,6 +281,10 @@ int input_lua_key(int k, int *code, int *vk);
 int gamekey_vk(int which);
 void input_lua_init(void);
 void hud_status(const char *line1, const char *line2, float progress);
+
+/* ---- movie.c: cutscene events and banner ---- */
+void movie_event(struct event *e, int from);
+void movie_lua_init(void);
 int rooms_in_zone(const float *zone_pos, const float *p);
 int ents_alive_in_zone(const float *zone_pos);
 

@@ -359,13 +359,14 @@ omMakeCommand(COM_LOADINSTANT, "", CON_BUTTON_FALL, 0, 0)
 -- the test installs): F1 hit / spawn, F3 lava, F4 teleport, F5 Doganboy, F6 / F7 / F8
 -- checkpoints and levels for everyone, F9 BioWare debug menu, F10 test error, F11 anim log,
 -- PgDn / PgUp (keypad 6 / 4) step through the player's animations as emotes (Home / End, keypad 9 / 7,
--- jump 10; Insert, keypad 5, keeps; Delete, keypad 8, lists; Backspace, keypad 0, stops).
+-- jump 10; Insert, keypad 5, keeps; Delete, keypad 8, lists; keypad 0 stops, and so does Backspace -- the game's
+-- abort-movie key, see the cutscene vote -- when no movie plays).
 -- F2 (marker in every log, and a screenshot) stays on: it is how players report a problem. --
 coop.devkeys = {
     { COM_SHOWBARS, "F1" }, { COM_CLEARCONSOLE, "F3" }, { COM_TOGLG, "F4" }, { COM_NEXTSECTION, "F5" },
     { COM_TOGL1, "F6" }, { COM_TOGL2, "F7" }, { COM_TOGL3, "F8" }, { COM_DEBUGMENUTOG, "F9" },
     { COM_PRINTCOL, "F10" }, { COM_TOGL4, "F11" },
-    { COM_LIGHTRESET, "NUM 0", 14 }, { COM_LIGHTDEFAULT4, "NUM 4", 201 }, { COM_LIGHTDEFAULT5, "NUM 5", 210 },
+    { COM_LIGHTRESET, "NUM 0" }, { COM_LIGHTDEFAULT4, "NUM 4", 201 }, { COM_LIGHTDEFAULT5, "NUM 5", 210 },
     { COM_LIGHTDEFAULT6, "NUM 6", 209 }, { COM_LIGHTDEFAULT7, "NUM 7", 207 }, { COM_LIGHTDEFAULT8, "NUM 8", 211 },
     { COM_LIGHTDEFAULT9, "NUM 9", 199 },
 }
@@ -380,6 +381,10 @@ function coop.ApplyDevKeys(on)
         end
         i, k = next(coop.devkeys, i)
     end
+    -- Backspace is the game's abort-movie key (the cutscene vote); older builds bound it to the emote stop
+    -- too, and a saved settings.lua can still say so: keypad 0 stops the emote, Backspace aborts --
+    if (on) then omBindCommandI(COM_LIGHTRESET, 82) else omBindCommandI(COM_LIGHTRESET, -1) end
+    omBindCommandI(COM_ABORTMOVIE, 14)
 end
 
 -- a gob by the name the others use: a player's character ("@p<n>"), a named gob, or an
@@ -419,6 +424,8 @@ function coop.HandleEvents()
             coop.MakeSave(extra2, netid, dtype, damage)
         elseif (kind == EV_SPAWN) then
             coop.Spawn(name, netid, objtype, x, y, z, damage)
+        elseif (kind == EV_MOVIE) then
+            coop.MovieEvent(name, damage, dtype, part, netid, x, y, z, extra1, extra2)
         else
             local target = coop.FindGob(name)
             if (target) then
@@ -491,6 +498,7 @@ function coop.Tick()
     coop.HandleEvents()
     coop.ReviveTick(p)
     coop.WaitTick()
+    coop.MovieTick()
     coop.HudTick()
     coop.PendingSaveTick()
     if (coop_role() == "host") then coop.SaveTick() end
@@ -641,6 +649,14 @@ end
 -- new level and, on the host, ask the client to follow; Tick adds the puppet --
 coop.level_orig = level
 function level(l, cp, sec)
+    -- the level's own script starts its movie inside this call: the movie state is reset before it --
+    coop.mv = nil
+    coop.mvr = {}
+    coop.mvgo = {}
+    coop.mvcount = 0
+    coop.level_ready = nil
+    coop.level_ms = coop_ms()
+    coop_banner()
     coop.level_orig(l, cp, sec)
     -- only the host's level changes count: both games run the same scripts, so script-driven
     -- loads (new game: 0 -> 1,9 -> 1,12 -> 1,1) happen on both and must not echo --
@@ -671,11 +687,491 @@ function level(l, cp, sec)
     coop.level = l
     coop.cp = cp
     coop_level(l, cp, announce, save)
+    coop.level_ready = 1
+    coop.HookMovies()
     -- host: how far the session has got (not when a save brought us back here) --
     if (announce == 1 and save == 0) then coop_progress(l, cp) end
     -- a client that loaded a save has a world from back then: the host sends its own again --
     if (save > 0 and coop_role() ~= "host") then coop_ready() end
     coop.ScheduleSave(10)
+end
+
+-- ---------------------------------------------------------------------------------------
+-- Cutscenes. Every game runs the level's movie scripts itself (StartMovie), so the movies
+-- need keeping together, not copying: the ones that start with a level load (and the ones those
+-- start from their Done) begin on a shared go from the host, skipping is a vote (the game's
+-- abort key, Backspace: a majority of those watching skips for everyone) and the movie's Done,
+-- which usually loads the next level, waits until everyone has seen the end. Both waits and the
+-- vote have a countdown, so one slow or idle player holds nobody up for long. The host tallies
+-- and rules; the clients report (bridge/movie.c carries the EV_MOVIE events).
+-- ---------------------------------------------------------------------------------------
+
+EV_MOVIE = 20
+MV_START = 1        -- client -> host: my movie is ready; type = its serial
+MV_GO = 2           -- host -> all (or one late player): play
+MV_VOTE = 3         -- client -> host: damage 1 = skip, 0 = take it back
+MV_STATE = 4        -- host -> all: the tally, for the banner (see coop.MovieBroadcast)
+MV_SKIP = 5         -- host -> all: the vote passed
+MV_DONE = 6         -- client -> host: my movie reached its end and waits
+MV_FINISH = 7       -- host -> all: everyone has seen the end (or ran out of time): run Done
+MV_BEGIN = 8        -- host -> all: start movie `name` (a function in coop.moviehooks); type = the serial it has here
+
+coop.mv_start_ms = 20000    -- longest wait for the others to load and be ready
+coop.mv_vote_ms = 15000     -- a skip vote stays open this long
+coop.mv_hold_ms = 20000     -- after the first player has seen the end, the others get this long
+coop.mv_trigger_ms = 4000   -- a movie the host's trigger started: the others are told at once, so a short wait
+coop.mv_load_ms = 15000     -- a movie that starts this soon after a level load is one every game plays
+coop.mvr = {}               -- host: reports by serial: coop.mvr[serial][slot] = { start, done, vote }
+coop.mvgo = {}              -- client: serials the host has already sent GO for
+coop.mvcount = 0
+coop.mv = nil               -- the movie this game is in
+
+coop.start_orig = StartMovie
+coop.stop_orig = StopScript
+coop.abort_orig = comfuncs.game[COM_ABORTMOVIE]
+
+-- movies are kept together only while someone else is here --
+function coop.MovieOthers()
+    local n = coop_players()
+    return n and n > 0
+end
+
+function StartMovie(self, sc)
+    coop.start_orig(self, sc)
+    if (self.stack and self.stack.movie) then coop.MovieStarted(self, sc) end
+end
+
+function coop.MovieStarted(gob, sc)
+    local since = coop_ms() - (coop.level_ms or 0)
+    -- a movie of the level load (or from another movie's Done) is one every game plays by itself; one a
+    -- trigger starts is only this game's, unless the host announced it (coop.MovieTrigger) --
+    local loadmovie = (since < coop.mv_load_ms or coop.in_done)
+    if (not (coop.MovieOthers() and not inmovieplayer and (loadmovie or coop.begin_key or coop.remote_run))) then
+        coop.mv = nil
+        return
+    end
+    coop.mvcount = coop.mvcount + 1
+    local m = {
+        serial = coop.mvcount, gob = gob, sc = sc, state = "wait", at = coop_ms(),
+        skippable = (sc.Done ~= nil), s = nil,
+    }
+    coop.mv = m
+    if (sc.Done) then
+        local orig = sc.Done
+        sc.Done = function() coop.MovieDone(%m, %orig) end
+    end
+    local wait = coop.mv_start_ms
+    if (not loadmovie) then wait = coop.mv_trigger_ms end
+    local r = coop.MovieReports(m.serial)
+    if (coop_role() == "host") then
+        r[0] = { start = 1 }
+        m.wait_until = m.at + wait
+        PauseScript(gob)
+        coop_log(format("movie %d: waiting for the others", m.serial))
+        if (coop.begin_key) then
+            -- the others play it too, from their copy of the function --
+            coop_movie_send(MV_BEGIN, 0, m.serial, -1, 0, 0, 0, 0, 0, coop.begin_key)
+            coop.begin_key = nil
+        end
+    elseif (coop.mvgo[m.serial]) then
+        m.state = "play"
+        coop_log(format("movie %d: the host had already said go", m.serial))
+    else
+        PauseScript(gob)
+        m.wait_until = m.at + wait + 5000
+        m.need_start = 1        -- sent from the tick: our level epoch is not set until the load call returns
+        coop_log(format("movie %d: ready, waiting for the host", m.serial))
+    end
+end
+
+function coop.MovieReports(serial)
+    if (not coop.mvr[serial]) then coop.mvr[serial] = {} end
+    return coop.mvr[serial]
+end
+
+-- the movie's end: with others watching, wait for them --
+function coop.MovieDone(m, orig)
+    if (coop.mv ~= m or m.skipping or not coop.MovieOthers()) then
+        coop.RunDone(orig)
+        return
+    end
+    m.state = "hold"
+    m.finish = orig
+    m.hold_at = coop_ms()
+    if (coop_role() == "host") then
+        coop.MovieReports(m.serial)[0].done = 1
+    else
+        coop_movie_send(MV_DONE, 0, m.serial, -1, 0, 0, 0, 0, 0, "")
+    end
+    coop_log(format("movie %d: ended here, waiting for the others", m.serial))
+end
+
+-- a movie started by a Done is the same movie session: it is kept together too --
+function coop.RunDone(f)
+    local before = coop.in_done
+    coop.in_done = 1
+    f()
+    coop.in_done = before
+end
+
+-- Backspace (the game's abort key): a skip vote while others watch, else the game's own --
+comfuncs.game[COM_ABORTMOVIE] = function()
+    local m = coop.mv
+    if (not Save.movietocancel and coop_get("controls", "devkeys", "0") == "1") then
+        coop_emote(-1)                  -- the emote browser's stop (dev keys)
+    end
+    if (not m or not coop.MovieOthers()) then
+        coop.abort_orig()
+        return
+    end
+    if (m.state ~= "play" or not m.skippable or not Save.movietocancel or Save.inminigame) then return end
+    m.myvote = 1 - (m.myvote or 0)
+    coop_log(format("movie %d: my skip vote %d", m.serial, m.myvote))
+    if (coop_role() == "host") then
+        coop.MovieReports(m.serial)[0].vote = m.myvote
+    else
+        coop_movie_send(MV_VOTE, m.myvote, m.serial, -1, 0, 0, 0, 0, 0, "")
+    end
+end
+
+-- the host's count: who is here, who wants to skip, who has seen the end --
+function coop.MovieTally(m)
+    local r = coop.MovieReports(m.serial)
+    local _, slots = coop_players()
+    local parts, yes, done, votes, s = 0, 0, 0, 0, 0
+    while (s < slots) do
+        local e = r[s]
+        if (e and e.start and (s == 0 or coop_connected(s))) then
+            parts = parts + 1
+            if (e.done) then
+                done = done + 1
+                yes = yes + 1
+            elseif (e.vote == 1) then
+                yes = yes + 1
+                votes = votes + 1
+            end
+        end
+        s = s + 1
+    end
+    return parts, yes, done, votes
+end
+
+function coop.MovieClear(why)
+    if (coop.mv) then coop_log(format("movie %d: over (%s)", coop.mv.serial, why)) end
+    coop.mv = nil
+    coop_banner()
+end
+
+-- the host's movie is the one the others follow: carry out a skip --
+function coop.MovieSkip(m)
+    coop_log(format("movie %d: skipped by vote", m.serial))
+    m.skipping = 1
+    m.myvote = 0
+    m.vote_until = nil
+    local r = coop.MovieReports(m.serial)
+    local s = 0
+    while (s < 16) do
+        if (r[s]) then r[s].vote = nil end
+        s = s + 1
+    end
+    local g = m.gob
+    if (g.stack and g.stack.movie) then
+        coop.RunDone(function() coop.stop_orig(%g) end)
+    end
+    m.skipping = nil
+end
+
+function coop.MovieGo(m)
+    m.state = "play"
+    m.go_at = coop_ms()
+    if (m.gob.stack) then ResumeScript(m.gob) end
+    coop_log(format("movie %d: go", m.serial))
+end
+
+function coop.MovieFinish(m)
+    local f = m.finish
+    m.finish = nil
+    coop_log(format("movie %d: everyone has seen the end", m.serial))
+    coop.MovieClear("finished")
+    if (f) then coop.RunDone(f) end
+end
+
+-- host: the tally goes to everyone for their banners --
+function coop.MovieBroadcast(m, parts, yes, done)
+    local now = coop_ms()
+    local vleft, hleft, sleft = -1, -1, -1
+    if (m.vote_until) then vleft = (m.vote_until - now) / 1000 end
+    if (m.state == "hold" and m.hold_at) then hleft = (m.hold_at + coop.mv_hold_ms - now) / 1000 end
+    if (m.state == "wait") then sleft = (m.wait_until - now) / 1000 end
+    coop_movie_send(MV_STATE, yes, m.serial, -1, vleft, hleft, sleft, done, parts, m.state)
+end
+
+function coop.MovieHostTick(m)
+    local now = coop_ms()
+    local r = coop.MovieReports(m.serial)
+    local parts, yes, done, votes = coop.MovieTally(m)
+    local needed = floor(parts / 2) + 1
+    if (m.state == "wait") then
+        -- everyone who is in the level has to be ready --
+        local _, slots = coop_players()
+        local ready, s = 1, 1
+        while (s < slots) do
+            if (coop_connected(s) and coop_player_in_level(s) and not (r[s] and r[s].start)) then ready = nil end
+            s = s + 1
+        end
+        if (ready or now >= m.wait_until) then
+            coop.MovieGo(m)
+            coop_movie_send(MV_GO, 0, m.serial, -1, 0, 0, 0, 0, 0, "")
+            m.bcast = 0
+        end
+    elseif (m.state == "play") then
+        if (votes > 0 and not m.vote_until) then
+            m.vote_until = now + coop.mv_vote_ms
+        end
+        if (m.vote_until) then
+            if (yes >= needed) then
+                coop_movie_send(MV_SKIP, 0, m.serial, -1, 0, 0, 0, 0, 0, "")
+                coop.MovieSkip(m)
+                return
+            elseif (now >= m.vote_until) then
+                coop_log(format("movie %d: skip vote failed (%d of %d)", m.serial, yes, needed))
+                m.vote_until = nil
+                m.myvote = 0
+                local s = 0
+                while (s < 16) do
+                    if (r[s]) then r[s].vote = nil end
+                    s = s + 1
+                end
+            end
+        end
+    elseif (m.state == "hold") then
+        if (done >= parts or now >= m.hold_at + coop.mv_hold_ms) then
+            coop_movie_send(MV_FINISH, 0, m.serial, -1, 0, 0, 0, 0, 0, "")
+            coop.MovieFinish(m)
+            return
+        end
+    end
+    if (not m.bcast or now >= m.bcast or m.last_yes ~= yes or m.last_done ~= done) then
+        m.last_yes = yes
+        m.last_done = done
+        m.bcast = now + 500
+        coop.MovieBroadcast(m, parts, yes, done)
+    end
+end
+
+function coop.MovieClientTick(m)
+    local now = coop_ms()
+    if (m.need_start and coop.level_ready) then
+        m.need_start = nil
+        coop_movie_send(MV_START, 0, m.serial, -1, 0, 0, 0, 0, 0, "")
+    end
+    local silent, hlevel = coop_host_status()
+    -- the host is gone or never answers: carry on alone --
+    if (m.state == "wait" and (now >= m.wait_until + 40000 or silent > 5000 or hlevel < 1)) then
+        coop_log(format("movie %d: no go from the host, playing", m.serial))
+        coop.MovieGo(m)
+    elseif (m.state == "hold" and (silent > 5000 or hlevel < 1)) then
+        coop_log(format("movie %d: the host is gone, continuing", m.serial))
+        coop.MovieFinish(m)
+    end
+end
+
+function coop.MovieBanner(m)
+    local now = coop_ms()
+    local s = m.s
+    local el = s and (now - s.at) / 1000 or 0
+    local l1, l2, prog = "", "", -1
+    if (m.state == "wait") then
+        l1 = "Waiting for the other players..."
+        local left = (m.wait_until - now) / 1000
+        if (coop_role() ~= "host") then left = left - 5 end
+        if (left > 0) then l2 = format("starting in %d s", floor(left) + 1) end
+    elseif (m.state == "hold") then
+        local parts, done = 0, 0
+        local hleft = (m.hold_at + coop.mv_hold_ms - now) / 1000
+        if (coop_role() == "host") then
+            local p, _, d = coop.MovieTally(m)
+            parts, done = p, d
+        elseif (s) then
+            parts, done = s.parts, s.done
+            if (s.hleft >= 0) then hleft = s.hleft - el end
+        end
+        l1 = "Waiting for the other players to finish..."
+        if (parts > 0) then l1 = format("Waiting for the others to finish (%d of %d)", done, parts) end
+        if (hleft > 0) then
+            l2 = format("continuing in %d s", floor(hleft) + 1)
+            prog = hleft / (coop.mv_hold_ms / 1000)
+        end
+    elseif (m.state == "play" and m.skippable and not Save.inminigame and Save.movietocancel) then
+        local yes, needed, vleft = 0, 2, -1
+        if (coop_role() == "host") then
+            local p, y = coop.MovieTally(m)
+            yes, needed = y, floor(p / 2) + 1
+            if (m.vote_until) then vleft = (m.vote_until - now) / 1000 end
+        elseif (s) then
+            yes, needed = s.yes, s.needed
+            if (s.vleft >= 0) then vleft = s.vleft - el end
+        end
+        if (vleft > 0) then
+            l1 = format("Skip cutscene: %d of %d (Backspace)", yes, needed)
+            l2 = format("vote ends in %d s", floor(vleft) + 1)
+            prog = vleft / (coop.mv_vote_ms / 1000)
+        elseif (now < (m.go_at or m.at) + 6000) then
+            l1 = "Backspace: vote to skip the cutscene"
+        end
+    end
+    coop_banner(l1, l2, prog)
+end
+
+function coop.MovieTick()
+    local m = coop.mv
+    if (not m) then return end
+    if (not coop.MovieOthers()) then
+        -- everyone left: carry on alone --
+        if (m.state == "wait") then
+            coop.MovieGo(m)
+        elseif (m.state == "hold") then
+            coop.MovieFinish(m)
+            return
+        end
+        if (not (m.gob.stack and m.gob.stack.movie)) then coop.MovieClear("alone") end
+        coop_banner()
+        return
+    end
+    if (m.state ~= "hold" and m.state ~= "wait" and not (m.gob.stack and m.gob.stack.movie)) then
+        -- ended by itself (no Done to wait for) or by the game's own skip --
+        coop.MovieClear("ended")
+        return
+    end
+    if (coop_role() == "host") then coop.MovieHostTick(m) else coop.MovieClientTick(m) end
+    if (coop.mv == m) then coop.MovieBanner(m) else coop_banner() end
+end
+
+-- an EV_MOVIE: op, a (damage), serial (type), from (netid), then the numbers --
+function coop.MovieEvent(name, a, serial, op, from, x, y, z, e0, e1)
+    local m = coop.mv
+    if (coop_role() == "host") then
+        local r = coop.MovieReports(serial)
+        if (not r[from]) then r[from] = {} end
+        if (op == MV_START) then
+            r[from].start = 1
+            if (m and m.serial == serial and m.state ~= "wait") then
+                -- a late player: it need not wait for anyone --
+                coop_movie_send(MV_GO, 0, serial, from, 0, 0, 0, 0, 0, "")
+            end
+        elseif (op == MV_VOTE) then
+            r[from].vote = a
+        elseif (op == MV_DONE) then
+            r[from].done = 1
+        end
+        return
+    end
+    if (op == MV_GO) then
+        coop.mvgo[serial] = 1
+        if (m and m.serial == serial and m.state == "wait") then coop.MovieGo(m) end
+    elseif (op == MV_STATE) then
+        if (m and m.serial == serial) then
+            m.s = { yes = a, needed = floor(e1 / 2) + 1, vleft = x, hleft = y, sleft = z, done = e0, parts = e1, at = coop_ms() }
+        end
+    elseif (op == MV_SKIP) then
+        if (m and m.serial == serial and m.state == "play") then coop.MovieSkip(m) end
+    elseif (op == MV_FINISH) then
+        if (m and m.serial == serial and m.state == "hold") then coop.MovieFinish(m) end
+    elseif (op == MV_BEGIN) then
+        coop.MovieBegin(name, serial)
+    end
+end
+
+-- Movies a trigger starts (the host shot the locks, walked into the room...) happen in the host's game
+-- alone, and the others would only see its player stand still. The game's functions that start them are
+-- wrapped: when the host's one starts a movie, the host tells the others (MV_BEGIN) and they play the
+-- same movie from their copy of the function, kept together like the rest. A game whose own trigger fires
+-- first just plays it (and ignores the announcement).
+coop.moviehooks = {
+    { "Level", { "PlayBossMovie", "PlayEndMovie", "PlayIntroMovie", "BridgeMovie", "PlayDeathMovie", "PlayEndComic", "KillZizzy" } },
+    { "l1_r6", { "StartCutScene" } }, { "l1_r8", { "StartCutSceneOpening" } }, { "l2_r11", { "StartCutSceneBoss" } },
+    { "l7r5", { "SendInTheTroops" } }, { "l3_bathroom03", { "StartCutScene" } }, { "l3_w_hub00", { "StartCutScene" } },
+}
+coop.mvwrap = {}        -- "table.function" -> our wrapper
+coop.mvorig = {}        -- "table.function" -> the game's function
+coop.mvran = {}         -- "table.function" -> when it last ran here (ms)
+
+function coop.MovieWrapper(key)
+    if (not coop.mvwrap[key]) then
+        coop.mvwrap[key] = function(a, b) return coop.MovieTrigger(%key, a, b) end
+    end
+    return coop.mvwrap[key]
+end
+
+-- every level load (the level's script has just defined its functions): wrap the movie starters --
+function coop.HookMovies()
+    local i, h = next(coop.moviehooks, nil)
+    while (i) do
+        local t = getglobal(h[1])
+        if (t) then
+            local j, fname = next(h[2], nil)
+            while (j) do
+                local fn = t[fname]
+                local key = h[1] .. "." .. fname
+                if (type(fn) == "function" and fn ~= coop.mvwrap[key]) then
+                    coop.mvorig[key] = fn
+                    t[fname] = coop.MovieWrapper(key)
+                end
+                j, fname = next(h[2], j)
+            end
+        end
+        i, h = next(coop.moviehooks, i)
+    end
+    -- level 6's four movies are Level.C .. Level.F --
+    if (coop.level == 6 and Level) then
+        local c = 1
+        while (c <= 4) do
+            local fname = strsub("CDEF", c, c)
+            local fn = Level[fname]
+            local key = "Level." .. fname
+            if (type(fn) == "function" and fn ~= coop.mvwrap[key]) then
+                coop.mvorig[key] = fn
+                Level[fname] = coop.MovieWrapper(key)
+            end
+            c = c + 1
+        end
+    end
+end
+
+function coop.MovieTrigger(key, a, b)
+    local orig = coop.mvorig[key]
+    local since = coop_ms() - (coop.level_ms or 0)
+    if (coop.remote_run or inmovieplayer or not coop.MovieOthers() or since < coop.mv_load_ms or coop.in_done or
+        coop_role() ~= "host") then
+        coop.mvran[key] = coop_ms()
+        return orig(a, b)
+    end
+    -- the host: MovieStarted tells the others once the movie has really started --
+    coop.mvran[key] = coop_ms()
+    coop.begin_key = key
+    local r = orig(a, b)
+    coop.begin_key = nil
+    return r
+end
+
+-- a client: the host started the movie `key` (it will be movie `serial`) --
+function coop.MovieBegin(key, serial)
+    local orig = coop.mvorig[key]
+    local last = coop.mvran[key]
+    if (not orig) then
+        coop_log(format("movie %s: not in this level here", key))
+    elseif (last and coop_ms() - last < 15000) then
+        coop_log(format("movie %s: already played here", key))
+    elseif (coop.mv and coop.mv.state ~= "hold") then
+        coop_log(format("movie %s: another movie is on", key))
+    else
+        coop_log(format("movie %s: the host started it, playing it too", key))
+        coop.mvran[key] = coop_ms()
+        coop.mvcount = serial - 1
+        coop.remote_run = 1
+        call(orig, {}, "x")
+        coop.remote_run = nil
+    end
 end
 
 -- ---------------------------------------------------------------------------------------

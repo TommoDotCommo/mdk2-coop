@@ -573,6 +573,10 @@ void hud_status(const char *line1, const char *line2, float progress)
 /* coop_emote_caption: what the emote browser (coop_dev.lua) is playing, drawn at the top while an emote runs */
 static char caption1[96], caption2[96];
 
+/* coop_banner: the cutscene line (coop_dev.lua, "Cutscenes"), drawn whether or not the panel shows */
+static char banner1[96], banner2[96];
+static float banner_progress = -1.0f;
+
 static int dump_rows;           /* coop_hud_dump: log the next frame's rows */
 static int dump_status;         /* and its status lines */
 static int frames_drawn;        /* frames with the HUD drawn, for tests */
@@ -684,6 +688,29 @@ static void draw_emote_wheel(int w, int h)
     text(cx - text_width(mid) * 0.5f, cy + rad + font_h * 2.4f, h, mid, 0.9f, 0.9f, 0.9f);
 }
 
+/* cutscene banner: the voted/waiting state and its countdown, low on the picture */
+static void draw_banner(int w, int h)
+{
+    float y = h * 0.84f, bw = w * 0.34f;
+    int lines = banner2[0] ? 2 : 1;
+
+    if (!banner1[0] && !banner2[0])
+        return;
+    box(w * 0.5f - bw * 0.5f - 14, y - font_h - 6, bw + 28, font_h * lines + 14 + (banner_progress >= 0.0f ? 12 : 0), h,
+        0, 0, 0, 0.55f);
+    if (banner1[0])
+        text(w * 0.5f - text_width(banner1) * 0.5f, y, h, banner1, 1.0f, 0.85f, 0.3f);
+    if (banner2[0])
+        text(w * 0.5f - text_width(banner2) * 0.5f, y + font_h, h, banner2, 0.9f, 0.9f, 0.9f);
+    if (banner_progress >= 0.0f) {
+        float by = y + font_h * lines - font_h + 8;
+        box(w * 0.5f - bw * 0.5f, by, bw, 6, h, 0.2f, 0.2f, 0.2f, 0.8f);
+        box(w * 0.5f - bw * 0.5f, by, bw * (banner_progress > 1.0f ? 1.0f : banner_progress), 6, h, 0.95f, 0.75f, 0.25f, 0.9f);
+    }
+    if (dump_status)
+        logmsg("hud banner: %s | %s | %.2f", banner1, banner2, banner_progress);
+}
+
 /* SwapBuffers hook, before the game's frame is shown */
 static void draw_status(int w, int h)
 {
@@ -730,7 +757,7 @@ void hud_frame(HDC dc)
 
     chat_frame(have_remote && shown);
     /* the panel and tags follow coop_hud's "shown"; the revive status shows whenever it is set */
-    if (!ctrlview_on() && !emote_wheel_open() && !(caption1[0] && emote_active() >= 0) &&
+    if (!ctrlview_on() && !emote_wheel_open() && !(caption1[0] && emote_active() >= 0) && !banner1[0] && !banner2[0] &&
         (!have_remote || (!shown && !status1[0] && !status2[0] && !voice_talking(-1))))
         return;
     if (ready < 0)
@@ -788,6 +815,7 @@ void hud_frame(HDC dc)
         draw_chat(w, h);
     }
     draw_emote_wheel(w, h);
+    draw_banner(w, h);
     draw_status(w, h);
     ctrlview_draw(w, h);
     fsel = 0;
@@ -831,6 +859,16 @@ static void l_coop_emote_caption(void)
     snprintf(caption2, sizeof(caption2), "%s", str_param(2));
 }
 
+/* coop_banner(line1, line2, progress): the cutscene line; no arguments clears it. progress 0..1 draws a bar. */
+static void l_coop_banner(void)
+{
+    unsigned int o = lua_getparam(3);
+
+    snprintf(banner1, sizeof(banner1), "%s", str_param(1));
+    snprintf(banner2, sizeof(banner2), "%s", str_param(2));
+    banner_progress = o && lua_isnumber(o) ? (float)lua_getnumber(o) : -1.0f;
+}
+
 /* coop_hud_dump(): log the panel's rows as the next frame draws them, and the frames drawn so far */
 static void l_coop_hud_dump(void)
 {
@@ -861,4 +899,5 @@ void hud_lua_init(void)
     tolua_function(NULL, "coop_hud_tune", l_coop_hud_tune);
     tolua_function(NULL, "coop_hud_dump", l_coop_hud_dump);
     tolua_function(NULL, "coop_emote_caption", l_coop_emote_caption);
+    tolua_function(NULL, "coop_banner", l_coop_banner);
 }

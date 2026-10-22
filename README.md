@@ -159,6 +159,17 @@ a dead player's hidden, untargetable body rides 3 units behind the teammate it w
 camera follows them, and other games park its puppet out of the way. Each player packet carries a life
 byte (alive, down, dead, spectating) and who they are reviving; the HUD panel shows DOWN and dead.
 
+Cutscenes (`coop_dev.lua` "Cutscenes", `bridge/movie.c`, `tools/qa_cutscene.sh`): every game runs the level's movie
+scripts itself (`StartMovie`), so the mod keeps them together instead of copying them. The movies that start with a
+level load (the lounge scene, the skydive, the end movies) and the ones those start from their Done begin on the host's
+go, once every player in the level is ready (at most 20 s). **Backspace** (the game's abort-movie key) is a skip vote:
+a majority of the players watching skips for everyone (two players: both), the vote stays open 15 s and a banner shows
+the count and the countdown. The skydive and the other minigames cannot be skipped, everyone plays their own fall. A
+movie's Done (usually the next level) waits until every player has seen the end; the first to finish sees "waiting for
+the others" with a countdown, and the others have 20 s after the host's own movie ends. A movie a trigger starts in the
+host's game (a boss entrance, the fan cutscene) is announced to the clients, which play it from their own copy of the
+function. A trigger that fires on a client first is that client's alone. Events are `EV_MOVIE`; the host tallies.
+
 Players (up to 16, tested with 8): the host is player 1 (slot 0) and gives each client a slot when its
 first packet arrives (`we are player N` in the client's log). Clients only talk to the host, which
 passes each client's state, shots, pickups and markers on to the others. Every game draws a puppet
