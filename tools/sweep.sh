@@ -114,6 +114,8 @@ rows="$out/rows-${child:-1}.md"
 name() { case $1 in 1) echo host;; 2) echo client;; *) echo "client$1";; esac; }   # as mdk_state names them
 lines() { { wc -l < "$1"; } 2>/dev/null || echo 0; }
 since() { tail -n +"$(( $2 + 1 ))" "$1" 2>/dev/null; }     # since <log> <line count before>
+# a team wipe reloads the checkpoint and the puppets are made again: only the last load counts
+last_load_puppets() { awk '/^level [0-9]+ checkpoint .* started/ {n = 0} /^lua: puppet spawned/ {n++} END {print n + 0}' "$1"; }
 count_since() { since "$1" "$2" | grep -cE "$3"; }         # no -q anywhere: SIGPIPE under pipefail
 wait_for() {   # wait_for <log> <offset> <regex> <seconds>: polls every 0.25 s
     local i
@@ -236,10 +238,10 @@ for c in $list; do
     # final hp per enemy: host logs "hp <name> <hp>" after each hit, a client "event 2 on <name>: ... -> hp <hp>"
     grep -E '^hp ' "$hl" | awk '{h[$2]=$3} END {for (n in h) print n, h[n]}' | sort > "$dir/hp_host.txt"
     hits=$(wc -l < "$dir/hp_host.txt")
-    pup=("$(grep -c '^lua: puppet spawned' "$hl")"); bound=(); orphans=0; hpbad=0; luaerr=$(grep -c 'LUA ERROR' "$hl")
+    pup=("$(last_load_puppets "$hl")"); bound=(); orphans=0; hpbad=0; luaerr=$(grep -c 'LUA ERROR' "$hl")
     for i in $(seq 2 "$MDK2_N"); do
         cl="$dir/$(name "$i").log"
-        pup+=("$(grep -c '^lua: puppet spawned' "$cl")")
+        pup+=("$(last_load_puppets "$cl")")
         b=$(grep -c '^ent bind' "$cl"); bound+=("$b")
         [ "$b" -ne "$spawned" ] && notes="$notes binding mismatch on $(name "$i");"
         orphans=$((orphans + $(grep -c '^ent orphan' "$cl")))

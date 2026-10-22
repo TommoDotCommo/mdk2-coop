@@ -328,8 +328,16 @@ static void l_coop_apply(void)
         applying_hit = 0;
         break;
     case EV_APPLY:      /* client: the host applied this */
+    {
+        int before = gob_hp(gob);
+
         deal_damage_orig(apply_attacker(), gob, damage, type, part);
+        /* a mirror that survives the hit keeps its old hp (the game's handler leaves it alone),
+         * so follow the host's arithmetic; death comes from the host's despawn */
+        if (before > 1 && damage > 0 && gob_is_actor(gob) && gob_hp(gob) == before)
+            gob_set_hp(gob, before > damage ? before - damage : 1);
         break;
+    }
     case EV_HURT:       /* client: the host's world hurt our player */
         if (gob == local_player)
             damage_local_player(apply_attacker(), damage, type, part);
