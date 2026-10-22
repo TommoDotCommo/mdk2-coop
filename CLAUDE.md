@@ -49,6 +49,22 @@ apply to every session here.
   (set in this repo's and the coop-anything clone's local git config; check `git config user.email`
   in any new worktree or clone). No real names, emails or usernamed paths in files or commit messages.
 
+## Running games with other agents (the shared lab)
+Several agents work on this repo and on witness-coop at the same time on one PC. Read `~/source/coop-lab/LAB.md` first (testing
+policy, game slots, the shared desktop). Automated testing is preferred over manual testing: a change is done when a script
+proves it, manual play is for finding problems and each problem found becomes a script. Your identity in the lab is the name
+of your worktree folder (`../mdk2-coop-worktrees/<topic>`), so never share a worktree.
+```
+lab acquire --slots 2          # exit 3 = busy: do not wait, do game-free work and retry later
+lab provision mdk2             # your hard-linked game copies under C:\coop\lab\mdk2\s<slot>
+eval "$(lab env mdk2)"         # MDK2_N, MDK2_DIR1.., MDK2_PORT, MDK2_PIDS, MDK2_TOOLS, MDK2_SRC, MDK2_BACKGROUND=1
+tools/qa.sh                    # or any other tools/qa_*.sh, sweep.sh
+lab release                    # kills the games started from your slot folders and frees the slots
+```
+Without a lease the scripts keep their older single-agent defaults (`C:\coop\mdk2-test`, port 27900, `/tmp/mdk2-coop-pids`),
+which collide with other agents: always use the lease. Run `lab firewall` once (one UAC click) so lab copies start without a
+Windows Firewall prompt. Never kill game processes by name, only your own.
+
 ## Testing
 Background mode only (`MDK2_BACKGROUND=1`, set by `tools/qa.sh` and `tools/sweep.sh`): games on the
 2nd monitor, muted, and never taking focus. `mdk_kill` closes only the copies in MDK2_DIR1/2.
