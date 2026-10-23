@@ -434,7 +434,7 @@ function coop.HandleEvents()
             coop.FollowLevel(dtype, damage, part, extra1, extra2)
         elseif (kind == EV_SAVE) then
             -- the host is saving: save this game under the same number --
-            coop.MakeSave(extra2, netid, dtype, damage)
+            coop.MakeSave(extra2, netid, dtype, damage, extra1)
         elseif (kind == EV_SPAWN) then
             coop.Spawn(name, netid, objtype, x, y, z, damage)
         elseif (kind == EV_MOVIE) then
@@ -497,9 +497,15 @@ function coop.Tick()
         if (coop.ticks >= (coop.nextstart or 600) and
             (joined >= (coop.autostart_players or 0) or coop.ticks >= 3600)) then
             coop.nextstart = coop.ticks + 600
-            coop_log(format("autostart: level %d checkpoint %d, %d others here", coop.autostart[1],
-                            coop.autostart[2], joined))
-            mdkNewGame(coop.autostart[1], coop.autostart[2])
+            if (coop.autostart_sid) then
+                local rp = coop.ResumePoint(coop.autostart_sid)
+                coop_log(format("autostart: resuming co-op session %d, %d others here", coop.autostart_sid, joined))
+                if (rp) then coop.ResumeAt(rp) else coop.autostart = nil end
+            else
+                coop_log(format("autostart: level %d checkpoint %d, %d others here", coop.autostart[1],
+                                coop.autostart[2], joined))
+                mdkNewGame(coop.autostart[1], coop.autostart[2])
+            end
         end
     elseif (coop.autostart and coop.level and coop.level >= 1) then
         coop.autostart = nil
@@ -710,10 +716,23 @@ function level(l, cp, sec)
         save = loaded.no
         coop_log(format("co-op save %d loaded (level %d checkpoint %d)", save, l, cp))
     end
+    -- the host's session: a new game (anything but one of our saves, from the title screen)
+    -- starts one; a co-op save loaded goes on with its own --
+    if (coop_role() == "host" and l >= 1) then
+        if (loaded and l == loaded.level and loaded.sid) then
+            coop.sid = loaded.sid
+        elseif (coop.resume_sid) then
+            coop.sid = coop.resume_sid
+        elseif (not coop.sid or (coop.level or 0) < 1) then
+            coop.sid = coop_session_new()
+            coop_log(format("new co-op session %d", coop.sid))
+        end
+    end
     -- checkpoint -1 is a reload from the autosave (after a death): tell the client which
     -- checkpoint that is instead; it cannot load our save --
     if (cp < 0) then cp = mdkGetCurrentCheckPoint() end
     if (cp < 0) then announce = 0 end
+    coop.resume_sid = nil
     coop.following = nil
     coop.puppets = {}
     coop.level = l
@@ -722,7 +741,7 @@ function level(l, cp, sec)
     coop.level_ready = 1
     coop.HookMovies()
     -- host: how far the session has got (not when a save brought us back here) --
-    if (announce == 1 and save == 0) then coop_progress(l, cp) end
+    if (announce == 1 and save == 0) then coop_progress(l, cp, coop.sid) end
     -- a client that loaded a save has a world from back then: the host sends its own again --
     if (save > 0 and coop_role() ~= "host") then coop_ready() end
     coop.ScheduleSave(10)
@@ -1335,6 +1354,27 @@ end
 
 coop.save_interval = tonumber(coop_get("save", "interval", "120")) or 120
 
+-- the launcher's choice for this start ([start] in coop.ini, used once): the host begins a new
+-- game at a level and checkpoint, or resumes a session, as soon as the title screen has been up
+-- a few seconds --
+do
+    local mode = coop_get("start", "action", "")
+    if (mode ~= "") then
+        coop_set("start", "action", "")
+        if (coop_role() == "host") then
+            if (mode == "new") then
+                coop.autostart = { tonumber(coop_get("start", "level", "1")) or 1,
+                                   tonumber(coop_get("start", "cp", "1")) or 1 }
+            elseif (mode == "resume") then
+                coop.autostart = { 0, 0 }
+                coop.autostart_sid = tonumber(coop_get("start", "sid", "0"))
+            end
+            coop.nextstart = 300
+            coop_log(format("launcher start: %s", mode))
+        end
+    end
+end
+
 -- host: save in `secs` seconds (sooner than any save already due) --
 function coop.ScheduleSave(secs)
     if (coop_role() ~= "host") then return end
@@ -1349,7 +1389,7 @@ function coop.SaveTick()
     if (cp >= 0 and cp ~= coop.cp) then
         coop_log(format("checkpoint %d reached", cp))
         coop.cp = cp
-        coop_progress(coop.level, cp)
+        coop_progress(coop.level, cp, coop.sid)
         coop_revive_checkpoint()
         coop.ScheduleSave(3)
     end
@@ -1366,20 +1406,20 @@ end
 -- host: make co-op save N now, in every game --
 function coop.SaveNow()
     local no = coop_save_next()
-    coop_save_announce(no, coop.level, coop.cp)
-    coop.MakeSave(coop_id(), no, coop.level, coop.cp)
+    coop_save_announce(no, coop.level, coop.cp, coop.sid or 0)
+    coop.MakeSave(coop_id(), no, coop.level, coop.cp, coop.sid or 0)
 end
 
 -- make our copy of save no of host hostid's session; recorded a second later, once the game
 -- has written it --
-function coop.MakeSave(hostid, no, l, cp)
+function coop.MakeSave(hostid, no, l, cp, sid)
     if (not CanSaveGameNow()) then
         coop_log(format("co-op save %d skipped here: the game cannot save right now", no))
         return
     end
-    local file = coop_save_file(no)
+    local file = coop_save_file(no, sid)
     mdkStartInstantSave(file, format("Co-op %d-%d", l, cp))
-    coop.pending_save = { host = hostid, no = no, level = l, cp = cp, file = file, at = coop_time() + 1 }
+    coop.pending_save = { host = hostid, no = no, level = l, cp = cp, file = file, sid = sid, at = coop_time() + 1 }
 end
 
 function coop.PendingSaveTick()
@@ -1387,7 +1427,7 @@ function coop.PendingSaveTick()
     if (not ps or coop_time() < ps.at) then return end
     coop.pending_save = nil
     if (mdkSaveFileExists(ps.file) == 1) then
-        coop_saved(ps.host, ps.no, ps.level, ps.cp, ps.file)
+        coop_saved(ps.host, ps.no, ps.level, ps.cp, ps.file, ps.sid)
     else
         coop_log(format("co-op save %d: %s was not written", ps.no, ps.file))
     end
@@ -1395,37 +1435,42 @@ end
 
 -- host: load co-op save `no` (level l, checkpoint cp) from file; level() then asks every client
 -- to load its copy --
-function coop.Resume(file, no, l, cp)
-    coop_log(format("resuming co-op save %d (level %d checkpoint %d)", no, l, cp))
-    coop.loading = { no = no, level = l, cp = cp }
+function coop.Resume(file, no, l, cp, sid)
+    coop_log(format("resuming co-op save %d (level %d checkpoint %d, session %d)", no, l, cp, sid or 0))
+    coop.loading = { no = no, level = l, cp = cp, sid = sid }
     mdkStartInstantLoad(file)
 end
 
--- host: where to resume: the newest co-op save, unless the session got further since (a level
--- start or checkpoint after it, e.g. where the game cannot save): then that checkpoint.
--- Returns { file, no, level, cp } for a save, { level, cp } for a checkpoint, or nil --
-function coop.ResumePoint()
-    local file, no, l, cp = coop_save_find(coop_id(), 0, 0)
+-- host: where to resume session sid (none: the newest one): the newest co-op save, unless the
+-- session got further since (a level start or checkpoint after it, e.g. where the game cannot
+-- save): then that checkpoint. Returns { file, no, level, cp, sid } for a save, { level, cp,
+-- sid } for a checkpoint, or nil --
+function coop.ResumePoint(sid)
+    if (not sid) then sid = coop_session_info(1) end
+    if (not sid) then return nil end
+    local file, no, l, cp = coop_save_find(coop_id(), 0, 0, sid)
     if (file and mdkSaveFileExists(file) ~= 1) then file = nil end
-    local pl, pcp, pafter = coop_progress_get()
+    local pl, pcp, pafter = coop_progress_get(sid)
     if (pl and (not file or no <= pafter)) then
-        return { level = pl, cp = pcp }
+        return { level = pl, cp = pcp, sid = sid }
     end
-    if (file) then return { file = file, no = no, level = l, cp = cp } end
+    if (file) then return { file = file, no = no, level = l, cp = cp, sid = sid } end
     return nil
 end
 
 function coop.ResumeAt(rp)
     if (rp.file) then
-        coop.Resume(rp.file, rp.no, rp.level, rp.cp)
+        coop.Resume(rp.file, rp.no, rp.level, rp.cp, rp.sid)
     else
         coop_log(format("resuming co-op at level %d checkpoint %d (no save since)", rp.level, rp.cp))
+        coop.sid = rp.sid
+        coop.resume_sid = rp.sid
         mdkNewGame(rp.level, rp.cp)
     end
 end
 
-function coop.ResumeLatest()
-    local rp = coop.ResumePoint()
+function coop.ResumeLatest(sid)
+    local rp = coop.ResumePoint(sid)
     if (rp) then
         coop.ResumeAt(rp)
     else
@@ -1449,22 +1494,66 @@ function BuildPCLoadMenu()
     coop.buildpcload_orig()
 end
 
-function coop.AddResumeItem()
-    local rp = coop.ResumePoint()
-    if (not rp) then return end
-    local item = mdkCreateMenuItem(menu.pcload, format("Resume co-op %d-%d", rp.level, rp.cp))
-    item.resume = rp
-    item.Select = function(self)
-        mdkHideInstantSaveScreenShot()
-        menu.pause.Cancel()
-        coop.ResumeAt(self.resume)
-    end
-    item.Highlight = function(self)
-        if (self.resume.file) then
-            mdkShowInstantSaveScreenShot(self.resume.file)
-        else
-            mdkHideInstantSaveScreenShot()
+-- "Alice, Bob, Carol, Dan" -> "Alice, Bob, Carol +1" (names is what coop_session_info gives) --
+function coop.ShortNames(names)
+    local out, n, rest = "", 0, names
+    while (rest ~= "") do
+        local comma = strfind(rest, ", ", 1, 1)
+        local one = rest
+        if (comma) then one = strsub(rest, 1, comma - 1) rest = strsub(rest, comma + 2) else rest = "" end
+        n = n + 1
+        if (n <= 3) then
+            if (n > 1) then out = out .. ", " end
+            out = out .. one
         end
+    end
+    if (n > 3) then out = out .. format(" +%d", n - 3) end
+    return out
+end
+
+-- "checkpoint 7 of 12": the checkpoints of a level numbered in play order (3-16 sits between 3-6
+-- and 3-7), not by their raw numbers --
+function coop.CpText(l, cp)
+    local i = 1
+    local first, count, at = 0, 0, 0
+    while (i <= coop.ncheckpoints) do
+        if (coop.checkpoints[i][1] == l) then
+            if (first == 0) then first = i end
+            count = count + 1
+            if (coop.checkpoints[i][2] == cp) then at = count end
+        end
+        i = i + 1
+    end
+    if (at == 0) then return format("checkpoint %d", cp) end
+    return format("checkpoint %d of %d", at, count)
+end
+
+function coop.AddResumeItem()
+    local i = 1
+    local sid, l, cp, updated, peak, names = coop_session_info(i)
+    while (sid and i <= 3) do
+        local rp = coop.ResumePoint(sid)
+        if (rp) then
+            local who = coop.ShortNames(names)
+            local label = format("Resume co-op: level %d, %s", rp.level, coop.CpText(rp.level, rp.cp))
+            if (who ~= "") then label = label .. " with " .. who end
+            local item = mdkCreateMenuItem(menu.pcload, label)
+            item.resume = rp
+            item.Select = function(self)
+                mdkHideInstantSaveScreenShot()
+                menu.pause.Cancel()
+                coop.ResumeAt(self.resume)
+            end
+            item.Highlight = function(self)
+                if (self.resume.file) then
+                    mdkShowInstantSaveScreenShot(self.resume.file)
+                else
+                    mdkHideInstantSaveScreenShot()
+                end
+            end
+        end
+        i = i + 1
+        sid, l, cp, updated, peak, names = coop_session_info(i)
     end
 end
 
@@ -2052,9 +2141,11 @@ function coop.BuildSession()
     end
 
     if (coop_role() == "host") then
+        item = mdkCreateMenuItem(m, "Start at level...")
+        item.Select = function(self) coop.ShowPage("coopstart") end
         local rp = coop.ResumePoint()
         if (rp) then
-            item = mdkCreateMenuItem(m, format("Resume co-op %d-%d", rp.level, rp.cp))
+            item = mdkCreateMenuItem(m, format("Resume co-op: level %d, %s", rp.level, coop.CpText(rp.level, rp.cp)))
             item.resume = rp
             item.Select = function(self)
                 menu.pause.Cancel()
@@ -2075,6 +2166,71 @@ function coop.BuildSession()
         end
     end
     coop.BackItem(m, "coop")
+end
+
+-- Start at level...: pick a level and one of its checkpoints, then the host loads it and the
+-- clients follow (a new co-op session, so the old one is kept). coop.start_i indexes
+-- coop.checkpoints, which is in play order --
+menu.coopstart = mdkCreateMenu(0.5, 0.25, 0.05, 0.05, 0.01, JUSTIFY_CENTER, 1)
+coop.pages.coopstart = function() coop.BuildStart() end
+
+-- number of the checkpoint in its level (1 = the level's start) and how many there are --
+function coop.CheckpointOfLevel(i)
+    local l = coop.checkpoints[i][1]
+    local first, last = i, i
+    while (first > 1 and coop.checkpoints[first - 1][1] == l) do first = first - 1 end
+    while (last < coop.ncheckpoints and coop.checkpoints[last + 1][1] == l) do last = last + 1 end
+    return i - first + 1, last - first + 1, first
+end
+
+function coop.BuildStart()
+    local m = menu.coopstart
+    mdkClearMenu(m)
+    if (not coop.start_i) then coop.start_i = 1 end
+    local i = coop.start_i
+    local n, of = coop.CheckpointOfLevel(i)
+    local c = coop.checkpoints[i]
+    coop.Heading(m, "Start a new game at")
+    local place, time, hero = coop_level_info(c[1])
+    local item = mdkCreateMenuItem(m, format("Level: %d", c[1]))
+    item.Select = function(self)
+        -- the first checkpoint of the next level (this Lua has no upvalues: look it up again) --
+        local j = coop.start_i
+        local l = coop.checkpoints[j][1]
+        while (j <= coop.ncheckpoints and coop.checkpoints[j][1] == l) do j = j + 1 end
+        if (j > coop.ncheckpoints) then j = 1 end
+        coop.start_i = j
+        coop.BuildStart()
+        mdkMenuSetHighlighted(menu.coopstart, 1)
+    end
+    item = mdkCreateMenuItem(m, format("Checkpoint: %d of %d", n, of))
+    item.Select = function(self)
+        local n, of, first = coop.CheckpointOfLevel(coop.start_i)
+        if (n >= of) then coop.start_i = first else coop.start_i = coop.start_i + 1 end
+        coop.BuildStart()
+        mdkMenuSetHighlighted(menu.coopstart, 2)
+    end
+    if (place ~= "") then coop.Heading(m, format("%s, %s", place, time)) end
+    if (hero ~= "") then coop.Heading(m, hero) end
+    item = mdkCreateMenuItem(m, format("Start at level %d, checkpoint %d", c[1], n))
+    item.Select = function(self)
+        menu.pause.Cancel()
+        coop.StartAt(coop.checkpoints[coop.start_i][1], coop.checkpoints[coop.start_i][2])
+    end
+    coop.BackItem(m, "coopsession")
+end
+
+menu.coopstart.Cancel = function() coop.ShowPage("coopsession") end
+
+-- host: a new game at level l checkpoint cp --
+function coop.StartAt(l, cp)
+    if (coop_role() ~= "host") then
+        coop_log("start at: only the host picks the level")
+        return
+    end
+    coop_log(format("starting a new game at level %d checkpoint %d", l, cp))
+    coop.sid = nil
+    mdkNewGame(l, cp)
 end
 
 -- "address:port" from the text box: kept for the next start and, on a client, used at once --

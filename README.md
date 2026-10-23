@@ -185,7 +185,12 @@ run) and the host remembers each id's number, also across its own restarts, so a
 is the same player. Co-op saves: 10 s into each level, a few seconds after each checkpoint and every
 2 minutes (`coop.save_interval`), the host calls a save and every game in the level makes a full instant
 save of its own world (the game's quicksave: inventory, hp, position, every object) under the same
-number, in two alternating files (`save\c<id><a|b>.sav`, recorded in `coop\saves.ini`).
+number, in two alternating files per session (`save\c<id><session><a|b>.sav`, recorded in `coop\saves.ini`).
+A session is one co-op playthrough: every new game starts one (its id travels with the save event), a resume
+goes on with the same one, and the newest 12 are kept. `saves.ini` also records, per session, everyone who
+has played in it (names), the most players at once, when it was last played and how far it has got
+(`p_level` / `p_cp`, from the newest save or a newer level start or checkpoint). Both the host's and
+the clients' games keep it, so each player's launcher can show who they played with.
 - A client whose game crashes comes back as the same player and loads its own copy of the newest save
   of that level; the host then sends its world again (enemies with hp, taken items).
 - A client whose connection drops sees "Connection to the host lost - reconnecting" (input goes to
@@ -193,8 +198,8 @@ number, in two alternating files (`save\c<id><a|b>.sav`, recorded in `coop\saves
   again, without reloading anything; after 10 s the host drops its puppet and takes it back when it
   returns.
 - When the host's game crashes, the clients wait the same way. The host's Load Game menu (title
-  screen or pause) then offers "Resume co-op <level>-<checkpoint>", and every client loads its copy of
-  that save. Where the game cannot save (Max's tutorial at the start of level 2), the host's progress
+  screen or pause) then offers "Resume co-op <level>-<checkpoint> with <names>" for each of its newest
+  three sessions, and every client loads its copy of that save. Where the game cannot save (Max's tutorial at the start of level 2), the host's progress
   (each level start and checkpoint) is newer than its last save, and Resume starts that checkpoint
   instead of going back a level.
 
@@ -233,7 +238,21 @@ coop_init then does nothing. Drawn with GDI into a DIB: the title art (`Titlescr
 plain colours and Windows fonts. Skipped for `+connect_lobby` and in background test mode, except with
 `[test] launcher=1`: hidden, driven by `coop\launcher.txt` (`key <vk>`, `click <x> <y>`, `text <s>`,
 `shot <name>`). `tools/qa_launcher.sh` (23 checks, two games: pages, UDP join at a typed address,
-settings, solo, quit, show=0, +connect_lobby, resolution).
+settings, solo, quit, show=0, +connect_lobby, resolution, saves page, level picker).
+
+The Saves tab is the save browser and the level selector. "Saved co-op games" lists the sessions in
+`saves.ini` newest first, each a card with "Level 4 - Checkpoint 3", a CO-OP badge with the player count,
+who played (you as "You"), who hosted, when it was last played and a bar for how far into the campaign
+it is. Click one of your own (hosted by you) to make Host start with "Continue"; click it again to
+unselect it; "Delete this save" removes a session and its files. Sessions hosted by a friend are shown
+for reference (they continue theirs and you follow). Every level is shown as its number, the loading screen caption (place and time of day, read at run
+time from `mdk2.str` in the player's own `mdk2.tar`; none of that text is in this repo) and its character; levels 11 and 12
+have no caption and show a placeholder. Checkpoints are numbered in play order ("Checkpoint 7 of 12": level 3's
+3-16 sits between 3-6 and 3-7), not by their raw numbers. "New game" picks a level and one of its
+checkpoints (the debug menu's list, so anywhere in the campaign); Host then loads that checkpoint by itself
+once the title screen is up, as a new session. The choice is written to `coop.ini` `[start] action=new|resume`
+(`level`, `cp`, `sid`) and `coop_dev.lua` uses it once and clears it. In game, Options > Co-op > Session >
+"Start at level..." does the same from the host's menu, mid-session too.
 
 Options > Co-op (the game's own menus, on the title screen and in the pause menu's Options):
 - Players: everyone connected, with player number, name and ping (the host measures every client, a

@@ -11,6 +11,8 @@ source "$here/mdk.sh"
 [ "$MDK2_N" -ge 3 ] || { echo "qa_save.sh needs MDK2_N >= 3"; exit 1; }
 MDK2_BACKGROUND=1 MDK2_START="1 2" MDK2_SAVE_INTERVAL=600 "$here/install.sh" >/dev/null
 
+for i in $(mdk_seq); do rm -f "$(mdk_wsl "$(mdk_dir "$i")")/coop/saves.ini"; done     # sessions of earlier runs
+
 pass=0; fail=0; results=()
 out="$here/../local/qa/$(date +%Y%m%d-%H%M%S)-save$MDK2_N"; mkdir -p "$out"
 state() { mdk_state "$1" "$out" > "$out/report_$1.txt" 2>&1; }
@@ -42,6 +44,10 @@ set_pid() { local i=0 p n=""; for p in $(mdk_pids); do i=$((i + 1)); [ $i = "$1"
 player_of() { sed -nE 's/^player ([0-9]+) (-?[0-9]+) (.*)$/\1 \2 \3/p' "$1"; }
 dist() { python3 -c "import math,sys; a=list(map(float,sys.argv[1:4])); b=list(map(float,sys.argv[4:7])); print(math.dist(a,b))" "$@"; }
 dump_name() { case $1 in 1) echo host;; 2) echo client;; *) echo "client$1";; esac; }
+saves_ini() { echo "$(mdk_wsl "$(mdk_dir "$1")")/coop/saves.ini"; }
+sessions_in() { grep -c '^\[h' "$(saves_ini "$1")"; }
+# the first section of a copy's saves.ini that has at least $2 players recorded: its name
+session_of() { awk -v n="$2" '/^\[/ {sect=$0} /^m_n=/ {split($0, a, "="); if (a[2] + 0 >= n) print sect}' "$(saves_ini "$1")" | tr -d '\r' | head -1; }
 latest_save() { sed -nE 's/^co-op save ([0-9]+) written.*/\1/p' "$(mdk_log 1)" | tail -1; }
 
 mdk_boot
@@ -51,6 +57,27 @@ check "every client followed into level 1-2"            every_client "^level 1 c
 
 # 1. the first co-op save comes by itself 10 s into the level, in every game
 check "first co-op save made in every game"             bash -c "for i in \$(seq 1 30); do ok=1; for g in $(mdk_seq | tr '\n' ' '); do grep -q '^co-op save [0-9]* written' \"\$(source $here/mdk.sh; mdk_log \$g)\" || ok=0; done; [ \$ok = 1 ] && exit 0; sleep 1; done; exit 1"
+
+# 1b. every game recorded the session: the same one, with everybody who is playing in it
+sleep 2
+s1=$(session_of 1 "$MDK2_N")
+check "host recorded a session with all $MDK2_N players" test -n "$s1"
+for i in $(seq 2 "$MDK2_N"); do
+    check "game $i recorded the same session ($s1)"       test "$(session_of "$i" "$MDK2_N")" = "$s1"
+done
+check "host saved as session in saves.ini (peak $MDK2_N)" bash -c "grep -q '^peak=$MDK2_N' '$(saves_ini 1)' && grep -q '^updated=[0-9]' '$(saves_ini 1)' && grep -q '^host_name=' '$(saves_ini 1)'"
+check "one session so far"                              test "$(sessions_in 1)" = 1
+mdk_cmd "$(mdk_pid 1)" "coop_log(coop.ShortNames('A, B, C, D, E'))"
+check "long player lists are shortened (A, B, C +2)"    wait_log 1 "^lua: A, B, C \+2\s*\$" 5
+
+# 1c. checkpoints are numbered in play order (3-16 sits between 3-6 and 3-7); levels have captions,
+#     and 11 and 12 a placeholder
+mdk_cmd "$(mdk_pid 1)" "coop_log(coop.CpText(3, 7))"
+check "checkpoint 3-7 is the 8th of 12 in level 3"      wait_log 1 "^lua: checkpoint 8 of 12\s*\$" 5
+mdk_cmd "$(mdk_pid 1)" "local p, t, h = coop_level_info(10) coop_log(p .. '|' .. t .. '|' .. h)"
+check "level 10 has a place, a time and a character"    wait_log 1 "^lua: .+[|][0-9]+:[0-9][0-9] PM[|]Kurt\s*\$" 5
+mdk_cmd "$(mdk_pid 1)" "local p, t, h = coop_level_info(11) coop_log(p .. '|' .. t .. '|' .. h)"
+check "level 11 has the placeholder"                    wait_log 1 "^lua: Location to be named[|]time unknown[|]Max\s*\$" 5
 
 # 2. the last client takes 30 damage and moves; a save catches that; then its game crashes
 mdk_cmd "$(mdk_pid $L)" "mdkDealDamage(nil, mdkGetPlayerGob(), 30, 2, -1)"
@@ -116,6 +143,10 @@ for i in $(seq 2 "$MDK2_N"); do
 done
 check "state matches after the host resumed"            grep -q "^state: 0 fail" "$out/report_resumed.txt"
 
+# 4b. resuming went on with the same session: no second one
+check "resume kept the one session"                     test "$(sessions_in 1)" = 1
+check "no new session was started by the resume"        bash -c "! grep -q 'new co-op session' '$(mdk_log 1)'"
+
 # 5. and the session carries on: checkpoint keys
 mdk_key "$(mdk_pid 1)" 66                                     # F8: next level
 check "F8 takes everyone to level 2 after the resume"   wait_clients "^level 2 checkpoint 1 started" 40
@@ -138,6 +169,14 @@ check "every client plays again after the second crash" more_than "$b0" "host is
 sleep 8
 check "state matches after resuming at the checkpoint"  state resumed2
 check "all $MDK2_N games still running"                 all_alive
+# 7. a new game from the level picker is a new session; the old one is kept
+mdk_cmd "$(mdk_pid 1)" "coop.BuildStart()"
+mdk_cmd "$(mdk_pid 1)" "coop.StartAt(1, 3)"
+check "host started a new session"                      wait_log 1 "new co-op session" 30
+check "every client followed to level 1 checkpoint 3"   wait_clients "host started level 1 checkpoint 3: following" 40
+sleep 12
+mdk_cmd "$(mdk_pid 1)" "coop.SaveNow()"; sleep 4
+check "two sessions are kept"                           test "$(sessions_in 1)" = 2
 check "no Lua errors"                                   bash -c "! grep -l 'LUA ERROR' $(for i in $(mdk_seq); do printf '%q ' "$(mdk_log "$i")"; done)"
 for i in $(mdk_seq); do cp "$(mdk_log "$i")" "$out/game$i.log"; done
 mdk_kill
