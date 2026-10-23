@@ -137,6 +137,8 @@ coop.actions = {
     { id="voice",  name="Push to talk", page="coop", group=8, short="Talk", long="Hold to talk: players near you hear you (Options > Co-op > Voice chat)", coms={}, gk=3 },
     { id="emote",  name="Emote wheel", page="coop", group=8, short="Emote", long="Hold, move the mouse to an emote and let go to play it (moving ends it)", coms={}, gk=4 },
     { id="char",   name="Character wheel", page="coop", group=8, short="Char", long="Hold, move the mouse to Kurt, Max or Doc and let go to switch to them", coms={}, gk=5 },
+    -- the game's abort-movie command: with others watching, a vote to skip (coop_dev.lua "Cutscenes") --
+    { id="skip",   name="Skip cutscene", page="coop", group=8, short="Skip", long="In a cutscene: vote to skip it; press again to take the vote back", coms={ COM_ABORTMOVIE } },
 }
 
 -- actions in use together: a key may not do two things in the same set --
@@ -156,6 +158,7 @@ coop.preset_original = {
     minvl = { 26, 1008 }, minvr = { 27, 1009 }, mequip = { 18, 16 }, munequip = { 16, 18 },
     dup = { 27, 1008 }, ddown = { 26, 1009 }, dleft = { 12, 16 }, dright = { 13, 18 },
     chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 }, emote = { 35, -1 }, char = { 36, -1 },
+    skip = { 14, -1 },
 }
 coop.preset_modern = {
     fwd = { 17, 200 }, back = { 31, 208 }, strl = { 30, 203 }, strr = { 32, 205 }, turnl = { 44, -1 }, turnr = { 46, -1 },
@@ -165,6 +168,7 @@ coop.preset_modern = {
     minvl = { 16, 1008 }, minvr = { 18, 1009 }, mequip = { 33, -1 }, munequip = { 34, -1 },
     dup = { 34, 1008 }, ddown = { 33, 1009 }, dleft = { 16, -1 }, dright = { 18, -1 },
     chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 }, emote = { 35, -1 }, char = { 36, -1 },
+    skip = { 14, -1 },
 }
 coop.preset_names = { original = "Original", modern = "Modern", custom = "Custom" }
 coop.preset_order = { "original", "modern", "custom" }
@@ -402,10 +406,10 @@ function coop.ApplyDevKeys(on)
         end
         i, k = next(coop.devkeys, i)
     end
-    -- Backspace is the game's abort-movie key (the cutscene vote); older builds bound it to the emote stop
-    -- too, and a saved settings.lua can still say so: keypad 0 stops the emote, Backspace aborts --
+    -- the abort-movie key (the cutscene vote, the "skip" action, Backspace by default); older builds bound
+    -- Backspace to the emote stop too, and a saved settings.lua can still say so: keypad 0 stops the emote --
     if (on) then omBindCommandI(COM_LIGHTRESET, 82) else omBindCommandI(COM_LIGHTRESET, -1) end
-    omBindCommandI(COM_ABORTMOVIE, 14)
+    coop.BindAction(coop.ActionById("skip"))
 end
 
 -- a gob by the name the others use: a player's character ("@p<n>"), a named gob, or an
@@ -545,7 +549,7 @@ end
 
 -- the players panel ([hud] show, Options > Co-op > Gameplay): in a level, no menu up --
 coop.hud_on = (coop_get("hud", "show", "1") == "1")
-coop.hud_outline = (coop_get("hud", "outline", "1") == "1")
+coop.hud_outline = (coop_get("hud", "outline", "0") == "1")
 function coop.HudTick()
     local show = 0
     if (coop.hud_on and coop.level and coop.level >= 1 and not coop.waiting and not coop.mv and
@@ -703,6 +707,7 @@ function level(l, cp, sec)
     coop.fallactive = nil
     coop.level_ms = coop_ms()
     coop_banner()
+    coop_movie_box()
     coop.NewLevelChar()
     coop.level_orig(l, cp, sec)
     -- only the host's level changes count: both games run the same scripts, so script-driven
@@ -784,6 +789,7 @@ coop.mv_start_ms = 20000    -- longest wait for the others to load and be ready
 coop.mv_hold_ms = 20000     -- after the first player has seen the end, the others get this long
 coop.mv_trigger_ms = 4000   -- a movie the host's trigger started: the others are told at once, so a short wait
 coop.mv_load_ms = 15000     -- a movie that starts this soon after a level load is one every game plays
+coop.mv_box_ms = 4000       -- the cutscene box shows this long after a key press
 coop.mvr = {}               -- host: reports by serial: coop.mvr[serial][slot] = { start, done, vote }
 coop.mvgo = {}              -- client: serials the host has already sent GO for
 coop.mvcount = 0
@@ -925,7 +931,8 @@ end
 
 -- played to its end, nothing skipped: now its length is known --
 function coop.MovieLearn(m)
-    if (not m.go_at or m.skipped) then return end
+    -- under a second is no movie to count down (the death camera's one-step script) --
+    if (not m.go_at or m.skipped or m.played < 1000) then return end
     coop_log(format("movie %d: length %s %d", m.serial, m.key, m.played))
     coop.mvlen[m.key] = m.played
     coop_set("movies", m.key, format("%d", m.played))
@@ -985,6 +992,7 @@ function coop.MovieClear(why)
     if (coop.mv) then coop_log(format("movie %d: over (%s)", coop.mv.serial, why)) end
     coop.mv = nil
     coop_banner()
+    coop_movie_box()
 end
 
 -- the host's movie is the one the others follow: carry out a skip --
@@ -1092,6 +1100,7 @@ function coop.MovieBanner(m)
     local s = m.s
     local el = s and (now - s.at) / 1000 or 0
     local l1, l2, prog = "", "", -1
+    local b1, b2, b3 = "", "", ""
     if (m.state == "wait") then
         l1 = "Waiting for the other players..."
         local left = (m.wait_until - now) / 1000
@@ -1114,33 +1123,43 @@ function coop.MovieBanner(m)
             prog = hleft / (coop.mv_hold_ms / 1000)
         end
     elseif (m.state == "play" and not Save.inminigame) then
-        -- the time this movie has left, then the skip vote --
-        local skip = ""
-        if (m.skippable and Save.movietocancel) then
-            local yes, needed = 0, 2
+        -- the box at the bottom right: the time the movie has left, the skip key and the vote. It shows
+        -- for a while after the player presses a key other than the skip key (so it stays out of the
+        -- picture for those just watching), and while anyone has voted --
+        local canskip = m.skippable and Save.movietocancel
+        local yes, needed = 0, 2
+        if (canskip) then
             if (coop_role() == "host") then
                 local p, y = coop.MovieTally(m)
                 yes, needed = y, floor(p / 2) + 1
             elseif (s) then
                 yes, needed = s.yes, s.needed
             end
-            if (yes > 0) then
-                skip = format("Skip cutscene: %d of %d (Backspace)", yes, needed)
-            elseif (now < (m.go_at or m.at) + 6000) then
-                skip = "Backspace: vote to skip the cutscene"
-            end
         end
-        if (m.len and m.len > 0) then
-            local left = (m.len - m.played) / 1000
-            if (left < 0) then left = 0 end
-            l1 = format("Cutscene %d:%02d", floor(left / 60), floor(left) - floor(left / 60) * 60)
-            l2 = skip
-            prog = left / (m.len / 1000)
-        else
-            l1 = skip
+        local key = coop.Keys("skip")
+        local code, ago = coop_last_press()
+        local pressed = code and ago < coop.mv_box_ms and ago < now - (m.go_at or m.at) and
+                        code ~= key[1] and code ~= key[2]
+        if (pressed or yes > 0) then
+            b1 = "Cutscene"
+            if (m.len and m.len > 0) then
+                local left = (m.len - m.played) / 1000
+                if (left < 0) then left = 0 end
+                b1 = format("Cutscene  %d:%02d left", floor(left / 60), floor(left) - floor(left / 60) * 60)
+            end
+            if (canskip) then
+                local kn = coop.KeyText(key)
+                if (m.myvote == 1) then
+                    b2 = format("You voted to skip  (%s again: take it back)", kn)
+                else
+                    b2 = format("%s: vote to skip", kn)
+                end
+                if (yes > 0) then b3 = format("Skip votes: %d of %d", yes, needed) end
+            end
         end
     end
     coop_banner(l1, l2, prog)
+    coop_movie_box(b1, b2, b3)
 end
 
 function coop.MovieTick()
@@ -1159,6 +1178,7 @@ function coop.MovieTick()
         end
         if (not (m.gob.stack and m.gob.stack.movie)) then coop.MovieClear("alone") end
         coop_banner()
+        coop_movie_box()
         return
     end
     if (m.state ~= "hold" and m.state ~= "wait" and not (m.gob.stack and m.gob.stack.movie)) then
@@ -1174,7 +1194,7 @@ function coop.MovieTick()
         m.tick_at = now
     end
     if (coop_role() == "host") then coop.MovieHostTick(m) else coop.MovieClientTick(m) end
-    if (coop.mv == m) then coop.MovieBanner(m) else coop_banner() end
+    if (coop.mv == m) then coop.MovieBanner(m) else coop_banner(); coop_movie_box() end
     coop.FallTick()
 end
 
@@ -1380,6 +1400,16 @@ function coop.FallMissHear(slot, flying, x, y, z)
     p.hx, p.hy, p.hz, p.at = x, y, z, now
 end
 
+-- a missile ghost faces the way it flies. The missile model's nose is its +z (mdkGobPointToXYZ turns +y
+-- that way, which laid it on its side): the rotation from +z to the heading is
+-- (1 + d.z, -d.y, d.x, 0), normalised --
+function coop.FallMissFace(g, x, y, z, vx, vy, vz)
+    local n = sqrt(vx * vx + vy * vy + vz * vz)
+    if (n < 0.0001) then return end
+    vx, vy, vz = vx / n, vy / n, vz / n
+    if (vz < -0.9999) then coop_set_quat(g, 0, 1, 0, 0) else coop_set_quat(g, 1 + vz, -vy, vx, 0) end
+end
+
 function coop.FallMissiles(now)
     local s, p = next(coop.fallmis, nil)
     while (s) do
@@ -1396,8 +1426,9 @@ function coop.FallMissiles(now)
             -- no more than half a second ahead of the last report --
             local ahead = (now - p.at) / 1000
             if (ahead > 0.5) then ahead = 0.5 end
-            mdkGobSetPositionXYZ(p.gob, p.hx + p.vx * ahead, p.hy + p.vy * ahead, p.hz + p.vz * ahead)
-            if (p.vx ~= 0 or p.vy ~= 0 or p.vz ~= 0) then mdkGobPointToXYZ(p.gob, p.vx, p.vy, p.vz) end
+            local x, y, z = p.hx + p.vx * ahead, p.hy + p.vy * ahead, p.hz + p.vz * ahead
+            mdkGobSetPositionXYZ(p.gob, x, y, z)
+            if (p.vx ~= 0 or p.vy ~= 0 or p.vz ~= 0) then coop.FallMissFace(p.gob, x, y, z, p.vx, p.vy, p.vz) end
         end
         s, p = next(coop.fallmis, s)
     end
@@ -2601,7 +2632,7 @@ function coop.BuildGame()
     end
 
     item = mdkCreateMenuItem(m, "Player outlines")
-    mdkMenuItemAddCheckBox(item, tonumber(coop_get("hud", "outline", "1")) or 1)
+    mdkMenuItemAddCheckBox(item, tonumber(coop_get("hud", "outline", "0")) or 0)
     item.Select = function(self, n)
         coop_set("hud", "outline", n)
         coop.hud_outline = (n == 1)

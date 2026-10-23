@@ -866,6 +866,37 @@ static void draw_banner(int w, int h)
         logmsg("hud banner: %s | %s | %.2f", banner1, banner2, banner_progress);
 }
 
+/* cutscene box, bottom right: the time the movie has left, the skip key and the vote (coop_movie_box) */
+static char mbox[3][96];
+
+static void draw_movie_box(int w, int h)
+{
+    float tw = 0, x, y, m = h * 0.03f;
+    int i, n = 0;
+
+    for (i = 0; i < 3; i++)
+        if (mbox[i][0]) {
+            n++;
+            if (text_width(mbox[i]) > tw)
+                tw = text_width(mbox[i]);
+        }
+    if (!n)
+        return;
+    x = w - m - tw;
+    y = h - m - font_h * (n - 1) - 4;
+    if (voice_talking(-1))
+        y -= font_h * 2.0f;             /* above the MIC box */
+    box(x - 12, y - font_h - 4, tw + 24, font_h * n + 12, h, 0, 0, 0, 0.55f);
+    for (i = 0; i < 3; i++)
+        if (mbox[i][0]) {
+            float r = i ? 0.9f : 1.0f, g = i ? 0.9f : 0.85f, b = i ? 0.9f : 0.3f;
+            text(x + tw - text_width(mbox[i]), y, h, mbox[i], r, g, b);
+            y += font_h;
+        }
+    if (dump_status)
+        logmsg("hud moviebox: %s | %s | %s", mbox[0], mbox[1], mbox[2]);
+}
+
 /* SwapBuffers hook, before the game's frame is shown */
 static void draw_status(int w, int h)
 {
@@ -912,7 +943,7 @@ void hud_frame(HDC dc)
 
     chat_frame(have_remote && shown);
     /* the panel and tags follow coop_hud's "shown"; the revive status shows whenever it is set */
-    if (!ctrlview_on() && !emote_wheel_open() && !(caption1[0] && emote_active() >= 0) && !banner1[0] && !banner2[0] &&
+    if (!ctrlview_on() && !emote_wheel_open() && !(caption1[0] && emote_active() >= 0) && !banner1[0] && !banner2[0] && !mbox[0][0] && !mbox[1][0] &&
         (!have_remote || (!shown && !status1[0] && !status2[0] && !voice_talking(-1))))
         return;
     if (ready < 0)
@@ -971,6 +1002,7 @@ void hud_frame(HDC dc)
     }
     draw_emote_wheel(w, h);
     draw_banner(w, h);
+    draw_movie_box(w, h);
     draw_status(w, h);
     ctrlview_draw(w, h);
     fsel = 0;
@@ -1024,6 +1056,15 @@ static void l_coop_banner(void)
     banner_progress = o && lua_isnumber(o) ? (float)lua_getnumber(o) : -1.0f;
 }
 
+/* coop_movie_box(line1, line2, line3): the cutscene box (line 1 in the banner's colour); no arguments clears it */
+static void l_coop_movie_box(void)
+{
+    int i;
+
+    for (i = 0; i < 3; i++)
+        snprintf(mbox[i], sizeof(mbox[i]), "%s", str_param(i + 1));
+}
+
 /* coop_hud_dump(): log the panel's rows as the next frame draws them, and the frames drawn so far */
 static void l_coop_hud_dump(void)
 {
@@ -1055,4 +1096,5 @@ void hud_lua_init(void)
     tolua_function(NULL, "coop_hud_dump", l_coop_hud_dump);
     tolua_function(NULL, "coop_emote_caption", l_coop_emote_caption);
     tolua_function(NULL, "coop_banner", l_coop_banner);
+    tolua_function(NULL, "coop_movie_box", l_coop_movie_box);
 }

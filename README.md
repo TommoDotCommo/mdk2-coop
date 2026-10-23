@@ -164,8 +164,10 @@ scripts itself (`StartMovie`), so the mod keeps them together instead of copying
 level load (the lounge scene, the skydive, the end movies) and the ones those start from their Done begin on the host's
 go, once every player in the level is ready (at most 20 s). **Backspace** (the game's abort-movie key) is a skip vote:
 a majority of the players watching skips for everyone (two players: both); a vote stays until the movie ends and
-Backspace again takes it back. A banner counts down the time the movie has left (its length is measured, or learned
-the first time it plays to the end, `coop.ini` `[movies]`) and shows the vote count. The skydive and the torpedo
+the key again takes it back (Options > Co-op > Controls, "Skip cutscene"). A box at the bottom right shows the time
+the movie has left (measured with `tools/measure_movies.sh`, or learned the first time it plays to the end,
+`coop.ini` `[movies]`), the skip key, whether you voted and the vote count; it shows for a few seconds after you press
+another key, and while anyone has voted. The skydive and the torpedo
 minigames (levels 2, 5, 9) cannot be skipped: everyone plays their own copy and sees the others' ships as ghosts (in
 the skydive: the other Kurts, tilted as the game tilts yours, and the homing missiles chasing them) (`tools/qa_minigames.sh`). A
 movie's Done (usually the next level) waits until every player has seen the end; the first to finish sees "waiting for
@@ -211,8 +213,8 @@ the top left with each other player's number, name, health bar and hp, character
 units; Kurt is about 1.45 tall) and ping, "loading" while they are not in our level; and a name tag over
 each partner's head, pinned to the screen edge with an arrow when they are out of view, stacked when
 they overlap. Both show through walls (no depth test), and each partner also gets a coloured capsule
-outline (a flat one when downed) sized from their position (Options > Co-op > Gameplay > Player
-outlines, `[hud] outline`); it is a fixed-size outline, not the character's real silhouette. Drawn into the back buffer in the SwapBuffers hook (screenshots include it) with the
+outline (a flat one when downed) sized from their position, off by default (Options > Co-op > Gameplay > Player
+outlines, `[hud] outline=1`); it is a fixed-size outline, not the character's real silhouette. Drawn into the back buffer in the SwapBuffers hook (screenshots include it) with the
 fixed-function pipeline of the game's legacy GL context (Windows font through wglUseFontBitmaps), with
 the game's shader program, framebuffer, texture unit, matrices and attributes put back. The tags
 project through the game's camera gob (`mdkGetCameraGob`: looks along its +y, +z up) with a 64 degree

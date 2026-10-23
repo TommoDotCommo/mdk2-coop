@@ -51,11 +51,24 @@ void input_replay(const struct route_input *input)
     }
 }
 
+/* the newest key, mouse button or pad button pressed (a pad presses key codes), for coop_last_press */
+static BYTE press_state[(CODES + 7) / 8];
+static int last_press_code = -1;
+static DWORD last_press_tick;
+
 static void capture_code(int code, int down)
 {
     unsigned char mask = 1 << (code % 8);
     if (down) captured.keys[code / 8] |= mask;
     else captured.keys[code / 8] &= ~mask;
+    if (code < 0 || code >= CODES)
+        return;
+    if (down && !(press_state[code / 8] & mask)) {
+        last_press_code = code;
+        last_press_tick = GetTickCount();
+    }
+    if (down) press_state[code / 8] |= mask;
+    else press_state[code / 8] &= ~mask;
 }
 
 void input_press(int code, int hold_ms)
@@ -848,6 +861,16 @@ static void l_coop_game_keys(void)
 }
 
 /* coop_mouse(dx, dy): scripted mouse movement (background test mode only; the real mouse is not touched) */
+/* coop_last_press() -> the newest press as a Lua key code (scan code, 1000+ mouse button, as the controls use)
+ * and how many ms ago, or nil */
+static void l_coop_last_press(void)
+{
+    if (last_press_code < 0)
+        return;
+    lua_pushnumber(last_press_code >= 256 ? 1000 + last_press_code - 256 : last_press_code);
+    lua_pushnumber((double)(GetTickCount() - last_press_tick));
+}
+
 static void l_coop_mouse(void)
 {
     unsigned int a = lua_getparam(1), b = lua_getparam(2);
@@ -862,4 +885,5 @@ void input_lua_init(void)
 {
     tolua_function(NULL, "coop_mouse", l_coop_mouse);
     tolua_function(NULL, "coop_game_keys", l_coop_game_keys);
+    tolua_function(NULL, "coop_last_press", l_coop_last_press);
 }

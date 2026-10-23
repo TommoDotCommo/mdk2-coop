@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #include "bridge.h"
 #include "pad.h"
 
@@ -502,6 +503,25 @@ static void l_coop_pose(void)
         lua_pushnumber(f[i]);
 }
 
+/* coop_set_quat(gob, w, x, y, z): set the gob's orientation quaternion (normalised here); the engine's own setter
+ * copies it in the same way */
+static void l_coop_set_quat(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL);
+    float q[4], n;
+    int i;
+
+    if (!gob_alive(gob))
+        return;
+    for (i = 0; i < 4; i++)
+        q[i] = (float)num_param(i + 2);
+    n = sqrtf(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    if (n < 1e-6f)
+        return;
+    for (i = 0; i < 4; i++)
+        ((float *)(gob + GOB_ORIENTATION))[i] = q[i] / n;
+}
+
 /* coop_mark(n): put marker n in the partner's log too */
 static void l_coop_mark(void)
 {
@@ -817,6 +837,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_mark", l_coop_mark);
     tolua_function(NULL, "coop_alive", l_coop_alive);
     tolua_function(NULL, "coop_pose", l_coop_pose);
+    tolua_function(NULL, "coop_set_quat", l_coop_set_quat);
     tolua_function(NULL, "coop_nearest_enemy", l_coop_nearest_enemy);
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
     tolua_function(NULL, "coop_emitters", l_coop_emitters);
