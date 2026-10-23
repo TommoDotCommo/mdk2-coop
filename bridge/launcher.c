@@ -145,8 +145,29 @@ static const char *mode_names[] = { "host", "join", "solo" };
 
 static struct {
     int mode, steam, friendly_fire, difficulty, save_interval, controls, hud, show;
+    int section, char_follow, devkeys, outline, movietimer, ghosts, emotes, charwheel, chat, pings, pad;
+    int voice, voice_volume, voice_range;
     char name[PLAYER_NAME], lobby[24], host[64], port[8], listen[8];
 } cfg;
+
+/* the switches of Options > Co-op (Gameplay, Interface, Voice chat), as coop.ini keys: section, key, default */
+static const struct { const char *section, *key; int dflt; int *v; } switches[] = {
+    { "game", "char_follow", 1, &cfg.char_follow }, { "controls", "devkeys", 0, &cfg.devkeys },
+    { "hud", "outline", 0, &cfg.outline }, { "hud", "movietimer", 1, &cfg.movietimer },
+    { "features", "ghosts", 1, &cfg.ghosts }, { "features", "emotes", 1, &cfg.emotes },
+    { "features", "charwheel", 1, &cfg.charwheel }, { "features", "chat", 1, &cfg.chat },
+    { "features", "pings", 1, &cfg.pings }, { "pad", "enabled", 1, &cfg.pad }, { "voice", "enabled", 1, &cfg.voice },
+};
+#define NSWITCHES ((int)(sizeof(switches) / sizeof(switches[0])))
+/* voice chat's choices, as coop.voice_volumes / coop.voice_ranges in coop_dev.lua */
+static const int voice_volumes[] = { 50, 100, 150, 200 };
+static const char *voice_volume_names[] = { "Quiet", "Normal", "Loud", "Louder" };
+static const int voice_ranges[] = { 25, 50, 100, 0 };
+static const char *voice_range_names[] = { "Short", "Medium", "Long", "Everywhere" };
+
+/* the game's sound levels, lines of settings.lua (0..1; the game's own options write them the same way) */
+static const char *sound_calls[3] = { "chSndSetEffectsVolume", "chSndMusicVolume", "chSndSetVoiceVolume" };
+static int sound[3], sound_read[3];          /* 0..10, tenths */
 
 /* The difficulty presets of Options > Co-op > Gameplay > Difficulty (coop.diffpresets in
  * coop_dev.lua: keep the two the same). Values of the [game] keys in diff_keys order; a key
@@ -470,6 +491,57 @@ static void video_save(void)
     logmsg("launcher: video %s", line);
 }
 
+/* the sound levels from settings.lua; a missing line counts as the game's default (0.25) */
+static void sound_load(void)
+{
+    char buf[SETTINGS_MAX + 1], *p;
+    float v;
+    int i;
+
+    for (i = 0; i < 3; i++)
+        sound[i] = 3;
+    if (read_file(settings_lua, buf, sizeof(buf)) >= 0)
+        for (i = 0; i < 3; i++)
+            if ((p = strstr(buf, sound_calls[i])) && sscanf(p + strlen(sound_calls[i]), " ( %f", &v) == 1)
+                sound[i] = (int)(v * 10.0f + 0.5f) < 0 ? 0 : (int)(v * 10.0f + 0.5f) > 10 ? 10 : (int)(v * 10.0f + 0.5f);
+    memcpy(sound_read, sound, sizeof(sound));
+}
+
+/* Rewrite (or add) the sound lines that changed; everything else in settings.lua stays */
+static void sound_save(void)
+{
+    char buf[SETTINGS_MAX + 1], out[SETTINGS_MAX + 256], line[64], *p, *e;
+    int i;
+    FILE *f;
+
+    if (!memcmp(sound, sound_read, sizeof(sound)) || read_file(settings_lua, buf, sizeof(buf)) < 0)
+        return;
+    for (i = 0; i < 3; i++) {
+        if (sound[i] == sound_read[i])
+            continue;
+        snprintf(line, sizeof(line), "%s(%.6f)", sound_calls[i], sound[i] / 10.0);
+        if ((p = strstr(buf, sound_calls[i]))) {
+            e = strchr(p, ')');
+            e = e ? e + 1 : p + strlen(p);
+            snprintf(out, sizeof(out), "%.*s%s%s", (int)(p - buf), buf, line, e);
+        } else {
+            snprintf(out, sizeof(out), "%s\r\n%s", line, buf);
+        }
+        if (strlen(out) > SETTINGS_MAX) {
+            logmsg("launcher: settings.lua too long for the sound lines");
+            return;
+        }
+        strcpy(buf, out);
+        logmsg("launcher: sound %s", line);
+    }
+    if (!(f = fopen(settings_lua, "wb"))) {
+        logmsg("launcher: cannot write the sound lines to settings.lua");
+        return;
+    }
+    fputs(buf, f);
+    fclose(f);
+}
+
 /* which preset the difficulty values are (cfg.difficulty), and friendly fire's toggle from them */
 static void diff_match(void)
 {
@@ -484,6 +556,8 @@ static void diff_match(void)
     cfg.difficulty = p;         /* 4: DIFF_CUSTOM */
     cfg.friendly_fire = diff[0] != 0;
 }
+
+static void sound_load(void);
 
 static void settings_read(void)
 {
@@ -521,11 +595,16 @@ static void settings_read(void)
     if (cfg.controls == 3)
         cfg.controls = GetPrivateProfileIntA("controls", "modern", 1, ini) ? 1 : 0;
     cfg.hud = GetPrivateProfileIntA("hud", "show", 1, ini) != 0;
+    for (i = 0; i < NSWITCHES; i++)
+        *switches[i].v = GetPrivateProfileIntA(switches[i].section, switches[i].key, switches[i].dflt, ini) != 0;
+    cfg.voice_volume = index_of(voice_volumes, 4, GetPrivateProfileIntA("voice", "volume", 100, ini), 1);
+    cfg.voice_range = index_of(voice_ranges, 4, GetPrivateProfileIntA("voice", "range", 50, ini), 1);
     cfg.show = GetPrivateProfileIntA("launcher", "show", 1, ini) != 0;
     GetPrivateProfileStringA("player", "id", "", s, sizeof(s), player_ini);
     own_id = strtoul(s, NULL, 16);
     nsessions = sessions_list(sessions, 12, 0);
     video_load();
+    sound_load();
 }
 
 /* What the chosen mode means for coop.ini; written when the game starts */
@@ -1269,54 +1348,86 @@ static void start_summary(char *out, int size)
 
 static void page_settings(void)
 {
+    static const char *sections[] = { "Co-op", "Interface", "Voice and sound", "Display" };
     static const char *window[] = { "Windowed", "Fullscreen" };
+    static const char *levels[] = { "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%" };
     static char res_text[64][24];
     static const char *res_names[64];
     float y = 92;
     int i;
 
-    heading(PX, y, 18, "Co-op", C_BLUE, DT_LEFT);
-    y += 24;
-    toggle(ID, PX, y, PW, "Friendly fire", "The host's choice counts", &cfg.friendly_fire);
-    if (cfg.friendly_fire != diff[0]) {         /* part of the difficulty: may make it Custom */
-        diff[0] = cfg.friendly_fire;
-        diff_match();
-    }
-    y += ROW + 2;
-    if (choice(ID, PX, y, PW, "Difficulty", cfg.difficulty == DIFF_CUSTOM ? "Custom: in game, Options > Co-op" :
-               "The host's choice counts", diff_names, 5, &cfg.difficulty)) {
-        if (cfg.difficulty == DIFF_CUSTOM)
-            memcpy(diff, diff_read, sizeof(diff));      /* back to what coop.ini has */
-        else
-            memcpy(diff, diff_presets[cfg.difficulty], sizeof(diff));
-        diff_match();
-    }
-    y += ROW + 2;
-    choice(ID, PX, y, PW, "Co-op save every", NULL, interval_text, 4, &cfg.save_interval);
-    y += ROW + 2;
-    toggle(ID, PX, y, PW, "Players on screen", "Health panel and name tags", &cfg.hud);
-    y += ROW + 2;
-    choice(ID, PX, y, PW, "Controls", cfg.controls == 1 ? "WASD, Space to jump" :
-           cfg.controls == 0 ? "The game's own keys" : "Yours: Options > Co-op > Controls", ctrl_names, 3, &cfg.controls);
+    choice(ID, PX, y, PW, "Settings", NULL, sections, 4, &cfg.section);
     y += ROW + 10;
-
-    heading(PX, y, 18, "Display", C_BLUE, DT_LEFT);
-    y += 24;
-    if (choice(ID, PX, y, PW, "Screen", NULL, window, 2, &video.fullscreen))
-        video_dirty = 1;
-    y += ROW + 2;
-    if (nres) {
-        for (i = 0; i < nres; i++) {
-            snprintf(res_text[i], sizeof(res_text[i]), "%d x %d", res[i].w, res[i].h);
-            res_names[i] = res_text[i];
+    if (cfg.section == 0) {
+        toggle(ID, PX, y, PW, "Friendly fire", "The host's choice counts", &cfg.friendly_fire);
+        if (cfg.friendly_fire != diff[0]) {         /* part of the difficulty: may make it Custom */
+            diff[0] = cfg.friendly_fire;
+            diff_match();
         }
-        if (choice(ID, PX, y, PW, "Resolution", NULL, res_names, nres, &res_index))
-            video_dirty = 1;
+        y += ROW + 2;
+        if (choice(ID, PX, y, PW, "Difficulty", cfg.difficulty == DIFF_CUSTOM ? "Custom: in game, Options > Co-op" :
+                   "The host's choice counts", diff_names, 5, &cfg.difficulty)) {
+            if (cfg.difficulty == DIFF_CUSTOM)
+                memcpy(diff, diff_read, sizeof(diff));      /* back to what coop.ini has */
+            else
+                memcpy(diff, diff_presets[cfg.difficulty], sizeof(diff));
+            diff_match();
+        }
+        y += ROW + 2;
+        choice(ID, PX, y, PW, "Co-op save every", NULL, interval_text, 4, &cfg.save_interval);
+        y += ROW + 2;
+        toggle(ID, PX, y, PW, "Back to level's hero", "After a level you switched hero in", &cfg.char_follow);
+        y += ROW + 2;
+        choice(ID, PX, y, PW, "Controls", cfg.controls == 1 ? "WASD, Space to jump" :
+               cfg.controls == 0 ? "The game's own keys" : "Yours: Options > Co-op > Controls", ctrl_names, 3,
+               &cfg.controls);
+        y += ROW + 2;
+        toggle(ID, PX, y, PW, "Gamepad", "A pad plays as you", &cfg.pad);
+        y += ROW + 2;
+        toggle(ID, PX, y, PW, "Developer keys", "F5 to F9: checkpoints, spawns, debug menu", &cfg.devkeys);
+    } else if (cfg.section == 1) {
+        toggle(ID, PX, y, PW, "Players on screen", "Health panel and name tags", &cfg.hud);
+        y += ROW + 2;
+        toggle(ID, PX, y, PW, "Player outlines", "Your friends through walls", &cfg.outline);
+        y += ROW + 2;
+        toggle(ID, PX, y, PW, "Cutscene timer", "Time left, with the skip vote", &cfg.movietimer);
+        y += ROW + 2;
+        toggle(ID, PX, y, PW, "Friends in minigames", "See the others as ghosts", &cfg.ghosts);
+        y += ROW + 2;
+        toggle(ID, PX, y, PW, "Emote wheel", NULL, &cfg.emotes);
+        y += ROW + 2;
+        toggle(ID, PX, y, PW, "Character wheel", "Switch hero at any time", &cfg.charwheel);
+        y += ROW + 2;
+        toggle(ID, PX, y, PW, "Text chat", NULL, &cfg.chat);
+        y += ROW + 2;
+        toggle(ID, PX, y, PW, "Pings", "Mark a spot for everyone", &cfg.pings);
+    } else if (cfg.section == 2) {
+        toggle(ID, PX, y, PW, "Voice chat", "Push to talk", &cfg.voice);
+        y += ROW + 2;
+        choice(ID, PX, y, PW, "Voice chat volume", NULL, voice_volume_names, 4, &cfg.voice_volume);
+        y += ROW + 2;
+        choice(ID, PX, y, PW, "Hearing range", "The host's choice counts", voice_range_names, 4, &cfg.voice_range);
         y += ROW + 10;
+        choice(ID, PX, y, PW, "Effects", NULL, levels, 11, &sound[0]);
+        y += ROW + 2;
+        choice(ID, PX, y, PW, "Music", NULL, levels, 11, &sound[1]);
+        y += ROW + 2;
+        choice(ID, PX, y, PW, "Speech", NULL, levels, 11, &sound[2]);
+    } else {
+        if (choice(ID, PX, y, PW, "Screen", NULL, window, 2, &video.fullscreen))
+            video_dirty = 1;
+        y += ROW + 2;
+        if (nres) {
+            for (i = 0; i < nres; i++) {
+                snprintf(res_text[i], sizeof(res_text[i]), "%d x %d", res[i].w, res[i].h);
+                res_names[i] = res_text[i];
+            }
+            if (choice(ID, PX, y, PW, "Resolution", NULL, res_names, nres, &res_index))
+                video_dirty = 1;
+            y += ROW + 2;
+        }
+        toggle(ID, PX, y, PW, "Show launcher at start", "Off: hold Shift while the game starts", &cfg.show);
     }
-    heading(PX, y, 18, "Launcher", C_BLUE, DT_LEFT);
-    y += 24;
-    toggle(ID, PX, y, PW, "Show at start", "Off: hold Shift while the game starts", &cfg.show);
 }
 
 static void page_about(void)
@@ -1797,8 +1908,16 @@ void launcher_run(void)
     put("controls", "preset", ctrl_ids[cfg.controls]);
     put_int("hud", "show", cfg.hud);
     put_int("launcher", "show", cfg.show);
+    {
+        int i;
+        for (i = 0; i < NSWITCHES; i++)
+            put_int(switches[i].section, switches[i].key, *switches[i].v);
+    }
+    put_int("voice", "volume", voice_volumes[cfg.voice_volume]);
+    put_int("voice", "range", voice_ranges[cfg.voice_range]);
     if (video_dirty)
         video_save();
+    sound_save();
     settings_apply();
     logmsg("launcher: play, %s%s", mode_names[cfg.mode],
            cfg.mode == MODE_SOLO ? " (co-op off)" : cfg.steam ? " over Steam" : " over UDP");

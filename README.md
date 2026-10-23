@@ -208,12 +208,12 @@ the clients' games keep it, so each player's launcher can show who they played w
   (each level start and checkpoint) is newer than its last save, and Resume starts that checkpoint
   instead of going back a level.
 
-On screen (`bridge/hud.c`, Options > Co-op > Gameplay > Players on screen, `[hud] show`): a panel at
+On screen (`bridge/hud.c`, Options > Co-op > Interface > Players on screen, `[hud] show`): a panel at
 the top left with each other player's number, name, health bar and hp, character, distance (game
 units; Kurt is about 1.45 tall) and ping, "loading" while they are not in our level; and a name tag over
 each partner's head, pinned to the screen edge with an arrow when they are out of view, stacked when
 they overlap. Both show through walls (no depth test), and each partner also gets a coloured capsule
-outline (a flat one when downed) sized from their position, off by default (Options > Co-op > Gameplay > Player
+outline (a flat one when downed) sized from their position, off by default (Options > Co-op > Interface > Player
 outlines, `[hud] outline=1`); it is a fixed-size outline, not the character's real silhouette. Drawn into the back buffer in the SwapBuffers hook (screenshots include it) with the
 fixed-function pipeline of the game's legacy GL context (Windows font through wglUseFontBitmaps), with
 the game's shader program, framebuffer, texture unit, matrices and attributes put back. The tags
@@ -235,9 +235,11 @@ only covers the network path and the drawing.
 
 Launcher (`bridge/launcher.c`): input.c's `CreateWindowExA` hook (always installed now) calls it before
 the game's first window, which comes before settings.lua and coop_init run, so what it writes applies to
-that start: `coop.ini` (`[net]`, `[game]`, `[save]`, `[controls]`, `[hud]`, `[launcher] show` and
-`mode`), `coop\player.ini` (name) and the `chSetVideoMode` line of settings.lua (screen mode and
-resolution; the rest of the file and the loader block are kept). Solo sets `coop_enabled = 0`, and
+that start: `coop.ini` (`[net]`, `[game]`, `[save]`, `[controls]`, `[hud]`, `[features]`, `[pad]`, `[voice]`,
+`[launcher] show` and `mode`), `coop\player.ini` (name) and lines of settings.lua: `chSetVideoMode` (screen mode and
+resolution) and the game's three sound levels (`chSndSetEffectsVolume`, `chSndMusicVolume`, `chSndSetVoiceVolume`);
+the rest of the file and the loader block are kept. Its Settings tab has every co-op option in four sections
+(Co-op, Interface, Voice and sound, Display). Solo sets `coop_enabled = 0`, and
 coop_init then does nothing. Drawn with GDI into a DIB: the title art (`Titlescreen_PC.dds`) and menu font
 (`font.dds`, widths from `font.lua`) are read from the player's own mdk2.tar; without them it falls back to
 plain colours and Windows fonts. Skipped for `+connect_lobby` and in background test mode, except with
@@ -269,8 +271,13 @@ Options > Co-op (the game's own menus, on the title screen and in the pause menu
   waiting screen to join by ID; its next LEVEL reloads the host's world, including at the same checkpoint.
 - Gameplay (`coop.ini`; the host's settings count): friendly fire (off by default; hits between
   players arrive as enemy gun damage, since the game ignores a player hitting a player), difficulty
-  (see below), co-op save interval, players on screen and developer keys (F1, F3-F11 and the F9 debug menu; off for
-  players, on in the test installs; F2 stays on as the report marker).
+  (see below), co-op save interval, back to the level's hero after a level you switched hero in (`[game] char_follow`)
+  and developer keys (F1, F3-F11 and the F9 debug menu; off for players, on in the test installs; F2 stays on as the
+  report marker).
+- Interface (each player's own; all on by default except the outlines): players on screen (`[hud] show`), player
+  outlines (`[hud] outline`), the cutscene timer (`[hud] movietimer`; off leaves the skip key and the votes), friends in
+  minigames (`[features] ghosts`), and the emote wheel, character wheel, text chat and pings (`[features] emotes`,
+  `charwheel`, `chat`, `pings`: off takes the action's keys away), the gamepad (`[pad] enabled`, next start).
 - Difficulty (Gameplay > Difficulty; `[game]` keys, the host's values rule and reach the clients as they join
   and whenever they change): presets Story, Normal (default), Hard and Nightmare, or each setting on its own, which
   shows as Custom. Settings: friendly fire, enemy health (`enemy_hp`, % of normal), more health per extra player

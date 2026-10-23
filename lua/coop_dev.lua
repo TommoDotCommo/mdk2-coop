@@ -131,12 +131,13 @@ coop.actions = {
     { id="dright", name="Inventory right", page="doc",    group=5, short="Right",  long="Inventory right", coms={ COM_DOCINVENRIGHT } },
     -- the co-op features that read the keyboard themselves (the bridge, coop_game_keys): gk is
     -- theirs; the mouse buttons work for them, the wheel does not
-    { id="chat",   name="Chat",   page="coop", group=8, short="Chat",   long="Open the chat line (Enter sends, Esc cancels)", coms={}, gk=0 },
-    { id="ping",   name="Ping",   page="coop", group=8, short="Ping",   long="Ping what you aim at: a marker for everyone", coms={}, gk=1 },
+    -- feat: the [features] switch (Options > Co-op > Interface, the launcher) that can take the action's keys away
+    { id="chat",   name="Chat",   page="coop", group=8, short="Chat",   long="Open the chat line (Enter sends, Esc cancels)", coms={}, gk=0, feat="chat" },
+    { id="ping",   name="Ping",   page="coop", group=8, short="Ping",   long="Ping what you aim at: a marker for everyone", coms={}, gk=1, feat="pings" },
     { id="revive", name="Revive", page="coop", group=8, short="Revive", long="Hold beside a downed teammate to stand them up", coms={}, gk=2 },
     { id="voice",  name="Push to talk", page="coop", group=8, short="Talk", long="Hold to talk: players near you hear you (Options > Co-op > Voice chat)", coms={}, gk=3 },
-    { id="emote",  name="Emote wheel", page="coop", group=8, short="Emote", long="Hold, move the mouse to an emote and let go to play it (moving ends it)", coms={}, gk=4 },
-    { id="char",   name="Character wheel", page="coop", group=8, short="Char", long="Hold, move the mouse to Kurt, Max or Doc and let go to switch to them", coms={}, gk=5 },
+    { id="emote",  name="Emote wheel", page="coop", group=8, short="Emote", long="Hold, move the mouse to an emote and let go to play it (moving ends it)", coms={}, gk=4, feat="emotes" },
+    { id="char",   name="Character wheel", page="coop", group=8, short="Char", long="Hold, move the mouse to Kurt, Max or Doc and let go to switch to them", coms={}, gk=5, feat="charwheel" },
     -- the game's abort-movie command: with others watching, a vote to skip (coop_dev.lua "Cutscenes") --
     { id="skip",   name="Skip cutscene", page="coop", group=8, short="Skip", long="In a cutscene: vote to skip it; press again to take the vote back", coms={ COM_ABORTMOVIE } },
 }
@@ -211,8 +212,14 @@ function coop.Keys(id)
     return coop.preset_modern[id]
 end
 
+-- a [features] switch: on unless coop.ini says 0 --
+function coop.Feature(name)
+    return coop_get("features", name, "1") ~= "0"
+end
+
 function coop.BindAction(a)
     local k = coop.Keys(a.id)
+    if (a.feat and not coop.Feature(a.feat)) then k = { -1, -1 } end
     if (a.gk) then coop_game_keys(a.gk, k[1], k[2]) end
     local n, c = next(a.coms, nil)
     while (n) do
@@ -790,6 +797,7 @@ coop.mv_hold_ms = 20000     -- after the first player has seen the end, the othe
 coop.mv_trigger_ms = 4000   -- a movie the host's trigger started: the others are told at once, so a short wait
 coop.mv_load_ms = 15000     -- a movie that starts this soon after a level load is one every game plays
 coop.mv_box_ms = 4000       -- the cutscene box shows this long after a key press
+coop.movietimer = (coop_get("hud", "movietimer", "1") ~= "0")    -- the time left in the box
 coop.mvr = {}               -- host: reports by serial: coop.mvr[serial][slot] = { start, done, vote }
 coop.mvgo = {}              -- client: serials the host has already sent GO for
 coop.mvcount = 0
@@ -1142,7 +1150,9 @@ function coop.MovieBanner(m)
                         code ~= key[1] and code ~= key[2]
         if (pressed or yes > 0) then
             b1 = "Cutscene"
-            if (m.len and m.len > 0) then
+            if (not coop.movietimer) then
+                b1 = ""
+            elseif (m.len and m.len > 0) then
                 local left = (m.len - m.played) / 1000
                 if (left < 0) then left = 0 end
                 b1 = format("Cutscene  %d:%02d left", floor(left / 60), floor(left) - floor(left / 60) * 60)
@@ -1345,6 +1355,10 @@ function coop.FallTick()
             coop.fallmis_sent = x
         end
     end
+    if (not coop.Feature("ghosts")) then
+        coop.FallHide()
+        return
+    end
     local ease = chGetDeltaT() * 12
     if (ease > 1) then ease = 1 end
     local s, p = next(coop.fallpos, nil)
@@ -1378,6 +1392,22 @@ function coop.FallTick()
         s, p = next(coop.fallpos, s)
     end
     coop.FallMissiles(now)
+end
+
+-- the ghosts switched off ([features] ghosts=0): none drawn; where the others are is still heard --
+function coop.FallHide()
+    local s, g = next(coop.fallghost, nil)
+    while (s) do
+        if (g and coop_alive(g)) then omGobDelete(g) end
+        s, g = next(coop.fallghost, s)
+    end
+    coop.fallghost = {}
+    s, g = next(coop.fallmis, nil)
+    while (s) do
+        if (g.gob and coop_alive(g.gob)) then omGobDelete(g.gob) end
+        g.gob = nil
+        s, g = next(coop.fallmis, s)
+    end
 end
 
 -- the missiles chasing the others: harmless ghosts, carried on along their last heading between reports --
@@ -2149,6 +2179,7 @@ menu.coopsession = mdkCreateMenu(0.5, 0.22, 0.05, 0.05, 0.01, JUSTIFY_CENTER, 1)
 menu.coopgame = mdkCreateMenu(0.7, 0.25, 0.05, 0.05, 0.01, JUSTIFY_RIGHT, 1)
 menu.coopdiff = mdkCreateMenu(0.7, 0.2, 0.045, 0.045, 0.005, JUSTIFY_RIGHT, 1)
 menu.coopvoice = mdkCreateMenu(0.7, 0.25, 0.05, 0.05, 0.01, JUSTIFY_RIGHT, 1)
+menu.coopui = mdkCreateMenu(0.7, 0.2, 0.045, 0.045, 0.005, JUSTIFY_RIGHT, 1)
 
 coop.pages = {
     coop = function() coop.BuildMain() end,
@@ -2158,6 +2189,7 @@ coop.pages = {
     coopctrl = function() coop.OpenControls() end,
     coopdiff = function() coop.BuildDifficulty() end,
     coopvoice = function() coop.BuildVoice() end,
+    coopui = function() coop.BuildInterface() end,
 }
 
 function coop.ShowPage(name)
@@ -2192,6 +2224,8 @@ function coop.BuildMain()
     item.Select = function(self) coop.ShowPage("coopsession") end
     item = mdkCreateMenuItem(menu.coop, "Gameplay")
     item.Select = function(self) coop.ShowPage("coopgame") end
+    item = mdkCreateMenuItem(menu.coop, "Interface")
+    item.Select = function(self) coop.ShowPage("coopui") end
     item = mdkCreateMenuItem(menu.coop, "Controls")
     item.Select = function(self) coop.ShowPage("coopctrl") end
     item = mdkCreateMenuItem(menu.coop, "Voice chat")
@@ -2624,20 +2658,6 @@ function coop.BuildGame()
     end
     item.Dec = item.Inc
 
-    item = mdkCreateMenuItem(m, "Players on screen")
-    mdkMenuItemAddCheckBox(item, tonumber(coop_get("hud", "show", "1")) or 1)
-    item.Select = function(self, n)
-        coop_set("hud", "show", n)
-        coop.hud_on = (n == 1)
-    end
-
-    item = mdkCreateMenuItem(m, "Player outlines")
-    mdkMenuItemAddCheckBox(item, tonumber(coop_get("hud", "outline", "0")) or 0)
-    item.Select = function(self, n)
-        coop_set("hud", "outline", n)
-        coop.hud_outline = (n == 1)
-    end
-
     item = mdkCreateMenuItem(m, "Developer keys")
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("controls", "devkeys", "0")) or 0)
     item.Select = function(self, n)
@@ -2649,6 +2669,36 @@ function coop.BuildGame()
 end
 
 menu.coopgame.Cancel = function() coop.ShowPage("coop") end
+
+-- Options > Co-op > Interface: what the mod adds to the screen and the keys, each can be switched off --
+function coop.CheckItem(m, label, section, key, dflt, apply)
+    local item = mdkCreateMenuItem(m, label)
+    mdkMenuItemAddCheckBox(item, tonumber(coop_get(section, key, dflt)) or tonumber(dflt))
+    item.sec, item.key, item.apply = section, key, apply
+    item.Select = function(self, n)
+        coop_set(self.sec, self.key, n)
+        if (self.apply) then self.apply(n == 1) end
+    end
+    return item
+end
+
+function coop.BuildInterface()
+    local m = menu.coopui
+    mdkClearMenu(m)
+    coop.Heading(m, "Interface")
+    coop.CheckItem(m, "Players on screen", "hud", "show", "1", function(on) coop.hud_on = on end)
+    coop.CheckItem(m, "Player outlines", "hud", "outline", "0", function(on) coop.hud_outline = on end)
+    coop.CheckItem(m, "Cutscene timer", "hud", "movietimer", "1", function(on) coop.movietimer = on end)
+    coop.CheckItem(m, "Friends in minigames", "features", "ghosts", "1", nil)
+    coop.CheckItem(m, "Emote wheel", "features", "emotes", "1", function(on) coop.ApplyControls() end)
+    coop.CheckItem(m, "Character wheel", "features", "charwheel", "1", function(on) coop.ApplyControls() end)
+    coop.CheckItem(m, "Text chat", "features", "chat", "1", function(on) coop.ApplyControls() end)
+    coop.CheckItem(m, "Pings", "features", "pings", "1", function(on) coop.ApplyControls() end)
+    coop.CheckItem(m, "Gamepad (next start)", "pad", "enabled", "1", nil)
+    coop.BackItem(m, "coop")
+end
+
+menu.coopui.Cancel = function() coop.ShowPage("coop") end
 
 -- ---------------------------------------------------------------------------------------
 -- Options > Co-op > Controls: the keyboard and mouse picture (bridge, ctrlview.c) fills the

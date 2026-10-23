@@ -98,6 +98,11 @@ lua 2 'coop_hud_dump()'; lua 1 'coop_hud_dump()'
 # first time it plays
 check "the vote stays until the movie ends (client's box)" \
     wait_since 2 'hud moviebox: Cutscene  [0-9]+:[0-9][0-9] left \| Backspace: vote to skip \| Skip votes: 1 of 2' 5
+# Options > Co-op > Interface > Cutscene timer off: the box keeps the skip key and the votes, not the time
+lua 2 'coop_set("hud", "movietimer", 0) coop.movietimer = nil coop_hud_dump()'
+check "cutscene timer switched off: no time in the box" \
+    wait_since 2 'hud moviebox:  \| Backspace: vote to skip \| Skip votes: 1 of 2' 5
+lua 2 'coop_set("hud", "movietimer", 1) coop.movietimer = 1'
 check "the host's box says it voted and how to take it back" \
     wait_since 1 'hud moviebox: Cutscene  [0-9]+:[0-9][0-9] left \| You voted to skip  \(Backspace again: take it back\) \| Skip votes: 1 of 2' 5
 mark_all
@@ -155,6 +160,14 @@ nose() {
     echo "nose . heading = $v"; awk -v v="${v:-0}" 'BEGIN { exit !(v > 0.9) }'
 }
 check "the missile ghost flies nose first" nose
+# Options > Co-op > Interface > Friends in minigames off: no ghosts drawn; on again: back
+ghosts() { lua 2 'local n, s = 0, next(coop.fallghost, nil) while (s) do n = n + 1 s = next(coop.fallghost, s) end
+                  coop_log(format("T ghosts %d", n))'; sleep 0.5
+           tail -n +"$((off2 + 1))" "$(mdk_log 2)" | grep -oE 'T ghosts [0-9]+' | tail -1 | cut -d' ' -f3; }
+lua 2 'coop_set("features", "ghosts", 0)'; sleep 1
+n=$(ghosts); check "friends in minigames switched off: no ghost (got $n)" test "$n" = 0
+lua 2 'coop_set("features", "ghosts", 1)'; sleep 1
+n=$(ghosts); check "switched on again: the ghost is back (got $n)" test "$n" = 1
 lua 2 'ktgame_kurt.x = ktgame_kurt.x + 1.6'; sleep 0.8       # the client steers aside: its ghost leaves the host's Kurt
 mdk_shot "$(mdk_pid 1)" "$out/skydive_host.png" || true      # evidence: the friend's ghost in the sky
 mark_all

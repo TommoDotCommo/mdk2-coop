@@ -19,7 +19,14 @@ exec 9> /tmp/mdk2-inject.lock
 flock 9
 [ -f "$settings.coop-backup" ] || cp "$settings" "$settings.coop-backup"
 
-sed -i "/^$begin/,/^$end/d" "$settings"
+# a game that is starting (another session's) has the file open and Windows refuses sed's rename for a
+# moment ("sed: cannot rename ... Permission denied"): try again, and take away sed's leftover
+for try in $(seq 1 20); do
+    if sed -i "/^$begin/,/^$end/d" "$settings" 2>/dev/null; then break; fi
+    find "$(dirname "$settings")" -maxdepth 1 -name 'sed??????' -newer "$settings.coop-backup" -delete 2>/dev/null || true
+    [ "$try" = 20 ] && { echo "settings.lua stayed locked: $settings"; exit 1; }
+    sleep 0.5
+done
 if [ "${1:-}" = "--off" ]; then
     echo "removed from $settings"
     exit 0

@@ -34,11 +34,12 @@ start() { local pid; pid=$(mdk_start "$1"); echo "$pid"; }
 BS=(); for i in $(seq 1 24); do BS+=("key 8"); done     # backspaces: empty a field
 
 # canvas spots (1280x720): tabs, Play page tiles, the connection selector, the UDP join fields,
-# the Play button; Settings rows
+# the Play button; Settings: the section picker's arrows (Co-op, Interface, Voice and sound, Display) and rows
 T_PLAY="click 780 50"; T_SAVES="click 880 50"; T_SET="click 1000 50"; T_ABOUT="click 1130 50"
 HOST="click 1000 200"; JOIN="click 1000 283"; SOLO="click 1000 367"
 ADDR="click 900 532"; PORT="click 1170 532"; PLAY="click 1000 660"
-FF="click 1000 139"; RES="click 1180 459"
+SEC_NEXT="click 1220 115"; SEC_PREV="click 1050 115"
+FF="click 1000 170"; EMOTE="click 1000 363"; MUSIC="click 1220 371"; RES="click 1180 219"
 
 for i in 1 2; do
     setini $i test launcher 1
@@ -107,6 +108,7 @@ check "client: launcher up"                             wait_log 2 "^launcher: s
 check "no co-op before Play"                            bash -c "! grep -q 'coop_init' '$(mdk_log 1)'"
 shot 1 play; lcmd 1 "$T_SET"; shot 1 settings; lcmd 1 "$T_ABOUT"; shot 1 about
 lcmd 1 "$T_SET" "$FF"; shot 1 settings_ff
+lcmd 1 "$SEC_NEXT" "$EMOTE"; shot 1 settings_interface        # Interface: the emote wheel off
 # saves: the sessions are listed with players and progress; a card picks what Host starts
 SAVE1="click 1000 290"
 lcmd 1 "$T_SAVES"; shot 1 saves
@@ -115,6 +117,7 @@ lcmd 1 "$SAVE1"; shot 1 saves_picked
 lcmd 1 "$T_PLAY" "$HOST" "key 9" "key 9" "key 9" "key 9" "key 13"   # Tab to the port field, Enter plays
 check "host: Host chosen"                               wait_log 1 "^launcher: play, host over UDP" 10
 check "host: friendly fire written on Play"             test "$(ini 1 friendly_fire coop.ini)" = 1
+check "host: emote wheel off written on Play"           test "$(ini 1 emotes coop.ini)" = 0
 check "host: co-op on"                                  wait_log 1 "^coop_init: lua functions registered" 30
 check "host: the picked session is what the game starts"  wait_log 1 "launcher start: resume" 60
 check "host: it resumes session 4660 (0x1234)"          wait_log 1 "autostart: resuming co-op session 4660" 60
@@ -134,7 +137,8 @@ cp "$settings" "$out/settings.lua.before"
 mdk_kill; sleep 2
 P2=$(start 2); echo "$P2" > "$MDK2_PIDS.solo"
 check "solo: launcher up"                               wait_log 2 "^launcher: shown" 30
-lcmd 2 "$T_SET" "$RES"; shot 2 settings_res
+lcmd 2 "$T_SET" "$SEC_PREV" "$RES"; shot 2 settings_res        # Display (the picker wraps round)
+lcmd 2 "$SEC_PREV" "$MUSIC"; shot 2 settings_sound              # Voice and sound: music one step up
 lcmd 2 "$T_PLAY" "$SOLO"; shot 2 solo
 lcmd 2 "$PLAY"
 check "solo: chosen"                                    wait_log 2 "^launcher: play, solo \(co-op off\)" 10
@@ -144,6 +148,8 @@ check "solo: no co-op"                                  bash -c "! grep -q 'lua 
 sleep 8
 check "solo: game still running"                        mdk_alive "$P2"
 check "settings.lua: one video line, loader kept"       bash -c "[ \$(grep -c chSetVideoMode '$settings') = 1 ] && grep -q 'mdk2-coop >>>' '$settings' && ! cmp -s '$settings' '$out/settings.lua.before'"
+music() { grep -o 'chSndMusicVolume([0-9.]*)' "$1" | head -1; }
+check "settings.lua: the music level changed, one line" bash -c "[ \"\$(grep -c chSndMusicVolume '$settings')\" = 1 ] && [ '$(music "$settings")' != '$(music "$out/settings.lua.before")' ]"
 cp "$settings" "$out/settings.lua.after"
 mdk_kill; sleep 2
 cp "$out/settings.lua.before" "$settings"

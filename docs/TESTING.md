@@ -61,7 +61,7 @@ apply 80 ms latency, 30 ms jitter and 3% loss; this is one simulated condition.
 | Level 8 intro | The intro movie with two players | Both see it to its end and the client survives the movie deleting the host's enemies by name; mutant without coop.lua's gone-gob check crashes the client |
 | Level epochs | Same-checkpoint reset after a spawn/pickup, then a same-epoch network outage | Actual loads, restored items/actors, world comparisons, retained world on reconnect; native spawn deferral and epoch-wrap assertions |
 | Save/reconnect | Client/host crash, resume, network cut, subsequent level change | Saved identity, HP/position and world state |
-| Menus/settings | Options, bindings, presets, conflicts, persistence, launcher | In-game reads, settings files and screenshot evidence |
+| Menus/settings | Options (Gameplay, Interface, Voice chat, Controls), bindings, presets, conflicts, persistence, launcher (its Settings sections: an Interface switch and a sound level), the emote wheel switched off and on | In-game reads, settings files (coop.ini, settings.lua), the wheel playing nothing while off (mutant ignoring the switches fails) and screenshot evidence |
 | HUD/chat/voice | Players, messages/pings, visibility, range/relay | In-game state, rendered pixels, voice frame/gain counters |
 | Installer | Fresh install, Steam/UDP configuration, upgrades, invalid inputs, uninstall and backups in disposable fixtures | Installed files and settings; source executable is only read |
 | Recorded progression | Optional `--route` files replay ordinary controls with clients | Checkpoint order, endpoint, participants/life and world snapshots |

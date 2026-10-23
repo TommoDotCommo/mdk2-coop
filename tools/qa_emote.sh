@@ -2,11 +2,24 @@
 # Emote browser (dev keys) in one background game: PgDn / PgUp / Home / End step through the animations,
 # the wheel plays picks; the caption is drawn while one plays (pixels), Insert keeps, Delete lists, 0 and moving stop. Needs a lab lease.
 #   MDK2_N=1 tools/qa_emote.sh
+#   MUTANT=nofeat MDK2_N=1 tools/qa_emote.sh    the [features] switches ignored: passes only if the check catches it
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N="${MDK2_N:-1}"
 source "$here/mdk.sh"
 MDK2_BACKGROUND=1 MDK2_START="1 2" "$here/install.sh" >/dev/null
+if [ "${MUTANT:-}" = nofeat ]; then
+    f="$(mdk_wsl "$(mdk_dir 1)")/coop/coop.lua"
+    python3 - "$f" <<'MUT' || exit 2
+import sys
+path = sys.argv[1]
+old = 'if (a.feat and not coop.Feature(a.feat)) then k = { -1, -1 } end'
+data = open(path, newline='').read()
+if old not in data:
+    sys.exit('mutant: text not found')
+open(path, 'w', newline='').write(data.replace(old, ''))
+MUT
+fi
 
 pass=0; fail=0; results=()
 out="$here/../local/qa/$(date +%Y%m%d-%H%M%S)-emote"; mkdir -p "$out"
@@ -111,6 +124,18 @@ check "wheel: straight up plays slot 1 (2, got $w)"     test "$w" = "2"
 whl 1500; sleep 2.5
 w=$(emoting)
 check "wheel: let go in the middle stops it (got $w)"   test "$w" = "-1"
+# Options > Co-op > Interface > Emote wheel off ([features] emotes=0): H opens nothing; on again: it plays
+lua 'coop_set("features", "emotes", 0) coop.ApplyControls()'; sleep 1
+whl 1500; sleep 0.5
+lua 'coop_mouse(0, -80)'; sleep 2
+w=$(emoting)
+check "emote wheel switched off: H plays nothing (got $w)" test "$w" = "-1"
+lua 'coop_set("features", "emotes", 1) coop.ApplyControls()'; sleep 1
+whl 1500; sleep 0.5
+lua 'coop_mouse(0, -80)'; sleep 2
+w=$(emoting)
+check "emote wheel on again: it plays (got $w)"         test "$w" = "2"
+lua 'coop_emote(-1)'; sleep 1
 wheel=$(centre "$out/wheel.png"); idle=$(centre "$out/idle.png")
 check "wheel is drawn ($wheel vs $idle)"               python3 -c "import sys; sys.exit(0 if abs($wheel - $idle) > 3 else 1)"
 
@@ -121,4 +146,8 @@ mdk_kill
 printf '%s\n' "${results[@]}"
 echo "screenshots and logs: $out"
 echo "$pass passed, $fail failed"
+if [ "${MUTANT:-}" = nofeat ]; then
+    printf '%s\n' "${results[@]}" | grep -q "^FAIL  emote wheel switched off" && { echo "mutant nofeat caught"; exit 0; }
+    echo "mutant nofeat NOT caught"; exit 1
+fi
 [ "$fail" -eq 0 ]
