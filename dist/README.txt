@@ -166,7 +166,7 @@ report too.
 
 Reporting a problem
 -------------------
-Open a bug report: https://github.com/TommoDotCommo/mdk2-coop/issues/new/choose
+Open a bug report (or a feature request): https://github.com/TommoDotCommo/mdk2-coop/issues/new/choose
 - Press F2 the moment something goes wrong: a numbered marker goes in every player's
   log, with a screenshot (coop_mark<N>.tga in the game folder).
 - Attach your log, and the host's if you can. In Steam, right-click MDK2 HD, choose

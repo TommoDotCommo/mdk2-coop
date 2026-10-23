@@ -182,6 +182,8 @@ played and how it went.
 
 ## Reporting a problem
 
+Ideas are welcome as a [feature request](https://github.com/TommoDotCommo/mdk2-coop/issues/new?template=feature.yml).
+
 Open a [bug report](https://github.com/TommoDotCommo/mdk2-coop/issues/new?template=bug.yml); the form asks for
 what's needed:
 
