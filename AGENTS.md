@@ -19,6 +19,7 @@ when present before starting work. Keep shared workflow changes here so agents s
 - `README.md`: the players' guide (features, install, controls, settings, known issues).
 - `docs/DEVELOPMENT.md`: architecture, engine hooks, the dev harness, manual playtests and releases.
 - `docs/TESTING.md`: the regression ladder (`tools/qa_all.py`), its gates, coverage and limits.
+- `docs/SHOWCASE.md`: feature screenshots (`docs/showcase/`), captured with `tools/showcase.sh`.
 - `bridge/`: C code for the 32-bit Windows `dinput8.dll` proxy. `bridge.h` holds
   shared declarations and engine addresses; `dinput8.c` handles proxy startup;
   `frame.c` drives the per-frame update; `lua.c` exposes the Lua bindings.

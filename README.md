@@ -9,6 +9,10 @@ but nobody has finished the whole campaign in co-op yet. Expect rough edges, and
 
 No game files are in this repo. Every player needs their own copy of MDK2 HD on Steam.
 
+[![Three players in the first level, with the players panel and name tags](docs/showcase/players.jpg)](docs/SHOWCASE.md)
+
+**[See the showcase](docs/SHOWCASE.md)** for screenshots of every feature.
+
 - [What you get](#what-you-get)
 - [Install](#install)
 - [Play together](#play-together)
