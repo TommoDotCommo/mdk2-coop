@@ -25,22 +25,25 @@ apply to every session here.
   playbook page it belongs to.
 
 ## Giving back (end of a phase or a big fix, not only at the end)
-- Prepare the contribution on branch `game/mdk2-hd` of the coop-anything clone: NOTES.md,
+- Prepare the contribution on local branch `game/mdk2-hd-alpha` in the worktree `~/source/coop-anything-mdk2`
+  (not in `~/source/coop-anything`, which other games' sessions use): NOTES.md,
   `games/mdk2-hd/README.md` (from `templates/game.md`), the `data/directory.yaml` entry plus
   `python tools/build_directory.py`, and lessons.
 - Publishing goes out under the owner's GitHub account. Show the owner the diff and get their OK before
   `gh issue create`, `gh pr create --draft`, or anything new on GitHub. PRs are always drafts, one
   game per PR, with the owner-review box left for the owner.
 - Pre-approved by the owner (2026-10-21), no need to ask: pushing commits to this repo
-  (`git push origin master:main`) and adding commits to the open PR #95 (`git push fork game/mdk2-hd`),
-  provided every pushed commit has the identity below and no real names, emails, tokens, game files
-  or usernamed paths (check `git log --format='%an %ae %cn %ce' origin/main..master` and the diff).
-  Never force-push, and never `push --all` / `--mirror`.
+  (`git push origin master:main`), provided every pushed commit has the identity below and no real
+  names, emails, tokens, game files or usernamed paths (check
+  `git log --format='%an %ae %cn %ce' origin/main..master` and the diff). Never force-push, and never
+  `push --all` / `--mirror`.
 - Match the hub's conventions: look at recent `gh issue list` / `gh pr list` titles first. Claims are
   titled "Claim: <Game> (<year>) - <approach>", PRs "<Game>: <what it adds>".
-- Already published: claim issue cranebeaker/coop-anything#94 and draft PR #95 (branch `game/mdk2-hd`
-  on the fork, remote `fork`). Add to that PR while it is open (commit + `git push fork game/mdk2-hd`)
-  instead of opening a new one.
+- Already published: claim issue cranebeaker/coop-anything#94 and PR #95 (branch `game/mdk2-hd`, merged
+  2026-10-21). New hub contributions collect as commits on `game/mdk2-hd-alpha`, kept local: the owner
+  (2026-10-23) wants the next PR opened only when the mod is ready for its public alpha release. Do not
+  push that branch or open the PR until then. PRs go from the fork (`TommoDotCommo/coop-anything`, remote
+  `fork`): the account cannot push to `cranebeaker/coop-anything` itself.
 
 ## Public repo and identity
 - This repo is public at github.com/TommoDotCommo/mdk2-coop (MIT; `origin`, branch `main` there,
