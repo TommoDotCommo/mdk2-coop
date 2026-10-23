@@ -407,10 +407,18 @@ Character wheel: hold J (Options > Co-op > Controls), move the mouse to Kurt, Ma
 switch to them on the spot, keeping the same share of hp (letting go in the middle changes nothing; "Level's own" goes back to the hero the
 level gave you). Your partner's puppet becomes the same hero. With Options > Co-op > Gameplay > "Back to
 level's hero" on (the default) the next level load puts you back on the game's hero; off keeps your choice.
-Levels with Hyde (6, 12) keep the game's pair. `tools/qa_char.sh` and `tools/qa_char2.sh` check it.
+Levels with Hyde (6, 12) keep the game's pair. Kurt and Max are wider than Doc: switching away from Doc against a
+wall can leave the new hero stuck in it, so for a few seconds after a switch, while you hold a move key and have not
+moved, the hero is put on the next spot around (0.3 then 0.6 away) until it moves. `tools/qa_char.sh` and
+`tools/qa_char2.sh` check it.
 
-The puppet is never placed within 3 units of your own player (it is solid and moved every frame;
-both players spawn on the same point and an overlapping puppet shoved the host 25 units into a wall).
+Emote wheel: hold H, move the mouse to an emote and let go. Each hero has its own wheel of animations it has (Max has
+no Throw, Doc no Action 5): the usual seven where they exist, filled up from its other action animations; the last
+slot, "All...", lists every animation the hero has, a page at a time.
+
+The puppet stays where its player is and is only nudged out to 1 unit from your own player when the two would
+overlap (it is solid and moved every frame; the characters collide at about 0.88 units, and both players spawn on
+the same point).
 The puppet is the character its player plays at that moment (Kurt, Max or Doc; the character wheel changes
 it); any other type is logged and gets your own.
 

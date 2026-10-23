@@ -52,6 +52,8 @@ static struct wheel {
     { .key = GK_CHAR },
 };
 static int char_pick = -1;          /* the character wheel's choice, until Lua takes it */
+#define EMOTE_ALL   1000            /* an emote wheel slot that opens the list of every animation (Lua's) */
+static int all_pick;                /* that slot was chosen, until Lua takes it */
 
 static struct wheel *wheel_open_one(void)
 {
@@ -101,6 +103,8 @@ static void wheel_close(struct wheel *w, int play)
     if (w == &wheels[W_CHAR]) {
         if (sel >= 0)
             char_pick = w->slots[sel].id;
+    } else if (sel >= 0 && w->slots[sel].id == EMOTE_ALL) {
+        all_pick = 1;
     } else if (sel >= 0) {
         emote_play(w->slots[sel].id, 1);
     } else if (active >= 0) {
@@ -318,8 +322,28 @@ static void l_coop_char_pick(void)
     char_pick = -1;
 }
 
+/* coop_emote_all() -> 1 once after the wheel's "All" slot was chosen, else nil */
+static void l_coop_emote_all(void)
+{
+    if (all_pick)
+        lua_pushnumber(1);
+    all_pick = 0;
+}
+
+/* coop_anim_has(id) -> 1 if the local player's character has animation id, else nil */
+static void l_coop_anim_has(void)
+{
+    unsigned int o = lua_getparam(1);
+    int id = o && lua_isnumber(o) ? (int)lua_getnumber(o) : -1;
+
+    if (id >= 0 && id < ANIM_ID_MAX && local_player && gob_alive(local_player) && om_anim_state(local_player, id))
+        lua_pushnumber(1);
+}
+
 void emote_lua_init(void)
 {
+    tolua_function(NULL, "coop_emote_all", l_coop_emote_all);
+    tolua_function(NULL, "coop_anim_has", l_coop_anim_has);
     tolua_function(NULL, "coop_emote_wheel", l_coop_emote_wheel);
     tolua_function(NULL, "coop_char_wheel", l_coop_char_wheel);
     tolua_function(NULL, "coop_char_pick", l_coop_char_pick);

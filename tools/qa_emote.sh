@@ -107,8 +107,8 @@ mdk_key "$(mdk_pid 1)" 17 1 400; sleep 1                # W: moving ends it
 g=$(emoting)
 check "moving stops an emote"                           test "$g" = "-1"
 
-# the wheel: hold H (DIK 35), steer with the mouse, let go to play. Slots clockwise from the top:
-# 2 3 4 16 57 81 82; down-left of the middle is slot 5 (id 57), nothing selected stops it
+# the wheel: hold H (DIK 35), steer with the mouse, let go to play. Kurt's slots clockwise from the top:
+# 2 3 4 16 57 81 82, then "All..."; down-left of the middle is slot 6 (id 81), nothing selected stops it
 whl() { lua "coop_press(35, $1)"; }
 lua 'coop_emote(-1)'; sleep 1
 whl 3000; sleep 0.6
@@ -116,7 +116,7 @@ lua 'coop_mouse(-40, 70)'; sleep 0.6
 mdk_shot "$(mdk_pid 1)" "$out/wheel.png"
 sleep 2.4
 w=$(emoting)
-check "wheel: down-left plays slot 5 (57, got $w)"      test "$w" = "57"
+check "wheel: down-left plays slot 6 (81, got $w)"      test "$w" = "81"
 whl 1500; sleep 0.5
 lua 'coop_mouse(0, -80)'; sleep 2
 w=$(emoting)
@@ -124,6 +124,23 @@ check "wheel: straight up plays slot 1 (2, got $w)"     test "$w" = "2"
 whl 1500; sleep 2.5
 w=$(emoting)
 check "wheel: let go in the middle stops it (got $w)"   test "$w" = "-1"
+# the last slot (up-left) is "All...": the list of every animation the character has (Kurt: 61)
+whl 1500; sleep 0.5
+lua 'coop_mouse(-60, -60)'; sleep 2
+check "wheel: All... lists Kurt's 61 animations"        grep -q "emotes: all, page 1 of 5 (61)" "$(log)"
+mdk_shot "$(mdk_pid 1)" "$out/all_emotes.png"
+lua 'HideMenu()'; sleep 1
+# each hero has its own wheel, of animations it has: Max has no THROW (57), Doc no ACTION05 (82)
+lua 'coop.SwitchChar(mdkGetPlayerGob(), OBJ_MAX)'; sleep 3
+check "Max gets his own wheel"                          grep -q "emote wheel for type 101" "$(log)"
+whl 3000; sleep 0.6; lua 'coop_mouse(-40, 70)'; sleep 3
+w=$(emoting)
+check "Max: down-left plays one he has (82, got $w)"     test "$w" = "82"
+lua 'coop.SwitchChar(mdkGetPlayerGob(), OBJ_DOC)'; sleep 3
+whl 3000; sleep 0.6; lua 'coop_mouse(-80, 0)'; sleep 3
+w=$(emoting)
+check "Doc: left plays Action 0, in place of the Action 5 he lacks (77, got $w)" test "$w" = "77"
+lua 'coop_emote(-1) coop.SwitchChar(mdkGetPlayerGob(), OBJ_KURT)'; sleep 3
 # Options > Co-op > Interface > Emote wheel off ([features] emotes=0): H opens nothing; on again: it plays
 lua 'coop_set("features", "emotes", 0) coop.ApplyControls()'; sleep 1
 whl 1500; sleep 0.5

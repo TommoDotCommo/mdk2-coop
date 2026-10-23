@@ -63,6 +63,7 @@ apply 80 ms latency, 30 ms jitter and 3% loss; this is one simulated condition.
 | Save/reconnect | Client/host crash, resume, network cut, subsequent level change | Saved identity, HP/position and world state |
 | Menus/settings | Options (Gameplay, Interface, Voice chat, Controls), bindings, presets, conflicts, persistence, launcher (its Settings sections: an Interface switch and a sound level), the emote wheel switched off and on | In-game reads, settings files (coop.ini, settings.lua), the wheel playing nothing while off (mutant ignoring the switches fails) and screenshot evidence |
 | HUD/chat/voice | Players, messages/pings, visibility, range/relay | In-game state, rendered pixels, voice frame/gain counters |
+| Emotes and heroes | Emote wheel per hero and its "All..." list; switching hero, also from Doc against a wall | The animation each slot plays (Max and Doc get ones they have), the list's count (Kurt 61), the hero moving after the switch (mutant without unsticking fails) |
 | Installer | Fresh install, Steam/UDP configuration, upgrades, invalid inputs, uninstall and backups in disposable fixtures | Installed files and settings; source executable is only read |
 | Recorded progression | Optional `--route` files replay ordinary controls with clients | Checkpoint order, endpoint, participants/life and world snapshots |
 

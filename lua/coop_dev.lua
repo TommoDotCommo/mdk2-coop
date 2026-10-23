@@ -535,7 +535,9 @@ function coop.Tick()
     coop_recv()
     coop.HandleEvents()
     coop.ReviveTick(p)
+    coop.UnstickTick(p)
     coop.CharTick(p)
+    coop.EmoteTick(p)
     coop.WaitTick()
     coop.MovieTick()
     coop.HudTick()
@@ -1940,9 +1942,115 @@ end
 
 coop.emotekept = {}
 
--- The emote wheel (hold the Emote key, Options > Co-op > Controls): the picks from the browser,
--- clockwise from the top. coop_emote_wheel(id, label, ...) takes up to 8.
-coop_emote_wheel(2, "Ready 2", 3, "Ready 3", 4, "Ready 4", 16, "Knockdown", 57, "Throw", 81, "Action 4", 82, "Action 5")
+-- The emote wheel (hold the Emote key, Options > Co-op > Controls), clockwise from the top: the picks from the
+-- browser that this character has, filled up from its other ACTIONnn animations (the three heroes have different
+-- sets: Max has no THROW, Doc no ACTION05), then "All..." (EMOTE_ALL in bridge/emote.c), the list of every
+-- animation it has. Rebuilt when the character changes. coop_emote_wheel(id, label, ...) takes up to 8 --
+coop.emote_base = { 2, 3, 4, 16, 57, 81, 82 }
+coop.emote_slots = 7
+coop.EMOTE_ALL = 1000
+
+-- "ANIM_ACTION04" -> "Action 4", "ANIM_KNOCKDOWN" -> "Knockdown", "ANIM_RUNFL" -> "Run forward left" --
+coop.animmoves = { RUN = "Run", UP = "Jump", DN = "Fall", CHUTE = "Parachute" }
+coop.animdirs = { F = "forward", B = "back", L = "left", R = "right", FL = "forward left", FR = "forward right",
+                  BL = "back left", BR = "back right" }
+coop.animwords = { GETUP = "Get up", GRABLEDGE = "Grab ledge" }
+
+function coop.AnimLabel(id)
+    local name = coop.AnimNames()[id]
+    if (not name) then return format("Animation %d", id) end
+    name = strsub(name, 6)
+    if (coop.animwords[name]) then return coop.animwords[name] end
+    local base, move = next(coop.animmoves, nil)
+    while (base) do
+        local rest = strsub(name, strlen(base) + 1)
+        if (strsub(name, 1, strlen(base)) == base and (rest == "" or coop.animdirs[rest])) then
+            if (rest == "") then return move end
+            return move .. " " .. coop.animdirs[rest]
+        end
+        base, move = next(coop.animmoves, base)
+    end
+    local i = 1
+    while (i <= strlen(name) and (strsub(name, i, i) < "0" or strsub(name, i, i) > "9")) do i = i + 1 end
+    local word = strupper(strsub(name, 1, 1)) .. strlower(strsub(name, 2, i - 1))
+    if (i <= strlen(name)) then return format("%s %d", word, tonumber(strsub(name, i))) end
+    return word
+end
+
+function coop.EmoteWheel()
+    local ids, n = {}, 0
+    local used = {}
+    local k, id = next(coop.emote_base, nil)
+    while (k and n < coop.emote_slots) do
+        if (coop_anim_has(id)) then n = n + 1 ids[n] = id used[id] = 1 end
+        k, id = next(coop.emote_base, k)
+    end
+    local names = coop.AnimNames()
+    id = 0
+    while (id < 160 and n < coop.emote_slots) do
+        if (not used[id] and names[id] and strsub(names[id], 1, 11) == "ANIM_ACTION" and coop_anim_has(id)) then
+            n = n + 1 ids[n] = id
+        end
+        id = id + 1
+    end
+    local args, a = {}, 0
+    local i = 1
+    while (i <= n) do
+        args[a + 1] = ids[i] args[a + 2] = coop.AnimLabel(ids[i]) a = a + 2
+        i = i + 1
+    end
+    args[a + 1] = coop.EMOTE_ALL args[a + 2] = "All..." a = a + 2
+    args.n = a
+    call(coop_emote_wheel, args)
+end
+
+-- every frame: the wheel follows the character; its "All..." slot opens the list --
+function coop.EmoteTick(p)
+    if (p and mdkGetGobType(p) ~= coop.wheeltype) then
+        coop.wheeltype = mdkGetGobType(p)
+        coop.EmoteWheel()
+        coop_log(format("emote wheel for type %d", coop.wheeltype))
+    end
+    if (coop_emote_all()) then coop.ShowAllEmotes(1) end
+end
+
+-- the list of every animation the character has, a page at a time; choosing one plays it --
+coop.allemotes_page = 14
+menu.coopemotes = mdkCreateMenu(0.5, 0.16, 0.04, 0.04, 0.002, JUSTIFY_CENTER, 1)
+menu.coopemotes.Cancel = function() HideMenu() end
+
+function coop.ShowAllEmotes(page)
+    local m = menu.coopemotes
+    local ids, n = {}, 0
+    local id = 0
+    while (id < 160) do
+        if (coop_anim_has(id)) then n = n + 1 ids[n] = id end
+        id = id + 1
+    end
+    local pages = floor((n + coop.allemotes_page - 1) / coop.allemotes_page)
+    if (page < 1) then page = pages end
+    if (page > pages) then page = 1 end
+    mdkClearMenu(m)
+    coop.Heading(m, format("All emotes (%d), page %d of %d", n, page, pages))
+    local i = (page - 1) * coop.allemotes_page + 1
+    while (i <= n and i <= page * coop.allemotes_page) do
+        local item = mdkCreateMenuItem(m, coop.AnimLabel(ids[i]))
+        item.anim = ids[i]
+        item.Select = function(self) HideMenu() coop_emote(self.anim, 1) end
+        i = i + 1
+    end
+    local item = mdkCreateMenuItem(m, "Next page")
+    item.page = page + 1
+    item.Select = function(self) coop.ShowAllEmotes(self.page) end
+    item = mdkCreateMenuItem(m, "Previous page")
+    item.page = page - 1
+    item.Select = function(self) coop.ShowAllEmotes(self.page) end
+    item = mdkCreateMenuItemW(m, strings.opt_ok)
+    mdkMenuItemStayInCenterPlease(item)
+    item.Select = function(self) HideMenu() end
+    coop_log(format("emotes: all, page %d of %d (%d)", page, pages, n))
+    if (menu.current ~= "coopemotes") then ShowMenu("coopemotes") end
+end
 
 -- ---- Changing character at any time (the character wheel, Options > Co-op > Controls) ----
 -- Each level script creates one hero (CreateKurt / CreateMax / CreateDoctor); the switch does what the
@@ -1971,10 +2079,57 @@ end
 
 -- called as a level starts, before its script runs
 function coop.NewLevelChar()
+    coop.unstick = nil
     coop.gamechar = nil
     coop.hyde = nil
     coop.charapplied = 0
     if (coop.CharFollow()) then coop.pickchar = nil end
+end
+
+-- Kurt and Max are wider than Doc: Doc against a wall, the new hero put on the same spot can be stuck in it and not
+-- move at all (measured at 1-1: 0.2 back from the wall is free). The engine offers no test of a spot (line of sight
+-- ignores walls; a stuck hero still falls), so the player's own moving is the test: for a while after a switch, while
+-- a move key is held and the hero has not moved, it is put on the next spot around (8 directions, 0.3 then 0.6
+-- away) until it moves --
+coop.unstick_ms = 4000
+coop.unstick_frames = 6
+coop.unstick_spots = {}
+function coop.MakeUnstickSpots()        -- Lua 3.1's cos / sin take degrees
+    local r, k = 0.3, 0
+    while (r < 0.7) do
+        local d = 0
+        while (d < 8) do
+            k = k + 1
+            coop.unstick_spots[k] = { r * cos(d * 45), r * sin(d * 45) }
+            d = d + 1
+        end
+        r = r + 0.3
+    end
+end
+coop.MakeUnstickSpots()
+
+function coop.UnstickTick(p)
+    local u = coop.unstick
+    if (not u or not p) then return end
+    if (coop_ms() > u.till) then coop.unstick = nil return end
+    local x, y = p.position.x, p.position.y
+    if ((x - u.cx) * (x - u.cx) + (y - u.cy) * (y - u.cy) > 0.0025) then
+        if (u.i > 0) then coop_log(format("character: unstuck at spot %d", u.i)) end
+        coop.unstick = nil
+        return
+    end
+    if (omGetCommandValue(COM_FORWARD) <= 0 and omGetCommandValue(COM_BACKWARD) <= 0 and
+        omGetCommandValue(COM_STRAFELEFT) <= 0 and omGetCommandValue(COM_STRAFERIGHT) <= 0) then
+        return
+    end
+    u.frames = u.frames + 1
+    if (u.frames < coop.unstick_frames) then return end
+    u.frames = 0
+    u.i = u.i + 1
+    local spot = coop.unstick_spots[u.i]
+    if (not spot) then coop.unstick = nil return end
+    u.cx, u.cy = u.x + spot[1], u.y + spot[2]
+    mdkGobSetPositionXYZ(p, u.cx, u.cy, u.z)
 end
 
 function coop.SwitchChar(p, t)
@@ -1987,6 +2142,7 @@ function coop.SwitchChar(p, t)
     mdkGobSetPositionXYZ(bob, x, y, z)
     coop_carry_hp(p, bob)
     omGobDelete(p)
+    coop.unstick = { till = coop_ms() + coop.unstick_ms, x = x, y = y, z = z, cx = x, cy = y, i = 0, frames = 0 }
 end
 
 function coop.CharTick(p)
