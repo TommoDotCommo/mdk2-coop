@@ -2011,7 +2011,7 @@ function coop.EmoteTick(p)
         coop.EmoteWheel()
         coop_log(format("emote wheel for type %d", coop.wheeltype))
     end
-    if (coop_emote_all()) then coop.ShowAllEmotes(1) end
+    if (coop_emote_all()) then coop.ShowAllEmotes(1, 1) end
 end
 
 -- the list of every animation the character has, a page at a time; choosing one plays it --
@@ -2019,7 +2019,8 @@ coop.allemotes_page = 14
 menu.coopemotes = mdkCreateMenu(0.5, 0.16, 0.04, 0.04, 0.002, JUSTIFY_CENTER, 1)
 menu.coopemotes.Cancel = function() HideMenu() end
 
-function coop.ShowAllEmotes(page)
+-- open: from the wheel, always shown (after a pick has closed it, menu.current still names it) --
+function coop.ShowAllEmotes(page, open)
     local m = menu.coopemotes
     local ids, n = {}, 0
     local id = 0
@@ -2033,10 +2034,14 @@ function coop.ShowAllEmotes(page)
     mdkClearMenu(m)
     coop.Heading(m, format("All emotes (%d), page %d of %d", n, page, pages))
     local i = (page - 1) * coop.allemotes_page + 1
+    coop.allemote_items = {}
+    local k = 0
     while (i <= n and i <= page * coop.allemotes_page) do
         local item = mdkCreateMenuItem(m, coop.AnimLabel(ids[i]))
         item.anim = ids[i]
         item.Select = function(self) HideMenu() coop_emote(self.anim, 1) end
+        k = k + 1
+        coop.allemote_items[k] = item
         i = i + 1
     end
     local item = mdkCreateMenuItem(m, "Next page")
@@ -2049,7 +2054,7 @@ function coop.ShowAllEmotes(page)
     mdkMenuItemStayInCenterPlease(item)
     item.Select = function(self) HideMenu() end
     coop_log(format("emotes: all, page %d of %d (%d)", page, pages, n))
-    if (menu.current ~= "coopemotes") then ShowMenu("coopemotes") end
+    if (open or menu.current ~= "coopemotes") then ShowMenu("coopemotes") end
 end
 
 -- ---- Changing character at any time (the character wheel, Options > Co-op > Controls) ----

@@ -3,21 +3,27 @@
 # the wheel plays picks; the caption is drawn while one plays (pixels), Insert keeps, Delete lists, 0 and moving stop. Needs a lab lease.
 #   MDK2_N=1 tools/qa_emote.sh
 #   MUTANT=nofeat MDK2_N=1 tools/qa_emote.sh    the [features] switches ignored: passes only if the check catches it
+#   MUTANT=noreopen MDK2_N=1 tools/qa_emote.sh  All... not shown again after a pick: likewise
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N="${MDK2_N:-1}"
 source "$here/mdk.sh"
 MDK2_BACKGROUND=1 MDK2_START="1 2" "$here/install.sh" >/dev/null
-if [ "${MUTANT:-}" = nofeat ]; then
-    f="$(mdk_wsl "$(mdk_dir 1)")/coop/coop.lua"
-    python3 - "$f" <<'MUT' || exit 2
+case "${MUTANT:-}" in
+    "") ;;
+    nofeat) old='if (a.feat and not coop.Feature(a.feat)) then k = { -1, -1 } end'; new=''; want="emote wheel switched off" ;;
+    noreopen) old='if (open or menu.current ~= "coopemotes") then'; new='if (menu.current ~= "coopemotes") then'
+              want="All... opens the list again" ;;
+    *) echo "unknown MUTANT $MUTANT"; exit 2 ;;
+esac
+if [ -n "${MUTANT:-}" ]; then
+    python3 - "$(mdk_wsl "$(mdk_dir 1)")/coop/coop.lua" "$old" "$new" <<'MUT' || exit 2
 import sys
-path = sys.argv[1]
-old = 'if (a.feat and not coop.Feature(a.feat)) then k = { -1, -1 } end'
+path, old, new = sys.argv[1:4]
 data = open(path, newline='').read()
 if old not in data:
     sys.exit('mutant: text not found')
-open(path, 'w', newline='').write(data.replace(old, ''))
+open(path, 'w', newline='').write(data.replace(old, new))
 MUT
 fi
 
@@ -129,6 +135,19 @@ whl 1500; sleep 0.5
 lua 'coop_mouse(-60, -60)'; sleep 2
 check "wheel: All... lists Kurt's 61 animations"        grep -q "emotes: all, page 1 of 5 (61)" "$(log)"
 mdk_shot "$(mdk_pid 1)" "$out/all_emotes.png"
+# pick from the list (the third row, Ready 2): it plays and the list closes; the wheel's All... opens it again
+# (it did not: the closed list was still menu.current, so it was rebuilt but not shown)
+menu() { lua 'coop_log(format("T MENU %s %s", tostring(menu.current), tostring(gamecontrol.showmenu)))'; sleep 0.5
+         grep -E "lua: T MENU " "$(log)" | tail -1 | tr -d '\r' | awk '{print $NF}'; }
+lua 'coop.allemote_items[3].Select(coop.allemote_items[3])'; sleep 1
+w=$(emoting)
+check "picked from All... plays it (2, got $w)"         test "$w" = "2"
+m=$(menu)
+check "the list closed after the pick (showmenu $m)"    test "$m" != 1
+whl 1500; sleep 0.5
+lua 'coop_mouse(-60, -60)'; sleep 2
+m=$(menu)
+check "All... opens the list again (showmenu $m)"       test "$m" = 1
 lua 'HideMenu()'; sleep 1
 # each hero has its own wheel, of animations it has: Max has no THROW (57), Doc no ACTION05 (82)
 lua 'coop.SwitchChar(mdkGetPlayerGob(), OBJ_MAX)'; sleep 3
@@ -163,8 +182,8 @@ mdk_kill
 printf '%s\n' "${results[@]}"
 echo "screenshots and logs: $out"
 echo "$pass passed, $fail failed"
-if [ "${MUTANT:-}" = nofeat ]; then
-    printf '%s\n' "${results[@]}" | grep -q "^FAIL  emote wheel switched off" && { echo "mutant nofeat caught"; exit 0; }
-    echo "mutant nofeat NOT caught"; exit 1
+if [ -n "${MUTANT:-}" ]; then
+    printf '%s\n' "${results[@]}" | grep -q "^FAIL  $want" && { echo "mutant $MUTANT caught"; exit 0; }
+    echo "mutant $MUTANT NOT caught"; exit 1
 fi
 [ "$fail" -eq 0 ]
