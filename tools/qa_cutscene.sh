@@ -3,7 +3,7 @@
 # host's go, the skip vote needs a majority (Backspace), the minigame cannot be skipped, and the level
 # change waits until both players have seen the end. Needs a lab lease (tools/qa_all.py gives one).
 #   tools/qa_cutscene.sh      (about 8 minutes)
-#   MUTANT=nobarrier|onevote|upright|sideways tools/qa_cutscene.sh   a deliberately broken coop.lua: passes only if the check
+#   MUTANT=nobarrier|onevote|upright|sideways|escskip tools/qa_cutscene.sh   a deliberately broken coop.lua: passes only if the check
 #                             that guards the broken part fails
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -23,6 +23,8 @@ if [ -n "${MUTANT:-}" ]; then
         sideways)  from='if (vz < -0.9999) then coop_set_quat(g, 0, 1, 0, 0) else coop_set_quat(g, 1 + vz, -vy, vx, 0) end'
                    to='mdkGobPointToXYZ(g, vx, vy, vz)'
                    want="the missile ghost flies nose first" ;;
+        escskip)   from='if (code and ago < 1000) then'; to='if (nil) then'
+                   want="Esc on the client is a vote, not its own skip" ;;
         *) echo "unknown MUTANT $MUTANT"; exit 2 ;;
     esac
     for i in $(mdk_seq); do
@@ -106,7 +108,10 @@ lua 2 'coop_set("hud", "movietimer", 1) coop.movietimer = 1'
 check "the host's box says it voted and how to take it back" \
     wait_since 1 'hud moviebox: Cutscene  [0-9]+:[0-9][0-9] left \| You voted to skip  \(Backspace again: take it back\) \| Skip votes: 1 of 2' 5
 mark_all
-vote 2
+# the second vote is the game's own skip key, Esc: the engine stops the movie script itself, which used to end the
+# movie for that player alone
+mdk_press "$(mdk_pid 2)" 1 1 100 200
+check "Esc on the client is a vote, not its own skip" wait_since 2 'the game.s skip \(key 1\) counts as a vote' 5
 check "second vote skips on the host" wait_since 1 'movie 1: skipped by vote' 8
 check "second vote skips on the client" wait_since 2 'movie 1: skipped by vote' 8
 # the lounge scene's Done starts the next movie (the landing in the corridor): it is kept together too
@@ -132,6 +137,10 @@ nohit='Level.MissileOnUpdate = function(gob)
     gob.z = gob.z + kurtgame.missilespeed * dt; gob.x = gob.x + gob.vx * dt; gob.y = gob.y + gob.vy * dt
     mdkGobSetPositionXYZ(gob, gob.x, gob.y, gob.z) end end'
 lua 1 "$nohit"; lua 2 "$nohit"
+# the skydive lands by itself when its timer runs out (ktgame_timer's custom key): the client lands only when the
+# test says, so the end barrier can be held for longer than the old 20 s
+lua 2 'T_ock = ktgame_timer.OnCustomKey
+       ktgame_timer.OnCustomKey = function(g, part, key) if (T_land) then T_ock(g, part, key) end end'
 check "host sees the client fall beside it" wait_since 1 'minigame: player 2 plays beside you \(level 1\)' 10
 check "client sees the host fall beside it" wait_since 2 'minigame: player 1 plays beside you \(level 1\)' 10
 # the ghost is the skydiving Kurt as the game tilts it, not upright (|dot| of the two orientations near 1)
@@ -176,9 +185,9 @@ check "the minigame cannot be skipped" not_since 1 'my skip vote'
 # the host lands first; the level change waits for the client
 lua 1 'ktgame_timer.OnCustomKey(ktgame_timer, 0, CUSTKEY_USER1)'
 check "host reaches the end and waits" wait_since 1 'movie 1: ended here, waiting for the others' 60
-sleep 6
+sleep 25                                                    # past the 20 s the wait used to give up after
 check "host does not load the next level alone" not_since 1 '^level 1 checkpoint 1 started'
-lua 2 'ktgame_timer.OnCustomKey(ktgame_timer, 0, CUSTKEY_USER1)'
+lua 2 'T_land = 1 ktgame_timer.OnCustomKey(ktgame_timer, 0, CUSTKEY_USER1)'
 check "client reaches the end" wait_since 2 'movie 1: ended here, waiting for the others' 60
 check "host finishes once the client has" wait_since 1 'movie 1: everyone has seen the end' 10
 check "client finishes with the host" wait_since 2 'movie 1: everyone has seen the end' 10

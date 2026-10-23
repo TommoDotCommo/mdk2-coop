@@ -5,10 +5,22 @@
 # Takes about 2 minutes. Background test mode: the games sit muted behind other windows on the
 # second monitor and get scripted input only, so the PC stays usable. Leaves the settings.lua line in.
 #   tools/qa.sh            run every check
+#   MUTANT=overlap|magnet tools/qa.sh   the partner's character kept too close (0.5: inside the collision) or
+#                          too far (3, as before): passes only if the standing check catches it
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/mdk.sh"
 MDK2_BACKGROUND=1 MDK2_START="1 2" "$here/install.sh" >/dev/null || exit 1   # always test what is in the repo; host autostarts 1-2
+case "${MUTANT:-}" in
+    "") ;;
+    overlap) apart=0.5 ;;
+    magnet) apart=3 ;;
+    *) echo "unknown MUTANT $MUTANT"; exit 2 ;;
+esac
+if [ -n "${MUTANT:-}" ]; then
+    for i in 1 2; do sed -i "s/^coop.apart = 1\r\?\$/coop.apart = $apart\r/" "$(mdk_wsl "$(mdk_dir $i)")/coop/coop.lua"; done
+    grep -q "^coop.apart = $apart" "$(mdk_wsl "$(mdk_dir 1)")/coop/coop.lua" || { echo "mutant $MUTANT did not apply"; exit 2; }
+fi
 
 pass=0; fail=0; results=()
 out="$here/../local/qa/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$out"   # state dumps and reports
@@ -33,6 +45,20 @@ H=1; C=2
 check "both games running"                      bash -c "$(declare -f mdk_alive); mdk_alive $A && mdk_alive $B"
 check "client got the host's packets"           has $C "first packet from peer"
 check "client followed the host into level 1"   has $C "host started level 1 checkpoint 2: following"
+# both start on the same spot: the host, standing still, is not pushed, and sees its partner right beside it
+# (the characters collide at about 0.88 units; the partner used to be kept 3 away and slid off as you came near)
+mdk_cmd "$A" 'T_sx, T_sy = coop_pose(mdkGetPlayerGob())'
+sleep 5
+n0=$(wc -l < "$(mdk_log $H)")
+mdk_cmd "$A" 'local x, y = coop_pose(mdkGetPlayerGob()); local a, b = coop_pose(coop.puppets[1])
+              coop_log(format("T stand moved %.2f beside %.2f", sqrt((x-T_sx)*(x-T_sx) + (y-T_sy)*(y-T_sy)), sqrt((a-x)*(a-x) + (b-y)*(b-y))))'
+sleep 0.5
+stand=$(tail -n +$((n0 + 1)) "$(mdk_log $H)" | grep -oE 'T stand moved [0-9.]+ beside [0-9.]+' | tail -1)
+echo "$stand" > "$out/stand.txt"
+check "standing together: the host is not pushed ($stand)" \
+    awk -v m="$(echo "$stand" | awk '{print $4}')" 'BEGIN { exit !(m != "" && m < 0.2) }'
+check "standing together: the partner is right beside, not kept away ($stand)" \
+    awk -v d="$(echo "$stand" | awk '{print $6}')" 'BEGIN { exit !(d != "" && d >= 0.85 && d < 1.5) }'
 
 # 2. enemies
 sleep 2
@@ -178,6 +204,10 @@ for i in $(mdk_seq); do cp "$(mdk_log "$i")" "$out/game$i.log"; done
 mdk_kill
 
 printf '%s\n' "${results[@]}"
+if [ -n "${MUTANT:-}" ]; then
+    printf '%s\n' "${results[@]}" | grep -q "^FAIL  standing together" && { echo "mutant $MUTANT caught"; exit 0; }
+    echo "mutant $MUTANT NOT caught"; exit 1
+fi
 grep -h '^FAIL' "$out"/report_*.txt 2>/dev/null | sed 's/^/  state: /'
 echo "state dumps: $out"
 echo "$pass passed, $fail failed"

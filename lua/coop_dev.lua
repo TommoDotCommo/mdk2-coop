@@ -652,10 +652,12 @@ function coop.ReviveTick(p)
     end
 end
 
--- The puppet is solid and moved every frame; placed inside our player (both spawn on the
--- same point) it shoves us across the room (25 units into a wall at level 1's start).
--- Keep it at least coop.apart units away horizontally (z is up). --
-coop.apart = 3
+-- The puppet is solid and moved every frame. Two characters collide at about 0.88 units (measured at 1-1:
+-- closer, the engine moves our player out to 0.88; at 1 or more nothing moves), so the puppet stays where its
+-- player is and is only nudged out to coop.apart (horizontally, z is up) when the two would overlap, as they do
+-- when both spawn on the same point. It used to be kept 3 away, which made the other player slide off as you
+-- came near. --
+coop.apart = 1
 function coop.KeepApart(p, x, y)
     local dx = x - p.position.x
     local dy = y - p.position.y
@@ -773,8 +775,9 @@ end
 -- need keeping together, not copying: the ones that start with a level load (and the ones those
 -- start from their Done) begin on a shared go from the host, skipping is a vote (the game's
 -- abort key, Backspace: a majority of those watching skips for everyone) and the movie's Done,
--- which usually loads the next level, waits until everyone has seen the end. Both waits have a
--- countdown, so one slow or idle player holds nobody up for long; a vote stays until the movie ends.
+-- which usually loads the next level, waits until everyone watching has seen the end (or left) or the vote
+-- has skipped it. The wait for everyone to be ready at the start has a countdown; a vote stays until the movie
+-- ends; the game's own skip (Esc) is a vote too.
 -- The banner counts down the time the movie has left, once its length is known (coop.mvlen: measured,
 -- or learned the first time it plays to the end). The host tallies and rules; the clients report
 -- (bridge/movie.c carries the EV_MOVIE events).
@@ -793,7 +796,6 @@ MV_FALL = 9         -- the skydive: where a player's Kurt is (x, y; damage = its
 MV_FALLMIS = 10     -- the skydive: where the homing missile chasing a player is (x, y, z; damage 1 = flying, 0 = none)
 
 coop.mv_start_ms = 20000    -- longest wait for the others to load and be ready
-coop.mv_hold_ms = 20000     -- after the first player has seen the end, the others get this long
 coop.mv_trigger_ms = 4000   -- a movie the host's trigger started: the others are told at once, so a short wait
 coop.mv_load_ms = 15000     -- a movie that starts this soon after a level load is one every game plays
 coop.mv_box_ms = 4000       -- the cutscene box shows this long after a key press
@@ -974,6 +976,24 @@ comfuncs.game[COM_ABORTMOVIE] = function()
     end
 end
 
+-- The engine's own skip (Esc: it calls StopScript on the movie mid-way, no Lua command on the way) would end the
+-- movie for this player alone. While others watch, a stop in the middle of the co-op movie that follows a key
+-- press is a skip vote instead (not a second press: it does not take a vote back). A movie's own end (the
+-- script runner calls StopScript past its last step) and the game's scripted stops (no key) go through --
+function StopScript(self)
+    local m = coop.mv
+    if (m and self == m.gob and m.state == "play" and not m.skipping and coop.MovieOthers() and
+        self.stack and self.stack.movie and self.stack.script[self.stack.nexttask]) then
+        local code, ago = coop_last_press()
+        if (code and ago < 1000) then
+            coop_log(format("movie %d: the game's skip (key %d) counts as a vote", m.serial, code))
+            if (m.myvote ~= 1) then comfuncs.game[COM_ABORTMOVIE]() end
+            return 0
+        end
+    end
+    return coop.stop_orig(self)
+end
+
 -- the host's count: who is here, who wants to skip, who has seen the end --
 function coop.MovieTally(m)
     local r = coop.MovieReports(m.serial)
@@ -1041,10 +1061,9 @@ end
 -- host: the tally goes to everyone for their banners --
 function coop.MovieBroadcast(m, parts, yes, done)
     local now = coop_ms()
-    local hleft, sleft = -1, -1
-    if (m.state == "hold" and m.hold_at) then hleft = (m.hold_at + coop.mv_hold_ms - now) / 1000 end
+    local sleft = -1
     if (m.state == "wait") then sleft = (m.wait_until - now) / 1000 end
-    coop_movie_send(MV_STATE, yes, m.serial, -1, -1, hleft, sleft, done, parts, m.state)
+    coop_movie_send(MV_STATE, yes, m.serial, -1, -1, -1, sleft, done, parts, m.state)
 end
 
 function coop.MovieHostTick(m)
@@ -1072,7 +1091,8 @@ function coop.MovieHostTick(m)
             return
         end
     elseif (m.state == "hold") then
-        if (done >= parts or now >= m.hold_at + coop.mv_hold_ms) then
+        -- everyone who is watching has seen the end (or left): a player paused in a menu holds everyone --
+        if (done >= parts) then
             coop_movie_send(MV_FINISH, 0, m.serial, -1, 0, 0, 0, 0, 0, "")
             coop.MovieFinish(m)
             return
@@ -1106,7 +1126,6 @@ end
 function coop.MovieBanner(m)
     local now = coop_ms()
     local s = m.s
-    local el = s and (now - s.at) / 1000 or 0
     local l1, l2, prog = "", "", -1
     local b1, b2, b3 = "", "", ""
     if (m.state == "wait") then
@@ -1116,20 +1135,14 @@ function coop.MovieBanner(m)
         if (left > 0) then l2 = format("starting in %d s", floor(left) + 1) end
     elseif (m.state == "hold") then
         local parts, done = 0, 0
-        local hleft = (m.hold_at + coop.mv_hold_ms - now) / 1000
         if (coop_role() == "host") then
             local p, _, d = coop.MovieTally(m)
             parts, done = p, d
         elseif (s) then
             parts, done = s.parts, s.done
-            if (s.hleft >= 0) then hleft = s.hleft - el end
         end
-        l1 = "Waiting for the other players to finish..."
-        if (parts > 0) then l1 = format("Waiting for the others to finish (%d of %d)", done, parts) end
-        if (hleft > 0) then
-            l2 = format("continuing in %d s", floor(hleft) + 1)
-            prog = hleft / (coop.mv_hold_ms / 1000)
-        end
+        l1 = "Waiting for the others to finish the cutscene..."
+        if (parts > 0) then l1 = format("Waiting for the others to finish the cutscene (%d of %d)", done, parts) end
     elseif (m.state == "play" and not Save.inminigame) then
         -- the box at the bottom right: the time the movie has left, the skip key and the vote. It shows
         -- for a while after the player presses a key other than the skip key (so it stays out of the
@@ -1249,7 +1262,7 @@ function coop.MovieEvent(name, a, serial, op, from, x, y, z, e0, e1)
         if (m and m.serial == serial and m.state == "wait") then coop.MovieGo(m) end
     elseif (op == MV_STATE) then
         if (m and m.serial == serial) then
-            m.s = { yes = a, needed = floor(e1 / 2) + 1, hleft = y, sleft = z, done = e0, parts = e1, at = coop_ms() }
+            m.s = { yes = a, needed = floor(e1 / 2) + 1, sleft = z, done = e0, parts = e1, at = coop_ms() }
         end
     elseif (op == MV_SKIP) then
         if (m and m.serial == serial and m.state == "play") then coop.MovieSkip(m) end

@@ -164,14 +164,15 @@ scripts itself (`StartMovie`), so the mod keeps them together instead of copying
 level load (the lounge scene, the skydive, the end movies) and the ones those start from their Done begin on the host's
 go, once every player in the level is ready (at most 20 s). **Backspace** (the game's abort-movie key) is a skip vote:
 a majority of the players watching skips for everyone (two players: both); a vote stays until the movie ends and
-the key again takes it back (Options > Co-op > Controls, "Skip cutscene"). A box at the bottom right shows the time
+the key again takes it back (Options > Co-op > Controls, "Skip cutscene"). The game's own skip (Esc, which the engine
+handles without a Lua command: it stops the movie script mid-way) is turned into a vote too. A box at the bottom right shows the time
 the movie has left (measured with `tools/measure_movies.sh`, or learned the first time it plays to the end,
 `coop.ini` `[movies]`), the skip key, whether you voted and the vote count; it shows for a few seconds after you press
 another key, and while anyone has voted. The skydive and the torpedo
 minigames (levels 2, 5, 9) cannot be skipped: everyone plays their own copy and sees the others' ships as ghosts (in
 the skydive: the other Kurts, tilted as the game tilts yours, and the homing missiles chasing them) (`tools/qa_minigames.sh`). A
-movie's Done (usually the next level) waits until every player has seen the end; the first to finish sees "waiting for
-the others" with a countdown, and the others have 20 s after the host's own movie ends. A movie a trigger starts in the
+movie's Done (usually the next level) waits until every player watching has seen the end (or left), with no time
+limit: a player paused in a menu holds the others; the first to finish sees "waiting for the others to finish". A movie a trigger starts in the
 host's game (a boss entrance, the fan cutscene) is announced to the clients, which play it from their own copy of the
 function. A trigger that fires on a client first is that client's alone. Events are `EV_MOVIE`; the host tallies.
 
