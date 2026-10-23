@@ -50,8 +50,14 @@ mdk_kill; sleep 2
 for i in 1 2; do rm -f "$(dir $i)/coop/launcher.txt"; done
 
 # three co-op sessions in the host's saves.ini: one it hosted with 3 players (newest), an older
-# one with 2, and one hosted by a friend. The player id is made up for this run.
+# one with 2, and one hosted by a friend. The player id is made up for this run, and both files go back
+# as they were afterwards: a copy left with this id shares it with the next copy that gets it, and a
+# host then gives that client another player's slot.
 now=$(date +%s)
+seeded="$(dir 1)/coop"
+for f in player.ini saves.ini; do rm -f "$seeded/$f.qa"; [ -e "$seeded/$f" ] && cp "$seeded/$f" "$seeded/$f.qa"; done
+unseed() { for f in player.ini saves.ini; do rm -f "$seeded/$f"; [ -e "$seeded/$f.qa" ] && mv "$seeded/$f.qa" "$seeded/$f"; done; }
+trap 'unseed' EXIT
 printf '[player]\r\nid=0a0b0c0d\r\nname=Tom\r\n' > "$(dir 1)/coop/player.ini"
 cat > "$(dir 1)/coop/saves.ini" <<SEED
 [h0a0b0c0d_1234]

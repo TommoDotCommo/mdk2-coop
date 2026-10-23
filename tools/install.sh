@@ -22,6 +22,13 @@ for i in $(mdk_seq); do
     [ -f "$d/mdk2hd.exe" ] || { echo "no game in $d (tools/copies.sh makes more copies)"; exit 1; }
     mkdir -p "$d/coop"
     cp "$here/bridge/dinput8.dll" "$d/"
+    # a host keeps the slot each player id had ([slots] in player.ini) and gives a new id one nobody has had:
+    # a test copy that has hosted earlier runs would make its client player 3, 4, ... Forget them (a new file,
+    # not written in place: lab copies are hard-linked)
+    p="$d/coop/player.ini"
+    if [ -f "$p" ] && grep -q '^\[\(steam_\)\?slots\]' "$p"; then
+        awk '/^\[/ { skip = ($0 ~ /^\[(steam_)?slots\]/) } !skip' "$p" > "$p.new" && rm -f "$p" && mv "$p.new" "$p"
+    fi
     dirs="$dirs $d"
 done
 mx=0; my=0

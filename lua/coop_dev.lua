@@ -30,6 +30,14 @@ function mdkSpawnerSetSpawnedObject(spawner, objtype, a, b, c, d, e, f, g)
     return coop.setspawned_orig(spawner, objtype, a, b, c, d, e, f, g)
 end
 
+-- a gob that is already gone is left alone: a client has removed its copies of the host's enemies, which
+-- movies still delete by name (level 8's intro: Level.ForAllConeheads(omGobDelete)), and the game's delete
+-- of a gone gob crashes --
+coop.delete_orig = omGobDelete
+function omGobDelete(gob)
+    if (coop_alive(gob)) then coop.delete_orig(gob) end
+end
+
 -- event kinds, as in bridge.h --
 EV_HIT = 1
 EV_APPLY = 2
@@ -691,6 +699,7 @@ function level(l, cp, sec)
     coop.level_ready = nil
     coop.fallghost = {}
     coop.fallpos = {}
+    coop.fallmis = {}
     coop.fallactive = nil
     coop.level_ms = coop_ms()
     coop_banner()
@@ -752,9 +761,11 @@ end
 -- need keeping together, not copying: the ones that start with a level load (and the ones those
 -- start from their Done) begin on a shared go from the host, skipping is a vote (the game's
 -- abort key, Backspace: a majority of those watching skips for everyone) and the movie's Done,
--- which usually loads the next level, waits until everyone has seen the end. Both waits and the
--- vote have a countdown, so one slow or idle player holds nobody up for long. The host tallies
--- and rules; the clients report (bridge/movie.c carries the EV_MOVIE events).
+-- which usually loads the next level, waits until everyone has seen the end. Both waits have a
+-- countdown, so one slow or idle player holds nobody up for long; a vote stays until the movie ends.
+-- The banner counts down the time the movie has left, once its length is known (coop.mvlen: measured,
+-- or learned the first time it plays to the end). The host tallies and rules; the clients report
+-- (bridge/movie.c carries the EV_MOVIE events).
 -- ---------------------------------------------------------------------------------------
 
 EV_MOVIE = 20
@@ -767,9 +778,9 @@ MV_DONE = 6         -- client -> host: my movie reached its end and waits
 MV_FINISH = 7       -- host -> all: everyone has seen the end (or ran out of time): run Done
 MV_BEGIN = 8        -- host -> all: start movie `name` (a function in coop.moviehooks); type = the serial it has here
 MV_FALL = 9         -- the skydive: where a player's Kurt is (x, y; damage = its dead state; extra 0 = whose, from the host)
+MV_FALLMIS = 10     -- the skydive: where the homing missile chasing a player is (x, y, z; damage 1 = flying, 0 = none)
 
 coop.mv_start_ms = 20000    -- longest wait for the others to load and be ready
-coop.mv_vote_ms = 15000     -- a skip vote stays open this long
 coop.mv_hold_ms = 20000     -- after the first player has seen the end, the others get this long
 coop.mv_trigger_ms = 4000   -- a movie the host's trigger started: the others are told at once, so a short wait
 coop.mv_load_ms = 15000     -- a movie that starts this soon after a level load is one every game plays
@@ -777,6 +788,42 @@ coop.mvr = {}               -- host: reports by serial: coop.mvr[serial][slot] =
 coop.mvgo = {}              -- client: serials the host has already sent GO for
 coop.mvcount = 0
 coop.mv = nil               -- the movie this game is in
+-- movie lengths in ms of play (waits and minigames left out), by coop.MovieKey, measured by
+-- tools/measure_movies.sh (the checkpoint it was loaded from, which may have led into it); coop.ini [movies]
+-- adds the ones this game has seen to the end --
+coop.mvlen = {
+    ["camera_134_68156"] = 61504,          -- 1-9
+    ["l0a_56_28075"] = 112089,             -- 1-9
+    ["ml1b_camera_28_10231"] = 35467,      -- 1-9
+    ["camera_76_32433"] = 35716,           -- 1-10
+    ["camera_80_30270"] = 54500,           -- 1-10
+    ["ml2b_cameragob_215_112746"] = 57051, -- 1-10
+    ["camera_94_44515"] = 67407,           -- 2-14
+    ["camera_98_42800"] = 50006,           -- 2-14
+    ["camera_185_108232"] = 71652,         -- 3-14
+    ["camera_27_11537"] = 15931,           -- 3-14
+    ["camera_108_41885"] = 47071,          -- 4-13
+    ["ml5a_camera_131_74245"] = 52875,     -- 4-13
+    ["camera_116_65182"] = 42525,          -- 4-15
+    ["camera_78_35021"] = 34846,           -- 5-12
+    ["camera_77_34620"] = 48037,           -- 5-13
+    ["camera_97_51857"] = 40075,           -- 5-13
+    ["camera_84_46413"] = 62035,           -- 6-9
+    ["camera_83_42671"] = 42133,           -- 7-11
+    ["camera_93_46684"] = 51284,           -- 7-12
+    ["camera_136_49575"] = 62934,          -- 8-8
+    ["camera_68_33424"] = 48142,           -- 8-9
+    ["camera_127_70103"] = 55331,          -- 8-10
+    ["ml9a_camera_106_37192"] = 68010,     -- 8-10
+    ["camera_109_57520"] = 55427,          -- 9-14
+    ["camera_62_28602"] = 33324,           -- 9-14
+    ["_15_2720"] = 329058,                 -- 10-8
+    ["camera_57_25907"] = 26685,           -- 10-8
+    ["l0z_33_13350"] = 56099,              -- 10-8
+    ["camera_159_109543"] = 77497,         -- 10-9
+    ["l0x_31_15090"] = 48731,              -- 11-2
+    ["l0y_25_11620"] = 42519,              -- 12-2
+}
 
 coop.start_orig = StartMovie
 coop.stop_orig = StopScript
@@ -805,8 +852,10 @@ function coop.MovieStarted(gob, sc)
     coop.mvcount = coop.mvcount + 1
     local m = {
         serial = coop.mvcount, gob = gob, sc = sc, state = "wait", at = coop_ms(),
-        skippable = (sc.Done ~= nil), s = nil,
+        skippable = (sc.Done ~= nil), s = nil, played = 0,
     }
+    m.key = coop.MovieKey(m)
+    m.len = coop.mvlen[m.key] or tonumber(coop_get("movies", m.key, ""))
     coop.mv = m
     if (sc.Done) then
         local orig = sc.Done
@@ -836,6 +885,21 @@ function coop.MovieStarted(gob, sc)
     end
 end
 
+-- a movie's name: the gob that plays it, its number of steps and the sum of its animation ids and waits (many
+-- movies play on the camera gob). Not the level: a movie of a level load starts before coop.level is set --
+function coop.MovieKey(m)
+    local n, sum = 0, 0
+    while (m.sc[n + 1]) do
+        n = n + 1
+        local f, args = m.sc[n][1], m.sc[n][2]
+        if (type(args) == "table") then
+            if ((f == omAnimPlay or f == omAnimJustLooped) and type(args[2]) == "number") then sum = sum + args[2]
+            elseif (f == Wait and type(args[2]) == "number") then sum = sum + args[2] end
+        end
+    end
+    return format("%s_%d_%d", m.gob.name or "?", n, floor(sum * 10 + 0.5))
+end
+
 function coop.MovieReports(serial)
     if (not coop.mvr[serial]) then coop.mvr[serial] = {} end
     return coop.mvr[serial]
@@ -847,6 +911,7 @@ function coop.MovieDone(m, orig)
         coop.RunDone(orig)
         return
     end
+    coop.MovieLearn(m)
     m.state = "hold"
     m.finish = orig
     m.hold_at = coop_ms()
@@ -856,6 +921,14 @@ function coop.MovieDone(m, orig)
         coop_movie_send(MV_DONE, 0, m.serial, -1, 0, 0, 0, 0, 0, "")
     end
     coop_log(format("movie %d: ended here, waiting for the others", m.serial))
+end
+
+-- played to its end, nothing skipped: now its length is known --
+function coop.MovieLearn(m)
+    if (not m.go_at or m.skipped) then return end
+    coop_log(format("movie %d: length %s %d", m.serial, m.key, m.played))
+    coop.mvlen[m.key] = m.played
+    coop_set("movies", m.key, format("%d", m.played))
 end
 
 -- a movie started by a Done is the same movie session: it is kept together too --
@@ -918,8 +991,8 @@ end
 function coop.MovieSkip(m)
     coop_log(format("movie %d: skipped by vote", m.serial))
     m.skipping = 1
+    m.skipped = 1
     m.myvote = 0
-    m.vote_until = nil
     local r = coop.MovieReports(m.serial)
     local s = 0
     while (s < 16) do
@@ -936,6 +1009,7 @@ end
 function coop.MovieGo(m)
     m.state = "play"
     m.go_at = coop_ms()
+    m.tick_at = m.go_at
     if (m.gob.stack) then ResumeScript(m.gob) end
     coop_log(format("movie %d: go", m.serial))
 end
@@ -951,11 +1025,10 @@ end
 -- host: the tally goes to everyone for their banners --
 function coop.MovieBroadcast(m, parts, yes, done)
     local now = coop_ms()
-    local vleft, hleft, sleft = -1, -1, -1
-    if (m.vote_until) then vleft = (m.vote_until - now) / 1000 end
+    local hleft, sleft = -1, -1
     if (m.state == "hold" and m.hold_at) then hleft = (m.hold_at + coop.mv_hold_ms - now) / 1000 end
     if (m.state == "wait") then sleft = (m.wait_until - now) / 1000 end
-    coop_movie_send(MV_STATE, yes, m.serial, -1, vleft, hleft, sleft, done, parts, m.state)
+    coop_movie_send(MV_STATE, yes, m.serial, -1, -1, hleft, sleft, done, parts, m.state)
 end
 
 function coop.MovieHostTick(m)
@@ -977,24 +1050,10 @@ function coop.MovieHostTick(m)
             m.bcast = 0
         end
     elseif (m.state == "play") then
-        if (votes > 0 and not m.vote_until) then
-            m.vote_until = now + coop.mv_vote_ms
-        end
-        if (m.vote_until) then
-            if (yes >= needed) then
-                coop_movie_send(MV_SKIP, 0, m.serial, -1, 0, 0, 0, 0, 0, "")
-                coop.MovieSkip(m)
-                return
-            elseif (now >= m.vote_until) then
-                coop_log(format("movie %d: skip vote failed (%d of %d)", m.serial, yes, needed))
-                m.vote_until = nil
-                m.myvote = 0
-                local s = 0
-                while (s < 16) do
-                    if (r[s]) then r[s].vote = nil end
-                    s = s + 1
-                end
-            end
+        if (votes > 0 and yes >= needed) then
+            coop_movie_send(MV_SKIP, 0, m.serial, -1, 0, 0, 0, 0, 0, "")
+            coop.MovieSkip(m)
+            return
         end
     elseif (m.state == "hold") then
         if (done >= parts or now >= m.hold_at + coop.mv_hold_ms) then
@@ -1054,22 +1113,31 @@ function coop.MovieBanner(m)
             l2 = format("continuing in %d s", floor(hleft) + 1)
             prog = hleft / (coop.mv_hold_ms / 1000)
         end
-    elseif (m.state == "play" and m.skippable and not Save.inminigame and Save.movietocancel) then
-        local yes, needed, vleft = 0, 2, -1
-        if (coop_role() == "host") then
-            local p, y = coop.MovieTally(m)
-            yes, needed = y, floor(p / 2) + 1
-            if (m.vote_until) then vleft = (m.vote_until - now) / 1000 end
-        elseif (s) then
-            yes, needed = s.yes, s.needed
-            if (s.vleft >= 0) then vleft = s.vleft - el end
+    elseif (m.state == "play" and not Save.inminigame) then
+        -- the time this movie has left, then the skip vote --
+        local skip = ""
+        if (m.skippable and Save.movietocancel) then
+            local yes, needed = 0, 2
+            if (coop_role() == "host") then
+                local p, y = coop.MovieTally(m)
+                yes, needed = y, floor(p / 2) + 1
+            elseif (s) then
+                yes, needed = s.yes, s.needed
+            end
+            if (yes > 0) then
+                skip = format("Skip cutscene: %d of %d (Backspace)", yes, needed)
+            elseif (now < (m.go_at or m.at) + 6000) then
+                skip = "Backspace: vote to skip the cutscene"
+            end
         end
-        if (vleft > 0) then
-            l1 = format("Skip cutscene: %d of %d (Backspace)", yes, needed)
-            l2 = format("vote ends in %d s", floor(vleft) + 1)
-            prog = vleft / (coop.mv_vote_ms / 1000)
-        elseif (now < (m.go_at or m.at) + 6000) then
-            l1 = "Backspace: vote to skip the cutscene"
+        if (m.len and m.len > 0) then
+            local left = (m.len - m.played) / 1000
+            if (left < 0) then left = 0 end
+            l1 = format("Cutscene %d:%02d", floor(left / 60), floor(left) - floor(left / 60) * 60)
+            l2 = skip
+            prog = left / (m.len / 1000)
+        else
+            l1 = skip
         end
     end
     coop_banner(l1, l2, prog)
@@ -1094,9 +1162,16 @@ function coop.MovieTick()
         return
     end
     if (m.state ~= "hold" and m.state ~= "wait" and not (m.gob.stack and m.gob.stack.movie)) then
-        -- ended by itself (no Done to wait for) or by the game's own skip --
+        -- ended by itself (no Done to wait for; with others here Backspace only votes) --
+        coop.MovieLearn(m)
         coop.MovieClear("ended")
         return
+    end
+    if (m.state == "play") then
+        -- time played: the minigame inside a movie (the skydive) does not count --
+        local now = coop_ms()
+        if (not Save.inminigame) then m.played = m.played + (now - m.tick_at) end
+        m.tick_at = now
     end
     if (coop_role() == "host") then coop.MovieHostTick(m) else coop.MovieClientTick(m) end
     if (coop.mv == m) then coop.MovieBanner(m) else coop_banner() end
@@ -1128,6 +1203,14 @@ function coop.MovieEvent(name, a, serial, op, from, x, y, z, e0, e1)
                 if (s ~= from and coop_connected(s)) then coop_movie_send(MV_FALL, a, serial, s, x, y, 0, from, 0, "") end
                 s = s + 1
             end
+        elseif (op == MV_FALLMIS) then
+            coop.FallMissHear(from, a, x, y, z)
+            local _, slots = coop_players()
+            local s = 1
+            while (s < slots) do
+                if (s ~= from and coop_connected(s)) then coop_movie_send(MV_FALLMIS, a, serial, s, x, y, z, from, 0, "") end
+                s = s + 1
+            end
         end
         return
     end
@@ -1136,7 +1219,7 @@ function coop.MovieEvent(name, a, serial, op, from, x, y, z, e0, e1)
         if (m and m.serial == serial and m.state == "wait") then coop.MovieGo(m) end
     elseif (op == MV_STATE) then
         if (m and m.serial == serial) then
-            m.s = { yes = a, needed = floor(e1 / 2) + 1, vleft = x, hleft = y, sleft = z, done = e0, parts = e1, at = coop_ms() }
+            m.s = { yes = a, needed = floor(e1 / 2) + 1, hleft = y, sleft = z, done = e0, parts = e1, at = coop_ms() }
         end
     elseif (op == MV_SKIP) then
         if (m and m.serial == serial and m.state == "play") then coop.MovieSkip(m) end
@@ -1146,6 +1229,8 @@ function coop.MovieEvent(name, a, serial, op, from, x, y, z, e0, e1)
         coop.MovieBegin(name, serial)
     elseif (op == MV_FALL) then
         coop.FallHear(e0, a, x, y)
+    elseif (op == MV_FALLMIS) then
+        coop.FallMissHear(e0, a, x, y, z)
     end
 end
 
@@ -1163,6 +1248,7 @@ coop.fall_ms = 125
 coop.fallghost = {}     -- slot -> ghost gob
 coop.fallpos = {}       -- slot -> { x, y, dead } last heard
 coop.fallseq = 0
+coop.fallmis = {}       -- slot -> { hx, hy, hz, vx, vy, vz, at, gob }: the missile chasing that player (level 1)
 
 -- the two numbers that place a ship, and the place they give --
 function coop.FallNumbers(l, g)
@@ -1202,6 +1288,13 @@ function coop.FallClear()
     end
     coop.fallghost = {}
     coop.fallpos = {}
+    s, g = next(coop.fallmis, nil)
+    while (s) do
+        if (g.gob and coop_alive(g.gob)) then omGobDelete(g.gob) end
+        s, g = next(coop.fallmis, s)
+    end
+    coop.fallmis = {}
+    coop.fallmis_sent = nil
     coop.fallactive = nil
     coop.fall_next = nil
 end
@@ -1222,6 +1315,15 @@ function coop.FallTick()
         coop.fall_next = now + coop.fall_ms
         local a, b = coop.FallNumbers(l, own)
         coop_movie_send(MV_FALL, own.dead or 0, m.serial, -1, a, b, 0, 0, 0, "")
+        if (l == 1) then
+            -- the homing missile the game fires at our Kurt (a bullet: the engine moves it, so read its place) --
+            local mis = kurtgame and kurtgame.lastmis
+            local x, y, z
+            if (mis and type(mis) ~= "number" and not mis.exploding) then x, y, z = coop_pose(mis) end
+            if (x) then coop_movie_send(MV_FALLMIS, 1, m.serial, -1, x, y, z, 0, 0, "")
+            elseif (coop.fallmis_sent) then coop_movie_send(MV_FALLMIS, 0, m.serial, -1, 0, 0, 0, 0, 0, "") end
+            coop.fallmis_sent = x
+        end
     end
     local ease = chGetDeltaT() * 12
     if (ease > 1) then ease = 1 end
@@ -1236,8 +1338,11 @@ function coop.FallTick()
             coop.fallseq = coop.fallseq + 1
             p.x = p.tx
             p.y = p.ty
+            -- facing the way our own ship (or Kurt) faces: the skydiving Kurt is tilted, not upright --
+            local _, _, _, qw, qx, qy, qz = coop_pose(own)
+            if (not qw) then qw, qx, qy, qz = 1, 0, 0, 0 end
             g = mdkCreateObjectLua(format("coop_fall%d_%d", s, coop.fallseq), OBJ_SCENERY, mdkGetScene(), nil, nil,
-                                   0, 0, 0, 1,0,0,0, spec.model,0,0,0,0)
+                                   0, 0, 0, qw, qx, qy, qz, spec.model,0,0,0,0)
             if (g) then
                 if (l == 1) then omAnimPlay(g, ANIM_ACTION19, 0) else omAnimPlay(g, ANIM_ACTION00, ANIMFLAG_NOTRANS) end
                 if (l == 2 or l == 9) then mdkGobSetOrientation(g, PI/2, 0, 0) end
@@ -1251,6 +1356,50 @@ function coop.FallTick()
             coop.FallPlace(l, g, p.x, p.y)
         end
         s, p = next(coop.fallpos, s)
+    end
+    coop.FallMissiles(now)
+end
+
+-- the missiles chasing the others: harmless ghosts, carried on along their last heading between reports --
+function coop.FallMissHear(slot, flying, x, y, z)
+    if (slot == coop_slot()) then return end
+    local p = coop.fallmis[slot]
+    local now = coop_ms()
+    if (flying == 0) then
+        if (p and p.gob and coop_alive(p.gob)) then omGobDelete(p.gob) end
+        coop.fallmis[slot] = nil
+        return
+    end
+    if (not p) then
+        p = { vx = 0, vy = 0, vz = 0 }
+        coop.fallmis[slot] = p
+    elseif (now > p.at) then
+        local dt = (now - p.at) / 1000
+        p.vx, p.vy, p.vz = (x - p.hx) / dt, (y - p.hy) / dt, (z - p.hz) / dt
+    end
+    p.hx, p.hy, p.hz, p.at = x, y, z, now
+end
+
+function coop.FallMissiles(now)
+    local s, p = next(coop.fallmis, nil)
+    while (s) do
+        if (not (p.gob and coop_alive(p.gob))) then
+            coop.fallseq = coop.fallseq + 1
+            p.gob = mdkCreateObjectLua(format("coop_fallmis%d_%d", s, coop.fallseq), OBJ_SCENERY, mdkGetScene(), nil, nil,
+                                       p.hx, p.hy, p.hz, 1,0,0,0, "ktgame_missl0",0,0,0,0)
+            if (p.gob) then
+                omAnimPlay(p.gob, ANIM_ACTION00, ANIMFLAG_NOTRANS)
+                coop_log(format("minigame: player %d's missile flies beside you", s + 1))
+            end
+        end
+        if (p.gob) then
+            -- no more than half a second ahead of the last report --
+            local ahead = (now - p.at) / 1000
+            if (ahead > 0.5) then ahead = 0.5 end
+            mdkGobSetPositionXYZ(p.gob, p.hx + p.vx * ahead, p.hy + p.vy * ahead, p.hz + p.vz * ahead)
+            if (p.vx ~= 0 or p.vy ~= 0 or p.vz ~= 0) then mdkGobPointToXYZ(p.gob, p.vx, p.vy, p.vz) end
+        end
+        s, p = next(coop.fallmis, s)
     end
 end
 

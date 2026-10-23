@@ -401,6 +401,7 @@ void chat_lua_init(void);
 /* ---- frame.c ---- */
 
 void frame_init(void);
+extern int emitter_guard;      /* frame.c: reset negative emitter ring indexes (coop_emitter_guard) */
 
 /* ---- rooms.c ---- */
 

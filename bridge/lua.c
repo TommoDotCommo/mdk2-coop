@@ -487,6 +487,21 @@ static void l_coop_alive(void)
         lua_pushnumber(1);
 }
 
+/* coop_pose(gob) -> x, y, z and the orientation quaternion w, x, y, z, or nil if the gob is gone (the engine
+ * moves some gobs, e.g. bullets, without telling Lua) */
+static void l_coop_pose(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL);
+    const float *f;
+    int i;
+
+    if (!gob_alive(gob))
+        return;
+    f = (const float *)(gob + GOB_POSITION);
+    for (i = 0; i < 7; i++)
+        lua_pushnumber(f[i]);
+}
+
 /* coop_mark(n): put marker n in the partner's log too */
 static void l_coop_mark(void)
 {
@@ -694,6 +709,33 @@ static void l_coop_listgobs(void)
     logmsg("listgobs: %d gobs with game objects, %d synced actors", n, ent_count());
 }
 
+/* coop_emitters(): log the gobs whose +0x70 component is kind 1 (the update at 0x447ab0, which looks like a
+ * particle emitter: +0x0c max, +0x10 count, +0x14 rate?, +0x34 used, +0x38 capacity, +0x7c array of 32-byte
+ * entries, +0x80 accumulator) */
+static void l_coop_emitters(void)
+{
+    int i, n = 0;
+
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *gob = (BYTE *)GOB_TABLE[i * 2], *c;
+        if (!gob || !(c = *(BYTE **)(gob + 0x70)) || *(DWORD *)c != 1)
+            continue;
+        logmsg("  emitter[%d] %-20s flags %04x max %d count %d rate %g f08 %g used %d cap %d acc %g arr %p", i,
+               gob_name(gob), *(unsigned short *)(gob + 0xa6), *(int *)(c + 0x0c), *(int *)(c + 0x10),
+               *(float *)(c + 0x14), *(float *)(c + 0x08), *(int *)(c + 0x34), *(int *)(c + 0x38),
+               *(float *)(c + 0x80), *(void **)(c + 0x7c));
+        n++;
+    }
+    logmsg("emitters: %d", n);
+}
+
+/* coop_emitter_guard(on): frame.c's reset of negative emitter counts (tests turn it off to show the crash) */
+static void l_coop_emitter_guard(void)
+{
+    emitter_guard = num_param(1) != 0.0;
+    logmsg("emitter guard %s", emitter_guard ? "on" : "off");
+}
+
 /* coop_log(msg): write a line to bridge.log */
 static void l_coop_log(void)
 {
@@ -774,8 +816,11 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_peer_type", l_coop_peer_type);
     tolua_function(NULL, "coop_mark", l_coop_mark);
     tolua_function(NULL, "coop_alive", l_coop_alive);
+    tolua_function(NULL, "coop_pose", l_coop_pose);
     tolua_function(NULL, "coop_nearest_enemy", l_coop_nearest_enemy);
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
+    tolua_function(NULL, "coop_emitters", l_coop_emitters);
+    tolua_function(NULL, "coop_emitter_guard", l_coop_emitter_guard);
     tolua_function(NULL, "coop_emote", l_coop_emote);
     tolua_function(NULL, "coop_emoting", l_coop_emoting);
     tolua_function(NULL, "coop_revive_tick", l_coop_revive_tick);

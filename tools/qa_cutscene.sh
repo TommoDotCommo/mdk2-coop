@@ -3,7 +3,7 @@
 # host's go, the skip vote needs a majority (Backspace), the minigame cannot be skipped, and the level
 # change waits until both players have seen the end. Needs a lab lease (tools/qa_all.py gives one).
 #   tools/qa_cutscene.sh      (about 8 minutes)
-#   MUTANT=nobarrier|onevote tools/qa_cutscene.sh   a deliberately broken coop.lua: passes only if the check
+#   MUTANT=nobarrier|onevote|upright tools/qa_cutscene.sh   a deliberately broken coop.lua: passes only if the check
 #                             that guards the broken part fails
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -18,6 +18,8 @@ if [ -n "${MUTANT:-}" ]; then
                    want="host does not load the next level alone" ;;
         onevote)   from='local needed = floor(parts / 2) + 1'; to='local needed = 1'
                    want="one of two votes does not skip" ;;
+        upright)   from='if (not qw) then qw, qx, qy, qz = 1, 0, 0, 0 end'; to='qw, qx, qy, qz = 1, 0, 0, 0'
+                   want="client's ghost Kurt faces like its own" ;;
         *) echo "unknown MUTANT $MUTANT"; exit 2 ;;
     esac
     for i in $(mdk_seq); do
@@ -76,6 +78,12 @@ vote 1
 check "host's vote is counted" wait_since 1 'movie 1: my skip vote 1' 5
 sleep 3
 check "one of two votes does not skip" not_since 1 'skipped by vote'
+# a vote has no time limit: still counted well past the old 15 s
+sleep 15
+lua 2 'coop_hud_dump()'
+check "the vote stays until the movie ends" wait_since 2 'hud banner: .*Skip cutscene: 1 of 2' 5
+# a measured movie (coop.mvlen) counts down the first time it plays
+check "the banner counts down a measured movie" wait_since 2 'hud banner: Cutscene [0-9]+:[0-9][0-9] ' 1
 mark_all
 vote 2
 check "second vote skips on the host" wait_since 1 'movie 1: skipped by vote' 8
@@ -98,6 +106,17 @@ check "host is in the minigame" inmini 1 "$off1" 1
 check "client is in the minigame" inmini 2 "$off2" 2
 check "host sees the client fall beside it" wait_since 1 'minigame: player 2 plays beside you \(level 1\)' 10
 check "client sees the host fall beside it" wait_since 2 'minigame: player 1 plays beside you \(level 1\)' 10
+# the ghost is the skydiving Kurt as the game tilts it, not upright (|dot| of the two orientations near 1)
+facing() {
+    lua 2 'local g = coop.fallghost[0]; local _,_,_,a,b,c,d = coop_pose(ktgame_kurt); local _,_,_,e,f,h,i = coop_pose(g)
+           coop_log(format("T facing %.3f", abs(a*e + b*f + c*h + d*i)))'
+    sleep 0.5
+    local v; v=$(tail -n +"$((off2 + 1))" "$(mdk_log 2)" | grep -oE 'T facing [0-9.]+' | tail -1 | cut -d' ' -f3)
+    echo "dot $v"; awk -v v="${v:-0}" 'BEGIN { exit !(v > 0.99) }'
+}
+check "client's ghost Kurt faces like its own" facing
+# the homing missile the host's game fires at its Kurt flies in the client's sky too (every few seconds)
+check "client sees the host's homing missile" wait_since 2 "minigame: player 1's missile flies beside you" 20
 lua 2 'ktgame_kurt.x = ktgame_kurt.x + 1.6'; sleep 0.8       # the client steers aside: its ghost leaves the host's Kurt
 mdk_shot "$(mdk_pid 1)" "$out/skydive_host.png" || true      # evidence: the friend's ghost in the sky
 mark_all
@@ -127,6 +146,16 @@ check "trigger movie goes on the host" wait_since 1 'movie 1: go' 10
 check "trigger movie goes on the client" wait_since 2 'movie 1: go' 10
 check "trigger movie ends on the host" wait_since 1 'movie 1: over' 20
 check "trigger movie ends on the client" wait_since 2 'movie 1: over' 20
+# played to its end, so its length is known; the next time the banner counts it down
+check "host learns the movie's length" wait_since 1 'movie 1: length [^ ]+ (2[5-9][0-9][0-9]|3[0-4][0-9][0-9])\b' 1
+mark_all
+sleep 16                                                    # a game plays the same trigger movie once in 15 s
+lua 1 'Level.PlayBossMovie()'
+check "second showing goes" wait_since 1 'movie 2: go' 10
+sleep 1
+lua 1 'coop_hud_dump()'
+check "banner counts down the time the movie has left" wait_since 1 'hud banner: Cutscene 0:0[1-3] ' 5
+check "second showing ends" wait_since 2 'movie 2: over' 20
 # a trigger on the client's own side is the client's alone: no announcement, no waiting
 mark_all
 lua 2 'Level.PlayBossMovie()'
