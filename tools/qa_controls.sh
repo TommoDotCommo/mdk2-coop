@@ -37,7 +37,7 @@ sleep 3
 mdk_key "$HP" 1; sleep 2
 mdk_key "$HP" 208 3; sleep 0.5; mdk_key "$HP" 28; sleep 2
 mdk_key "$HP" 208 4; sleep 0.5; mdk_key "$HP" 28; sleep 1.5
-mdk_key "$HP" 208 4; sleep 0.5; mdk_key "$HP" 28; sleep 2      # Co-op: Heading, Players, Session, Gameplay, Controls
+mdk_key "$HP" 208 5; sleep 0.5; mdk_key "$HP" 28; sleep 2      # Players, Session, Gameplay, Interface, Controls
 check "Esc > Options > Co-op > Controls opens the page"   wait_log "^lua: menu: coopctrl" 5
 check "the picture starts on the On foot page"            has "^lua: controls page: foot"
 mdk_shot "$HP" "$out/page_foot.png"
@@ -102,7 +102,8 @@ check "Original unchanged after editing Custom"           eq "$(bound fwd)" "200
 lua 'coop.SetPreset("custom")'; dump
 check "Custom comes back"                                 eq "$(bound back)" "-1 -1"
 mdk_kill; sleep 3
-p=$(mdk_start 1)             # no install: it would rewrite coop.ini; echo "$p" > "$MDK2_PIDS"
+p=$(mdk_start 1)             # no install: it would rewrite coop.ini
+echo "$p" > "$MDK2_PIDS"
 wait_log "^level 1 checkpoint 2 started" 60; sleep 4
 dump
 check "after a restart the Custom preset is still active" eq "$(ini preset)" custom

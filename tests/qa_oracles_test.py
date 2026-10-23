@@ -139,11 +139,17 @@ class RunnerOracle(unittest.TestCase):
                                            None, Path(folder) / "output", 0.05)
             self.assertTrue(timed_out)
 
-    def test_runner_releases_lease_even_when_artifact_collection_fails(self):
+    def resource(self, hook, env, owner, slots):
+        resource = mock.Mock()
+        resource.slots = slots
+        resource.env = env | {"MDK2_PORT": "27900", "MDK2_PIDS": "/tmp/test-pids",
+                              "MDK2_TOOLS": "D:/test/tools"}
+        resource.env.update({f"MDK2_DIR{i}": f"D:/test/copy{i}" for i in range(1, slots+1)})
+        return resource
+
+    def test_runner_releases_resources_even_when_artifact_collection_fails(self):
         gate = qa_all.Gate("fake-game", ("unused",), 2, result="counts")
-        def run(command, **kwargs):
-            # No existing lease; provisioning and release succeed.
-            return subprocess.CompletedProcess(command, 1 if command[1] == "env" else 0)
+        resource = self.resource(None, {}, "test", 2)
         def execute(command, env, logfile, timeout):
             logfile.write_text("1 passed, 0 failed\n")
             return 0, False
@@ -151,14 +157,12 @@ class RunnerOracle(unittest.TestCase):
              mock.patch.object(qa_all, "ROOT", Path(folder)), \
              mock.patch.object(qa_all, "PROFILES", {"test": [gate]}), \
              mock.patch.object(sys, "argv", ["qa_all.py", "test"]), \
-             mock.patch.object(qa_all.subprocess, "run", side_effect=run) as calls, \
-             mock.patch.object(qa_all.subprocess, "call", return_value=0), \
-             mock.patch.object(qa_all, "lab_env", return_value={}), \
+             mock.patch.object(qa_all, "Resources", return_value=resource), \
              mock.patch.object(qa_all, "execute", side_effect=execute), \
              mock.patch.object(qa_all, "collect_games", side_effect=OSError("artifact failure")), \
              contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(qa_all.main(), 1)
-            self.assertTrue(any(call.args[0] == ["lab", "release"] for call in calls.call_args_list))
+            resource.release.assert_called_once()
             report = next(Path(folder).glob("local/regression/*/results.json"))
             self.assertIn('"result": "FAIL"', report.read_text())
 
@@ -168,23 +172,20 @@ class RunnerOracle(unittest.TestCase):
             calls.append(env.copy())
             logfile.write_text("RESULT: PASS\n")
             return 0, False
-        def run(command, **kwargs):
-            return subprocess.CompletedProcess(command, 1 if command[1] == "env" else 0)
         with tempfile.TemporaryDirectory() as folder, \
              mock.patch.object(qa_all, "ROOT", Path(folder)), \
              mock.patch.object(qa_all, "PROFILES", {"test": [qa_all.CAMPAIGN]}), \
              mock.patch.object(sys, "argv", ["qa_all.py", "test", "--campaign-shards", "4"]), \
-             mock.patch.object(qa_all.subprocess, "run", side_effect=run), \
-             mock.patch.object(qa_all.subprocess, "call", return_value=0) as acquire, \
-             mock.patch.object(qa_all, "lab_env", return_value={}), \
+             mock.patch.object(qa_all, "Resources", side_effect=self.resource) as acquire, \
              mock.patch.object(qa_all, "execute", side_effect=execute), \
              mock.patch.object(qa_all, "collect_games") as collect, \
              contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(qa_all.main(), 0)
-            self.assertIn("8", acquire.call_args.args[0])
-            self.assertEqual(calls[0]["MDK2_N"], "2")
-            self.assertEqual(calls[0]["MDK2_SHARDS"], "4")
-            self.assertEqual(calls[1]["MDK2_N"], "8")
+            self.assertEqual(acquire.call_args.args[-1], 8)
+            # Preparatory build, campaign, then cleanup of every reserved copy.
+            self.assertEqual(calls[1]["MDK2_N"], "2")
+            self.assertEqual(calls[1]["MDK2_SHARDS"], "4")
+            self.assertEqual(calls[2]["MDK2_N"], "8")
             self.assertEqual(collect.call_args.args[1], 8)
 
 

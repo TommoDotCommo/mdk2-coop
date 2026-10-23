@@ -1,31 +1,71 @@
 # Automated regression
 
-Run from the repository root on the WSL/Windows lab machine:
+Run from the repository root with the configured test harness:
 
 ```sh
 python3 tools/qa_all.py offline          # build and game-free tests
 python3 tools/qa_all.py smoke            # offline + two-player QA + 1-1..1-3 + one fixture per level
 python3 tools/qa_all.py features         # offline + every feature suite + lossy projectiles
 python3 tools/qa_all.py campaign         # offline + all 96 checkpoint fixtures
-python3 tools/qa_all.py campaign --campaign-shards 4  # four two-game sets; eight slots
+python3 tools/qa_all.py campaign --campaign-shards 4  # four two-game sets; eight copies
 python3 tools/qa_all.py full             # offline + features + loss + campaign
+python3 tools/qa_all.py full --lanes 3 --campaign-shards 4  # isolated lanes, campaign alone
 python3 tools/qa_all.py full --list      # inspect commands, player counts and time limits
 python3 tools/qa_all.py features --gate revive --gate save-reconnect
 python3 tools/qa_all.py smoke --route local/routes/room2.route
 ```
 
 The default is `smoke`. If Windows forces system DLLs ahead of the proxy, prefix
-the command with `MDK2_PROCESS_SERVICE=1` (see README). Game-free means no MDK2
+the command with `MDK2_PROCESS_SERVICE=1` (see [DEVELOPMENT.md](DEVELOPMENT.md)). Game-free means no MDK2
 instance or game files; native tests still require Windows interop and mingw-w64.
-Python oracle tests alone run on Linux:
+Python-only oracle tests:
 `python3 -B -m unittest discover -s tests -p '*_test.py'`.
 
-The runner acquires the maximum required lab slots, provisions isolated copies,
-imports their paths and ports, and runs gates sequentially in background mode.
-It refuses to adopt an existing lease for this worktree. A busy lab returns 3
-immediately; run offline checks and retry later. Every game gate is followed by
-cleanup of all leased copies. Final cleanup releases the lease on success,
-failure, timeout or Ctrl-C. Do not run two runners in the same worktree.
+The runner uses explicitly configured disposable copies or an optional
+resource allocator (see below). Gates run in background mode. `--lanes N` runs up
+to N feature suites concurrently; each lane gets its own copies, ports, helper
+folder and PID file. Offline gates run sequentially first; an offline failure
+stops the ladder. Launcher and installer gates run alone because they edit shared
+settings. Character-motion runs alone because its per-frame probes require consistent frame
+timing. The campaign also runs alone and uses its own `--campaign-shards` setting.
+The default is one lane. Do not edit or rebuild the mod during a regression run.
+
+Each lane reserves enough copies for its largest suite and releases them before
+the next phase. A busy allocator returns 3 immediately and any partial reservations
+are released. Every game gate cleans up all of its lane's copies. Final cleanup
+releases resources on success, failure, timeout or Ctrl-C. Use separate worktrees and an allocator
+for concurrent runners.
+
+## Configuring test resources
+
+For one lane on a dedicated machine, export `MDK2_DIR1` through the number of copies
+needed, `MDK2_PORT`, `MDK2_TOOLS` and `MDK2_PIDS`. Installer checks additionally need
+`MDK2_RUN`, a harness-visible directory on a Windows filesystem. Prepare all copies first;
+the runner never reads a default game install. See
+[test configuration](DEVELOPMENT.md#test-configuration).
+
+Parallel lanes require an executable allocator selected by `--resources <path>`,
+`MDK2_QA_RESOURCES`, or the default ignored `local/qa_resources.py`. The allocation interface is:
+
+- `allocator acquire <copy-count> <ttl-seconds>` reserves and provisions copies.
+  On success, print one JSON object mapping environment names to string values.
+  Return 3 immediately when busy; other nonzero exits mean failure. A failed
+  acquisition must roll back its own partial allocation.
+- `allocator release` stops the reserved games and releases the copies. The runner
+  calls it even if successful acquisition returned malformed JSON.
+- Both calls receive `MDK2_QA_OWNER`, a unique identity per run/lane. Never adopt
+  another owner's reservation. Diagnostics go to stderr, not JSON stdout.
+- Return `MDK2_DIR1..N` (Windows paths), `MDK2_PORT`, `MDK2_TOOLS` (Windows path),
+  `MDK2_PIDS` (harness-visible path) and `MDK2_RUN` (on a Windows filesystem). Return
+  `MDK2_PROCESS_SERVICE=1` when needed. Only `MDK2_` variables are imported.
+- For noncontiguous resources, also return `MDK2_PORTS`: a comma-separated reserved
+  base port for each copy. A campaign shard uses the first copy's port and consecutive
+  ports for its clients; reserve that range. Without this list, shard base ports
+  advance by 16. Distinct lanes must never share game paths, ports, tools or PID files.
+
+Acquisition has a three-minute deadline and release a one-minute deadline. The
+allocator must clean up on termination and use expiring reservations so a killed
+runner cannot hold resources indefinitely. Allocator implementation and setup are supplied by the test environment.
 
 Each gate has a deadline: 10 minutes for features, 90 minutes for the campaign.
 A timeout stops the harness process group and cleans up its games. Game gates
@@ -56,7 +96,7 @@ apply 80 ms latency, 30 ms jitter and 3% loss; this is one simulated condition.
 | Campaign fixtures | 96 debug-menu checkpoints across characters/levels; walk, fire, strafe, client hits | Load following, survival, puppet/enemy counts, HP and world comparisons |
 | Enemy targeting | A live Doganboy is put beside one client only, then beside the other (3 games) | The host's AI bites that client (`damage coop_dog1 -> coop_p<n>`), its game applies HURT events, its hp falls; others, and the faraway client in the control phase, stay unhurt; mutant without HURT sends fails |
 | Death/revive | Native state-machine tests plus real clients: down, damage suppression, revive hold, bleed-out, spectating, lava, team wipe | 69 game-free assertions, ten broken source twins, life/HP/animation reads and HUD text |
-| Cutscenes | The lounge scene and skydive of a new game with two players, then a host-triggered movie | Shared go, skip vote needing a majority and lasting the whole movie, the cutscene box (hidden while watching, shown on a key press and while a vote is open: time left from the measured table or a learned length, skip key, own vote, count), skydive ghost facing like your own Kurt, the other player's homing missile shown nose first, minigame not skippable, level change waiting for the slower player with no time limit (held 25 s), Esc on a client counting as a vote instead of ending its movie alone, trigger movie played by the client; mutants without the barrier, with a one-player vote, with an upright skydive ghost, with a sideways missile and with Esc skipping alone fail |
+| Cutscenes | The lounge scene and skydive of a new game with two players, then a host-triggered movie | Shared go, skip vote needing a majority and lasting the whole movie, the cutscene box (hidden while watching, shown on a key press and while a vote is open: time left from the measured table or a learned length, skip key, own vote, count), skydive ghost facing like your own Kurt, the other player's homing missile shown nose first, minigame not skippable, level change waiting for the slower player with no time limit (held 25 s), Esc on a client counting as a vote instead of ending its movie alone, trigger movie played by the client; mutants without the barrier, with a one-player vote, with an upright skydive ghost, with a sideways missile and with Esc skipping alone fail; an early host GO received before movie creation must initialise the playback clock (the earlygo mutant must fail that assertion) |
 | Minigames | The torpedo runs of levels 2, 5 and 9 with two players, each won through the game's own end-of-course hook | Both games reach the minigame and each logs the other's ghost ship; both survive the end of the minigame (the client crashed at level 2 on a movie-camera emitter with a negative ring index); mutant with the bridge's emitter guard off fails; screenshots as evidence |
 | Level 8 intro | The intro movie with two players | Both see it to its end and the client survives the movie deleting the host's enemies by name; mutant without coop.lua's gone-gob check crashes the client |
 | Level epochs | Same-checkpoint reset after a spawn/pickup, then a same-epoch network outage | Actual loads, restored items/actors, world comparisons, retained world on reconnect; native spawn deferral and epoch-wrap assertions |
@@ -79,6 +119,14 @@ not revalidated by this profile.
 
 ## Failures must be detectable
 
+The cutscene suite also has a focused event-order regression, using two configured
+copies: `tools/qa_cutscene.sh --early-go`. It delivers GO through the real movie
+event handler before creating the client's movie, then requires the playback clock
+to advance and the movie to finish without Lua errors.
+`MUTANT=earlygo tools/qa_cutscene.sh --early-go` removes clock initialisation and
+succeeds only when the clock assertion catches it. The full cutscene gate includes
+the same checks.
+
 `tools/qa_ai.sh` (gate `enemy-targeting`) checks that enemy AI attacks players who are not the host.
 Teleporting the dog sometimes drops it through the floor, so the script confirms it stands beside the
 target (retrying up to three times) before it asserts anything; baselines for the target are taken
@@ -98,9 +146,8 @@ The ordered checkpoint list is `tools/checkpoints.txt`, including nonnumeric
 progression order. Unknown/reversed endpoints fail before launching games.
 Individual and sharded sweeps return nonzero for failed/missing checkpoints;
 all shard exit statuses are checked. `--campaign-shards N` reserves two slots per
-set and captures every set's game logs. Ports follow the actual lab slot numbers.
-Use the campaign profile for a parallel sweep on its own; adding sharding to the
-full profile reserves those slots throughout the feature gates too.
+set and captures every set's game logs. Ports follow MDK2_PORTS when provided.
+The campaign runs in its own phase, so its copies are reserved only for that phase.
 
 World comparisons preserve timing warnings: small differences, swinging doors,
 unbound actors. Persistent large differences fail after the existing 1.5-second

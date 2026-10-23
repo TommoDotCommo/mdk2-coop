@@ -59,7 +59,7 @@ seeded="$(dir 1)/coop"
 for f in player.ini saves.ini; do rm -f "$seeded/$f.qa"; [ -e "$seeded/$f" ] && cp "$seeded/$f" "$seeded/$f.qa"; done
 unseed() { for f in player.ini saves.ini; do rm -f "$seeded/$f"; [ -e "$seeded/$f.qa" ] && mv "$seeded/$f.qa" "$seeded/$f"; done; }
 trap 'unseed' EXIT
-printf '[player]\r\nid=0a0b0c0d\r\nname=Tom\r\n' > "$(dir 1)/coop/player.ini"
+printf '[player]\r\nid=0a0b0c0d\r\nname=PlayerOne\r\n' > "$(dir 1)/coop/player.ini"
 cat > "$(dir 1)/coop/saves.ini" <<SEED
 [h0a0b0c0d_1234]
 a_no=3
@@ -70,11 +70,11 @@ started=$((now - 259200))
 updated=$((now - 7200))
 peak=3
 m_n=3
-m0=Tom
+m0=PlayerOne
 m1=Alice
 m2=Bob
-host_name=Tom
-me=Tom
+host_name=PlayerOne
+me=PlayerOne
 [h0a0b0c0d_5678]
 b_no=2
 b_level=2
@@ -83,10 +83,10 @@ b_file=save\\c0c0d5678b.sav
 updated=$((now - 600000))
 peak=2
 m_n=2
-m0=Tom
+m0=PlayerOne
 m1=Carol
-host_name=Tom
-me=Tom
+host_name=PlayerOne
+me=PlayerOne
 [h1f2e3d4c_9abc]
 a_no=7
 a_level=7
@@ -96,9 +96,9 @@ updated=$((now - 100000))
 peak=2
 m_n=2
 m0=Dave
-m1=Tom
+m1=PlayerOne
 host_name=Dave
-me=Tom
+me=PlayerOne
 SEED
 
 # 1. host: pages, friendly fire on, Host with Enter (Play has the focus at first)

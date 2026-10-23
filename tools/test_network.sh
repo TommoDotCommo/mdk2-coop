@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline Win32 packet tests and epoch mutation twins. No game, Steam account or lab slot.
+# Offline Win32 packet tests and epoch mutation twins. No game, Steam account or game copy.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 python3 - "$here" <<'PY'

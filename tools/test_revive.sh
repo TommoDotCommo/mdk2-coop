@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# No game files, desktop input or lab slots. Exercise revive.c and require broken twins to fail.
+# No game files, desktop input or game copies. Exercise revive.c and require broken twins to fail.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 python3 - "$here" <<'PY'

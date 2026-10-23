@@ -8,8 +8,14 @@
 # the loader line goes there.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
-settings="${MDK2_SETTINGS:-/mnt/c/Users/$(cmd.exe /c 'echo %USERNAME%' 2>/dev/null | tr -d '\r')/AppData/Local/MDK2HD/settings.lua}"
-game_dirs="${GAME_DIRS:-/mnt/c/coop/mdk2-test /mnt/c/coop/mdk2-test2}"
+source "$here/tools/mdk.sh"
+if [ -n "${MDK2_SETTINGS:-}" ]; then settings="$MDK2_SETTINGS"
+else settings="$(mdk_wsl "$(powershell.exe -NoProfile -Command '$env:LOCALAPPDATA' | tr -d '\r')")/MDK2HD/settings.lua"; fi
+if [ -n "${GAME_DIRS:-}" ]; then game_dirs="$GAME_DIRS"
+else
+    game_dirs=""
+    for i in $(mdk_seq); do game_dirs="$game_dirs $(mdk_wsl "$(mdk_dir "$i")")"; done
+fi
 begin='-- >>> mdk2-coop >>>'
 end='-- <<< mdk2-coop <<<'
 

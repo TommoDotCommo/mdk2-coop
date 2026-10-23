@@ -6,7 +6,7 @@
 #   tools/measure_movies.sh 2-12 4-15         only these movie checkpoints
 #   tools/measure_movies.sh t:4               only the trigger movies of level 4
 # Writes local/movies/<date-time>/lengths.txt ("key ms" per line, host's measure) and coop.mvlen.lua (the table).
-# Needs a lab lease (two slots).
+# Needs two isolated game copies.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=2

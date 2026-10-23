@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Emote browser (dev keys) in one background game: PgDn / PgUp / Home / End step through the animations,
-# the wheel plays picks; the caption is drawn while one plays (pixels), Insert keeps, Delete lists, 0 and moving stop. Needs a lab lease.
+# the wheel plays picks; the caption is drawn while one plays (pixels), Insert keeps, Delete lists, 0 and moving stop. Needs isolated game copies.
 #   MDK2_N=1 tools/qa_emote.sh
 #   MUTANT=nofeat MDK2_N=1 tools/qa_emote.sh    the [features] switches ignored: passes only if the check catches it
 #   MUTANT=noreopen MDK2_N=1 tools/qa_emote.sh  All... not shown again after a pick: likewise

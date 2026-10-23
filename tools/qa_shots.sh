@@ -7,7 +7,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/mdk.sh"
 [ "$MDK2_N" -ge 2 ] || { echo 'qa_shots requires at least two games' >&2; exit 1; }
 MDK2_BACKGROUND=1 MDK2_START="1 2" "$here/install.sh" >/dev/null
-out="$here/../local/qa-shots/$(date +%Y%m%d-%H%M%S)"
+out="$here/../local/qa-shots/$(date +%Y%m%d-%H%M%S)-$$"
 mkdir -p "$out"
 cleanup() {
     local i

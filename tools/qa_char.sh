@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Character wheel in one background game: hold J (DIK 36), steer with the mouse, let go to switch hero;
 # "Level's own" (and the next level load, with [game] char_follow on) puts the game's hero back.
-# Needs a lab lease.
+# Needs isolated game copies.
 #   MDK2_N=1 tools/qa_char.sh
 #   MUTANT=nounstick MDK2_N=1 tools/qa_char.sh   no unsticking after a switch: passes only if the stuck-at-a-wall
 #                                                check catches it

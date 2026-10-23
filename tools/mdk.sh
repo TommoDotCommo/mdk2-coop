@@ -1,30 +1,41 @@
-# Helpers for driving local game instances from WSL. Source this file.
+# Helpers for driving test game instances. Source this file.
 #   MDK2_N                  number of instances (default 2); instance 1 is the host, the rest clients
-#   MDK2_DIR<i>             game copy i as a Windows path; defaults: MDK2_DIR_BASE<i> if MDK2_DIR_BASE
-#                           is set (e.g. C:\coop\np -> C:\coop\np1, np2, ...), else C:\coop\mdk2-test,
-#                           C:\coop\mdk2-test2, C:\coop\mdk2-test3, ...
+#   MDK2_DIR<i>             disposable game copy i as a Windows path (required), or
+#   MDK2_DIR_BASE           Windows path prefix; instance number is appended
 #   MDK2_PORT               UDP port of the host (default 27900); instance i listens on MDK2_PORT + i - 1
-#   MDK2_TOOLS              where tools/win/*.ps1 are copied (default C:\coop\tools)
+#   MDK2_TOOLS              Windows folder for tools/win/*.ps1 (default: tools in copy 1)
 #   MDK2_PIDS               file with the instances' pids, in order
 #   MDK2_PROCESS_SERVICE=1  launch through Win32_Process.Create when the calling process
 #                           forces system DLLs ahead of the local dinput8.dll proxy
 # Keys are DirectInput scancodes (1 Esc, 17 W, 30 A, 31 S, 32 D, 57 Space = jump with the co-op
 # bindings, 59-68 F1-F10, 87 F11).
+# Private configuration is optional and never tracked. Export its variables so child scripts
+# receive the same copies and ports. Explicit environment values take precedence in that file.
+mdk_config="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/local/env.sh"
+if [ -f "$mdk_config" ]; then source "$mdk_config"; fi
 MDK2_N="${MDK2_N:-2}"
 MDK2_PORT="${MDK2_PORT:-27900}"
-MDK2_TOOLS="${MDK2_TOOLS:-C:\\coop\\tools}"
+
 MDK2_PIDS="${MDK2_PIDS:-/tmp/mdk2-coop-pids}"
 
 mdk_wsl()   { wslpath -u "$1"; }
 mdk_dir()   { local i="${1:-1}" v; v="MDK2_DIR$i"
               if [ -n "${!v:-}" ]; then echo "${!v}"
               elif [ -n "${MDK2_DIR_BASE:-}" ]; then echo "$MDK2_DIR_BASE$i"
-              elif [ "$i" = 1 ]; then echo 'C:\coop\mdk2-test'
-              else echo "C:\\coop\\mdk2-test$i"; fi; }
+              else echo "configure MDK2_DIR$i or MDK2_DIR_BASE (see docs/DEVELOPMENT.md)" >&2; return 1; fi; }
+MDK2_TOOLS="${MDK2_TOOLS:-$(mdk_dir 1)\\tools}"
 mdk_log()   { echo "$(mdk_wsl "$(mdk_dir "$1")")/coop/bridge.log"; }
 mdk_seq()   { seq 1 "$MDK2_N"; }
-mdk_tools_install() { local here; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; mkdir -p "$(mdk_wsl "$MDK2_TOOLS")"; cp "$here"/win/*.ps1 "$(mdk_wsl "$MDK2_TOOLS")/"; }
-mdk_start() { local d; d=$(mdk_dir "${1:-1}")
+mdk_tools_install() (
+    local here; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    # Shards share helpers. NTFS can reject concurrent creates even when cp would overwrite.
+    # A subshell releases this descriptor before the settings-loader lock is acquired.
+    exec 9> /tmp/mdk2-tools-install.lock
+    flock 9 || return 1
+    mkdir -p "$(mdk_wsl "$MDK2_TOOLS")" || return 1
+    cp "$here"/win/*.ps1 "$(mdk_wsl "$MDK2_TOOLS")/"
+)
+mdk_start() { local d; d=$(mdk_dir "${1:-1}") || return 1
               if [ "${MDK2_PROCESS_SERVICE:-0}" = 1 ]; then
                   powershell.exe -NoProfile -Command "(Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='\"$d\\mdk2hd.exe\"';CurrentDirectory='$d'}).ProcessId" | tr -d '\r'
               else
@@ -82,7 +93,9 @@ mdk_state() { local i d f files=() name
               python3 "$(dirname "${BASH_SOURCE[0]}")/statecheck.py" "${files[@]}"; }
 mdk_alive() { tasklist.exe /FI "PID eq $1" | grep -i mdk2hd >/dev/null; }   # no -q: SIGPIPE under pipefail
 # mdk_kill: stop the games running from our copies only (other sessions may be running other copies)
-mdk_kill()  { local i w=""; for i in $(mdk_seq); do w="$w -or \$_.Path -like '$(mdk_dir "$i")\\*'"; done
+mdk_kill()  { local i d w=""; for i in $(mdk_seq); do
+                  d=$(mdk_dir "$i") || return 1
+                  w="$w -or \$_.Path -like '$d\\*'"; done
               powershell.exe -NoProfile -Command "Get-Process mdk2hd -ErrorAction SilentlyContinue | Where-Object { \$false $w } | Stop-Process -Force" >/dev/null 2>&1 || true; }
 # mdk_boot: start every instance and wait until all clients have followed the host into a level
 # (install with MDK2_START so the host loads one by itself once the others have joined)

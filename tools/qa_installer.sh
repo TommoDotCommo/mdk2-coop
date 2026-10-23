@@ -4,12 +4,12 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 source "$here/tools/mdk.sh"
-[ -n "${LAB_SLOTS:-}" ] || { echo 'qa_installer.sh requires a lab lease' >&2; exit 1; }
+: "${MDK2_RUN:?set MDK2_RUN to a disposable directory on a Windows filesystem}"
 make -s -C "$here/bridge"
 mkdir -p "$here/local/installer"
 out=$(mktemp -d "$here/local/installer/run-XXXXXXXX")
-# Win32 profile APIs cannot write INIs through WSL UNC paths. Fixtures must be on NTFS.
-fixtures=$(mktemp -d "$LAB_RUN/installer-XXXXXXXX")
+# Win32 profile API fixtures need a Windows filesystem.
+fixtures=$(mktemp -d "$MDK2_RUN/installer-XXXXXXXX")
 printf '%s\n' "$fixtures" > "$out/fixtures.txt"
 mkdir -p "$out/package/coop"
 cp "$here/bridge/dinput8.dll" "$out/package/"

@@ -7,7 +7,7 @@ export MDK2_N="${MDK2_N:-3}"
 source "$here/mdk.sh"
 [ "$MDK2_N" -ge 3 ] || { echo "qa_shots.sh needs MDK2_N >= 3"; exit 1; }
 MDK2_BACKGROUND=1 MDK2_START="1 2" "$here/install.sh" >/dev/null || exit 1
-out="$here/../local/qa-shots/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$out"
+out="$here/../local/qa-shots/$(date +%Y%m%d-%H%M%S)-$$"; mkdir -p "$out"
 pass=0; fail=0
 check() {
     local name="$1"; shift
@@ -45,13 +45,24 @@ for n in $(seq 1 12); do
     wait_log 1 '^fire type 417 .*launched velocity' 1 && break
 done
 check "Doganboy released its grenade" has 1 '^fire type 417 .*launched velocity'
+# Capture each client's pair concurrently, before another client's shell round trips can
+# consume the grenade's lifetime. Both samples still require a live, moving projectile.
+flight_pids=()
 for i in $(seq 2 "$MDK2_N"); do
-    check "client $i replayed the grenade" wait_log "$i" '^replay fire type 417 .*created' 5
-    dump "$i" flight1
+    (
+        wait_log "$i" '^replay fire type 417 .*created' 5 || exit 1
+        dump "$i" flight1 || exit 1
+        sleep 0.1
+        dump "$i" flight2
+    ) &
+    flight_pids+=($!)
+done
+# Missing/failed snapshots fail the active-projectile and position checks below.
+for flight_pid in "${flight_pids[@]}"; do wait "$flight_pid" || true; done
+for i in $(seq 2 "$MDK2_N"); do
+    check "client $i replayed the grenade" has "$i" '^replay fire type 417 .*created'
     check "client $i grenade is active and foreign" grep -qE '^shot type 417 active 1 foreign 1 own 0 ' "$out/flight1_$i.txt"
 done
-sleep 0.3
-for i in $(seq 2 "$MDK2_N"); do dump "$i" flight2; done
 lua 1 'mdkDealDamage(mdkGetPlayerGob(), shot_dog, 9999, 1, -1)'
 
 for i in $(seq 2 "$MDK2_N"); do

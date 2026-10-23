@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Make game copies for more players: copies 1..MDK2_N (see tools/mdk.sh for the folders) from
-# MDK2_SRC (default C:\coop\mdk2-test). mdk2.tar (1.6 GB) is hard-linked, so a copy costs ~2 MB.
-#   MDK2_N=8 MDK2_DIR_BASE='C:\coop\np' tools/copies.sh
+# MDK2_SRC (required). mdk2.tar (1.6 GB) is hard-linked, so a copy costs ~2 MB.
+# Configure disposable destinations first; see docs/DEVELOPMENT.md.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/mdk.sh"
-src="$(mdk_wsl "${MDK2_SRC:-C:\\coop\\mdk2-test}")"
+src="$(mdk_wsl "${MDK2_SRC:?set MDK2_SRC to a source copy}")"
 for i in $(mdk_seq); do
     d="$(mdk_wsl "$(mdk_dir "$i")")"
     [ "$d" = "$src" ] && continue

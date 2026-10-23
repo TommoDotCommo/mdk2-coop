@@ -2,7 +2,7 @@
 # Enemy AI against players who are not the host: a live Doganboy placed beside one client only
 # must hurt that client (the host's AI picks it, HURT reaches it, its hp falls) and nobody else.
 # Needs MDK2_N >= 3: host, a client that stays with the host, and a client that walks away.
-#   tools/qa_ai.sh        (about 2 minutes; lab lease and MDK2_BACKGROUND as in qa_n.sh)
+#   tools/qa_ai.sh        (about 2 minutes; isolated copies and MDK2_BACKGROUND as in qa_n.sh)
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N="${MDK2_N:-3}"

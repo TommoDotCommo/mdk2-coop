@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The torpedo minigames of levels 2 (checkpoint 13), 5 (11) and 9 (13) with two real games: both players are in the
 # minigame and each sees the other's ship as a ghost (screenshot as evidence), then both win it and both games
-# live on into the rest of the movie. One boot per level. Needs a lab lease.
+# live on into the rest of the movie. One boot per level. Needs isolated game copies.
 #   tools/qa_minigames.sh      (about 7 minutes)
 #   MUTANT=noguard tools/qa_minigames.sh   the bridge's emitter guard off (frame.c): passes only if the client's
 #                              crash at the end of level 2's minigame is caught

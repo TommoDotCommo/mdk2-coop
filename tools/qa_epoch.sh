@@ -6,7 +6,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=2
 source "$here/mdk.sh"
 MDK2_BACKGROUND=1 MDK2_START="1 2" "$here/install.sh" >/dev/null || exit 1
-out="$here/../local/qa-epoch/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$out"
+out="$here/../local/qa-epoch/$(date +%Y%m%d-%H%M%S)-$$"; mkdir -p "$out"
 pass=0; fail=0; results=()
 cleanup() {
     local i

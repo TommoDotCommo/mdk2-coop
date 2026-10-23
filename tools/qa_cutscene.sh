@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 # Two real games through the opening sequences (1-9 lounge cutscene, 1-12 skydive): both start the movie on the
 # host's go, the skip vote needs a majority (Backspace), the minigame cannot be skipped, and the level
-# change waits until both players have seen the end. Needs a lab lease (tools/qa_all.py gives one).
-#   tools/qa_cutscene.sh      (about 8 minutes)
-#   MUTANT=nobarrier|onevote|upright|sideways|escskip tools/qa_cutscene.sh   a deliberately broken coop.lua: passes only if the check
+# change waits until both players have seen the end. Needs isolated copies (tools/qa_all.py configures them).
+#   tools/qa_cutscene.sh      (about 3 minutes)
+#   tools/qa_cutscene.sh --early-go   only the early-GO playback clock regression
+#   MUTANT=nobarrier|onevote|upright|sideways|escskip|earlygo tools/qa_cutscene.sh   a deliberately broken coop.lua: passes only if the check
 #                             that guards the broken part fails
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=2
 source "$here/mdk.sh"
-MDK2_BACKGROUND=1 MDK2_START="1 9" "$here/install.sh" >/dev/null || exit 1
+clock_only=0
+case "$*" in
+    "") start="1 9" ;;
+    --early-go) start="1 2"; clock_only=1 ;;
+    *) echo 'usage: qa_cutscene.sh [--early-go]' >&2; exit 2 ;;
+esac
+MDK2_BACKGROUND=1 MDK2_START="$start" "$here/install.sh" >/dev/null || exit 1
 # mutants: the installed coop.lua with one protection removed
 want=""
 if [ -n "${MUTANT:-}" ]; then
@@ -25,6 +32,9 @@ if [ -n "${MUTANT:-}" ]; then
                    want="the missile ghost flies nose first" ;;
         escskip)   from='if (code and ago < 1000) then'; to='if (nil) then'
                    want="Esc on the client is a vote, not its own skip" ;;
+        earlygo)   from='coop.MovieGo(m)     -- an early GO needs the same playback clock as one received while waiting'
+                   to='m.state = "play"'
+                   want="early host GO starts the playback clock" ;;
         *) echo "unknown MUTANT $MUTANT"; exit 2 ;;
     esac
     for i in $(mdk_seq); do
@@ -75,7 +85,34 @@ not_since() {   # not_since <game> <pattern>: no such line since the last mark_a
 vote() { mdk_press "$(mdk_pid "$1")" 14 1 100 200; }
 # the line of a log since the mark, for the report
 off1=0; off2=0         # the games' logs start empty
+early_go_checks() {
+# Force GO to arrive before this client's next movie is created, the race seen at 3-10/3-11.
+# Use the real event handler and StartMovie path; the timer must advance without arithmetic errors.
+mark_all
+lua 2 'coop.MovieEvent("", 0, coop.mvcount + 1, MV_GO, 0, 0, 0, 0, 0, 0)
+       coop.remote_run = 1
+       StartMovie(mdkGetCameraGob(), { { Wait, { mdkGetCameraGob(), 3 } } })
+       coop.remote_run = nil'
+check "early host GO is exercised" wait_since 2 'the host had already said go' 5
+sleep 0.5
+lua 2 'local m = coop.mv
+       if (m and m.state == "play" and m.go_at and m.tick_at and m.played > 0) then
+           coop_log("T early GO clock advances") end'
+check "early host GO starts the playback clock" wait_since 2 '^lua: T early GO clock advances' 2
+check "early GO movie ends on the client" wait_since 2 'movie [0-9]+: over' 10
+check "early GO runs without Lua errors" not_since 2 'LUA ERROR'
+}
+report() {
+printf '%s\n' "${results[@]}"
+echo "$pass passed, $fail failed; logs: $out"
+if [ -n "$want" ]; then
+    printf '%s\n' "${results[@]}" | grep -qF "FAIL  $want" && { echo "mutant $MUTANT caught by: $want"; exit 0; }
+    echo "mutant $MUTANT NOT caught by: $want"; exit 1
+fi
+[ "$fail" = 0 ]
+}
 mdk_boot
+if [ "$clock_only" = 1 ]; then early_go_checks; report; exit $?; fi
 # ---- 1-9: the lounge cutscene
 check "host holds the movie for the client, then goes" wait_since 1 'movie 1: go' 60
 check "client plays on the host's go" wait_since 2 'movie 1: (go|the host had already said go)' 60
@@ -221,12 +258,7 @@ mark_all
 lua 2 'Level.PlayBossMovie()'
 sleep 6
 check "a client's own trigger movie is not kept together" not_since 1 'movie'
+early_go_checks
 for i in $(mdk_seq); do check "game $i still running" mdk_alive "$(mdk_pid "$i")"; done
 check "no Lua errors" bash -c "! grep -h 'LUA ERROR' '$(mdk_log 1)' '$(mdk_log 2)'"
-printf '%s\n' "${results[@]}"
-echo "$pass passed, $fail failed; logs: $out"
-if [ -n "$want" ]; then
-    printf '%s\n' "${results[@]}" | grep -qF "FAIL  $want" && { echo "mutant $MUTANT caught by: $want"; exit 0; }
-    echo "mutant $MUTANT NOT caught by: $want"; exit 1
-fi
-[ "$fail" = 0 ]
+report

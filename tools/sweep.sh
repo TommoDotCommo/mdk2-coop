@@ -7,7 +7,7 @@
 #   tools/sweep.sh --levels        first checkpoint of each of the 12 levels (F8 between them)
 #   MDK2_N=4 tools/sweep.sh        host and three clients (game copies: tools/mdk.sh, tools/copies.sh)
 #   MDK2_SHARDS=4 tools/sweep.sh   four sets of MDK2_N games side by side, each on its own run of
-#                                  checkpoints (copies 1..4*MDK2_N, ports from their lab slots)
+#                                  checkpoints (copies 1..4*MDK2_N, ports from MDK2_PORTS or spaced by 16)
 #   MDK2_SHOTS=1 tools/sweep.sh    screenshots at every checkpoint (default: only where a check fails)
 # Results: local/sweeps/<date-time>/results.md, plus per checkpoint every game's log slice, state
 # dump with statecheck.py's report (state.txt), screenshots where something failed and any crash
@@ -27,11 +27,16 @@ shards="${MDK2_SHARDS:-1}"
 child="${MDK2_SWEEP_CHILD:-}"
 levels="${MDK2_SWEEP_LEVELS:-0}"
 [[ "$shards" =~ ^[0-9]+$ ]] && [ "$shards" -ge 1 ] || { echo 'invalid shard count' >&2; exit 1; }
-if [ -z "$child" ] && [ -n "${LAB_SLOTS:-}" ]; then
-    IFS=, read -r -a labslots <<< "$LAB_SLOTS"
-    [ "$((MDK2_N * shards))" -le "${#labslots[@]}" ] || {
-        echo 'sweep needs more leased slots for this instance/shard count' >&2; exit 1;
+if [ -z "$child" ] && [ -n "${MDK2_PORTS:-}" ]; then
+    IFS=, read -r -a copyports <<< "$MDK2_PORTS"
+    [ "$((MDK2_N * shards))" -le "${#copyports[@]}" ] || {
+        echo 'sweep needs a reserved port for each configured copy' >&2; exit 1;
     }
+    for copyport in "${copyports[@]}"; do
+        [[ "$copyport" =~ ^[0-9]+$ ]] && [ "$copyport" -ge 1024 ] && [ "$copyport" -le 65535 ] || {
+            echo 'invalid MDK2_PORTS entry' >&2; exit 1;
+        }
+    done
 fi
 
 if [ -n "$child" ]; then
@@ -56,7 +61,7 @@ else
         done
         [ -n "$list" ] && [ "$reached" = 1 ] || { echo "no checkpoints between $from and $to"; exit 1; }
     fi
-    out="$here/../local/sweeps/$(date +%Y%m%d-%H%M%S)$([ "$MDK2_N" -gt 2 ] && echo "-n$MDK2_N")$([ "$shards" -gt 1 ] && echo "-x$shards")"
+    out="$here/../local/sweeps/$(date +%Y%m%d-%H%M%S)-$$$([ "$MDK2_N" -gt 2 ] && echo "-n$MDK2_N")$([ "$shards" -gt 1 ] && echo "-x$shards")"
     mkdir -p "$out"
 fi
 
@@ -77,8 +82,8 @@ if [ -z "$child" ] && [ "$shards" -gt 1 ]; then
         part=$(echo $list | tr ' ' '\n' | sed -n "$((j * per + 1)),$(((j + 1) * per))p" | tr '\n' ' ')
         [ -n "${part// /}" ] || continue
         shard_port=$((MDK2_PORT + 16 * j))
-        if [ -n "${LAB_SLOTS:-}" ]; then
-            shard_port=$((MDK2_PORT + 16 * (labslots[j * MDK2_N] - labslots[0])))
+        if [ -n "${MDK2_PORTS:-}" ]; then
+            shard_port=${copyports[j * MDK2_N]}
         fi
         envs=(MDK2_SWEEP_CHILD=$((j + 1)) MDK2_SWEEP_LIST="$part" MDK2_SWEEP_OUT="$out" MDK2_SHARDS=1 MDK2_NO_BUILD=1
               MDK2_SWEEP_LEVELS="$levels"
@@ -133,7 +138,7 @@ collect_dumps() {   # move new crash dumps into the checkpoint's folder
     done
 }
 start_at() {   # start_at <checkpoint>: fresh set with the host autostarting there
-    MDK2_BACKGROUND=1 MDK2_START="${1%-*} ${1#*-}" "$here/install.sh" >/dev/null
+    MDK2_BACKGROUND=1 MDK2_START="${1%-*} ${1#*-}" "$here/install.sh" >/dev/null || return 1
     mdk_boot
 }
 join_by() { local IFS="$1"; shift; echo "$*"; }
@@ -194,7 +199,7 @@ for c in $list; do
     for i in $(mdk_seq); do off[$i]=$(lines "$(mdk_log "$i")"); done
 
     if [ $first = 1 ] || ! alive_all; then
-        start_at "$c"
+        start_at "$c" || { echo "fixture installation failed for $c" >&2; exit 1; }
         for i in $(mdk_seq); do off[$i]=0; done
     else
         if [ "$levels" = 1 ]; then

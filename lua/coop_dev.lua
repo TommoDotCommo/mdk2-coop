@@ -893,7 +893,7 @@ function coop.MovieStarted(gob, sc)
             coop.begin_key = nil
         end
     elseif (coop.mvgo[m.serial]) then
-        m.state = "play"
+        coop.MovieGo(m)     -- an early GO needs the same playback clock as one received while waiting
         coop_log(format("movie %d: the host had already said go", m.serial))
     else
         PauseScript(gob)

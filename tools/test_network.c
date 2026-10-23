@@ -13,7 +13,7 @@ static char *fake_command_line(void);
 static DWORD fake_profile_string(const char *, const char *, const char *, char *, DWORD, const char *);
 static BOOL fake_profile_write(const char *, const char *, const char *, const char *);
 static UINT fake_profile_int(const char *, const char *, int, const char *);
-/* Native profile APIs reject WSL UNC paths. Simulate configuration storage as
+/* Keep profile tests independent of filesystem behavior. Simulate configuration storage as
  * well as Steam; loopback sockets below still use the actual Windows API. */
 #define GetPrivateProfileStringA fake_profile_string
 #define GetPrivateProfileIntA fake_profile_int

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Level 8's intro movie with two real games: it deletes the level's coneheads by name (Level.ForAllConeheads(omGobDelete)),
 # which a client has already removed as the host's enemies. The client crashed there in gob_delete until coop.lua's
-# omGobDelete skipped gone gobs. Needs a lab lease.
+# omGobDelete skipped gone gobs. Needs isolated game copies.
 #   tools/qa_level8_intro.sh                    (about 3 minutes)
 #   MUTANT=gonegob tools/qa_level8_intro.sh     omGobDelete without the check: passes only if the crash is caught
 set -uo pipefail

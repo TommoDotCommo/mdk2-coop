@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""Run the automated test ladder with bounded gates, isolated lab copies and saved reports."""
+"""Run the automated test ladder with bounded gates, isolated game copies and saved reports."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import uuid
 from dataclasses import dataclass, asdict, replace
 from datetime import datetime
 import json
@@ -15,6 +18,10 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+CANCEL = threading.Event()
+EXCLUSIVE = {"launcher", "installer", "campaign", "character-motion"}
+TEST_KNOBS = ("MDK2_NO_BUILD", "MDK2_SIM", "MDK2_SHARDS", "MDK2_SWEEP_CHILD",
+              "MDK2_SWEEP_LEVELS", "MDK2_START", "MDK2_MOTION_MUTANT", "MUTANT")
 
 
 @dataclass(frozen=True)
@@ -44,6 +51,8 @@ FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
                 ("revive", "qa_revive", 3, "counts"), ("menu", "qa_menu", 3, "counts"),
                 ("cutscenes", "qa_cutscene", 2, "counts"), ("minigames", "qa_minigames", 2, "counts"),
                 ("level8-intro", "qa_level8_intro", 2, "counts"),
+                ("character-wheel", "qa_char", 1, "counts"), ("character-puppet", "qa_char2", 2, "counts"),
+                ("emotes", "qa_emote", 1, "counts"),
                 ("controls", "qa_controls", 1, "counts"), ("launcher", "qa_launcher", 2, "counts"),
                 ("character-motion", "qa_motion", 2, "counts"),
                 ("hud", "qa_hud", 3, "counts"), ("chat", "qa_chat", 3, "counts"),
@@ -79,34 +88,192 @@ def score(gate, code, output, timed_out=False):
 
 
 def execute(command, env, logfile, timeout):
-    """Kill the entire harness process group on timeout; Windows games are cleaned separately."""
+    """Bound a harness and stop its process group on timeout or runner cancellation."""
     with logfile.open("w") as stream:
         process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=stream,
                                    stderr=subprocess.STDOUT, start_new_session=True)
+        deadline = time.monotonic() + timeout
         try:
-            return process.wait(timeout=timeout), False
-        except (subprocess.TimeoutExpired, KeyboardInterrupt):
+            while not CANCEL.is_set():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    return process.wait(timeout=min(0.25, remaining)), False
+                except subprocess.TimeoutExpired:
+                    pass
+        except KeyboardInterrupt:
+            CANCEL.set()
+        if process.poll() is None:
             os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+        if CANCEL.is_set():
+            raise InterruptedError("runner interrupted")
+        return process.returncode, True
+
+
+class BusyError(RuntimeError):
+    pass
+
+
+class Resources:
+    """An optional, external allocator owns all machine-specific provisioning."""
+    def __init__(self, hook, env, owner, slots):
+        self.hook, self.env, self.slots = hook, env.copy(), slots
+        self.env["MDK2_QA_OWNER"] = owner
+        self.acquired = False
+        self.validated = False
+
+    def acquire(self, ttl):
+        if self.hook:
             try:
-                process.wait(timeout=15)
+                result = subprocess.run([str(self.hook), "acquire", str(self.slots), str(ttl)],
+                                        cwd=ROOT, env=self.env, capture_output=True, text=True, timeout=180)
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
-            if sys.exc_info()[0] is KeyboardInterrupt:
+                # The allocator may have reserved copies before it stopped responding.
+                self.acquired = True
                 raise
-            return process.returncode, True
+            if result.stderr:
+                print(result.stderr, file=sys.stderr, end="", flush=True)
+            if result.returncode == 3:
+                raise BusyError("test resources are busy")
+            if result.returncode:
+                raise RuntimeError("resource acquisition failed")
+            self.acquired = True  # release even if the allocator's output is malformed
+            values = json.loads(result.stdout)
+            if not isinstance(values, dict) or any(not isinstance(k, str) or not isinstance(v, str)
+                                                   for k, v in values.items()):
+                raise ValueError("allocator must return a JSON object of environment strings")
+            self.env.update({k: v for k, v in values.items() if k.startswith("MDK2_")})
+        for key in TEST_KNOBS:
+            self.env.pop(key, None)
+        for i in range(1, self.slots + 1):
+            key = f"MDK2_DIR{i}"
+            if not self.env.get(key):
+                raise ValueError(f"configure {key} or a resource allocator; see docs/TESTING.md")
+        paths = [self.env[f"MDK2_DIR{i}"].rstrip("\\/").lower() for i in range(1, self.slots + 1)]
+        if len(set(paths)) != len(paths):
+            raise ValueError("test copies must have distinct paths")
+        for key in ("MDK2_PORT", "MDK2_PIDS", "MDK2_TOOLS"):
+            if not self.env.get(key):
+                raise ValueError(f"configure {key}; see docs/TESTING.md")
+        self.env["MDK2_BACKGROUND"] = "1"
+        self.validated = True
+        return self
+
+    def release(self):
+        if not self.hook and self.validated:
+            # Configured copies have no allocator to clean up after interruption.
+            result = subprocess.run(["bash", "-c", "source tools/mdk.sh; mdk_kill"],
+                                    cwd=ROOT, env=self.env | {"MDK2_N": str(self.slots)}, timeout=45)
+            if result.returncode:
+                raise RuntimeError("game cleanup failed")
+        if self.acquired:
+            self.acquired = False
+            result = subprocess.run([str(self.hook), "release"], cwd=ROOT, env=self.env, timeout=60)
+            if result.returncode:
+                raise RuntimeError("resource release failed")
 
 
-def lab_env():
-    exports = subprocess.check_output(["lab", "env", "mdk2"], cwd=ROOT, text=True)
-    env = os.environ.copy()
-    for line in exports.splitlines():
-        tokens = shlex.split(line)
-        if len(tokens) != 2 or tokens[0] != "export":
-            raise ValueError("invalid lab environment")
-        key, value = tokens[1].split("=", 1)
-        env[key] = value
-    return env
+def phases(gates):
+    """Offline, shared-settings, motion and campaign gates form barriers between game pools."""
+    pending = []
+    for gate in gates:
+        if not gate.players or gate.name in EXCLUSIVE:
+            if pending:
+                yield pending
+                pending = []
+            yield [gate]
+        else:
+            pending.append(gate)
+    if pending:
+        yield pending
+
+
+def run_gate(gate, env, slots, out):
+    gate_env = env | {"MDK2_N": str(gate.players or 2)}
+    if gate.players:
+        gate_env["MDK2_NO_BUILD"] = "1"
+    if gate.shards > 1:
+        gate_env["MDK2_SHARDS"] = str(gate.shards)
+    if gate.sim:
+        gate_env["MDK2_SIM"] = gate.sim
+    print(f"RUN {gate.name} ({gate.players} games x {gate.shards} sets)", flush=True)
+    start = time.monotonic()
+    logfile = out / f"{gate.name}.log"
+    code, timed_out = execute(gate.command, gate_env, logfile, gate.timeout)
+    result = score(gate, code, logfile.read_text(errors="replace"), timed_out)
+    row = {**asdict(gate), "status": result, "exit_code": code,
+           "seconds": round(time.monotonic() - start, 1), "log": logfile.name}
+    print(f"{result} {gate.name} ({row['seconds']}s)", flush=True)
+    if gate.players:
+        try:
+            collect_games(env, gate.players * gate.shards, out / f"{gate.name}-games")
+        finally:
+            # Clean only this lane's copies, including clients left by a failed gate.
+            if not CANCEL.is_set():
+                cleanup_code, _ = execute(("bash", "-c", 'source tools/mdk.sh; mdk_kill'),
+                                         env | {"MDK2_N": str(slots)}, out / f"{gate.name}-cleanup.log", 45)
+                if cleanup_code:
+                    raise RuntimeError("game cleanup failed")
+    return row
+
+
+def run_pool(gates, lanes, hook, env, owner, out, rows):
+    assignments = [gates[i::lanes] for i in range(min(lanes, len(gates)))]
+    resources = []
+    try:
+        # Reserve every lane before starting games. Partial allocation is always released.
+        for i, assigned in enumerate(assignments):
+            resource = Resources(hook, env, f"{owner}-lane{i+1}",
+                                 max(g.players * g.shards for g in assigned))
+            resources.append(resource)
+            resource.acquire(sum(g.timeout for g in gates) + 600)
+        # Reject a misconfigured allocator before any lane can start/kill games.
+        seen_paths, seen_ports, seen_pids, seen_tools = set(), set(), set(), set()
+        for resource in resources:
+            e = resource.env
+            paths = {e[f"MDK2_DIR{i}"].rstrip("\\/").lower() for i in range(1, resource.slots + 1)}
+            ports = set(range(int(e["MDK2_PORT"]), int(e["MDK2_PORT"]) + resource.slots))
+            tools, pids = e["MDK2_TOOLS"].rstrip("\\/").lower(), e["MDK2_PIDS"]
+            if paths & seen_paths or ports & seen_ports or pids in seen_pids or tools in seen_tools:
+                raise ValueError("allocator returned overlapping lane paths, ports, tools or PID files")
+            seen_paths.update(paths); seen_ports.update(ports)
+            seen_pids.add(pids); seen_tools.add(tools)
+
+        def worker(assigned, resource):
+            for gate in assigned:
+                if CANCEL.is_set():
+                    return
+                try:
+                    rows.append(run_gate(gate, resource.env, resource.slots, out))
+                except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+                    rows.append({"name": gate.name, "status": "FAIL", "error": str(exc)})
+                    # Resource/cleanup failures invalidate the rest of this lane.
+                    return
+
+        pool = ThreadPoolExecutor(max_workers=len(resources))
+        try:
+            futures = [pool.submit(worker, assigned, resource)
+                       for assigned, resource in zip(assignments, resources)]
+            for future in futures:
+                future.result()
+        except KeyboardInterrupt:
+            CANCEL.set()
+            raise
+        finally:
+            pool.shutdown(wait=True)
+    finally:
+        # Try every release even if one allocator fails to clean up.
+        for resource in reversed(resources):
+            try:
+                resource.release()
+            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                rows.append({"name": "cleanup", "status": "FAIL", "error": str(exc)})
 
 
 def collect_games(env, slots, folder):
@@ -125,6 +292,10 @@ def collect_games(env, slots, folder):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("profile", choices=PROFILES, nargs="?", default="smoke")
+    parser.add_argument("--lanes", type=int, choices=range(1, 9), default=1,
+                        help="concurrent game suites; settings, motion and campaign gates run alone")
+    parser.add_argument("--resources", type=Path,
+                        help="resource allocator executable (default: MDK2_QA_RESOURCES or local/qa_resources.py)")
     parser.add_argument("--list", action="store_true", help="show gates without running anything")
     parser.add_argument("--gate", action="append", help="run only named gates from the profile (repeatable)")
     parser.add_argument("--campaign-shards", type=int, choices=range(1, 9), default=1,
@@ -148,77 +319,59 @@ def main():
         for gate in gates:
             print(f"{gate.name}: {gate.players} games x {gate.shards} sets, timeout {gate.timeout}s; {shlex.join(gate.command)}")
         return 0
+    CANCEL.clear()
     out = ROOT / "local" / "regression" / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     out.mkdir(parents=True)
     env = os.environ.copy()
-    # Prevent inherited test knobs from silently changing what a named profile covers.
-    for key in ("MDK2_NO_BUILD", "MDK2_SIM", "MDK2_SHARDS", "MDK2_SWEEP_CHILD", "MDK2_SWEEP_LEVELS", "MDK2_START"):
+    for key in TEST_KNOBS:
         env.pop(key, None)
     env["MDK2_BACKGROUND"] = "1"
-    rows, leased, lease_code = [], False, 0
-    slots = max(g.players * g.shards for g in gates)
+    hook = args.resources or os.environ.get("MDK2_QA_RESOURCES")
+    if hook is None and (ROOT / "local/qa_resources.py").is_file():
+        hook = ROOT / "local/qa_resources.py"
+    if hook:
+        hook = Path(hook).resolve()
+    rows, busy, built = [], False, False
+    owner = f"qa-{out.name}-{uuid.uuid4().hex[:6]}"
     try:
-        if slots:
-            # Never adopt/release a lease belonging to a manually started session.
-            existing = subprocess.run(["lab", "env", "mdk2"], cwd=ROOT, capture_output=True)
-            if existing.returncode == 0:
-                raise RuntimeError("this worktree already has a lab lease; release it before running qa_all")
-            lease_code = subprocess.call(["lab", "acquire", "--slots", str(slots), "--ttl",
-                                    str(sum(g.timeout for g in gates) + 600)], cwd=ROOT)
-            if lease_code:
-                raise RuntimeError("lab is busy" if lease_code == 3 else "lab acquisition failed")
-            leased = True
-            subprocess.run(["lab", "provision", "mdk2"], cwd=ROOT, check=True)
-            # Only import lab exports, preserve the runner's clean test environment.
-            env.update({k: v for k, v in lab_env().items() if k.startswith(("LAB_", "MDK2_"))})
-            for key in ("MDK2_NO_BUILD", "MDK2_SIM", "MDK2_SHARDS", "MDK2_SWEEP_CHILD", "MDK2_SWEEP_LEVELS", "MDK2_START"):
-                env.pop(key, None)
-        for gate in gates:
-            gate_env = env | {"MDK2_N": str(gate.players or 2)}
-            if gate.shards > 1:
-                gate_env["MDK2_SHARDS"] = str(gate.shards)
-            if gate.sim:
-                gate_env["MDK2_SIM"] = gate.sim
-            print(f"RUN {gate.name} ({gate.players} games x {gate.shards} sets)", flush=True)
-            start = time.monotonic()
-            logfile = out / f"{gate.name}.log"
-            code, timed_out = execute(gate.command, gate_env, logfile, gate.timeout)
-            result = score(gate, code, logfile.read_text(errors="replace"), timed_out)
-            rows.append({**asdict(gate), "status": result, "exit_code": code,
-                         "seconds": round(time.monotonic() - start, 1), "log": logfile.name})
-            print(f"{result} {gate.name} ({rows[-1]['seconds']}s)", flush=True)
-            if gate.players:
-                collect_games(env, gate.players * gate.shards, out / f"{gate.name}-games")
-                # Kill all leased copies, including extra clients started by a failed gate.
-                cleanup_env = env | {"MDK2_N": str(slots)}
-                cleanup_code, _ = execute(("bash", "-c", 'source tools/mdk.sh; mdk_kill'), cleanup_env,
-                                         out / f"{gate.name}-cleanup.log", 45)
-                if cleanup_code:
-                    raise RuntimeError("game cleanup failed")
-            # A broken build or oracle invalidates every later game result.
-            if result != "PASS" and not gate.players:
-                break
+        if args.lanes > 1 and any(g.players for g in gates) and not hook:
+            raise ValueError("parallel lanes require a resource allocator; see docs/TESTING.md")
+        for batch in phases(gates):
+            if not batch[0].players:
+                row = run_gate(batch[0], env, 0, out)
+                rows.append(row)
+                if row["status"] != "PASS":
+                    break
+                built = built or batch[0].name == "build"
+            else:
+                # Even --gate selections build once before parallel installers copy the DLL.
+                if not built:
+                    code, timeout = execute(("make", "-C", "bridge"), env, out / "prepare-build.log", 600)
+                    if code or timeout:
+                        raise RuntimeError("preparatory build failed")
+                    built = True
+                run_pool(batch, args.lanes, hook, env, owner, out, rows)
+    except BusyError as exc:
+        busy = True
+        rows.append({"name": "runner", "status": "BUSY", "error": str(exc)})
+        print(f"BUSY runner: {exc}", flush=True)
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         rows.append({"name": "runner", "status": "FAIL", "error": str(exc)})
         print(f"FAIL runner: {exc}", flush=True)
     except KeyboardInterrupt:
+        CANCEL.set()
         rows.append({"name": "runner", "status": "INTERRUPTED"})
     finally:
-        if leased:
-            try:
-                released = subprocess.run(["lab", "release"], cwd=ROOT, timeout=60)
-                if released.returncode:
-                    rows.append({"name": "cleanup", "status": "FAIL"})
-            except (OSError, subprocess.SubprocessError) as exc:
-                rows.append({"name": "cleanup", "status": "FAIL", "error": str(exc)})
+        order = {g.name: i for i, g in enumerate(gates)}
+        rows.sort(key=lambda r: order.get(r["name"], len(gates)))
         passed = len(rows) == len(gates) and all(r["status"] == "PASS" for r in rows)
-        report = {"profile": args.profile, "result": "BUSY" if lease_code == 3 else "PASS" if passed else "FAIL",
-                  "gates": rows}
+        report = {"profile": args.profile, "lanes": args.lanes,
+                  "result": "BUSY" if busy else "PASS" if passed else "FAIL", "gates": rows}
         (out / "results.json").write_text(json.dumps(report, indent=2) + "\n")
         (out / "results.md").write_text("| gate | result | seconds | log |\n|---|---|---|---|\n" + "".join(
             f"| {r['name']} | {r['status']} | {r.get('seconds', '')} | {r.get('log', '')} |\n" for r in rows))
         print(f"RESULT: {report['result']}\nevidence: {out}", flush=True)
-    return 3 if lease_code == 3 else 0 if passed else 1
+    return 3 if busy else 0 if passed else 1
 
 
 if __name__ == "__main__":
