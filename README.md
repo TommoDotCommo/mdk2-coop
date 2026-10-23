@@ -16,6 +16,7 @@ No game files are in this repo. Every player needs their own copy of MDK2 HD on 
 - [Settings](#settings)
 - [Couch co-op](#couch-co-op-one-pc-2-4-players)
 - [Known issues](#known-issues)
+- [Help test](#help-test)
 - [Reporting a problem](#reporting-a-problem)
 - [Uninstall](#uninstall)
 - [For developers](#for-developers)
@@ -166,17 +167,33 @@ over the local network inside your PC and cannot be combined with online play.
 - Some cutscenes started by events inside a level have no countdown until they have been watched once.
 - Real gamepads, microphones and 3-4 couch players have only been tested with simulated input.
 
+## Help test
+
+This is an alpha, and some things can only be tested by real players. These help the most:
+
+- **Steam invites between two different accounts**, and joining by lobby ID.
+- **Long sessions over the internet**: an hour or more, with players far apart.
+- **Finishing levels together**: puzzles, boss fights and the end of each level.
+- **A real gamepad, a real microphone (voice chat), and couch co-op with 3 or 4 players.**
+
+When a session goes well, that is worth hearing too: open a
+[playtest report](https://github.com/TommoDotCommo/mdk2-coop/issues/new?template=playtest.yml) with what you
+played and how it went.
+
 ## Reporting a problem
 
-Open an issue on the [issue tracker](https://github.com/TommoDotCommo/mdk2-coop/issues/new). The most useful
-reports have:
+Open a [bug report](https://github.com/TommoDotCommo/mdk2-coop/issues/new?template=bug.yml); the form asks for
+what's needed:
 
 1. What happened, and what you expected. Press **F2** the moment something goes wrong: it puts a numbered
    marker in every player's log and saves a screenshot (`coop_mark<N>.tga` in the game folder).
-2. Your log, `<game folder>\coop\bridge.log`, and the host's if you can get it. It has the players' chosen names
-   and, over direct UDP, the IP addresses they joined from: blank those out first if you'd rather not post them.
-3. Which player you were (host or which client), your mod version (launcher's About tab) and how you connected
-   (Steam or UDP).
+2. Your log, and the host's if you can get it. To find it, right-click MDK2 HD in Steam, choose **Manage >
+   Browse local files**, and open the `coop` folder: `bridge.log` is this run, **`bridge.previous.log` is the run
+   before**. After a crash, restarting the game moves the crashed run's log to `bridge.previous.log`, so send that
+   one; it records where the game crashed. The logs have the players' chosen names and, over direct UDP, the IP
+   addresses they joined from: blank those out first if you'd rather not post them.
+3. Which player you were (host or which client), your mod version (launcher's About tab), how you connected
+   (Steam or UDP), and the level and checkpoint.
 
 ## Uninstall
 

@@ -749,6 +749,18 @@ static void l_coop_emitters(void)
     logmsg("emitters: %d", n);
 }
 
+/* coop_crash(): crash the game on purpose, to test crash logging; only in background test mode */
+static void l_coop_crash(void)
+{
+    if (!test_background) {
+        logmsg("coop_crash: only in background test mode");
+        return;
+    }
+    logmsg("coop_crash: crashing on purpose");
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);  /* no Windows error dialog on the desktop */
+    *(volatile int *)(uintptr_t)0x10 = 1;
+}
+
 /* coop_emitter_guard(on): frame.c's reset of negative emitter counts (tests turn it off to show the crash) */
 static void l_coop_emitter_guard(void)
 {
@@ -842,6 +854,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_animdump", l_coop_animdump);
     tolua_function(NULL, "coop_emitters", l_coop_emitters);
     tolua_function(NULL, "coop_emitter_guard", l_coop_emitter_guard);
+    tolua_function(NULL, "coop_crash", l_coop_crash);
     tolua_function(NULL, "coop_emote", l_coop_emote);
     tolua_function(NULL, "coop_emoting", l_coop_emoting);
     tolua_function(NULL, "coop_revive_tick", l_coop_revive_tick);

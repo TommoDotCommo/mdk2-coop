@@ -35,6 +35,33 @@ void logmsg(const char *fmt, ...)
     fflush(log_file);
 }
 
+/* A crash: the exception, where (module + offset) and what was touched go in bridge.log, so a report has it.
+ * A vectored handler, because the game or Steam may replace the unhandled-exception filter. It sees first-chance
+ * exceptions too, so it logs only the kinds that end the game, and only the first few. */
+static LONG CALLBACK crash_logger(EXCEPTION_POINTERS *e)
+{
+    static int logged;
+    EXCEPTION_RECORD *r = e->ExceptionRecord;
+    DWORD code = r->ExceptionCode;
+    HMODULE mod = NULL;
+    char name[MAX_PATH] = "?", *base;
+    if (code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_ILLEGAL_INSTRUCTION &&
+        code != EXCEPTION_INT_DIVIDE_BY_ZERO && code != EXCEPTION_STACK_OVERFLOW &&
+        code != EXCEPTION_PRIV_INSTRUCTION)
+        return EXCEPTION_CONTINUE_SEARCH;
+    if (logged++ >= 5)
+        return EXCEPTION_CONTINUE_SEARCH;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)r->ExceptionAddress, &mod))
+        GetModuleFileNameA(mod, name, MAX_PATH);
+    base = strrchr(name, '\\');
+    logmsg("crash: exception 0x%08lx at %s+0x%lx (address 0x%p, %s 0x%p)", code, base ? base + 1 : name,
+           (unsigned long)((char *)r->ExceptionAddress - (char *)mod), r->ExceptionAddress,
+           r->NumberParameters >= 2 && r->ExceptionInformation[0] ? "writing" : "reading",
+           r->NumberParameters >= 2 ? (void *)r->ExceptionInformation[1] : NULL);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 static int install_lua_hook(void)
 {
     void **entry = BUILTIN_ENTRY;
@@ -116,8 +143,14 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         strcat(coop_dir, "\\coop");
         CreateDirectoryA(coop_dir, NULL);
         snprintf(path, MAX_PATH, "%s\\bridge.log", coop_dir);
+        {   /* the last run's log is kept: after a crash, starting again must not wipe the evidence */
+            char previous[MAX_PATH];
+            snprintf(previous, MAX_PATH, "%s\\bridge.previous.log", coop_dir);
+            MoveFileExA(path, previous, MOVEFILE_REPLACE_EXISTING);
+        }
         log_file = fopen(path, "w");
         logmsg("mdk2-coop bridge attached");
+        AddVectoredExceptionHandler(1, crash_logger);
         if (install_lua_hook())
             loader_ensure();
         input_init();

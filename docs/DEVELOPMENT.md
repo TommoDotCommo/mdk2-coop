@@ -71,6 +71,7 @@ It forwards DirectInput to the system DLL and adds Lua functions to the game:
 - `coop_peer(slot)` returns player `slot`'s `x, y, z` for this frame, or nil until it has sent one in this level
 - `coop_slot()`, `coop_connected(slot)`, `coop_players()` (others connected, number of slots), `coop_peer_type(slot)`
 - `coop_log(msg)` writes a line to bridge.log
+- `coop_crash()` crashes the game on purpose (background test mode only), for `tools/qa_crashlog.sh`
 - `coop_gob(name)` returns the gob for an `n<id>` network name; `coop_role()` returns "host" or "client"
 - `coop_event()` returns the next damage event from the peer (`kind, name, damage, type, part`) or nil
 - `coop_apply(kind, gob, damage, type, part)` carries one out on the gob Lua found by name
@@ -277,7 +278,10 @@ player only and sends its hits on anything else to the host (HIT), which applies
 puppet fired. Hits on the client's puppet in the host's world go to the client's player (HURT). Events are
 numbered and resent until acked. Targets are matched by gob name, so unnamed gobs are not synced yet.
 
-Log: `<game dir>\coop\bridge.log`. Only Steam build 3902 is supported; on any other build the bridge
+Log: `<game dir>\coop\bridge.log`; the previous run's is kept as `bridge.previous.log`. A crash writes
+`crash: exception <code> at <module>+<offset>` with the address read or written (a vectored handler, so the game
+or Steam replacing the unhandled-exception filter does not hide it); `coop_crash()` crashes on purpose in background
+test mode. Only Steam build 3902 is supported; on any other build the bridge
 logs "unknown game build" and only forwards DirectInput.
 
 Updates go out at `send_hz` (30) and the other player is drawn `interp_ms` (100) in the past, blended

@@ -1,0 +1,67 @@
+name: Bug report
+description: Something broke, crashed or looked wrong while playing.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing! Press **F2** in game the moment something goes wrong: it puts a numbered marker in
+        every player's log. Logs are in the game folder's `coop` folder (in Steam: right-click MDK2 HD,
+        **Manage > Browse local files**). After a crash, send **`bridge.previous.log`**: restarting the game
+        moves the crashed run's log there.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How it happened
+      description: What you and the others were doing just before. Can it be made to happen again?
+  - type: input
+    id: where
+    attributes:
+      label: Level and checkpoint
+      placeholder: e.g. level 3, checkpoint 2 (or "the boss at the end of level 4")
+  - type: input
+    id: version
+    attributes:
+      label: Mod version
+      description: In the launcher's About tab.
+      placeholder: e.g. v0.2.1-alpha
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: You were
+      options: [the host, a client (joined), playing solo, couch co-op]
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Connected over
+      options: [Steam, direct UDP on a LAN, direct UDP over the internet, couch co-op (one PC)]
+  - type: input
+    id: players
+    attributes:
+      label: Number of players
+      placeholder: e.g. 2
+  - type: input
+    id: markers
+    attributes:
+      label: F2 marker numbers
+      placeholder: e.g. marker 3
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: |
+        Drag `bridge.log` or `bridge.previous.log` here (yours, and the host's if you can), plus any screenshots.
+        The logs contain the players' names and, over direct UDP, IP addresses: blank those out if you prefer.
+    validations:
+      required: true

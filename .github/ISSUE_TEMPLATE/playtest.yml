@@ -1,0 +1,51 @@
+name: Playtest report
+description: Tell us how a session went, including what worked.
+labels: [playtest]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sessions that went well matter too: some things (Steam invites between accounts, long internet games,
+        bosses, real gamepads and microphones) can only be checked by real players. Anything that broke also
+        deserves its own bug report.
+  - type: input
+    id: version
+    attributes:
+      label: Mod version
+      placeholder: e.g. v0.2.1-alpha
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Players and connection
+      placeholder: e.g. 3 players over Steam, two countries
+    validations:
+      required: true
+  - type: input
+    id: played
+    attributes:
+      label: What you played
+      placeholder: e.g. level 1 to level 2 checkpoint 3, about 90 minutes
+    validations:
+      required: true
+  - type: checkboxes
+    id: tried
+    attributes:
+      label: What you tried
+      options:
+        - label: Steam invite between two different accounts
+        - label: Joining by lobby ID
+        - label: An internet session of an hour or more
+        - label: A boss fight or the end of a level
+        - label: A real gamepad
+        - label: Voice chat with a real microphone
+        - label: Couch co-op with 3 or 4 players
+        - label: Rejoining after a crash or a dropped connection
+  - type: textarea
+    id: how
+    attributes:
+      label: How it went
+      description: What worked, what felt off, lag, anything confusing.
+    validations:
+      required: true

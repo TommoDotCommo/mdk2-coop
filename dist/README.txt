@@ -155,8 +155,27 @@ Known issues
 - The host uploads about 1.3 Mbit/s with 8 players in a busy level (less with fewer):
   check the host has that much upload to spare.
 - Nobody has finished the whole campaign in co-op yet. Every checkpoint loads and
-  plays in automated tests, but those don't solve puzzles or beat bosses. Please
-  report what breaks: what happened, your coop\bridge.log (it has the players' names
-  and, over UDP, their IP addresses), and press F2 when it happens.
+  plays in automated tests, but those don't solve puzzles or beat bosses.
+
+Help test
+---------
+This is an alpha. These help the most: Steam invites between two different accounts,
+long sessions over the internet, finishing levels together (puzzles, bosses), and a real
+gamepad, microphone or 3-4 couch players. A session that went well is worth a playtest
+report too.
+
+Reporting a problem
+-------------------
+Open a bug report: https://github.com/TommoDotCommo/mdk2-coop/issues/new/choose
+- Press F2 the moment something goes wrong: a numbered marker goes in every player's
+  log, with a screenshot (coop_mark<N>.tga in the game folder).
+- Attach your log, and the host's if you can. In Steam, right-click MDK2 HD, choose
+  Manage > Browse local files, and open the coop folder. bridge.log is this run;
+  bridge.previous.log is the run before. After a crash, restarting the game moves the
+  crashed run's log to bridge.previous.log: send that one, it records where it crashed.
+  The logs have the players' names and, over UDP, their IP addresses: blank those out
+  if you'd rather not post them.
+- Say which player you were (host or client), the mod version (launcher's About tab),
+  Steam or UDP, and the level and checkpoint.
 
 MIT licensed (LICENSE.txt). MDK2 HD itself is not included.
