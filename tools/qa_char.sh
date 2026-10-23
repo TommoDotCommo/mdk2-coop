@@ -15,11 +15,11 @@ if [ "${MUTANT:-}" = nounstick ]; then
     python3 - "$f" <<'MUT' || exit 2
 import sys
 path = sys.argv[1]
-old = 'coop.unstick = { till'
+old = 'coop.unstick = {'
 data = open(path, newline='').read()
 if old not in data:
     sys.exit('mutant: text not found')
-open(path, 'w', newline='').write(data.replace(old, 'coop.unstick_off = { till'))
+open(path, 'w', newline='').write(data.replace(old, 'coop.unstick_off = {'))
 MUT
 fi
 
@@ -74,14 +74,14 @@ lua 'mdkNewGame(1, 2)'; sleep 25
 check "char_follow on: the game's hero is back ($K)"    test "$(ptype)" = "$K"
 
 # Doc walks left into the wall at 1-1 (x -39), then becomes Kurt, who is wider: on Doc's spot he cannot move at
-# all; held move keys put him on the next spot around until he moves
+# all; held move keys put him on the next spot around until he moves, even when the player waits before walking
 pos() { local n; n=$(wc -l < "$(log)"); lua 'local x, y = coop_pose(mdkGetPlayerGob()) coop_log(format("T pos %.2f %.2f", x, y))'
         sleep 0.5; tail -n +$((n + 1)) "$(log)" | grep -oE 'T pos .*' | tail -1 | awk '{print $3, $4}'; }
 lua 'mdkNewGame(1, 1)'; sleep 25
 lua "coop.SwitchChar(mdkGetPlayerGob(), $D)"; sleep 3
 mdk_press "$(mdk_pid 1)" 30 1 6000 200; sleep 0.5
 wall=$(pos)
-lua "coop.SwitchChar(mdkGetPlayerGob(), $K)"; sleep 3
+lua "coop.SwitchChar(mdkGetPlayerGob(), $K)"; sleep 6
 at=$(pos)
 for k in 17 31 32; do mdk_press "$(mdk_pid 1)" $k 1 700 200; done; sleep 0.5
 after=$(pos)

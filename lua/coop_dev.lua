@@ -2093,9 +2093,10 @@ end
 
 -- Kurt and Max are wider than Doc: Doc against a wall, the new hero put on the same spot can be stuck in it and not
 -- move at all (measured at 1-1: 0.2 back from the wall is free). The engine offers no test of a spot (line of sight
--- ignores walls; a stuck hero still falls), so the player's own moving is the test: for a while after a switch, while
--- a move key is held and the hero has not moved, it is put on the next spot around (8 directions, 0.3 then 0.6
--- away) until it moves --
+-- ignores walls; a stuck hero still falls), so the player's own moving is the test: after a switch, while a move
+-- key is held and the hero has not moved, it is put on the next spot around (8 directions, 0.3 then 0.6 away) until
+-- it moves. The time limit starts with the first held move key, so a player who waits before walking is not left
+-- stuck --
 coop.unstick_ms = 4000
 coop.unstick_frames = 6
 coop.unstick_spots = {}
@@ -2116,7 +2117,7 @@ coop.MakeUnstickSpots()
 function coop.UnstickTick(p)
     local u = coop.unstick
     if (not u or not p) then return end
-    if (coop_ms() > u.till) then coop.unstick = nil return end
+    if (u.till and coop_ms() > u.till) then coop.unstick = nil return end
     local x, y = p.position.x, p.position.y
     if ((x - u.cx) * (x - u.cx) + (y - u.cy) * (y - u.cy) > 0.0025) then
         if (u.i > 0) then coop_log(format("character: unstuck at spot %d", u.i)) end
@@ -2127,6 +2128,7 @@ function coop.UnstickTick(p)
         omGetCommandValue(COM_STRAFELEFT) <= 0 and omGetCommandValue(COM_STRAFERIGHT) <= 0) then
         return
     end
+    if (not u.till) then u.till = coop_ms() + coop.unstick_ms end
     u.frames = u.frames + 1
     if (u.frames < coop.unstick_frames) then return end
     u.frames = 0
@@ -2147,7 +2149,7 @@ function coop.SwitchChar(p, t)
     mdkGobSetPositionXYZ(bob, x, y, z)
     coop_carry_hp(p, bob)
     omGobDelete(p)
-    coop.unstick = { till = coop_ms() + coop.unstick_ms, x = x, y = y, z = z, cx = x, cy = y, i = 0, frames = 0 }
+    coop.unstick = { x = x, y = y, z = z, cx = x, cy = y, i = 0, frames = 0 }
 end
 
 function coop.CharTick(p)
