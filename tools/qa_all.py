@@ -54,6 +54,8 @@ FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
                 ("character-wheel", "qa_char", 1, "counts"), ("character-puppet", "qa_char2", 2, "counts"),
                 ("emotes", "qa_emote", 1, "counts"), ("crash-log", "qa_crashlog", 1, "counts"),
                 ("controls", "qa_controls", 1, "counts"), ("launcher", "qa_launcher", 2, "counts"),
+                ("lobby", "qa_lobby", 3, "counts"),
+                ("first-enemy", "qa_sign", 3, "counts"),
                 ("character-motion", "qa_motion", 2, "counts"),
                 ("hud", "qa_hud", 3, "counts"), ("chat", "qa_chat", 3, "counts"),
                 ("voice", "qa_voice", 3, "counts"), ("projectiles", "qa_shots", 3, "projectiles"),

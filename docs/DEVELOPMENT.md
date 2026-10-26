@@ -53,6 +53,7 @@ In game (developer keys: Options > Co-op > Gameplay, on in the test installs, of
 F9 BioWare debug menu, F6 / F7 next / previous checkpoint (host),
 F8 next level (host), F2 marker in every log (always on), F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 lava damage to yourself, F1 (host) spawn a Poopsy named coop_spawn (same name each time), F4 teleport to the next test spot (level 1's decoy item, door dr1_03, then 400 units below you).
 Room changes are logged to bridge.log as they happen.
+Logs and the files the mod writes go to `<game dir>\coop`, or to `%LOCALAPPDATA%\mdk2-coop\coop` when the game dir is not writable (Program Files without admin rights); `bridge.log` starts with a `files in <dir>` line. The launcher's lobby (UDP only) is in `bridge/launcher.c`; an enemy killed on the host has its OnDie run on every client (`bridge/entities.c`).
 
 Background test mode (`tools/qa.sh` and `tools/sweep.sh` use it; `MDK2_BACKGROUND=1 tools/install.sh` sets
 `[test] background=1` in coop.ini): both games open side by side on the second monitor, behind other windows,

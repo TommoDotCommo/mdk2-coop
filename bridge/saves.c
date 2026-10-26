@@ -274,7 +274,7 @@ static void delete_session(const char *sect)
         if (rec_read(sect, k ? 'b' : 'a', &r)) {
             /* the saves are beside coop\ : <game dir>\save\ */
             snprintf(name, sizeof(name), "%s", r.file);
-            snprintf(file, sizeof(file), "%s\\..\\%s", coop_dir, name);
+            snprintf(file, sizeof(file), "%s\\%s", game_dir, name);
             DeleteFileA(file);
         }
     }

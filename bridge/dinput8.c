@@ -21,7 +21,7 @@ void loader_ensure(void);      /* loader.c */
 /* ---- log ---- */
 
 static FILE *log_file;
-char coop_dir[MAX_PATH];
+char coop_dir[MAX_PATH], game_dir[MAX_PATH];
 
 void logmsg(const char *fmt, ...)
 {
@@ -173,12 +173,26 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
     if (reason == DLL_PROCESS_ATTACH) {
         char path[MAX_PATH], *slash;
         DisableThreadLibraryCalls(inst);
-        GetModuleFileNameA(NULL, coop_dir, MAX_PATH);
-        slash = strrchr(coop_dir, '\\');
+        GetModuleFileNameA(NULL, game_dir, MAX_PATH);
+        slash = strrchr(game_dir, '\\');
         if (slash)
             *slash = 0;
-        strcat(coop_dir, "\\coop");
+        snprintf(coop_dir, MAX_PATH, "%s\\coop", game_dir);
         CreateDirectoryA(coop_dir, NULL);
+        {   /* Program Files is read-only without admin rights: keep the mod's files somewhere writable */
+            char probe[MAX_PATH], base[MAX_PATH];
+            FILE *t;
+            snprintf(probe, MAX_PATH, "%s\\write.test", coop_dir);
+            if ((t = fopen(probe, "w"))) {
+                fclose(t);
+                DeleteFileA(probe);
+            } else if (GetEnvironmentVariableA("LOCALAPPDATA", base, MAX_PATH)) {
+                strcat(base, "\\mdk2-coop");
+                CreateDirectoryA(base, NULL);
+                snprintf(coop_dir, MAX_PATH, "%s\\coop", base);
+                CreateDirectoryA(coop_dir, NULL);
+            }
+        }
         snprintf(path, MAX_PATH, "%s\\bridge.log", coop_dir);
         {   /* the last run's log is kept: after a crash, starting again must not wipe the evidence */
             char previous[MAX_PATH];
@@ -187,6 +201,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         }
         log_file = fopen(path, "w");
         logmsg("mdk2-coop bridge attached");
+        logmsg("files in %s", coop_dir);
         AddVectoredExceptionHandler(1, crash_logger);
         if (install_lua_hook())
             loader_ensure();

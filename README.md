@@ -52,9 +52,9 @@ You need **MDK2 HD from Steam, the current build (3902)**. The Overhaul Games (B
 
 1. Download the zip from [Releases](https://github.com/TommoDotCommo/mdk2-coop/releases) and unzip it
    anywhere (not inside the game folder).
-2. Double-click **Install.cmd**. It finds MDK2 HD in your Steam libraries (or asks for the folder), checks the
-   version, and asks two questions: **steam** or **udp** (how you connect; Steam is the default) and **host** or
-   **join**. You can change both later in the launcher.
+2. Double-click **Install.cmd**. It finds MDK2 HD (Steam libraries or the Overhaul Games folder; it asks for
+   the folder if it cannot), checks the version and installs. It asks nothing else: Host or Join, Steam or direct IP
+   and the address are chosen in the launcher at every start.
 3. Start MDK2 HD from Steam as usual. The co-op launcher opens first.
 
 If Windows shows "Windows protected your PC", choose **More info > Run anyway**. The installer is a plain

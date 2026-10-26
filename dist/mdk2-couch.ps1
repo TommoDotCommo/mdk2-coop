@@ -79,6 +79,12 @@ function Find-Game {
         $dirs += Join-Path $lib 'steamapps\common\MDK 2 HD'
         foreach ($d in $dirs) { if (Test-Path (Join-Path $d 'mdk2hd.exe')) { return $d } }
     }
+    # the Overhaul Games (Beamdog client) build installs here by default
+    foreach ($root in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+        if (-not $root) { continue }
+        $d = Join-Path $root 'Overhaul Games\MDK 2 HD'
+        if (Test-Path (Join-Path $d 'mdk2hd.exe')) { return $d }
+    }
     return $null
 }
 
@@ -143,7 +149,7 @@ function Do-Couch {
     Say "`nmdk2-coop couch play" Cyan
     $game = $GameDir
     if (-not $game) { $game = Find-Game }
-    if (-not $game) { Fail 'MDK2 HD was not found in your Steam libraries. Give the game folder with -GameDir.' }
+    if (-not $game) { Fail 'MDK2 HD was not found in your Steam libraries or the Overhaul Games folder. Give the game folder with -GameDir.' }
     $game = (Resolve-Path $game.Trim('"', ' ')).ProviderPath.TrimEnd('\')
     $root = "$game couch"
     if ($Stop) {

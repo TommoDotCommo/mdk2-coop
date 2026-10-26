@@ -44,7 +44,7 @@ for i in $(mdk_seq); do
     else x=$((mx + 10 + (i - 1) % 4 * 630)); y=$((my + 20 + (i - 1) / 4 * 650)); fi
     if [ "$i" = 1 ]; then net="role=host\r\nlisten_port=$MDK2_PORT"
     else net="role=client\r\nlisten_port=$((MDK2_PORT + i - 1))\r\npeer_host=127.0.0.1\r\npeer_port=$MDK2_PORT"; fi
-    printf "[net]\r\ntransport=udp\r\n$net\r\n[controls]\r\ndevkeys=1\r\n[test]\r\nbackground=%s\r\nx=%d\r\ny=%d\r\n" "${MDK2_BACKGROUND:-0}" "$x" "$y" \
+    printf "[net]\r\ntransport=udp\r\n$net\r\n[controls]\r\ndevkeys=1\r\n[launcher]\r\nlobby=%s\r\n[test]\r\nbackground=%s\r\nx=%d\r\ny=%d\r\n" "${MDK2_LOBBY:-0}" "${MDK2_BACKGROUND:-0}" "$x" "$y" \
         > "$(mdk_wsl "$(mdk_dir $i)")/coop/coop.ini"
     # MDK2_SIM="<latency ms> <jitter ms> <loss %>": every game fakes a bad connection on what it receives
     if [ -n "${MDK2_SIM:-}" ]; then

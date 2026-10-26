@@ -81,6 +81,12 @@ function Find-Game {
         $dirs += Join-Path $lib 'steamapps\common\MDK 2 HD'
         foreach ($d in $dirs) { if (Test-Path (Join-Path $d 'mdk2hd.exe')) { return $d } }
     }
+    # the Overhaul Games (Beamdog client) build installs here by default
+    foreach ($root in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+        if (-not $root) { continue }
+        $d = Join-Path $root 'Overhaul Games\MDK 2 HD'
+        if (Test-Path (Join-Path $d 'mdk2hd.exe')) { return $d }
+    }
     return $null
 }
 
@@ -88,7 +94,7 @@ function Resolve-GameDir {
     $d = $GameDir
     if (-not $d) { $d = Find-Game }
     if (-not $d) {
-        Say 'MDK2 HD was not found in your Steam libraries.' Yellow
+        Say 'MDK2 HD was not found in your Steam libraries or the Overhaul Games folder.' Yellow
         if ($Yes) { Fail 'Give the game folder with -GameDir.' }
         $d = Read-Host 'Paste the MDK2 HD folder (the one with mdk2hd.exe)'
     }
@@ -179,41 +185,47 @@ function Do-Install {
 
     $ini = Join-Path $game 'coop\coop.ini'
     $hadIni = Test-Path $ini
-    $curRole = if ($hadIni) { Ini-Get $ini 'net' 'role' 'host' } else { 'host' }
-    $network = $Transport
-    if (-not $network) {
-        $def = if ($HostAddress -or $HostPort -or $ClientPort) { 'udp' } elseif ($hadIni) { Ini-Get $ini 'net' 'transport' 'udp' } else { 'steam' }
-        $network = Ask 'Network: steam (friends and invites, no port forwarding) / udp (direct IP)' $def
-    }
-    $network = "$network".ToLower()
-    if ($network -notin 'steam', 'udp') { Fail 'Network must be steam or udp.' }
-    $role = $Role
-    if (-not $role) {
-        $def = if ($curRole -eq 'client') { 'join' } else { 'host' }
-        $role = Ask 'Host a game or join one? (host / join)' $def
-    }
-    $role = "$role".ToLower(); if ($role -eq 'client') { $role = 'join' }
-    if ($role -notin 'host', 'join') { Fail "Answer host or join (got '$role')." }
-    if ($network -eq 'steam') {
-        if ($LobbyId) {
-            $numericLobby = [UInt64]0
-            if ($LobbyId -notmatch '^\d+$' -or -not [UInt64]::TryParse($LobbyId, [ref]$numericLobby) -or
-                ($numericLobby -shr 56) -ne 1 -or (($numericLobby -shr 52) -band 15) -ne 8) {
-                Fail 'LobbyId must be a numeric Steam lobby ID from the host.'
+    # Host / join, the network and the addresses are chosen in the launcher at every start; these questions are only
+    # asked when a network option was given on the command line (scripts, tests).
+    $setNet = $Transport -or $Role -or $LobbyId -or $HostAddress -or $HostPort -or $ClientPort
+    if ($setNet) {
+        $curRole = if ($hadIni) { Ini-Get $ini 'net' 'role' 'host' } else { 'host' }
+        $network = $Transport
+        if (-not $network) {
+            $def = if ($HostAddress -or $HostPort -or $ClientPort) { 'udp' } elseif ($hadIni) { Ini-Get $ini 'net' 'transport' 'udp' } else { 'steam' }
+            $network = Ask 'Network: steam (friends and invites, no port forwarding) / udp (direct IP)' $def
+        }
+        $network = "$network".ToLower()
+        if ($network -notin 'steam', 'udp') { Fail 'Network must be steam or udp.' }
+        $role = $Role
+        if (-not $role) {
+            $def = if ($curRole -eq 'client') { 'join' } else { 'host' }
+            $role = Ask 'Host a game or join one? (host / join)' $def
+        }
+        $role = "$role".ToLower(); if ($role -eq 'client') { $role = 'join' }
+        if ($role -notin 'host', 'join') { Fail "Answer host or join (got '$role')." }
+        if ($network -eq 'steam') {
+            if ($LobbyId) {
+                $numericLobby = [UInt64]0
+                if ($LobbyId -notmatch '^\d+$' -or -not [UInt64]::TryParse($LobbyId, [ref]$numericLobby) -or
+                    ($numericLobby -shr 56) -ne 1 -or (($numericLobby -shr 52) -band 15) -ne 8) {
+                    Fail 'LobbyId must be a numeric Steam lobby ID from the host.'
+                }
+            }
+        } else {
+            if ($role -eq 'join') {
+                $addr = $HostAddress
+                if (-not $addr) { $addr = Ask "Host's IPv4 address" (Ini-Get $ini 'net' 'peer_host' '127.0.0.1') }
+            }
+            # the host's port: a host listens on it, a client sends to it
+            $knownHostPort = if ($curRole -eq 'client') { Ini-Get $ini 'net' 'peer_port' '27900' } else { Ini-Get $ini 'net' 'listen_port' '27900' }
+            $hp = if ($HostPort) { $HostPort } else { Ask-Port 'Host UDP port' $knownHostPort }
+            if ($role -eq 'join') {
+                $knownOwn = if ($curRole -eq 'client') { Ini-Get $ini 'net' 'listen_port' "$($hp + 1)" } else { "$($hp + 1)" }
+                $cp = if ($ClientPort) { $ClientPort } else { Ask-Port 'Your own UDP port (any free one; only matters with several players on one PC)' $knownOwn }
             }
         }
-    } else {
-        if ($role -eq 'join') {
-            $addr = $HostAddress
-            if (-not $addr) { $addr = Ask "Host's IPv4 address" (Ini-Get $ini 'net' 'peer_host' '127.0.0.1') }
-        }
-        # the host's port: a host listens on it, a client sends to it
-        $knownHostPort = if ($curRole -eq 'client') { Ini-Get $ini 'net' 'peer_port' '27900' } else { Ini-Get $ini 'net' 'listen_port' '27900' }
-        $hp = if ($HostPort) { $HostPort } else { Ask-Port 'Host UDP port' $knownHostPort }
-        if ($role -eq 'join') {
-            $knownOwn = if ($curRole -eq 'client') { Ini-Get $ini 'net' 'listen_port' "$($hp + 1)" } else { "$($hp + 1)" }
-            $cp = if ($ClientPort) { $ClientPort } else { Ask-Port 'Your own UDP port (any free one; only matters with several players on one PC)' $knownOwn }
-        }
+
     }
 
     Say "`nInstalling into $game"
@@ -225,37 +237,25 @@ function Do-Install {
     New-Item -ItemType Directory -Force -Path (Join-Path $game 'coop') | Out-Null
     Copy-Item (Join-Path $Here 'coop\coop.lua') (Join-Path $game 'coop\coop.lua') -Force
     Say '  dinput8.dll and coop\coop.lua copied'
-    Ini-Set $ini 'net' 'transport' $network
-    Ini-Set $ini 'net' 'role' $(if ($role -eq 'host') { 'host' } else { 'client' })
-    Ini-Set $ini 'launcher' 'mode' $role     # the launcher shows this choice (not a solo start from before)
-    if ($network -eq 'steam') {
-        Ini-Set $ini 'net' 'lobby_id' "$LobbyId"
-    } elseif ($role -eq 'host') {
-        Ini-Set $ini 'net' 'listen_port' $hp
-    } else {
-        Ini-Set $ini 'net' 'listen_port' $cp
-        Ini-Set $ini 'net' 'peer_host' $addr; Ini-Set $ini 'net' 'peer_port' $hp
+    if ($setNet) {
+        Ini-Set $ini 'net' 'transport' $network
+        Ini-Set $ini 'net' 'role' $(if ($role -eq 'host') { 'host' } else { 'client' })
+        Ini-Set $ini 'launcher' 'mode' $role     # the launcher shows this choice (not a solo start from before)
+        if ($network -eq 'steam') {
+            Ini-Set $ini 'net' 'lobby_id' "$LobbyId"
+        } elseif ($role -eq 'host') {
+            Ini-Set $ini 'net' 'listen_port' $hp
+        } else {
+            Ini-Set $ini 'net' 'listen_port' $cp
+            Ini-Set $ini 'net' 'peer_host' $addr; Ini-Set $ini 'net' 'peer_port' $hp
+        }
+        Say "  coop\coop.ini: $network, $role"
     }
-    Say "  coop\coop.ini: $network, $role"
     Add-Loader
 
-    Say "`nDone. Start MDK2 HD from Steam as usual." Green
-    if ($network -eq 'steam') {
-        Say 'Steam must be running and online for every player. No port forwarding is needed.'
-        if ($role -eq 'host') {
-            Say 'Open Options > Co-op > Session > Invite Steam friends, or share the Lobby ID shown there.'
-            Say 'Start a New Game or load a save; friends follow you into the level.'
-        } else {
-            Say 'Start the game, then accept a Steam invite or use Options > Co-op > Session > Join lobby by ID.'
-        }
-    } elseif ($role -eq 'host') {
-        Say "Hosting: friends join your public IP on UDP port $hp. Forward UDP $hp on your router to this PC," Gray
-        Say "and allow MDK2 HD when Windows Firewall asks (tick Private and Public). Then start a New Game;" Gray
-        Say "players who join follow you into your level." Gray
-    } else {
-        Say "Joining: start the game after the host has. You follow the host into their level automatically." Gray
-    }
-    Say 'Change network or host/join later in Options > Co-op > Session, or run Install again.'
+    Say "`nDone. Start MDK2 HD as usual: the co-op launcher opens first. Pick Host or Join there (Steam lobbies or" Green
+    Say 'a direct IP address and port) and press Start. Everything else is in its Settings tab.' Green
+    if ($setNet) { Say "Chosen here: $network, $role. The launcher can change it at any start." Gray }
     if (-not $Yes) { Read-Host "`nPress Enter to close" | Out-Null }
 }
 

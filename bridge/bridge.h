@@ -253,7 +253,8 @@ void ents_receive(const void *buf, int len);
 void ents_client_frame(void);
 void ents_client_cleanup(void);
 void ent_bind(unsigned int netid, BYTE *gob);
-void ent_despawn(unsigned int netid);
+void ent_despawn(unsigned int netid, int died);
+void ents_init(void);
 BYTE *ent_gob(unsigned int netid);
 int ent_count(void);
 void ents_reset(void);
@@ -466,7 +467,10 @@ void bot_level_loaded(int level);
 
 /* ---- dinput8.c ---- */
 
-extern char coop_dir[MAX_PATH];
+/* coop_dir: where logs, coop.ini and the other files the mod writes live: <game dir>\coop, or
+ * %LOCALAPPDATA%\mdk2-coop when the game dir is not writable (Program Files without admin rights).
+ * game_dir: the game's own folder; coop.lua is always read from <game_dir>\coop. */
+extern char coop_dir[MAX_PATH], game_dir[MAX_PATH];
 
 /* ---- launcher.c ---- */
 

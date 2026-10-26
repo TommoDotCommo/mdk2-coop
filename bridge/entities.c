@@ -39,6 +39,7 @@ struct ent {
     BYTE last[ENT_ENC_MAX];
     short last_len;
     unsigned char quiet;        /* snapshots in a row that matched the last one */
+    unsigned char died;         /* host: the game ran this actor's OnDie (it was killed, not just removed) */
     double last_sent;
 };
 
@@ -134,6 +135,34 @@ void ents_reset(void)
     nents = 0;
 }
 
+/* ---- death scripts ----
+ * An actor's OnDie (the level script's: unlock a door, count the dead, open a way on) runs in the game that kills it,
+ * the host's. A client only had the mirror deleted, so doors that open when the first enemy dies stayed shut for
+ * every client. The host notes which synced actors the game ran OnDie for and says so in their DESPAWN; the client
+ * then runs the same OnDie on its mirror before deleting it. fire_ondie(gob) is the engine's own call
+ * (has_lua_event(gob, OnDie), then the script's function with the gob). */
+#define FIRE_ONDIE_ADDR 0x40d100
+static const BYTE fire_ondie_prologue[7] = { 0x56, 0x8b, 0x74, 0x24, 0x08, 0x6a, 0x0a };
+typedef void (*fire_ondie_t)(BYTE *);
+static fire_ondie_t fire_ondie_orig;
+
+static void fire_ondie_hook(BYTE *gob)
+{
+    int i;
+
+    for (i = 0; i < nents; i++)
+        if (ents[i].gob == gob)
+            ents[i].died = 1;
+    fire_ondie_orig(gob);
+}
+
+void ents_init(void)
+{
+    fire_ondie_orig = hook_code((BYTE *)FIRE_ONDIE_ADDR, fire_ondie_prologue, sizeof(fire_ondie_prologue),
+                                fire_ondie_hook);
+    logmsg("death script hook %s", fire_ondie_orig ? "installed" : "NOT installed");
+}
+
 /* ---- host ---- */
 
 void ents_host_tick(void)
@@ -152,8 +181,8 @@ void ents_host_tick(void)
     for (i = 0; i < nents; ) {
         BYTE *gob = gob_by_handle(ents[i].id);
         if (gob != ents[i].gob || !gob_is_actor(gob)) {
-            event_queue_spawn(TO_ALL, EV_DESPAWN, ents[i].id, 0, 0, NULL, "");
-            logmsg("ent despawn %x", ents[i].id);
+            event_queue_spawn(TO_ALL, EV_DESPAWN, ents[i].id, ents[i].died, 0, NULL, "");     /* objtype 1: it died */
+            logmsg("ent despawn %x%s", ents[i].id, ents[i].died ? " (died)" : "");
             ent_remove(&ents[i]);
         } else {
             i++;
@@ -277,7 +306,7 @@ void ent_bind(unsigned int netid, BYTE *gob)
     logmsg("ent bind %x -> %s (local %x, type %d)", netid, gob_name(gob), e->local, gob_type(gob));
 }
 
-void ent_despawn(unsigned int netid)
+void ent_despawn(unsigned int netid, int died)
 {
     struct ent *e = ent_find(netid);
     BYTE *gob;
@@ -285,9 +314,11 @@ void ent_despawn(unsigned int netid)
     if (!e)
         return;
     gob = ent_gob(netid);
-    logmsg("ent despawn %x (%s)", netid, gob ? gob_name(gob) : "already gone");
+    logmsg("ent despawn %x (%s)%s", netid, gob ? gob_name(gob) : "already gone", died ? " died: running its OnDie" : "");
     if (e->gob)
         gob_set_mirrored(e->gob, 0);
+    if (gob && died && fire_ondie_orig)
+        fire_ondie_orig(gob);
     if (gob)
         gob_kill(gob);
     ent_remove(e);

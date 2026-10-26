@@ -13,9 +13,9 @@ Install
 -------
 1. Unzip this folder anywhere (not inside the game folder).
 2. Double-click Install.cmd.
-   - It finds MDK2 HD in your Steam libraries (or asks for the folder) and checks the
-     game version. If the version is different it stops and changes nothing.
-   - Choose steam (the default for new installs) or udp, then host or join.
+   - It finds MDK2 HD in your Steam libraries or the Overhaul Games folder (or asks for the
+     folder) and checks the game version. If the version is different it stops and changes nothing.
+   - That is all it asks: host or join, Steam or a direct address are chosen in the launcher.
 3. Start MDK2 HD from Steam as usual. The co-op launcher opens first.
 
 The launcher
@@ -31,8 +31,8 @@ Don't want it? Settings > Display > Show launcher at start: Off. Hold Shift whil
 the game starts to bring it back. Accepting a Steam invite skips it and joins
 straight away.
 
-You can also run Install.cmd again to switch between hosting and joining, or to
-change the transport or address. Existing installs keep their previous transport.
+Join over UDP and Host first open a lobby: everyone who has connected is listed with
+their name, ready state and ping, and the host presses Start when the roster looks right.
 
 If Windows shows "Windows protected your PC", click "More info" > "Run anyway".
 (The installer is a plain PowerShell script: mdk2-coop.ps1, readable in Notepad.)

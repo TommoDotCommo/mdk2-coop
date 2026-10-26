@@ -257,7 +257,7 @@ static void l_coop_event(void)
         if (e.kind == EV_FIRE || e.kind == EV_PICKUP || e.kind == EV_MARK)
             event_relay(&e, from);
         if (e.kind == EV_DESPAWN)
-            ent_despawn(e.netid);
+            ent_despawn(e.netid, e.objtype);
         else if (e.kind == EV_FIRE)
             shots_replay(&e);
         else if (e.kind == EV_MARK)
@@ -801,7 +801,7 @@ static void run_mod_script(void)
     FILE *f;
     long len;
 
-    snprintf(path, MAX_PATH, "%s\\coop.lua", coop_dir);
+    snprintf(path, MAX_PATH, "%s\\coop\\coop.lua", game_dir);
     if (!(f = fopen(path, "rb"))) {
         logmsg("no %s", path);
         return;
@@ -881,6 +881,7 @@ void l_coop_init(void)
     logmsg("coop_init: lua functions registered, damage hook %s", deal_damage_orig ? "installed" : "NOT installed");
     shots_init();
     pickups_init();
+    ents_init();
     rooms_init();
     frame_init();
     saves_lua_init();

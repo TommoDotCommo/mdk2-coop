@@ -28,8 +28,7 @@ function Install($dir, [string[]]$extra, [int]$expected=0) {
 }
 $hostDir = Fixture 'host'
 Install $hostDir @()
-$ini = Get-Content (Join-Path $hostDir 'coop\coop.ini') -Raw
-Check ($ini -match 'transport=steam' -and $ini -match 'role=host') 'new installs default to Steam host'
+Check (-not (Test-Path (Join-Path $hostDir 'coop\coop.ini'))) 'a plain install asks nothing and leaves host/join to the launcher'
 Check (Test-Path (Join-Path $hostDir 'dinput8.dll')) 'bridge installed'
 Check (Test-Path (Join-Path $hostDir 'coop\coop.lua')) 'Lua installed'
 Check ((Get-Content (Join-Path $hostDir 'settings.lua') -Raw).Contains('if (coop_init)')) 'loader installed in fixture'
@@ -53,7 +52,7 @@ New-Item -ItemType Directory (Join-Path $legacyDir 'coop') | Out-Null
 Set-Content (Join-Path $legacyDir 'coop\coop.ini') "[net]`r`nrole=host`r`nlisten_port=28952`r`n[game]`r`nenemy_scale=75" -Encoding ASCII
 Install $legacyDir @()
 $ini = Get-Content (Join-Path $legacyDir 'coop\coop.ini') -Raw
-Check ($ini -match 'transport=udp' -and $ini -match 'listen_port=28952') 'legacy configurations stay on UDP'
+Check ($ini -notmatch 'transport=' -and $ini -match 'listen_port=28952') 'a plain install leaves an existing configuration alone'
 Check ($ini -match 'enemy_scale=75') 'unrelated settings preserved'
 Install $legacyDir @('-Transport','steam')
 $ini = Get-Content (Join-Path $legacyDir 'coop\coop.ini') -Raw

@@ -53,7 +53,7 @@ static BYTE *tar_read(const char *name, DWORD *size)
     BYTE *data = NULL;
     FILE *f;
 
-    snprintf(path, MAX_PATH, "%s\\..\\mdk2.tar", coop_dir);
+    snprintf(path, MAX_PATH, "%s\\mdk2.tar", game_dir);
     if (!(f = fopen(path, "rb")))
         return NULL;
     while (fread(hdr, 1, 512, f) == 512 && hdr[0]) {
@@ -80,6 +80,86 @@ static BYTE *tar_read(const char *name, DWORD *size)
     return data;
 }
 
+/* One 4x4 block of a DXT image into out[0..15] (0xAARRGGBB); kind 1, 3 or 5 */
+static void dxt_block(const BYTE *b, int kind, DWORD *out)
+{
+    const BYTE *c = kind == 1 ? b : b + 8;
+    unsigned c0 = c[0] | c[1] << 8, c1 = c[2] | c[3] << 8, bits = c[4] | c[5] << 8 | c[6] << 16 | (unsigned)c[7] << 24;
+    int rgb[4][3], i, a[8];
+
+    for (i = 0; i < 2; i++) {
+        unsigned v = i ? c1 : c0;
+        rgb[i][0] = ((v >> 11) & 31) * 255 / 31;
+        rgb[i][1] = ((v >> 5) & 63) * 255 / 63;
+        rgb[i][2] = (v & 31) * 255 / 31;
+    }
+    for (i = 0; i < 3; i++) {
+        if (c0 > c1 || kind != 1) {
+            rgb[2][i] = (2 * rgb[0][i] + rgb[1][i]) / 3;
+            rgb[3][i] = (rgb[0][i] + 2 * rgb[1][i]) / 3;
+        } else {
+            rgb[2][i] = (rgb[0][i] + rgb[1][i]) / 2;
+            rgb[3][i] = 0;
+        }
+    }
+    if (kind == 5) {
+        unsigned long long ab = 0;
+
+        for (i = 0; i < 6; i++)
+            ab |= (unsigned long long)b[2 + i] << (8 * i);
+        a[0] = b[0];
+        a[1] = b[1];
+        for (i = 0; i < 6 && a[0] > a[1]; i++)
+            a[2 + i] = ((6 - i) * a[0] + (1 + i) * a[1]) / 7;
+        for (i = 0; i < 4 && a[0] <= a[1]; i++)
+            a[2 + i] = ((4 - i) * a[0] + (1 + i) * a[1]) / 5;
+        if (a[0] <= a[1]) {
+            a[6] = 0;
+            a[7] = 255;
+        }
+        for (i = 0; i < 16; i++) {
+            int ci = (bits >> (2 * i)) & 3, al = a[(ab >> (3 * i)) & 7];
+            out[i] = (DWORD)al << 24 | rgb[ci][0] << 16 | rgb[ci][1] << 8 | rgb[ci][2];
+        }
+        return;
+    }
+    for (i = 0; i < 16; i++) {
+        int ci = (bits >> (2 * i)) & 3, al = 255;
+
+        if (kind == 3)
+            al = ((b[i / 2] >> (4 * (i & 1))) & 15) * 17;
+        else if (c0 <= c1 && ci == 3)
+            al = 0;
+        out[i] = (DWORD)al << 24 | rgb[ci][0] << 16 | rgb[ci][1] << 8 | rgb[ci][2];
+    }
+}
+
+/* DXT1/3/5 DDS (the Overhaul Games build keeps its menu art compressed); like the 32-bit ones its rows are bottom up */
+static int dds_load_dxt(const BYTE *d, DWORD size, struct image *img)
+{
+    const DWORD *h = (const DWORD *)d;
+    int w = h[4], ht = h[3], kind, bx, by, x, y, bs;
+    DWORD blk[16];
+
+    if (size < 128 || h[0] != 0x20534444 || !(h[20] & 4) || w <= 0 || ht <= 0 || w > 4096 || ht > 4096 ||
+        (w | ht) & 3)
+        return 0;
+    kind = h[21] == 0x31545844 ? 1 : h[21] == 0x33545844 ? 3 : h[21] == 0x35545844 ? 5 : 0;
+    bs = kind == 1 ? 8 : 16;
+    if (!kind || 128 + (DWORD)(w / 4) * (ht / 4) * bs > size || !(img->px = malloc(w * ht * 4)))
+        return 0;
+    for (by = 0; by < ht / 4; by++)
+        for (bx = 0; bx < w / 4; bx++) {
+            dxt_block(d + 128 + (by * (w / 4) + bx) * bs, kind, blk);
+            for (y = 0; y < 4; y++)
+                for (x = 0; x < 4; x++)
+                    img->px[(ht - 1 - (by * 4 + y)) * w + bx * 4 + x] = blk[y * 4 + x];
+        }
+    img->w = w;
+    img->h = ht;
+    return 1;
+}
+
 /* Uncompressed 32-bit DDS (the format of the game's menu art); rows are stored bottom up */
 static int dds_load(const char *name, struct image *img)
 {
@@ -90,6 +170,10 @@ static int dds_load(const char *name, struct image *img)
     if (!d)
         return 0;
     h = (DWORD *)d;
+    if (dds_load_dxt(d, size, img)) {
+        free(d);
+        return 1;
+    }
     w = h[4];
     ht = h[3];
     if (size < 128 || h[0] != 0x20534444 || !(h[20] & 0x40) || h[22] != 32 || h[23] != 0xff0000 ||
@@ -144,7 +228,7 @@ enum { MODE_HOST, MODE_JOIN, MODE_SOLO };
 static const char *mode_names[] = { "host", "join", "solo" };
 
 static struct {
-    int mode, steam, friendly_fire, difficulty, save_interval, controls, hud, show;
+    int mode, steam, friendly_fire, difficulty, save_interval, controls, hud, show, show_lobby;
     int section, char_follow, devkeys, outline, movietimer, ghosts, emotes, charwheel, chat, pings, pad;
     int voice, voice_volume, voice_range;
     char name[PLAYER_NAME], lobby[24], host[64], port[8], listen[8];
@@ -600,6 +684,7 @@ static void settings_read(void)
     cfg.voice_volume = index_of(voice_volumes, 4, GetPrivateProfileIntA("voice", "volume", 100, ini), 1);
     cfg.voice_range = index_of(voice_ranges, 4, GetPrivateProfileIntA("voice", "range", 50, ini), 1);
     cfg.show = GetPrivateProfileIntA("launcher", "show", 1, ini) != 0;
+    cfg.show_lobby = GetPrivateProfileIntA("launcher", "lobby", 1, ini) != 0;
     GetPrivateProfileStringA("player", "id", "", s, sizeof(s), player_ini);
     own_id = strtoul(s, NULL, 16);
     nsessions = sessions_list(sessions, 12, 0);
@@ -872,6 +957,7 @@ static struct { float x, y, w, h; } hits[64];
 static int nhits;
 static char typed[64];                      /* characters for the focused field ('\b' backspace) */
 static int ntyped;
+static int field_focused;       /* the last render drew the focused control as a text field: Space types */
 static int changed, done, quit, caret_on = 1;
 
 #define ID __LINE__
@@ -1001,6 +1087,8 @@ static int field(int id, float x, float y, float w, const char *label, char *buf
                  int digits, const char *placeholder)
 {
     int edited = 0, i;
+    if (focus == id)
+        field_focused = 1;
     if (control(id, x, y + 24, w, 40) && !clicked)
         done = 1;                   /* Enter in a field starts the game */
     gdi_text(f_small, x, y, C_DIM, label, DT_LEFT);
@@ -1463,6 +1551,342 @@ static void page_about(void)
         ShellExecuteA(NULL, "open", coop_dir, NULL, NULL, SW_SHOWNORMAL);
 }
 
+/* ---- lobby: who has connected, before the game starts ----
+ * Host and Join over UDP first meet here. The host listens on the game's port and every joiner says hello
+ * every 0.4 s (name, mod version, ready, its last round trip); the host answers with the roster, which
+ * everyone draws, so each player can see at once whether they are connected and whether the others are.
+ * The host presses Start: the roster says "starting in 3 s" and every launcher counts it down by itself.
+ * The lobby socket is closed before the game starts; the game's own connection then takes over the port.
+ * Text datagrams: "MDKL H <id> <ready> <rtt> <ts> <version>|<name>" to the host, and
+ * "MDKL R <ts> <countdown ms or -1> <n>" followed by n lines "<name>|<id>|<ready>|<rtt>|<version>" back. */
+#define LOB_MAX         16
+#define LOB_COUNTDOWN   3000
+#define LOB_STALE       4000
+struct lob_member { char name[PLAYER_NAME + 1], ver[48]; unsigned id; int ready, rtt; DWORD seen, echo, got; struct sockaddr_in addr; };
+static struct {
+    int on, host, ready, n, rtt, connected, wsa;
+    SOCKET s;
+    unsigned id;
+    DWORD start_at, next_send, last_host, opened;
+    struct lob_member m[LOB_MAX];
+    struct sockaddr_in hostaddr;
+    char status[96];
+} lob;
+
+/* our name as it goes on the wire: '|' and line ends separate fields */
+static const char *lob_name(void)
+{
+    static char name[PLAYER_NAME + 1];
+    char *c;
+
+    snprintf(name, sizeof(name), "%s", cfg.name[0] ? cfg.name : "Player");
+    for (c = name; *c; c++)
+        if (*c == '|' || *c == '\n' || *c == '\r')
+            *c = '_';
+    return name;
+}
+
+static int lob_wants(void)
+{
+    return cfg.mode != MODE_SOLO && !cfg.steam && cfg.show_lobby;
+}
+
+static void lob_leave(void)
+{
+    if (lob.s != INVALID_SOCKET && lob.on)
+        closesocket(lob.s);
+    if (lob.wsa)
+        WSACleanup();
+    memset(&lob, 0, sizeof(lob));
+    lob.s = INVALID_SOCKET;
+    changed = 1;
+}
+
+static void lob_open(void)
+{
+    struct sockaddr_in a;
+    WSADATA wsa;
+    u_long nb = 1;
+    int port = atoi(cfg.mode == MODE_HOST ? cfg.listen : cfg.port), no_reset = 0;
+    DWORD ret;
+
+    memset(&lob, 0, sizeof(lob));
+    lob.s = INVALID_SOCKET;
+    if (port <= 0 || port > 65535)
+        port = 27900;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa)) {
+        logmsg("lobby: WSAStartup failed");
+        done = 1;
+        return;
+    }
+    lob.wsa = 1;
+    lob.s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons((u_short)(cfg.mode == MODE_HOST ? port : 0));
+    a.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (lob.s == INVALID_SOCKET || bind(lob.s, (struct sockaddr *)&a, sizeof(a)) != 0) {
+        logmsg("lobby: cannot bind UDP %d (%d): starting without a lobby", port, WSAGetLastError());
+        lob_leave();
+        done = 1;
+        return;
+    }
+    ioctlsocket(lob.s, FIONBIO, &nb);
+    WSAIoctl(lob.s, 0x9800000c, &no_reset, sizeof(no_reset), NULL, 0, &ret, NULL, NULL);
+    lob.on = 1;
+    lob.opened = GetTickCount();
+    lob.host = cfg.mode == MODE_HOST;
+    lob.id = GetTickCount() ^ ((unsigned)GetCurrentProcessId() << 16) ^ 0x5bd1e995u;
+    if (!lob.host) {
+        memset(&lob.hostaddr, 0, sizeof(lob.hostaddr));
+        lob.hostaddr.sin_family = AF_INET;
+        lob.hostaddr.sin_port = htons((u_short)port);
+        lob.hostaddr.sin_addr.s_addr = inet_addr(cfg.host);
+        snprintf(lob.status, sizeof(lob.status), "Looking for the host...");
+        if (lob.hostaddr.sin_addr.s_addr == INADDR_NONE)
+            snprintf(lob.status, sizeof(lob.status), "That is not an IP address: %s", cfg.host);
+    } else {
+        snprintf(lob.status, sizeof(lob.status), "Waiting for players (UDP %d)", port);
+    }
+    lob.n = 0;
+    if (lob.host) {
+        struct lob_member *m = &lob.m[lob.n++];
+        snprintf(m->name, sizeof(m->name), "%s", lob_name());
+        snprintf(m->ver, sizeof(m->ver), "%s", MOD_VERSION);
+        m->id = lob.id;
+        m->ready = 1;
+    }
+    logmsg("lobby: open as %s on UDP %d", lob.host ? "host" : "client", port);
+    changed = 1;
+}
+
+static void lob_send_roster(DWORD now)
+{
+    char body[1300], buf[1400];
+    int i, n = 0, hn, left = lob.start_at ? (int)(lob.start_at - now) : -1;
+
+    if (lob.start_at && left < 0)
+        left = 0;
+    for (i = 0; i < lob.n; i++)
+        n += snprintf(body + n, sizeof(body) - n, "%s|%u|%d|%d|%s\n", lob.m[i].name, lob.m[i].id, lob.m[i].ready,
+                      lob.m[i].rtt, lob.m[i].ver);
+    for (i = 1; i < lob.n; i++) {
+        /* the header echoes this member's own hello time: its round trip is now minus that */
+        hn = snprintf(buf, sizeof(buf), "MDKL R %lu %lu %d %d\n", (unsigned long)lob.m[i].echo,
+                      (unsigned long)(now - lob.m[i].got), left, lob.n);
+        memcpy(buf + hn, body, n);
+        sendto(lob.s, buf, hn + n, 0, (struct sockaddr *)&lob.m[i].addr, sizeof(lob.m[i].addr));
+    }
+}
+
+static void lob_poll(void)
+{
+    char buf[1500];
+    struct sockaddr_in from;
+    int flen, n, i;
+    DWORD now = GetTickCount();
+
+    if (!lob.on)
+        return;
+    for (;;) {
+        flen = sizeof(from);
+        n = recvfrom(lob.s, buf, sizeof(buf) - 1, 0, (struct sockaddr *)&from, &flen);
+        if (n <= 0)
+            break;
+        buf[n] = 0;
+        if (strncmp(buf, "MDKL ", 5))
+            continue;
+        if (lob.host && buf[5] == 'H') {
+            unsigned id;
+            int ready, rtt, k = -1;
+            unsigned long ts;
+            char *who = strchr(buf + 7, '|'), ver[48];
+            char *tail = buf + 7;
+
+            if (sscanf(tail, "%x %d %d %lu %47[^|]", &id, &ready, &rtt, &ts, ver) < 5 || !who)
+                continue;
+            for (i = 1; i < lob.n; i++)
+                if (lob.m[i].id == id)
+                    k = i;
+            if (k < 0) {
+                if (lob.n >= LOB_MAX)
+                    continue;
+                k = lob.n++;
+                memset(&lob.m[k], 0, sizeof(lob.m[k]));
+                lob.m[k].id = id;
+                logmsg("lobby: %s joined from %s:%d", who + 1, inet_ntoa(from.sin_addr), ntohs(from.sin_port));
+            }
+            lob.m[k].addr = from;
+            lob.m[k].ready = ready != 0;
+            lob.m[k].rtt = rtt;
+            lob.m[k].seen = now;
+            lob.m[k].echo = (DWORD)ts;
+            lob.m[k].got = now;
+            snprintf(lob.m[k].ver, sizeof(lob.m[k].ver), "%s", ver);
+            snprintf(lob.m[k].name, sizeof(lob.m[k].name), "%s", who + 1);
+            changed = 1;
+        } else if (!lob.host && buf[5] == 'R') {
+            unsigned long ts, held;
+            int left, cnt;
+            char *line = strchr(buf, '\n');
+
+            if (sscanf(buf + 7, "%lu %lu %d %d", &ts, &held, &left, &cnt) < 4 || !line)
+                continue;
+            if (ts)     /* ts: our own hello time, echoed; the host held it for `held` ms before answering */
+                lob.rtt = (int)(now - (DWORD)ts - held) > 0 ? (int)(now - (DWORD)ts - held) : 0;
+            lob.n = 0;
+            for (line++; line && *line && lob.n < LOB_MAX && lob.n < cnt;) {
+                char *end = strchr(line, '\n'), *f[5];
+                int k = 0;
+                if (end)
+                    *end = 0;
+                f[k++] = line;
+                while (k < 5 && (line = strchr(line, '|')))
+                    *line++ = 0, f[k++] = line;
+                if (k == 5) {
+                    struct lob_member *m = &lob.m[lob.n++];
+                    memset(m, 0, sizeof(*m));
+                    snprintf(m->name, sizeof(m->name), "%s", f[0]);
+                    m->id = (unsigned)strtoul(f[1], NULL, 10);
+                    m->ready = atoi(f[2]);
+                    m->rtt = atoi(f[3]);
+                    snprintf(m->ver, sizeof(m->ver), "%s", f[4]);
+                }
+                line = end ? end + 1 : NULL;
+            }
+            if (!lob.connected)
+                logmsg("lobby: connected to the host (%d players)", lob.n);
+            lob.connected = 1;
+            lob.last_host = now;
+            if (left >= 0 && !lob.start_at)
+                lob.start_at = now + (DWORD)left;
+            changed = 1;
+        }
+    }
+    if (lob.host) {
+        for (i = 1; i < lob.n; i++)
+            if (now - lob.m[i].seen > LOB_STALE) {
+                logmsg("lobby: %s left", lob.m[i].name);
+                memmove(&lob.m[i], &lob.m[i + 1], (lob.n - i - 1) * sizeof(lob.m[0]));
+                lob.n--;
+                i--;
+                changed = 1;
+            }
+        if (now >= lob.next_send) {
+            lob.next_send = now + 300;
+            lob_send_roster(now);
+        }
+    } else {
+        if (now >= lob.next_send && lob.hostaddr.sin_addr.s_addr != INADDR_NONE) {
+            lob.next_send = now + 400;
+            n = snprintf(buf, sizeof(buf), "MDKL H %x %d %d %lu %s|%s", lob.id, lob.ready, lob.rtt,
+                         (unsigned long)now, MOD_VERSION, lob_name());
+            sendto(lob.s, buf, n, 0, (struct sockaddr *)&lob.hostaddr, sizeof(lob.hostaddr));
+        }
+        if (lob.connected && now - lob.last_host > LOB_STALE) {
+            lob.connected = 0;
+            lob.n = 0;
+            lob.start_at = 0;
+            snprintf(lob.status, sizeof(lob.status), "Lost the host");
+            changed = 1;
+        } else if (!lob.connected && lob.hostaddr.sin_addr.s_addr != INADDR_NONE) {
+            snprintf(lob.status, sizeof(lob.status), now - lob.opened > 5000 ?
+                     "No answer from the host yet. Is it in its lobby, and is UDP %d open?" : "Looking for the host...",
+                     ntohs(lob.hostaddr.sin_port));
+        }
+    }
+    if (lob.start_at && (int)(now - lob.start_at) >= 0) {
+        logmsg("lobby: start (%d players)", lob.n);
+        done = 1;
+    }
+}
+
+static void lob_primary(void)
+{
+    DWORD now = GetTickCount();
+
+    if (!lob.on)
+        return;
+    if (lob.host) {
+        if (!lob.start_at) {
+            lob.start_at = now + (lob.n > 1 ? LOB_COUNTDOWN : 600);
+            lob_send_roster(now);
+            logmsg("lobby: host started the countdown (%d players)", lob.n);
+        }
+    } else {
+        lob.ready = !lob.ready;
+    }
+    changed = 1;
+}
+
+static void lobby_page(void)
+{
+    float y = 112;
+    char line[160];
+    DWORD now = GetTickCount();
+    int i, others_unready = 0, mismatch = 0;
+
+    heading(PX, y - 4, 26, lob.host ? "Lobby: you are hosting" : "Lobby", C_TEXT, DT_LEFT);
+    y += 44;
+    for (i = 0; i < lob.n; i++) {
+        const struct lob_member *m = &lob.m[i];
+        int me = lob.host ? i == 0 : m->id == lob.id, same = !strcmp(m->ver, MOD_VERSION);
+        char pill[48];
+
+        fill(PX, y, PW, 44, me ? 0x2a2014 : C_TILE, 235);
+        fill(PX, y, 5, 44, i == 0 ? C_ORANGE : m->ready ? C_BLUE : C_FAINT, 255);
+        snprintf(line, sizeof(line), "%s%s", m->name, me ? " (you)" : "");
+        gdi_text(f_body, PX + 18, y + 11, C_TEXT, line, DT_LEFT);
+        if (i == 0)
+            snprintf(pill, sizeof(pill), "host");
+        else if (!same)
+            snprintf(pill, sizeof(pill), "version %s", m->ver);
+        else
+            snprintf(pill, sizeof(pill), "%s  %d ms", m->ready ? "ready" : "not ready", m->rtt);
+        gdi_text(f_small, PX + PW - 14, y + 14, !same ? C_BAD : m->ready || i == 0 ? C_BLUE : C_DIM, pill, DT_RIGHT);
+        if (i > 0 && !m->ready)
+            others_unready++;
+        if (!same)
+            mismatch++;
+        y += 50;
+    }
+    if (!lob.host && !lob.connected) {
+        gdi_para(f_small, PX, y + 8, PW, lob.status[0] && strstr(lob.status, "Lost") ? C_BAD : C_DIM,
+                 lob.status);
+        y += 40;
+    }
+    y = LH - 220;
+    if (lob.start_at) {
+        int left = (int)(lob.start_at - now);
+        snprintf(line, sizeof(line), "Starting in %d...", left > 0 ? (left + 999) / 1000 : 0);
+        heading(PX, y, 26, line, C_ORANGE, DT_LEFT);
+    } else if (lob.host) {
+        snprintf(line, sizeof(line), "Everyone is ready.");
+        if (lob.n < 2) {
+            static char lan[32];
+            if (!lan[0])
+                lan_address(lan, sizeof(lan));
+            snprintf(line, sizeof(line), "Nobody has joined yet. This PC: %s, port %s", lan,
+                     cfg.listen[0] ? cfg.listen : "27900");
+        } else if (others_unready) {
+            snprintf(line, sizeof(line), "%d not ready yet (you can start anyway).", others_unready);
+        }
+        gdi_para(f_small, PX, y, PW, C_DIM, line);
+    } else if (lob.connected) {
+        gdi_para(f_small, PX, y, PW, C_DIM, "Connected. Press Ready, then wait for the host to start.");
+    }
+    if (mismatch)
+        gdi_para(f_small, PX, y + 34, PW, C_BAD, "A different mod version is in the lobby: everyone should update.");
+    if (lob.host) {
+        if (button(ID, PX, LH - 160, PW, 64, lob.start_at ? "Starting..." : "Start game", 1))
+            lob_primary();
+    } else if (button(ID, PX, LH - 160, PW, 64, lob.ready ? "Ready (click to undo)" : "Ready", 1)) {
+        lob_primary();
+    }
+    if (button(ID, PX, LH - 86, PW, 52, "Leave lobby", 0))
+        lob_leave();
+}
+
 static void render(void)
 {
     char line[160];
@@ -1474,10 +1898,15 @@ static void render(void)
     heading(360, 548, 52, "Online Co-op", C_ORANGE, DT_CENTER);
     snprintf(line, sizeof(line), "%s  -  up to 16 players", MOD_VERSION);
     gdi_text(f_small, 360, 614, C_DIM, line, DT_CENTER);
-    gdi_text(f_small, 24, 690, C_FAINT, "Enter: play   Tab: next   Esc: quit", DT_LEFT);
+    gdi_text(f_small, 24, 690, C_FAINT, lob.on ? (lob.host ? "Enter: start   Esc: leave the lobby" : "Enter: ready   Esc: leave the lobby") :
+             "Enter: play   Tab: next   Esc: quit", DT_LEFT);
 
     /* right: tabs, page, play */
     fill(600 + 150, 0, 3, LH, C_BLUE, 60);
+    if (lob.on) {
+        lobby_page();
+        return;
+    }
     {
         static const char *tabs[] = { "Play", "Saves", "Settings", "About" };
         float tx = PX;
@@ -1506,8 +1935,12 @@ static void render(void)
     if (line[0])
         gdi_text(f_small, PX, LH - 118, C_ORANGE, line, DT_LEFT);
     if (button(ID, PX, LH - 92, PW, 64, cfg.mode == MODE_SOLO ? "Play solo" :
-               cfg.mode == MODE_JOIN ? "Join" : sel >= 0 ? "Continue" : "Host", 1))
-        done = 1;
+               cfg.mode == MODE_JOIN ? "Join" : sel >= 0 ? "Continue" : "Host", 1)) {
+        if (lob_wants())
+            lob_open();
+        else
+            done = 1;
+    }
 }
 
 /* draw until nothing changes (a control acting changes what the others show) */
@@ -1516,6 +1949,7 @@ static void pass(void)
     int i;
     for (i = 0; i < 3; i++) {
         changed = 0;
+        field_focused = 0;
         render();
         clicked = activate = adjust = 0;
         if (!changed)
@@ -1561,6 +1995,15 @@ static void move_focus(int d)
 static void key(int vk)
 {
     int shift = GetKeyState(VK_SHIFT) < 0, ctrl = GetKeyState(VK_CONTROL) < 0;
+    if (lob.on && (vk == VK_RETURN || vk == VK_ESCAPE)) {
+        if (vk == VK_RETURN)
+            lob_primary();
+        else
+            lob_leave();
+        pass();
+        present();
+        return;
+    }
     if (vk == VK_TAB || vk == VK_UP || vk == VK_DOWN)
         kb_focus = 1;
     switch (vk) {
@@ -1570,9 +2013,13 @@ static void key(int vk)
     case VK_LEFT: adjust = -1; break;
     case VK_RIGHT: adjust = 1; break;
     case VK_RETURN: case VK_SPACE:
-        if (vk == VK_SPACE && ntyped < (int)sizeof(typed)) {
-            typed[ntyped++] = ' ';      /* a field takes it; otherwise it presses */
+        if (vk == VK_SPACE && field_focused) {
+            if (ntyped < (int)sizeof(typed))
+                typed[ntyped++] = ' ';  /* a name has spaces: typing it must not press or start anything */
+            break;
         }
+        if (vk == VK_SPACE && !focus_valid())
+            break;                      /* Space only presses the focused button; Enter starts the game */
         if (!focus_valid())
             done = 1;
         else
@@ -1663,6 +2110,14 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     case WM_TIMER:
+        if (wp == 3) {
+            lob_poll();
+            if (changed || (lob.on && lob.start_at)) {   /* a roster change or the countdown redraws */
+                pass();
+                present();
+            }
+            return 0;
+        }
         caret_on = !caret_on;
         pass();
         present();
@@ -1849,18 +2304,23 @@ static void run(void)
         SetForegroundWindow(wnd);
         present();
         SetTimer(wnd, 1, 530, NULL);
+        SetTimer(wnd, 3, 50, NULL);
     } else {
-        SetTimer(wnd, 2, 100, NULL);
+        SetTimer(wnd, 2, 50, NULL);
     }
     logmsg("launcher: shown at %dx%d%s", fw, fh, headless ? " (hidden, test)" : "");
     while (!done && !quit && GetMessageA(&msg, NULL, 0, 0) > 0) {
         if (headless && msg.message == WM_TIMER) {
             test_commands();
+            lob_poll();
+            if (changed && lob.on)
+                pass();
             continue;
         }
         TranslateMessage(&msg);
         DispatchMessageA(&msg);
     }
+    lob_leave();
     DestroyWindow(wnd);
     wnd = NULL;
     UnregisterClassA(wc.lpszClassName, wc.hInstance);
