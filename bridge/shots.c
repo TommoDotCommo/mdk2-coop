@@ -19,7 +19,7 @@
  * Starts with mov eax,[esp+4]; sub esp,0xc: 7 bytes to move. */
 #define CREATE_OBJECT_ADDR  0x42d360
 #ifndef MAIN_SCENE
-#define MAIN_SCENE          (*(void **)0x549500)
+#define MAIN_SCENE          (*(void **)ADDR.main_scene)
 #endif
 #define LAUNCH_SHOT_ADDR    0x403b00
 #define SHOT_CLASS          5
@@ -33,7 +33,7 @@
 #ifndef SHOT_IGNORE_OWNER
 /* Same handle-list insertion used by launch_shot at 0x403b5a. */
 #define SHOT_IGNORE_OWNER(list, owner) \
-    ((void (*)(void *, DWORD, const char *, int))0x458360)(list, owner, "coop shots", 0)
+    ((void (*)(void *, DWORD, const char *, int))ADDR.list_insert)(list, owner, "coop shots", 0)
 #endif
 
 static const BYTE create_prologue[7] = { 0x8b, 0x44, 0x24, 0x04, 0x83, 0xec, 0x0c };

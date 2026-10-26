@@ -20,8 +20,15 @@ How the mod works, how to build and test it, and how a release is made. Players 
 Building requires mingw-w64. The automated harness uses Bash, Python 3 and Windows
 process interop (`powershell.exe` and `wslpath`), with isolated game copies.
 
-Only MDK2 HD Steam build 3902 is supported; on any other build the bridge logs "unknown game build" and only
-forwards DirectInput.
+Two builds are supported: Steam build 3902 and the Overhaul Games (Beamdog client) build (exe sha256 2e4ae928...39f9).
+They share nearly all code at the same addresses; the Lua runtime, a few helpers and the data tables differ, so
+`select_build()` in `dinput8.c` picks a `struct build_addrs` (`ADDR`) by finding the `copytagmethods` builtin entry.
+On any other build the bridge logs "unknown game build" and only forwards DirectInput. The Overhaul addresses came
+from a normalised-instruction alignment of the two disassemblies (the Steam exe is encrypted on disk, so the
+Steam side is a memory dump of a running game) and were checked statically (hook prologues, patched call sites).
+That build refuses to start without the Beamdog client ("Please start the BeamDog Client"), so it has not been
+run with the mod: the bridge attaches and installs its Lua hook, nothing more is verified. The mod does not
+work around that check.
 
 ## Making a release
 
@@ -281,8 +288,7 @@ numbered and resent until acked. Targets are matched by gob name, so unnamed gob
 Log: `<game dir>\coop\bridge.log`; the previous run's is kept as `bridge.previous.log`. A crash writes
 `crash: exception <code> at <module>+<offset>` with the address read or written (a vectored handler, so the game
 or Steam replacing the unhandled-exception filter does not hide it); `coop_crash()` crashes on purpose in background
-test mode. Only Steam build 3902 is supported; on any other build the bridge
-logs "unknown game build" and only forwards DirectInput.
+test mode. Only the two builds above are supported.
 
 Updates go out at `send_hz` (30) and the other player is drawn `interp_ms` (100) in the past, blended
 between the two updates either side; `[sim]` fakes latency, jitter and loss for testing. While the other

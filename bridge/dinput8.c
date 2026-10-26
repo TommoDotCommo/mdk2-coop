@@ -15,8 +15,8 @@ void loader_ensure(void);      /* loader.c */
 
 /* Lua builtin table {name, fn} entry for "copytagmethods", unused by the
  * game's scripts. Repointed to coop_init before Lua starts. */
-#define BUILTIN_ENTRY      ((void **)0x506520)
-#define BUILTIN_ENTRY_NAME ((const char *)0x4d7d34)
+#define BUILTIN_ENTRY      ((void **)ADDR.builtin_entry)
+#define BUILTIN_ENTRY_NAME ((const char *)ADDR.builtin_name)
 
 /* ---- log ---- */
 
@@ -62,16 +62,53 @@ static LONG CALLBACK crash_logger(EXCEPTION_POINTERS *e)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+struct build_addrs ADDR;
+
+static const struct build_addrs BUILDS[] = {
+    { "Steam build 3902", 0x506520, 0x4d7d34,
+      0x476bb0, 0x476c40, 0x476b80, 0x476690, 0x476a20, 0x476a60,
+      0x478100, 0x478de0, 0x476ce0, 0x477980, 0x475700, 0x4776b0,
+      0x457520, 0x458360,
+      0x4f64a8, 0x524e10, 0x524378, 0x524380, 0x5494c8, 0x549500 },
+    { "Overhaul Games build", 0x505510, 0x4d769c,
+      0x476710, 0x4767a0, 0x4766e0, 0x4761f0, 0x476580, 0x4765c0,
+      0x477c60, 0x478940, 0x476840, 0x4774e0, 0x475260, 0x477210,
+      0x457500, 0x458340,
+      0x4f54a8, 0x523e10, 0x523378, 0x523380, 0x548488, 0x5484c0 },
+};
+
+const char *build_name(void) { return ADDR.name ? ADDR.name : "unknown"; }
+
+/* The builtin table entry { "copytagmethods", fn } is where the Lua hook goes, and it identifies the build. */
+static int select_build(void)
+{
+    unsigned i;
+
+    for (i = 0; i < sizeof(BUILDS) / sizeof(BUILDS[0]); i++) {
+        void **entry = (void **)BUILDS[i].builtin_entry;
+        const char *name = (const char *)BUILDS[i].builtin_name;
+
+        if (!IsBadReadPtr(entry, 8) && !IsBadReadPtr(name, 15) && entry[0] == (void *)name &&
+            strcmp(name, "copytagmethods") == 0) {
+            ADDR = BUILDS[i];
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int install_lua_hook(void)
 {
-    void **entry = BUILTIN_ENTRY;
+    void **entry;
     DWORD old;
 
-    if (IsBadReadPtr(entry, 8) || IsBadReadPtr(BUILTIN_ENTRY_NAME, 15) ||
-        entry[0] != (void *)BUILTIN_ENTRY_NAME || strcmp(BUILTIN_ENTRY_NAME, "copytagmethods") != 0) {
+    if (!select_build()) {
         logmsg("unknown game build: lua hook not installed");
         return 0;
     }
+    logmsg("game build: %s", ADDR.name);
+    entry = BUILTIN_ENTRY;
+
     VirtualProtect(entry, 8, PAGE_READWRITE, &old);
     entry[0] = (void *)"coop_init";
     entry[1] = (void *)l_coop_init;

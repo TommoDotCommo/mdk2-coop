@@ -12,27 +12,43 @@
 #include <stdio.h>
 #include <stdint.h>
 
+/* ---- engine addresses per game build ----
+ * Steam build 3902 and the Overhaul Games (non-Steam) build share nearly all code at the same
+ * addresses; the Lua runtime, a few list helpers and the data tables sit at different ones.
+ * select_build() (dinput8.c) fills ADDR from the build it recognises. Addresses that are the
+ * same in both builds stay literal in the files that use them. */
+struct build_addrs {
+    const char *name;
+    DWORD builtin_entry, builtin_name;      /* table entry of the "copytagmethods" builtin and its name */
+    DWORD lua_pushnumber, lua_pushstring, lua_pushnil, lua_getparam, lua_isnumber, lua_getnumber;
+    DWORD luaL_check_lstr, lua_dobuffer, lua_pushusertag, tolua_tag, tolua_getusertype, tolua_function;
+    DWORD update_scene, list_insert;
+    DWORD class_table, gob_table, room_count, room_array, player_handle, main_scene;
+};
+extern struct build_addrs ADDR;
+const char *build_name(void);
+
 /* ---- game Lua 3.1 API (cdecl, statically linked in mdk2hd.exe) ---- */
 
 typedef void (*lua_CFunction)(void);
 
-#define lua_pushnumber      ((void (*)(double))0x476bb0)
-#define lua_pushstring      ((void (*)(const char *))0x476c40)
-#define lua_pushnil         ((void (*)(void))0x476b80)
-#define lua_getparam        ((unsigned int (*)(int))0x476690)
-#define lua_isnumber        ((int (*)(unsigned int))0x476a20)
-#define lua_getnumber       ((double (*)(unsigned int))0x476a60)
+#define lua_pushnumber      ((void (*)(double))ADDR.lua_pushnumber)
+#define lua_pushstring      ((void (*)(const char *))ADDR.lua_pushstring)
+#define lua_pushnil         ((void (*)(void))ADDR.lua_pushnil)
+#define lua_getparam        ((unsigned int (*)(int))ADDR.lua_getparam)
+#define lua_isnumber        ((int (*)(unsigned int))ADDR.lua_isnumber)
+#define lua_getnumber       ((double (*)(unsigned int))ADDR.lua_getnumber)
 /* luaL_check_lstr(narg, &len): string argument, raises a Lua error if missing */
-#define luaL_check_lstr     ((const char *(*)(int, long *))0x478100)
+#define luaL_check_lstr     ((const char *(*)(int, long *))ADDR.luaL_check_lstr)
 /* lua_dobuffer(buf, len, chunkname): run Lua source, 0 on success */
-#define lua_dobuffer        ((int (*)(const char *, int, const char *))0x478de0)
+#define lua_dobuffer        ((int (*)(const char *, int, const char *))ADDR.lua_dobuffer)
 /* lua_pushusertag(ptr, tag): push a C object; tolua_tag("OMGOB") gives a gob's tag */
-#define lua_pushusertag     ((void (*)(void *, int))0x476ce0)
-#define tolua_tag           ((int (*)(const char *))0x477980)
+#define lua_pushusertag     ((void (*)(void *, int))ADDR.lua_pushusertag)
+#define tolua_tag           ((int (*)(const char *))ADDR.tolua_tag)
 /* tolua_getusertype(narg, def): C object behind a Lua argument */
-#define tolua_getusertype   ((void *(*)(int, void *))0x475700)
+#define tolua_getusertype   ((void *(*)(int, void *))ADDR.tolua_getusertype)
 /* tolua_function(module, name, fn): module NULL registers a global */
-#define tolua_function      ((void (*)(const char *, const char *, lua_CFunction))0x4776b0)
+#define tolua_function      ((void (*)(const char *, const char *, lua_CFunction))ADDR.tolua_function)
 
 /* ---- engine ---- */
 
@@ -51,7 +67,7 @@ typedef void (*lua_CFunction)(void);
 #define GOB_ANIM            0x60    /* anim controller: +0x24 states, +0x28/+0x2c current/previous */
 #define GOB_INFO            0x84    /* -> game object: short type +0, damage filter +0x10, hp +0x12 */
 #define INFO_CLASS          0xb4    /* game object field; & 0x3f = index into CLASS_TABLE */
-#define CLASS_TABLE         ((BYTE **)0x4f64a8)
+#define CLASS_TABLE         ((BYTE **)ADDR.class_table)
 #define CLASS_SLOTS         14
 #define CLASS_THINK         1       /* slot +0x4: per-frame AI/update, think(gob); +0x0 is used instead
                                        for the player-controlled gob (caller around 0x42b3f0) */
@@ -59,7 +75,7 @@ typedef void (*lua_CFunction)(void);
 
 /* Engine object table: GOB_SLOTS entries of { gob *, u16 generation, u16 pad };
  * a handle is (generation << 16) | slot (see 0x449560, mdkGetGob) */
-#define GOB_TABLE           ((DWORD *)0x524e10)
+#define GOB_TABLE           ((DWORD *)ADDR.gob_table)
 #define GOB_SLOTS           0x800
 
 /* Creatures and enemies: OBJ_BIF (200) .. OBJ_CONEHEADCIV5 (254) */

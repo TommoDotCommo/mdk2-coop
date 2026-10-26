@@ -48,7 +48,7 @@ No game files are in this repo. Every player needs their own copy of MDK2 HD on 
 
 ## Install
 
-You need **MDK2 HD from Steam, the current build (3902)**. Other versions are refused, and nothing is changed.
+You need **MDK2 HD from Steam, the current build (3902)**. The Overhaul Games (Beamdog client) build is also accepted, but untested: its engine addresses were matched against the Steam build and checked statically, and nobody has played it yet. Other versions are refused, and nothing is changed.
 
 1. Download the zip from [Releases](https://github.com/TommoDotCommo/mdk2-coop/releases) and unzip it
    anywhere (not inside the game folder).

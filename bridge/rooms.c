@@ -17,8 +17,8 @@
 /* Room list: ROOM_COUNT entries at ROOM_ARRAY, each a struct with
  * [0] room gob, +0x4 number of visible rooms, +0xc array of them, +0x24 inactive,
  * +0x2c / +0x38 bounding box min / max. point_in_box(pos, min, max) = 0x453fc0. */
-#define ROOM_COUNT      (*(int *)0x524378)
-#define ROOM_ARRAY      (*(BYTE ***)0x524380)
+#define ROOM_COUNT      (*(int *)ADDR.room_count)
+#define ROOM_ARRAY      (*(BYTE ***)ADDR.room_array)
 #define ROOM_INACTIVE   0x24
 #define point_in_box    ((int (*)(float *, float *, float *))0x453fc0)
 #define FALL_MARGIN     30.0f       /* this far below the lowest room counts as out of the world */

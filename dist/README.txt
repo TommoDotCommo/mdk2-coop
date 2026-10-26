@@ -5,7 +5,8 @@ Play MDK2 HD's campaign together: one player hosts, the others join and follow
 the host from level to level. Alpha: expect rough edges.
 Project page and bug reports: https://github.com/TommoDotCommo/mdk2-coop
 
-You need MDK2 HD on Steam (the current Steam build, 3902). Every player needs their own copy.
+You need MDK2 HD on Steam (the current Steam build, 3902). The Overhaul Games (Beamdog client) build is also
+accepted but untested. Every player needs their own copy.
 
 
 Install

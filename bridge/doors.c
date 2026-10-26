@@ -8,7 +8,7 @@
 #include <string.h>
 #include "bridge.h"
 
-#define PLAYER_HANDLE   (*(DWORD *)0x5494c8)
+#define PLAYER_HANDLE   (*(DWORD *)ADDR.player_handle)
 #define OBJ_PROXDOOR1   700
 
 static DWORD door_think_orig;

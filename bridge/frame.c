@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include "bridge.h"
 
-#define UPDATE_SCENE_ADDR   0x457520
+#define UPDATE_SCENE_ADDR   ADDR.update_scene
 #define UPDATE_SCENE_CALL   ((BYTE *)0x402638)      /* call update_scene(scene) */
 
 static const char tick_lua[] = "if (coop and coop.Tick) then coop.Tick() end";

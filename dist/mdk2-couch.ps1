@@ -19,7 +19,10 @@ param(
     [switch]$Yes
 )
 $ErrorActionPreference = 'Stop'
-$ExeSha256   = 'BF5FAA81B18837B4C07F35941B107E5C23CAA8B105536CCD9C8E5A8E37357F43'
+$Builds      = @(
+    'BF5FAA81B18837B4C07F35941B107E5C23CAA8B105536CCD9C8E5A8E37357F43'      # Steam build 3902
+    '2E4AE928CDC5D39FEBF1D2AA2AB764B42353028DD19838121CF25ED284ED39F9'      # Overhaul Games build
+)
 $AppId       = '213350'
 $LoaderBegin = '-- >>> mdk2-coop >>>'
 $LoaderEnd   = '-- <<< mdk2-coop <<<'
@@ -150,7 +153,7 @@ function Do-Couch {
     }
     if (-not (Test-Path (Join-Path $game 'mdk2hd.exe'))) { Fail "No mdk2hd.exe in '$game'." }
     $h = (Get-FileHash -Algorithm SHA256 (Join-Path $game 'mdk2hd.exe')).Hash
-    if ($h -ne $ExeSha256) { Fail "This mdk2hd.exe is not Steam build 3902, the build the mod is made for.`nSHA-256: $h" }
+    if ($Builds -notcontains $h) { Fail "This mdk2hd.exe is not a build the mod is made for (Steam build 3902 or the Overhaul Games build).`nSHA-256: $h" }
     foreach ($f in 'dinput8.dll', 'coop\coop.lua') {
         if (-not (Test-Path (Join-Path $game $f))) { Fail "$f is missing in the game folder. Run Install.cmd first." }
     }
