@@ -14,7 +14,8 @@ Install
 1. Unzip this folder anywhere (not inside the game folder).
 2. Double-click Install.cmd.
    - It finds MDK2 HD in your Steam libraries or the Overhaul Games folder (or asks for the
-     folder) and checks the game version. If the version is different it stops and changes nothing.
+     folder) and installs. It does not check the game version: the mod picks the Steam or the Overhaul engine
+     addresses itself at every start (see coop\bridge.log).
    - That is all it asks: host or join, Steam or a direct address are chosen in the launcher.
 3. Start MDK2 HD from Steam as usual. The co-op launcher opens first.
 

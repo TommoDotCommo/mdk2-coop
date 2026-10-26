@@ -336,7 +336,7 @@ Steam requires a separate logged-in account for each player; same-PC multi-insta
 
 `tools/test_installer.ps1 -GameExe <original exe> -PackageDir <unpacked release> [-TestRoot <scratch>]`
 checks new installs, upgrades, transport selection, lobby IDs, settings preservation and uninstall in
-disposable fixtures. It copies the executable to check its hash, never runs it, and overrides the settings
+disposable fixtures. It copies the executable into the fixtures, never runs it, and overrides the settings
 path so the real game settings stay untouched. Use a scratch directory on a Windows
 filesystem with `-TestRoot`.
 

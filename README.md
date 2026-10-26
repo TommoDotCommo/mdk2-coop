@@ -48,14 +48,14 @@ No game files are in this repo. Every player needs their own copy of MDK2 HD on 
 
 ## Install
 
-You need **MDK2 HD from Steam, the current build (3902)**. The Overhaul Games (Beamdog client) build is also accepted, but untested: its engine addresses were matched against the Steam build and checked statically, and nobody has played it yet. Other versions are refused, and nothing is changed.
+You need MDK2 HD: the **Steam** version (build 3902) or the **Overhaul Games** (Beamdog) version. The installer does not check the game version. At every start the mod looks at the game it is in and uses the Steam engine addresses if they fit, the Overhaul ones if not. If neither fits, co-op stays off and `bridge.log` says "unknown game build".
 
 1. Download the zip from [Releases](https://github.com/TommoDotCommo/mdk2-coop/releases) and unzip it
    anywhere (not inside the game folder).
 2. Double-click **Install.cmd**. It finds MDK2 HD (Steam libraries or the Overhaul Games folder; it asks for
-   the folder if it cannot), checks the version and installs. It asks nothing else: Host or Join, Steam or direct IP
+   the folder if it cannot) and installs. It asks nothing else: Host or Join, Steam or direct IP
    and the address are chosen in the launcher at every start.
-3. Start MDK2 HD from Steam as usual. The co-op launcher opens first.
+3. Start MDK2 HD as usual (from Steam or the Beamdog client). The co-op launcher opens first.
 
 If Windows shows "Windows protected your PC", choose **More info > Run anyway**. The installer is a plain
 PowerShell script (`mdk2-coop.ps1`) that you can read in Notepad first.

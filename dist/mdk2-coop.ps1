@@ -1,4 +1,4 @@
-# mdk2-coop installer for MDK2 HD (Steam build 3902 or the Overhaul Games build). Windows PowerShell 5.1, no other tools.
+# mdk2-coop installer for MDK2 HD (Steam or the Overhaul Games build). Windows PowerShell 5.1, no other tools.
 # Double-click Install.cmd / Uninstall.cmd, or:
 #   powershell -ExecutionPolicy Bypass -File mdk2-coop.ps1 [-Uninstall] [-GameDir <folder>]
 #              [-Transport steam|udp] [-Role host|join] [-LobbyId <id>]
@@ -19,10 +19,6 @@ param(
     [switch]$Yes            # no questions: defaults for anything not given
 )
 $ErrorActionPreference = 'Stop'
-$Builds      = @{                                                                         # mdk2hd.exe SHA-256 -> build
-    'BF5FAA81B18837B4C07F35941B107E5C23CAA8B105536CCD9C8E5A8E37357F43' = 'Steam build 3902'
-    '2E4AE928CDC5D39FEBF1D2AA2AB764B42353028DD19838121CF25ED284ED39F9' = 'Overhaul Games build'
-}
 $AppId       = '213350'
 $LoaderBegin = '-- >>> mdk2-coop >>>'
 $LoaderEnd   = '-- <<< mdk2-coop <<<'
@@ -103,15 +99,6 @@ function Resolve-GameDir {
     return (Resolve-Path $d).ProviderPath
 }
 
-function Check-Build($dir) {
-    $h = (Get-FileHash -Algorithm SHA256 (Join-Path $dir 'mdk2hd.exe')).Hash
-    if (-not $Builds.ContainsKey($h)) {
-        Fail ("This mdk2hd.exe is not a build the mod is made for (Steam build 3902 or the Overhaul Games build).`n" +
-              "SHA-256 here: $h`nNothing was changed.")
-    }
-    return $Builds[$h]
-}
-
 function Check-NotRunning($dir) {
     $running = Get-Process mdk2hd -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($dir, 'OrdinalIgnoreCase') }
     if ($running) { Fail 'MDK2 HD is running from that folder. Close the game and run this again.' }
@@ -176,8 +163,6 @@ function Do-Install {
     $game = Resolve-GameDir
     Say "Game folder: $game"
     if ($FindOnly) { return }
-    $build = Check-Build $game
-    Say "Build check: $build, OK" Green
     Check-NotRunning $game
     foreach ($f in 'dinput8.dll', 'coop\coop.lua') {
         if (-not (Test-Path (Join-Path $Here $f))) { Fail "$f is missing next to this script. Unpack the whole zip first." }
