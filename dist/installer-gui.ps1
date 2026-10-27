@@ -1,14 +1,17 @@
 # User-facing installer. Only the game-file operation is ever elevated.
-param([string]$ProbePath, [ValidateSet('', 'install', 'uninstall')][string]$TestCompletion = '')
+param([string]$ProbePath, [ValidateSet('', 'install', 'uninstall')][string]$TestCompletion = '', [switch]$TestLayout)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [Windows.Forms.Application]::EnableVisualStyles()
 $backend = Join-Path $PSScriptRoot 'mdk2-coop.ps1'
+. (Join-Path $PSScriptRoot 'install-state.ps1')
 $form = New-Object Windows.Forms.Form
 $form.Text = 'MDK2 Co-op Setup'
-$form.ClientSize = New-Object Drawing.Size(640, 330)
-$form.FormBorderStyle = 'FixedDialog'
+$form.ClientSize = New-Object Drawing.Size(760, 540)
+$form.FormBorderStyle = 'Sizable'
+$form.MinimumSize = New-Object Drawing.Size(640, 520)
+$form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
 $form.MaximizeBox = $false
 $form.StartPosition = 'CenterScreen'
 $form.BackColor = [Drawing.ColorTranslator]::FromHtml('#0c171c')
@@ -18,7 +21,8 @@ $exe = Join-Path $PSScriptRoot 'MDK2-Coop-Setup.exe'
 if (Test-Path $exe) { try { $form.Icon = [Drawing.Icon]::ExtractAssociatedIcon($exe) } catch { } }
 $header = New-Object Windows.Forms.Panel
 $header.BackColor = [Drawing.ColorTranslator]::FromHtml('#142832')
-$header.SetBounds(0, 0, 640, 91)
+$header.SetBounds(0, 0, 760, 91)
+$header.Anchor = 'Top, Left, Right'
 $brand = New-Object Windows.Forms.Label
 $brand.Text = 'MDK2  /  CO-OP'
 $brand.Font = New-Object Drawing.Font 'Arial', 19, ([Drawing.FontStyle]::Bold)
@@ -33,7 +37,8 @@ $subtitle.SetBounds(27, 53, 310, 24)
 $header.Controls.Add($subtitle)
 $stripe = New-Object Windows.Forms.Panel
 $stripe.BackColor = [Drawing.ColorTranslator]::FromHtml('#ff9025')
-$stripe.SetBounds(0, 88, 640, 3)
+$stripe.SetBounds(0, 88, 760, 3)
+$stripe.Anchor = 'Top, Left, Right'
 $header.Controls.Add($stripe)
 $form.Controls.Add($header)
 function Style-Button($button, $primary) {
@@ -70,15 +75,51 @@ $status.ForeColor = [Drawing.ColorTranslator]::FromHtml('#b2c2c9')
 $status.SetBounds(26, 199, 585, 45)
 $form.Controls.Add($status)
 $install = New-Object Windows.Forms.Button
-$install.Text = 'Install / Repair'; $install.SetBounds(318, 266, 143, 40)
+$install.Text = 'Install'; $install.SetBounds(430, 480, 143, 40)
+$install.Anchor = 'Bottom, Right'
 Style-Button $install $true
 $form.Controls.Add($install)
 $uninstall = New-Object Windows.Forms.Button
-$uninstall.Text = 'Uninstall'; $uninstall.SetBounds(470, 266, 143, 40)
+$uninstall.Text = 'Uninstall'; $uninstall.SetBounds(585, 480, 143, 40)
+$uninstall.Anchor = 'Bottom, Right'
 Style-Button $uninstall $false
 $form.Controls.Add($uninstall)
+$inventory = New-Object Windows.Forms.ListView
+$inventory.View = 'Details'; $inventory.FullRowSelect = $true
+$inventory.SetBounds(26, 255, 702, 205); $inventory.Anchor = 'Top, Bottom, Left, Right'
+[void]$inventory.Columns.Add('Change', 210)
+[void]$inventory.Columns.Add('Status', 100)
+[void]$inventory.Columns.Add('Details', 800)
+$form.Controls.Add($inventory)
+$refresh = New-Object Windows.Forms.Button
+$refresh.Text = 'Refresh'; $refresh.SetBounds(26, 480, 110, 40); $refresh.Anchor = 'Bottom, Left'
+Style-Button $refresh $false
+$form.Controls.Add($refresh)
+function Refresh-Status {
+    if ($script:busy) { return }
+    $inventory.Items.Clear(); $install.Enabled = $false; $uninstall.Enabled = $false
+    $dir = $path.Text.Trim().Trim('"')
+    if (-not $dir -or -not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe'))) { return }
+    try {
+        $snapshot = Get-CoopInstallStatus $dir $PSScriptRoot (Join-Path $env:LOCALAPPDATA 'MDK2HD\settings.lua') (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop')
+        foreach ($row in $snapshot.items) {
+            $item = New-Object Windows.Forms.ListViewItem($row.item)
+            [void]$item.SubItems.Add($row.status); [void]$item.SubItems.Add($row.detail)
+            [void]$inventory.Items.Add($item)
+        }
+        $install.Enabled = [bool]$snapshot.actions.install
+        $install.Text = if ($snapshot.actions.install) { $snapshot.actions.install } else { 'Up to date' }
+        $uninstall.Enabled = $snapshot.actions.uninstall
+        if ($snapshot.actions.blocked) { $status.Text = 'Conflicting or unreadable files need attention. Modified files are kept.' }
+        else { $status.Text = 'Status is read-only. Saves and current player options are kept.' }
+    } catch { $status.Text = 'Could not inspect this folder. No changes were made.' }
+}
+$refresh.Add_Click({ Refresh-Status })
+$path.Add_TextChanged({ Refresh-Status })
+$form.Add_Activated({ Refresh-Status })
 $finish = New-Object Windows.Forms.Panel
-$finish.SetBounds(0, 91, 640, 239)
+$finish.SetBounds(0, 91, 760, 449)
+$finish.Anchor = 'Top, Bottom, Left, Right'
 $finishText = New-Object Windows.Forms.Label
 $finishText.SetBounds(26, 35, 580, 100)
 $finish.Controls.Add($finishText)
@@ -100,7 +141,7 @@ $play.Add_Click({
     }
 })
 function Show-Completion($remove) {
-    foreach ($control in @($label, $path, $browse, $status, $install, $uninstall)) { $form.Controls.Remove($control) }
+    foreach ($control in @($label, $path, $browse, $status, $install, $uninstall, $inventory, $refresh)) { $form.Controls.Remove($control) }
     $finish.Controls.Remove($play)
     if ($remove) {
         $finishText.Text = 'Co-op has been uninstalled. Your co-op data was kept.'
@@ -110,6 +151,20 @@ function Show-Completion($remove) {
     }
     $form.Controls.Add($finish)
     $form.AcceptButton = $close
+}
+if ($TestLayout) {
+    foreach ($scale in @(1.0, 1.25, 1.5, 2.0)) {
+        $factor = $scale / $(if ($script:previousScale) { $script:previousScale } else { 1.0 })
+        $form.Scale((New-Object Drawing.SizeF($factor, $factor)))
+        $script:previousScale = $scale
+        $form.PerformLayout()
+        foreach ($c in @($inventory, $refresh, $install, $uninstall)) {
+            if ($c.Left -lt 0 -or $c.Top -lt 0 -or $c.Right -gt $form.ClientSize.Width -or $c.Bottom -gt $form.ClientSize.Height) { throw 'Control outside setup client area' }
+        }
+        if ($inventory.Bottom -gt $install.Top -or $refresh.Right -gt $install.Left -or $install.Right -gt $uninstall.Left) { throw 'Setup controls overlap' }
+    }
+    Write-Output 'PASS: setup control geometry at 100, 125, 150 and 200 percent'
+    $form.Dispose(); exit 0
 }
 if ($TestCompletion) {
     Show-Completion ($TestCompletion -eq 'uninstall')
@@ -169,7 +224,7 @@ function Perform($remove) {
     try {
         $script:busy = $true
         $form.ControlBox = $false
-        foreach ($control in @($path, $browse, $install, $uninstall)) { $control.Enabled = $false }
+        foreach ($control in @($path, $browse, $install, $uninstall, $refresh)) { $control.Enabled = $false }
         $status.ForeColor = [Drawing.Color]::White
         $status.Text = 'Working...'; $form.Refresh()
         if (-not $remove) { Run-Backend $dir $false 'PrepareDataOnly' $false }
@@ -183,9 +238,10 @@ function Perform($remove) {
         $status.Text = 'Setup did not complete. You can try again.'
         [Windows.Forms.MessageBox]::Show($form, $_.Exception.Message, 'MDK2 Co-op', 'OK', 'Error') | Out-Null
     } finally {
-        foreach ($control in @($path, $browse, $install, $uninstall)) { $control.Enabled = $true }
+        foreach ($control in @($path, $browse, $install, $uninstall, $refresh)) { $control.Enabled = $true }
         $form.ControlBox = $true
         $script:busy = $false
+        Refresh-Status
         $form.Activate()
     }
 }
@@ -195,5 +251,6 @@ try {
     $found = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $backend -FindOnly -Yes 2>&1
     foreach ($line in $found) { if ("$line" -match '^Game folder: (.+)$') { $path.Text = $Matches[1]; break } }
 } catch { }
+Refresh-Status
 [void]$form.ShowDialog()
 $form.Dispose()

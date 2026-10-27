@@ -35,7 +35,8 @@ class Gate:
     shards: int = 1
 
 
-OFFLINE = [Gate("build", ("make", "-C", "bridge")),
+OFFLINE = [Gate("launcher-session", ("python3", "tools/test_launcher_session.py")),
+           Gate("build", ("make", "-C", "bridge")),
            Gate("oracles-routes-input", ("bash", "tools/test_replay.sh")),
            Gate("projectile-core", ("make", "-C", "bridge", "test-shots")),
            Gate("controller-core", ("make", "-C", "bridge", "test-pad")),

@@ -27,6 +27,11 @@ lcmd()  { local f i; f="$(dir "$1")/coop/launcher.txt"; shift
           printf '%s\n' "$@" > "$f.tmp"; mv "$f.tmp" "$f"
           for i in $(seq 1 100); do [ -e "$f" ] || return 0; sleep 0.1; done; return 1; }
 shot()  { lcmd "$1" "shot lobby_$2" && python3 "$here/tga2png.py" "$(dir "$1")/coop/lobby_$2.tga" "$out/$2.png"; }
+state_is() {
+    local player="$1"; shift
+    lcmd "$player" dump || return 1
+    python3 "$here/check_launcher_state.py" "$(dir "$player")/coop/launcher-state.ini" "$@"
+}
 PLAY="click 1000 660"
 
 names=(Hosty Alice Bob)
@@ -51,8 +56,18 @@ check "client 3: connected to the host"        wait_log 3 "^lobby: connected to 
 check "host: Alice joined"                     wait_log 1 "^lobby: Alice joined from 127.0.0.1" 10
 check "host: Bob joined"                       wait_log 1 "^lobby: Bob joined from 127.0.0.1" 10
 sleep 1; shot 1 host_waiting; shot 2 client_waiting
+# Browse every other page while the session remains connected. Read process state.
+for p in 1 2 3 4; do
+    lcmd 2 "page $p"
+    sleep 1
+    check "client 2: page $p preserves session" state_is 2 "launcher.page=$p" launcher.lobby=1 launcher.connected=1 launcher.players=3 launcher.phase=2
+    check "host: client remains in roster while browsing $p" state_is 1 launcher.players=3 launcher.phase=2
+done
+lcmd 2 "page 0"
 # Alice is ready: the host's roster shows it
 lcmd 2 "key 13"; sleep 2; shot 1 host_alice_ready
+check "client 2 process ready" state_is 2 launcher.ready=1
+check "host process sees Alice ready" state_is 1 player1.ready=1
 check "client 2 sees three players"            wait_log 2 "^lobby: connected to the host \(3 players\)" 5
 
 # nobody has started yet: no game

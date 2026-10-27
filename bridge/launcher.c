@@ -29,6 +29,7 @@
 #include <time.h>
 #include "bridge.h"
 #include <shellapi.h>
+#include "launcher_session.h"
 
 #ifndef MOD_VERSION
 #define MOD_VERSION "dev"
@@ -1617,6 +1618,7 @@ static void page_help(void)
 struct lob_member { char name[PLAYER_NAME + 1], ver[48]; unsigned id; int ready, rtt; DWORD seen, echo, got; struct sockaddr_in addr; };
 static struct {
     int on, host, ready, n, rtt, connected, wsa;
+    struct launcher_session session;
     SOCKET s;
     unsigned id;
     DWORD start_at, next_send, last_host, opened;
@@ -1651,6 +1653,7 @@ static void lob_leave(void)
         WSACleanup();
     memset(&lob, 0, sizeof(lob));
     lob.s = INVALID_SOCKET;
+    ls_leave(&lob.session);
     changed = 1;
 }
 
@@ -1688,6 +1691,7 @@ static void lob_open(void)
     lob.on = 1;
     lob.opened = GetTickCount();
     lob.host = cfg.mode == MODE_HOST;
+    ls_open(&lob.session, lob.host, lob.opened);
     lob.id = GetTickCount() ^ ((unsigned)GetCurrentProcessId() << 16) ^ 0x5bd1e995u;
     if (!lob.host) {
         memset(&lob.hostaddr, 0, sizeof(lob.hostaddr));
@@ -1719,9 +1723,12 @@ static void lob_send_roster(DWORD now)
 
     if (lob.start_at && left < 0)
         left = 0;
-    for (i = 0; i < lob.n; i++)
-        n += snprintf(body + n, sizeof(body) - n, "%s|%u|%d|%d|%s\n", lob.m[i].name, lob.m[i].id, lob.m[i].ready,
-                      lob.m[i].rtt, lob.m[i].ver);
+    for (i = 0; i < lob.n; i++) {
+        int written = snprintf(body + n, sizeof(body) - n, "%s|%u|%d|%d|%s\n", lob.m[i].name, lob.m[i].id, lob.m[i].ready,
+                               lob.m[i].rtt, lob.m[i].ver);
+        if (written < 0 || written >= (int)sizeof(body) - n) return;
+        n += written;
+    }
     for (i = 1; i < lob.n; i++) {
         /* the header echoes this member's own hello time: its round trip is now minus that */
         hn = snprintf(buf, sizeof(buf), "MDKL R %lu %lu %d %d\n", (unsigned long)lob.m[i].echo,
@@ -1777,17 +1784,20 @@ static void lob_poll(void)
             snprintf(lob.m[k].ver, sizeof(lob.m[k].ver), "%s", ver);
             snprintf(lob.m[k].name, sizeof(lob.m[k].name), "%s", who + 1);
             changed = 1;
-        } else if (!lob.host && buf[5] == 'R') {
+        } else if (!lob.host && buf[5] == 'R' && from.sin_addr.s_addr == lob.hostaddr.sin_addr.s_addr &&
+                   from.sin_port == lob.hostaddr.sin_port) {
             unsigned long ts, held;
-            int left, cnt;
+            int left, cnt, count = 0, own = 0, valid = 1;
+            struct lob_member roster[LOB_MAX];
             char *line = strchr(buf, '\n');
 
             if (sscanf(buf + 7, "%lu %lu %d %d", &ts, &held, &left, &cnt) < 4 || !line)
                 continue;
+            if (cnt < 1 || cnt > LOB_MAX || left < -1 || left > LOB_COUNTDOWN)
+                continue;
             if (ts)     /* ts: our own hello time, echoed; the host held it for `held` ms before answering */
                 lob.rtt = (int)(now - (DWORD)ts - held) > 0 ? (int)(now - (DWORD)ts - held) : 0;
-            lob.n = 0;
-            for (line++; line && *line && lob.n < LOB_MAX && lob.n < cnt;) {
+            for (line++; line && *line && count < LOB_MAX && count < cnt;) {
                 char *end = strchr(line, '\n'), *f[5];
                 int k = 0;
                 if (end)
@@ -1796,22 +1806,28 @@ static void lob_poll(void)
                 while (k < 5 && (line = strchr(line, '|')))
                     *line++ = 0, f[k++] = line;
                 if (k == 5) {
-                    struct lob_member *m = &lob.m[lob.n++];
+                    struct lob_member *m = &roster[count++];
                     memset(m, 0, sizeof(*m));
                     snprintf(m->name, sizeof(m->name), "%s", f[0]);
                     m->id = (unsigned)strtoul(f[1], NULL, 10);
                     m->ready = atoi(f[2]);
                     m->rtt = atoi(f[3]);
                     snprintf(m->ver, sizeof(m->ver), "%s", f[4]);
+                    if (m->id == lob.id) own++;
+                    if (strcmp(m->ver, MOD_VERSION)) valid = 0;
                 }
                 line = end ? end + 1 : NULL;
             }
+            if (count != cnt || own != 1 || !ls_roster(&lob.session, now, left, left < 0 || valid)) {
+                continue;
+            }
+            lob.n = count;
+            memcpy(lob.m, roster, lob.n * sizeof(roster[0]));
             if (!lob.connected)
                 logmsg("lobby: connected to the host (%d players)", lob.n);
             lob.connected = 1;
             lob.last_host = now;
-            if (left >= 0 && !lob.start_at)
-                lob.start_at = now + (DWORD)left;
+            lob.start_at = lob.session.phase == LS_COUNTDOWN ? lob.session.deadline : 0;
             changed = 1;
         }
     }
@@ -1847,7 +1863,16 @@ static void lob_poll(void)
                      ntohs(lob.hostaddr.sin_port));
         }
     }
-    if (lob.start_at && (int)(now - lob.start_at) >= 0) {
+    {
+        enum launcher_phase previous = lob.session.phase;
+        ls_tick(&lob.session, now);
+        if (previous != lob.session.phase) changed = 1;
+    }
+    if (lob.session.phase == LS_LOST) {
+        lob.connected = 0; lob.start_at = 0; lob.n = 0;
+        snprintf(lob.status, sizeof(lob.status), "Lost the host; reconnecting...");
+    }
+    if (lob.session.phase == LS_START) {
         logmsg("lobby: start (%d players)", lob.n);
         done = 1;
     }
@@ -1860,8 +1885,11 @@ static void lob_primary(void)
     if (!lob.on)
         return;
     if (lob.host) {
-        if (!lob.start_at) {
-            lob.start_at = now + (lob.n > 1 ? LOB_COUNTDOWN : 600);
+        int i, compatible = 1;
+        for (i = 0; i < lob.n; i++)
+            if (strcmp(lob.m[i].ver, MOD_VERSION)) compatible = 0;
+        if (ls_begin(&lob.session, now, lob.n > 1 ? LOB_COUNTDOWN : 600, compatible)) {
+            lob.start_at = lob.session.deadline;
             lob_send_roster(now);
             logmsg("lobby: host started the countdown (%d players)", lob.n);
         }
@@ -1885,22 +1913,22 @@ static void lobby_page(void)
         int me = lob.host ? i == 0 : m->id == lob.id, same = !strcmp(m->ver, MOD_VERSION);
         char pill[48];
 
-        fill(PX, y, PW, 44, me ? 0x2a2014 : C_TILE, 235);
-        fill(PX, y, 5, 44, i == 0 ? C_ORANGE : m->ready ? C_BLUE : C_FAINT, 255);
+        fill(PX, y, PW, 19, me ? 0x2a2014 : C_TILE, 235);
+        fill(PX, y, 5, 19, i == 0 ? C_ORANGE : m->ready ? C_BLUE : C_FAINT, 255);
         snprintf(line, sizeof(line), "%s%s", m->name, me ? " (you)" : "");
-        gdi_text(f_body, PX + 18, y + 11, C_TEXT, line, DT_LEFT);
+        gdi_text(f_body, PX + 18, y + 1, C_TEXT, line, DT_LEFT);
         if (i == 0)
             snprintf(pill, sizeof(pill), "host");
         else if (!same)
-            snprintf(pill, sizeof(pill), "version %s", m->ver);
+            snprintf(pill, sizeof(pill), "version %.16s", m->ver);
         else
             snprintf(pill, sizeof(pill), "%s  %d ms", m->ready ? "ready" : "not ready", m->rtt);
-        gdi_text(f_small, PX + PW - 14, y + 14, !same ? C_BAD : m->ready || i == 0 ? C_BLUE : C_DIM, pill, DT_RIGHT);
+        gdi_text(f_small, PX + PW - 14, y + 2, !same ? C_BAD : m->ready || i == 0 ? C_BLUE : C_DIM, pill, DT_RIGHT);
         if (i > 0 && !m->ready)
             others_unready++;
         if (!same)
             mismatch++;
-        y += 50;
+        y += 20;
     }
     if (!lob.host && !lob.connected) {
         gdi_para(f_small, PX, y + 8, PW, lob.status[0] && strstr(lob.status, "Lost") ? C_BAD : C_DIM,
@@ -2112,12 +2140,6 @@ static void render(void)
 
     /* right: tabs, page, play */
     fill(600 + 150, 0, 3, LH, C_BLUE, 60);
-    if (lob.on) {
-        lobby_page();
-        if (guide_open)
-            draw_full_guide();
-        return;
-    }
     {
         static const char *tabs[] = { "Play", "Saves", "Settings", "About", "Help" };
         float tx = PX;
@@ -2133,8 +2155,10 @@ static void render(void)
         quit = 1;
     fill(PX, 80, PW, 1, 0x22343c, 255);
 
-    if (page == PAGE_PLAY)
-        page_play();
+    if (page == PAGE_PLAY) {
+        if (lob.on) lobby_page();
+        else page_play();
+    }
     else if (page == PAGE_SAVES)
         page_saves();
     else if (page == PAGE_SETTINGS)
@@ -2144,6 +2168,19 @@ static void render(void)
     else
         page_about();
 
+    if (lob.on) {
+        if (page != PAGE_PLAY) {
+            snprintf(line, sizeof(line), "%s | %d players%s", lob.host ? "Hosting" : lob.connected ? "Connected" : "Reconnecting", lob.n,
+                     lob.start_at ? " | starting..." : lob.ready ? " | ready" : "");
+            gdi_text(f_small, PX, LH - 118, C_BLUE, line, DT_LEFT);
+            if (button(ID, PX, LH - 92, PW / 2 - 5, 52, lob.host ? "Start game" : lob.ready ? "Not ready" : "Ready", 1))
+                lob_primary();
+            if (button(ID, PX + PW / 2 + 5, LH - 92, PW / 2 - 5, 52, "Leave lobby", 0))
+                lob_leave();
+        }
+        if (guide_open) draw_full_guide();
+        return;
+    }
     start_summary(line, sizeof(line));
     if (line[0])
         gdi_text(f_small, PX, LH - 118, C_ORANGE, line, DT_LEFT);
@@ -2227,7 +2264,7 @@ static void key(int vk)
         present();
         return;
     }
-    if (lob.on && (vk == VK_RETURN || vk == VK_ESCAPE)) {
+    if (lob.on && ((page == PAGE_PLAY && vk == VK_RETURN) || vk == VK_ESCAPE)) {
         if (vk == VK_RETURN)
             lob_primary();
         else
@@ -2423,6 +2460,21 @@ static void test_commands(void)
             for (s = line + 5; *s && ntyped < (int)sizeof(typed); s++)
                 typed[ntyped++] = *s;
             pass();
+        } else if (sscanf(line, "page %d", &a) == 1 && a >= PAGE_PLAY && a <= PAGE_HELP) {
+            page = a;
+            pass();
+        } else if (!strcmp(line, "dump")) {
+            char state_path[MAX_PATH];
+            FILE *state;
+            snprintf(state_path, sizeof(state_path), "%s\\launcher-state.ini", coop_dir);
+            state = fopen(state_path, "w");
+            if (state) {
+                int i;
+                fprintf(state, "[launcher]\npage=%d\nlobby=%d\nphase=%d\nplayers=%d\nready=%d\nconnected=%d\ncountdown=%d\n",
+                        page, lob.on, lob.session.phase, lob.n, lob.ready, lob.connected, lob.start_at != 0);
+                for (i = 0; i < lob.n; i++) fprintf(state, "[player%d]\nready=%d\n", i, lob.m[i].ready);
+                fclose(state);
+            }
         } else if (!strncmp(line, "shot ", 5)) {
             caret_on = 1;
             pass();

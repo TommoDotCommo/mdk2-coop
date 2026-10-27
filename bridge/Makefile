@@ -14,7 +14,7 @@ diag_ps1.h: ../dist/diag.ps1
 	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r$$//' -e 's/^/"/' -e 's/$$/\\n"/' $< | \
 		{ echo 'static const char diag_script[] ='; cat; echo ';'; } > $@
 
-dinput8.dll: $(SRCS) bridge.h steam_abi.h route.h pad.h dinput8.def diag_ps1.h
+dinput8.dll: $(SRCS) bridge.h steam_abi.h route.h pad.h launcher_session.h dinput8.def diag_ps1.h
 	$(CC) $(CFLAGS) -DMOD_VERSION='"$(VERSION)"' -o $@ $(SRCS) dinput8.def $(LDFLAGS)
 
 install: dinput8.dll

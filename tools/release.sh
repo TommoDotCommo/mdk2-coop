@@ -8,6 +8,11 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 ver="${1:-$(git -C "$here" describe --tags --always --dirty)}"
+# Keep archive names and substitutions safe; updater convention is a semver tag.
+if [[ ! "$ver" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+    echo 'Version must contain only letters, digits, dot, underscore, plus or hyphen' >&2
+    exit 2
+fi
 name="mdk2-coop-$ver"
 out="$here/local/release"
 stage="$out/$name"
@@ -21,7 +26,7 @@ i686-w64-mingw32-gcc -Os -Wall -Wextra -mwindows -o "$stage/MDK2-Coop-Setup.exe"
 rm -f "$out/installer-res.o"
 cp "$here/bridge/dinput8.dll" "$stage/"
 sed 's/\r$//; s/$/\r/' "$here/lua/coop_dev.lua" > "$stage/coop/coop.lua"
-for f in mdk2-coop.ps1 installer-gui.ps1 Couch.cmd mdk2-couch.ps1; do
+for f in mdk2-coop.ps1 installer-gui.ps1 install-state.ps1 Couch.cmd mdk2-couch.ps1; do
     sed 's/\r$//; s/$/\r/' "$here/dist/$f" > "$stage/$f"; done
 sed 's/\r$//; s/$/\r/; s/@VERSION@/'"$ver"'/' "$here/dist/README.txt" > "$stage/README.txt"
 sed 's/\r$//; s/$/\r/' "$here/LICENSE" > "$stage/LICENSE.txt"
@@ -31,4 +36,5 @@ for root, _, files in os.walk(sys.argv[1]):
     for f in sorted(files):
         z.write(os.path.join(root, f))
 z.close()' "$name")
+(cd "$out" && sha256sum "$name.zip" > "$name.zip.sha256")
 echo "$out/$name.zip ($(du -h "$out/$name.zip" | cut -f1))"

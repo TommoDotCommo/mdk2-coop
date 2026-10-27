@@ -7,6 +7,7 @@
 # and one loader block in %LOCALAPPDATA%\MDK2HD\settings.lua (backed up first as settings.lua.coop-backup).
 param(
     [switch]$Uninstall,
+    [switch]$StatusOnly, # read-only JSON inventory; no game or user state changes
     [string]$GameDir,
     [ValidateSet('', 'host', 'join')][string]$Role = '',
     [ValidateSet('', 'steam', 'udp')][string]$Transport = '',
@@ -30,6 +31,7 @@ $LoaderEnd   = '-- <<< mdk2-coop <<<'
 $LoaderBlock = "$LoaderBegin`r`nif (coop_init) then coop_init() end`r`n$LoaderEnd`r`n"
 $SettingsMax = 8000      # the game reads settings.lua into an 8 KB buffer and crashes when it is larger
 $Here        = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $Here 'install-state.ps1')
 
 function Say($msg, $color = 'Gray') { Write-Host $msg -ForegroundColor $color }
 function Fail($msg) { Say "`n$msg" Red; if (-not $Yes) { Read-Host 'Press Enter to close' | Out-Null }; exit 1 }
@@ -130,16 +132,20 @@ function Ini-Set($file, $section, $key, $value) {
 # ---- settings.lua loader block ----
 
 function Remove-Loader($text) {
-    return [regex]::Replace($text, "(\r?\n)?" + [regex]::Escape($LoaderBegin) + "[\s\S]*?" + [regex]::Escape($LoaderEnd) + "\r?\n?", '')
+    return [regex]::Replace($text, "(?m)^" + [regex]::Escape($LoaderBegin) + "[\s\S]*?" + [regex]::Escape($LoaderEnd) + "\r?\n?", '')
 }
 
 function Add-Loader {
+    Assert-CoopRegularPath $SettingsPath
+    Assert-CoopRegularPath "$SettingsPath.coop-backup"
     $dir = Split-Path -Parent $SettingsPath
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
     if (Test-Path $SettingsPath) {
         $backup = "$SettingsPath.coop-backup"
         if (-not (Test-Path $backup)) { Copy-Item $SettingsPath $backup; Say "  backed up settings.lua to $(Split-Path -Leaf $backup)" }
-        $text = Remove-Loader ([IO.File]::ReadAllText($SettingsPath))
+        $existing = [IO.File]::ReadAllText($SettingsPath)
+        if ((Get-CoopLoaderState $existing) -eq 'conflict') { throw 'The loader block was modified; settings were preserved.' }
+        $text = Remove-Loader $existing
         if ($text.Length -gt 0 -and -not $text.EndsWith("`n")) { $text += "`r`n" }
     } else {
         $text = ''     # the game has never saved its settings: it starts fine with only the loader
@@ -228,13 +234,9 @@ function Do-Install {
 
     Say "`nInstalling into $game"
     $dll = Join-Path $game 'dinput8.dll'
-    if ((Test-Path $dll) -and -not (Is-OurDll $dll) -and -not (Test-Path "$dll.coop-backup")) {
-        Move-Item $dll "$dll.coop-backup"; Say "  another dinput8.dll was there: kept as dinput8.dll.coop-backup" Yellow
-    }
-    Copy-Item (Join-Path $Here 'dinput8.dll') $dll -Force
-    New-Item -ItemType Directory -Force -Path (Join-Path $game 'coop') | Out-Null
-    Copy-Item (Join-Path $Here 'coop\coop.lua') (Join-Path $game 'coop\coop.lua') -Force
-    if ($PerUserData) { [IO.File]::WriteAllText((Join-Path $game 'coop\per-user-data'), '') }
+    Install-CoopFile $dll ([IO.File]::ReadAllBytes((Join-Path $Here 'dinput8.dll')))
+    Install-CoopFile (Join-Path $game 'coop\coop.lua') ([IO.File]::ReadAllBytes((Join-Path $Here 'coop\coop.lua')))
+    if ($PerUserData) { Install-CoopFile (Join-Path $game 'coop\per-user-data') ([byte[]]@()) }
     Say '  dinput8.dll and coop\coop.lua copied'
     if ($setNet) {
         Ini-Set $ini 'net' 'transport' $network
@@ -266,13 +268,10 @@ function Do-Uninstall {
     if ($UserSettingsOnly) { Remove-UserLoader; return }
     Check-NotRunning $game
     $dll = Join-Path $game 'dinput8.dll'
-    if (Is-OurDll $dll) { Remove-Item $dll; Say '  removed dinput8.dll' }
-    elseif (Test-Path $dll) { Say '  dinput8.dll there is not ours: left alone' Yellow }
-    if (Test-Path "$dll.coop-backup") { Move-Item "$dll.coop-backup" $dll; Say '  restored the earlier dinput8.dll' }
-    $lua = Join-Path $game 'coop\coop.lua'
-    if (Test-Path $lua) { Remove-Item $lua; Say '  removed coop\coop.lua' }
-    $marker = Join-Path $game 'coop\per-user-data'
-    if (Test-Path $marker) { Remove-Item $marker }
+    foreach ($target in @($dll, (Join-Path $game 'coop\coop.lua'), (Join-Path $game 'coop\per-user-data'))) {
+        if (Remove-CoopFile $target) { Say "  restored/removed $target" }
+        elseif (Test-Path -LiteralPath $target) { Say "  no ownership receipt for $target: kept it; install this package first to establish ownership" Yellow }
+    }
 
     if (-not $GameFilesOnly) { Remove-UserLoader }
     Say "`nCo-op is off. The coop folder (settings, logs, co-op saves) is still in the game folder; delete it if you like." Green
@@ -289,7 +288,7 @@ function Prepare-UserData($game) {
     # already in the user folder, and do not copy the installed Lua script.
     $old = Join-Path $game 'coop'
     if (Test-Path $old) {
-        Get-ChildItem -LiteralPath $old -File | Where-Object { $_.Name -notin 'coop.lua', 'per-user-data' } | ForEach-Object {
+        Get-ChildItem -LiteralPath $old -File | Where-Object { $_.Name -notin 'coop.lua', 'per-user-data' -and $_.Name -notmatch '\.coop-(original|receipt|stage)'  } | ForEach-Object {
             $target = Join-Path $DataPath $_.Name
             if (-not (Test-Path -LiteralPath $target)) { Copy-Item -LiteralPath $_.FullName -Destination $target }
         }
@@ -297,26 +296,21 @@ function Prepare-UserData($game) {
 }
 
 function Remove-UserLoader {
-    $backup = "$SettingsPath.coop-backup"
-    if (Test-Path $backup) {
-        if (Test-Path $SettingsPath) { Copy-Item $SettingsPath "$SettingsPath.coop-uninstalled" -Force }
-        Move-Item $backup $SettingsPath -Force
-        # Older installers could back up a file already containing the loader on
-        # reinstall. Removing our block also makes those backups safe to restore.
-        $restored = [IO.File]::ReadAllText($SettingsPath)
-        if ($restored.Contains($LoaderBegin)) {
-            [IO.File]::WriteAllText($SettingsPath, (Remove-Loader $restored), (New-Object Text.ASCIIEncoding))
-        }
-        Say '  settings.lua restored from the backup made at install (the one in use is kept as settings.lua.coop-uninstalled)'
-    } elseif (Test-Path $SettingsPath) {
-        $text = Remove-Loader ([IO.File]::ReadAllText($SettingsPath))
-        [IO.File]::WriteAllText($SettingsPath, $text, (New-Object Text.ASCIIEncoding))
-        Say '  loader line removed from settings.lua'
+    Assert-CoopRegularPath $SettingsPath
+    # The game may have changed unrelated options since install. Remove only our
+    # exact delimited block; never restore an old settings snapshot over new options.
+    if (Test-Path -LiteralPath $SettingsPath) {
+        $text = [IO.File]::ReadAllText($SettingsPath)
+        if ((Get-CoopLoaderState $text) -eq 'conflict') { throw 'The loader block was modified; settings were preserved.' }
+        [IO.File]::WriteAllText($SettingsPath, (Remove-Loader $text), (New-Object Text.ASCIIEncoding))
+        Say '  loader block removed; current player options preserved'
     }
 }
 
 try {
-    if ($Uninstall) { Do-Uninstall } else { Do-Install }
+    if ($StatusOnly) {
+        Get-CoopInstallStatus $GameDir $Here $SettingsPath $DataPath | ConvertTo-Json -Depth 6
+    } elseif ($Uninstall) { Do-Uninstall } else { Do-Install }
 } catch {
     Fail "Something went wrong: $($_.Exception.Message)"
 }

@@ -155,3 +155,21 @@ $restored = [IO.File]::ReadAllText((Join-Path $hostDir 'settings.lua'))
 Check ($restored.Contains('sentinel = 42')) 'restored player options preserved'
 Check (-not $restored.Contains('coop_init')) 'old backups containing loader are cleaned on uninstall'
 Write-Output "PASS: $script:checks installer checks (disposable fixtures only)"
+
+# Regression: an unrelated Lua payload has the same restoration guarantees as a DLL.
+$restoreDir = Fixture 'restore-originals'
+New-Item -ItemType Directory (Join-Path $restoreDir 'coop') | Out-Null
+[IO.File]::WriteAllText((Join-Path $restoreDir 'dinput8.dll'), 'foreign proxy')
+[IO.File]::WriteAllText((Join-Path $restoreDir 'coop\coop.lua'), 'foreign script')
+[IO.File]::WriteAllText((Join-Path $restoreDir 'coop\save.dat'), 'save sentinel')
+Install $restoreDir @()
+Install $restoreDir @()
+[IO.File]::AppendAllText((Join-Path $restoreDir 'settings.lua'), "`r`nnew_option = 7`r`n")
+Install $restoreDir @('-Uninstall')
+Check ([IO.File]::ReadAllText((Join-Path $restoreDir 'dinput8.dll')) -eq 'foreign proxy') 'DLL original restored exactly'
+Check ([IO.File]::ReadAllText((Join-Path $restoreDir 'coop\coop.lua')) -eq 'foreign script') 'Lua original restored exactly'
+Check ([IO.File]::ReadAllText((Join-Path $restoreDir 'coop\save.dat')) -eq 'save sentinel') 'save unchanged'
+Check ([IO.File]::ReadAllText((Join-Path $restoreDir 'settings.lua')).Contains('new_option = 7')) 'new player options survive uninstall'
+$completion = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDir 'installer-gui.ps1') -TestLayout
+Check ($LASTEXITCODE -eq 0) 'setup layout geometry'
+Write-Output "PASS: $script:checks installer checks (including original restoration and layout)"
