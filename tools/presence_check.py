@@ -18,7 +18,7 @@ def load(path):
         for row in rows.get(key, []):
             if key == 'ent' and len(row) == 2 and row[1] == 'gone':
                 continue
-            values = row[:-1] if key == 'ent' else row
+            values = row[1:-1] if key == 'ent' else row
             if any(not math.isfinite(float(v)) for v in values):
                 raise ValueError(f'nonfinite {key}')
     return rows

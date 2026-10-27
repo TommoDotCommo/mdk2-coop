@@ -71,3 +71,11 @@ class PresenceOracles(unittest.TestCase):
             values=sample('host',1)
             path.write_text('\n'.join(k+' '+' '.join(v) for k,rows in values.items() for v in rows)+'\nrole host\n')
             with self.assertRaises(ValueError): oracle.load(path)
+
+    def test_load_accepts_hex_engine_handles(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'state.txt'
+            values=sample('host',1)
+            values['ent']=[['1004a','200','600','334.95','-150.91','-167.64','l1_r5bif01']]
+            path.write_text('\n'.join(k+' '+' '.join(v) for k,rows in values.items() for v in rows)+'\n')
+            self.assertEqual(oracle.load(path)['ent'], values['ent'])
