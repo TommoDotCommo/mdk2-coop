@@ -184,14 +184,19 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
             *slash = 0;
         snprintf(coop_dir, MAX_PATH, "%s\\coop", game_dir);
         CreateDirectoryA(coop_dir, NULL);
-        {   /* Program Files is read-only without admin rights: keep the mod's files somewhere writable */
-            char probe[MAX_PATH], base[MAX_PATH];
+        {   /* Player installs prefer the user profile; test and couch copies keep their own data. */
+            char probe[MAX_PATH], base[MAX_PATH], marker[MAX_PATH];
             FILE *t;
+            int per_user;
+            DWORD n;
+            snprintf(marker, MAX_PATH, "%s\\per-user-data", coop_dir);
+            per_user = GetFileAttributesA(marker) != INVALID_FILE_ATTRIBUTES;
             snprintf(probe, MAX_PATH, "%s\\write.test", coop_dir);
-            if ((t = fopen(probe, "w"))) {
+            t = per_user ? NULL : fopen(probe, "w");
+            if (t) {
                 fclose(t);
                 DeleteFileA(probe);
-            } else if (GetEnvironmentVariableA("LOCALAPPDATA", base, MAX_PATH)) {
+            } else if ((n = GetEnvironmentVariableA("LOCALAPPDATA", base, MAX_PATH)) > 0 && n < MAX_PATH - 16) {
                 strcat(base, "\\mdk2-coop");
                 CreateDirectoryA(base, NULL);
                 snprintf(coop_dir, MAX_PATH, "%s\\coop", base);
@@ -205,6 +210,8 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
             MoveFileExA(path, previous, MOVEFILE_REPLACE_EXISTING);
         }
         log_file = fopen(path, "w");
+        if (!log_file)
+            OutputDebugStringA("mdk2-coop: cannot open bridge.log; check permissions and free disk space\n");
         diag_log_open();
         logmsg("mdk2-coop bridge attached");
         logmsg("files in %s", coop_dir);

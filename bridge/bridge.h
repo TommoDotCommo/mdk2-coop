@@ -470,8 +470,8 @@ void bot_level_loaded(int level);
 
 /* ---- dinput8.c ---- */
 
-/* coop_dir: where logs, coop.ini and the other files the mod writes live: <game dir>\coop, or
- * %LOCALAPPDATA%\mdk2-coop when the game dir is not writable (Program Files without admin rights).
+/* coop_dir: player installs use %LOCALAPPDATA%\mdk2-coop\coop; test/couch copies use
+ * <game dir>\coop when writable, falling back to the user profile otherwise.
  * game_dir: the game's own folder; coop.lua is always read from <game_dir>\coop. */
 extern char coop_dir[MAX_PATH], game_dir[MAX_PATH];
 

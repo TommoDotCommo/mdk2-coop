@@ -12,12 +12,14 @@ accepted but untested. Every player needs their own copy.
 Install
 -------
 1. Unzip this folder anywhere (not inside the game folder).
-2. Double-click Install.cmd.
+2. Double-click MDK2-Coop-Setup.exe and choose Install / Repair.
    - It finds MDK2 HD in your Steam libraries or the Overhaul Games folder (or asks for the
-     folder) and installs. It does not check the game version: the mod picks the Steam or the Overhaul engine
+     folder) and installs. Windows asks for administrator permission if the game folder is protected.
+     It does not check the game version: the mod picks the Steam or the Overhaul engine
      addresses itself at every start (see coop\bridge.log).
    - That is all it asks: host or join, Steam or a direct address are chosen in the launcher.
-3. Start MDK2 HD from Steam as usual. The co-op launcher opens first.
+3. Choose Play MDK2 or Close when setup finishes. You can also start MDK2 HD from
+   Steam or the Beamdog client as usual. The co-op launcher opens first.
 
 The launcher
 ------------
@@ -37,7 +39,7 @@ Join over UDP and Host first open a lobby: everyone who has connected is listed 
 their name, ready state and ping, and the host presses Start when the roster looks right.
 
 If Windows shows "Windows protected your PC", click "More info" > "Run anyway".
-(The installer is a plain PowerShell script: mdk2-coop.ps1, readable in Notepad.)
+(The installer uses PowerShell scripts, readable in Notepad.)
 
 
 Couch co-op (2-4 players on one PC)
@@ -107,16 +109,18 @@ Keys (the Modern preset, the default; change them in Options > Co-op > Controls)
 
 Uninstall
 ---------
-Double-click Uninstall.cmd. It removes the mod's DLL and coop.lua from the game
-folder and restores your game settings from the backup made at install. The game
-folder's "coop" subfolder (co-op settings, logs, co-op saves) stays; delete it if
-you like.
+Open MDK2-Coop-Setup.exe and choose Uninstall. It removes the mod's DLL and coop.lua from the game
+folder and restores your game settings from the backup made at install. Co-op
+settings, logs and saves in %LOCALAPPDATA%\mdk2-coop\coop stay; delete that folder
+if you like. Older installs may also have data in the game folder's coop subfolder.
 
 What the installer changes
 --------------------------
 - <game folder>\dinput8.dll (the mod; any earlier dinput8.dll is kept as
   dinput8.dll.coop-backup and put back on uninstall)
-- <game folder>\coop\coop.lua and coop\coop.ini
+- <game folder>\coop\coop.lua and the per-user-data marker
+- %LOCALAPPDATA%\mdk2-coop\coop (settings, logs and co-op data; existing game-folder
+  data is copied here on install without replacing files already present)
 - one loader line at the end of %LOCALAPPDATA%\MDK2HD\settings.lua (backed up first
   as settings.lua.coop-backup). The game rewrites that file when you change options;
   the mod puts the line back at the next start.

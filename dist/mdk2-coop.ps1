@@ -15,6 +15,11 @@ param(
     [int]$HostPort = 0,
     [int]$ClientPort = 0,
     [string]$SettingsPath = (Join-Path $env:LOCALAPPDATA 'MDK2HD\settings.lua'),
+    [switch]$GameFilesOnly, # GUI elevation helper: never touches the administrator's profile
+    [switch]$UserSettingsOnly, # GUI: run in the original user's session
+    [switch]$PrepareDataOnly, # preflight the original user's data before game-file changes
+    [switch]$PerUserData,    # GUI installs use writable per-user runtime data
+    [string]$DataPath = (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop'),
     [switch]$FindOnly,      # print the game folder that would be used and stop
     [switch]$Yes            # no questions: defaults for anything not given
 )
@@ -163,12 +168,20 @@ function Do-Install {
     $game = Resolve-GameDir
     Say "Game folder: $game"
     if ($FindOnly) { return }
+    if ($PrepareDataOnly) { Prepare-UserData $game; return }
+    if ($UserSettingsOnly) {
+        if ($PerUserData) { Prepare-UserData $game }
+        Add-Loader; return
+    }
     Check-NotRunning $game
     foreach ($f in 'dinput8.dll', 'coop\coop.lua') {
         if (-not (Test-Path (Join-Path $Here $f))) { Fail "$f is missing next to this script. Unpack the whole zip first." }
     }
 
     $ini = Join-Path $game 'coop\coop.ini'
+    if (-not $GameFilesOnly -and (Test-Path (Join-Path $game 'coop\per-user-data'))) {
+        $ini = Join-Path $DataPath 'coop.ini'
+    }
     $hadIni = Test-Path $ini
     # Host / join, the network and the addresses are chosen in the launcher at every start; these questions are only
     # asked when a network option was given on the command line (scripts, tests).
@@ -221,6 +234,7 @@ function Do-Install {
     Copy-Item (Join-Path $Here 'dinput8.dll') $dll -Force
     New-Item -ItemType Directory -Force -Path (Join-Path $game 'coop') | Out-Null
     Copy-Item (Join-Path $Here 'coop\coop.lua') (Join-Path $game 'coop\coop.lua') -Force
+    if ($PerUserData) { [IO.File]::WriteAllText((Join-Path $game 'coop\per-user-data'), '') }
     Say '  dinput8.dll and coop\coop.lua copied'
     if ($setNet) {
         Ini-Set $ini 'net' 'transport' $network
@@ -236,7 +250,7 @@ function Do-Install {
         }
         Say "  coop\coop.ini: $network, $role"
     }
-    Add-Loader
+    if (-not $GameFilesOnly) { Add-Loader }
 
     Say "`nDone. Start MDK2 HD as usual: the co-op launcher opens first. Pick Host or Join there (Steam lobbies or" Green
     Say 'a direct IP address and port) and press Start. Everything else is in its Settings tab.' Green
@@ -249,6 +263,7 @@ function Do-Uninstall {
     $game = Resolve-GameDir
     Say "Game folder: $game"
     if ($FindOnly) { return }
+    if ($UserSettingsOnly) { Remove-UserLoader; return }
     Check-NotRunning $game
     $dll = Join-Path $game 'dinput8.dll'
     if (Is-OurDll $dll) { Remove-Item $dll; Say '  removed dinput8.dll' }
@@ -256,7 +271,32 @@ function Do-Uninstall {
     if (Test-Path "$dll.coop-backup") { Move-Item "$dll.coop-backup" $dll; Say '  restored the earlier dinput8.dll' }
     $lua = Join-Path $game 'coop\coop.lua'
     if (Test-Path $lua) { Remove-Item $lua; Say '  removed coop\coop.lua' }
+    $marker = Join-Path $game 'coop\per-user-data'
+    if (Test-Path $marker) { Remove-Item $marker }
 
+    if (-not $GameFilesOnly) { Remove-UserLoader }
+    Say "`nCo-op is off. The coop folder (settings, logs, co-op saves) is still in the game folder; delete it if you like." Green
+    if (-not $Yes) { Read-Host "`nPress Enter to close" | Out-Null }
+}
+
+function Prepare-UserData($game) {
+    New-Item -ItemType Directory -Force -Path $DataPath | Out-Null
+    # Check actual writes before changing the loader or claiming success.
+    $probe = Join-Path $DataPath ([IO.Path]::GetRandomFileName())
+    $stream = [IO.File]::Open($probe, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
+    $stream.Dispose(); [IO.File]::Delete($probe)
+    # Preserve existing player data from older writable installs. Never replace data
+    # already in the user folder, and do not copy the installed Lua script.
+    $old = Join-Path $game 'coop'
+    if (Test-Path $old) {
+        Get-ChildItem -LiteralPath $old -File | Where-Object { $_.Name -notin 'coop.lua', 'per-user-data' } | ForEach-Object {
+            $target = Join-Path $DataPath $_.Name
+            if (-not (Test-Path -LiteralPath $target)) { Copy-Item -LiteralPath $_.FullName -Destination $target }
+        }
+    }
+}
+
+function Remove-UserLoader {
     $backup = "$SettingsPath.coop-backup"
     if (Test-Path $backup) {
         if (Test-Path $SettingsPath) { Copy-Item $SettingsPath "$SettingsPath.coop-uninstalled" -Force }
@@ -273,8 +313,6 @@ function Do-Uninstall {
         [IO.File]::WriteAllText($SettingsPath, $text, (New-Object Text.ASCIIEncoding))
         Say '  loader line removed from settings.lua'
     }
-    Say "`nCo-op is off. The coop folder (settings, logs, co-op saves) is still in the game folder; delete it if you like." Green
-    if (-not $Yes) { Read-Host "`nPress Enter to close" | Out-Null }
 }
 
 try {

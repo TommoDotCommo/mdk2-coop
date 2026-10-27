@@ -27,6 +27,10 @@ function Install($dir, [string[]]$extra, [int]$expected=0) {
     if ($LASTEXITCODE -ne $expected) { throw "Installer exit $LASTEXITCODE, expected ${expected}: $output" }
 }
 $hostDir = Fixture 'host'
+foreach ($mode in 'install', 'uninstall') {
+    $completion = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDir 'installer-gui.ps1') -TestCompletion $mode
+    Check ($LASTEXITCODE -eq 0 -and $completion -eq "completion $mode OK") "GUI $mode completion choices"
+}
 Install $hostDir @()
 Check (-not (Test-Path (Join-Path $hostDir 'coop\coop.ini'))) 'a plain install asks nothing and leaves host/join to the launcher'
 Check (Test-Path (Join-Path $hostDir 'dinput8.dll')) 'bridge installed'
@@ -64,6 +68,78 @@ Check (-not (Test-Path (Join-Path $badDir 'dinput8.dll'))) 'invalid lobby reject
 Check (-not (Test-Path (Join-Path $badDir 'settings.lua'))) 'invalid lobby leaves settings untouched'
 Install $badDir @('-Transport','steam','-Role','join','-LobbyId','76561198000000001') 1
 Check (-not (Test-Path (Join-Path $badDir 'dinput8.dll'))) 'user SteamID is not accepted as a lobby'
+
+# The GUI elevates only game files, then updates the original user's settings.
+$splitDir = Fixture 'split'
+$probe = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDir 'installer-gui.ps1') -ProbePath $splitDir
+Check ($LASTEXITCODE -eq 0 -and $probe -eq 'writable') 'GUI detects writable game folder'
+Check (@(Get-ChildItem -Force $splitDir).Count -eq 1) 'GUI permission probe cleans up its temporary file'
+$probe = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDir 'installer-gui.ps1') -ProbePath (Join-Path $root 'missing')
+Check ($LASTEXITCODE -ne 0 -and $probe -eq 'not writable') 'GUI rejects a missing folder'
+$protectedDir = Fixture 'protected'
+$originalAcl = Get-Acl -LiteralPath $protectedDir
+try {
+    $restrictedAcl = Get-Acl -LiteralPath $protectedDir
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $deny = New-Object Security.AccessControl.FileSystemAccessRule($identity, 'CreateFiles', 'None', 'None', 'Deny')
+    $restrictedAcl.AddAccessRule($deny)
+    Set-Acl -LiteralPath $protectedDir -AclObject $restrictedAcl
+    $probe = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDir 'installer-gui.ps1') -ProbePath $protectedDir
+    Check ($LASTEXITCODE -ne 0 -and $probe -eq 'not writable') 'GUI detects a protected game folder'
+} finally { Set-Acl -LiteralPath $protectedDir -AclObject $originalAcl }
+Install $splitDir @('-GameFilesOnly')
+Check (Test-Path (Join-Path $splitDir 'dinput8.dll')) 'game-only step installs bridge'
+Check (-not (Test-Path (Join-Path $splitDir 'settings.lua'))) 'game-only step does not touch user settings'
+Install $splitDir @('-UserSettingsOnly')
+Check ([IO.File]::ReadAllText((Join-Path $splitDir 'settings.lua')).Contains('coop_init')) 'user-only step installs loader'
+Install $splitDir @('-Uninstall','-GameFilesOnly')
+Check (-not (Test-Path (Join-Path $splitDir 'dinput8.dll'))) 'game-only uninstall removes bridge'
+Check ([IO.File]::ReadAllText((Join-Path $splitDir 'settings.lua')).Contains('coop_init')) 'game-only uninstall leaves user settings'
+Install $splitDir @('-Uninstall','-UserSettingsOnly')
+Check (-not [IO.File]::ReadAllText((Join-Path $splitDir 'settings.lua')).Contains('coop_init')) 'user-only uninstall removes loader'
+
+$profileDir = Fixture 'profile'
+$dataDir = Join-Path $root 'user-data'
+New-Item -ItemType Directory (Join-Path $profileDir 'coop') | Out-Null
+Set-Content (Join-Path $profileDir 'coop\coop.ini') 'old settings' -Encoding ASCII
+Install $profileDir @('-PrepareDataOnly','-PerUserData','-DataPath',$dataDir)
+Check ((Get-Content (Join-Path $dataDir 'coop.ini') -Raw) -match 'old settings') 'preflight prepares user data before game files'
+Check (-not (Test-Path (Join-Path $profileDir 'dinput8.dll'))) 'preflight leaves game files untouched'
+Install $profileDir @('-GameFilesOnly','-PerUserData')
+Check (Test-Path (Join-Path $profileDir 'coop\per-user-data')) 'GUI install marks per-user data'
+Install $profileDir @('-UserSettingsOnly','-PerUserData','-DataPath',$dataDir)
+Check ((Get-Content (Join-Path $dataDir 'coop.ini') -Raw) -match 'old settings') 'user data migrates from game folder'
+Check (-not (Test-Path (Join-Path $dataDir 'coop.lua'))) 'installed script is not copied into user data'
+Set-Content (Join-Path $dataDir 'coop.ini') 'new settings' -Encoding ASCII
+Install $profileDir @('-UserSettingsOnly','-PerUserData','-DataPath',$dataDir)
+Check ((Get-Content (Join-Path $dataDir 'coop.ini') -Raw) -match 'new settings') 'reinstall preserves user data'
+Install $profileDir @('-Transport','udp','-Role','host','-HostPort','28950','-DataPath',$dataDir)
+Check ((Get-Content (Join-Path $dataDir 'coop.ini') -Raw) -match 'listen_port=28950') 'command-line configuration updates the selected user data'
+Install $profileDir @('-Uninstall','-GameFilesOnly','-PerUserData')
+Check (-not (Test-Path (Join-Path $profileDir 'coop\per-user-data'))) 'uninstall removes per-user marker'
+Check (Test-Path (Join-Path $dataDir 'coop.ini')) 'uninstall preserves user data'
+
+# Load the actual DLL in a harmless fixture executable with an isolated user profile.
+if (Test-Path (Join-Path $PackageDir 'data_loader_test.exe')) {
+$loadDir = Fixture 'bridge-data'
+Copy-Item (Join-Path $PackageDir 'data_loader_test.exe') (Join-Path $loadDir 'data_loader_test.exe')
+Copy-Item (Join-Path $PackageDir 'dinput8.dll') (Join-Path $loadDir 'dinput8.dll')
+New-Item -ItemType Directory (Join-Path $loadDir 'coop') | Out-Null
+$priorAppData = $env:LOCALAPPDATA
+try {
+    $env:LOCALAPPDATA = Join-Path $root 'fake-profile'
+    New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
+    & (Join-Path $loadDir 'data_loader_test.exe')
+    Check ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $loadDir 'coop\bridge.log'))) 'bridge keeps per-copy data for test and couch copies'
+    New-Item -ItemType File (Join-Path $loadDir 'coop\per-user-data') | Out-Null
+    & (Join-Path $loadDir 'data_loader_test.exe')
+    $userLog = Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop\bridge.log'
+    Check ($LASTEXITCODE -eq 0 -and (Test-Path $userLog)) 'bridge writes player logs in the user profile'
+    Check ((Get-Content $userLog -Raw) -match 'files in .*mdk2-coop\\coop') 'bridge uses profile for runtime settings'
+    & (Join-Path $loadDir 'data_loader_test.exe')
+    Check (Test-Path (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop\bridge.previous.log')) 'profile log rotates on restart'
+} finally { $env:LOCALAPPDATA = $priorAppData }
+} else { Write-Output 'SKIP: bridge data loader fixture not supplied' }
 
 Install $hostDir @('-Uninstall')
 Check (-not (Test-Path (Join-Path $hostDir 'dinput8.dll'))) 'uninstall removes bridge'

@@ -15,6 +15,8 @@ mkdir -p "$out/package/coop"
 cp "$here/bridge/dinput8.dll" "$out/package/"
 cp "$here/lua/coop_dev.lua" "$out/package/coop/coop.lua"
 cp "$here/dist/mdk2-coop.ps1" "$out/package/"
+cp "$here/dist/installer-gui.ps1" "$out/package/"
+i686-w64-mingw32-gcc -O2 -o "$out/package/data_loader_test.exe" "$here/bridge/tests/data_loader_test.c"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_installer.ps1")" \
     -GameExe "$(mdk_dir 1)\\mdk2hd.exe" -PackageDir "$(wslpath -w "$out/package")" \
     -TestRoot "$(wslpath -w "$fixtures")"

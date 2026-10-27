@@ -36,7 +36,9 @@ work around that check.
    [TESTING.md](TESTING.md)). Every gate must pass.
 2. Update `dist/README.txt` (the player's copy in the zip) and the [README](../README.md) for anything new.
 3. `tools/release.sh v0.x.y` builds `local/release/mdk2-coop-v0.x.y.zip`: dinput8.dll, coop\coop.lua,
-   Install.cmd, Uninstall.cmd, mdk2-coop.ps1, Couch.cmd, mdk2-couch.ps1, README.txt and LICENSE.txt. The version
+   MDK2-Coop-Setup.exe, installer-gui.ps1, Install.cmd, Uninstall.cmd, mdk2-coop.ps1, Couch.cmd,
+   mdk2-couch.ps1, README.txt and LICENSE.txt. The graphical installer requests elevation only for game-folder
+   writes; its separate user-settings operation runs as the original user. The version
    is built into the DLL and shown on the launcher's About tab.
 4. Tag and publish: `gh release create v0.x.y local/release/mdk2-coop-v0.x.y.zip` (`--prerelease` for alphas).
 
@@ -53,7 +55,7 @@ In game (developer keys: Options > Co-op > Gameplay, on in the test installs, of
 F9 BioWare debug menu, F6 / F7 next / previous checkpoint (host),
 F8 next level (host), F2 marker in every log (always on), F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 lava damage to yourself, F1 (host) spawn a Poopsy named coop_spawn (same name each time), F4 teleport to the next test spot (level 1's decoy item, door dr1_03, then 400 units below you).
 Room changes are logged to bridge.log as they happen.
-Logs and the files the mod writes go to `<game dir>\coop`, or to `%LOCALAPPDATA%\mdk2-coop\coop` when the game dir is not writable (Program Files without admin rights); `bridge.log` starts with a `files in <dir>` line. The launcher's lobby (UDP only) is in `bridge/launcher.c`; an enemy killed on the host has its OnDie run on every client (`bridge/entities.c`).
+The graphical installer marks player installs to put logs and other runtime data in `%LOCALAPPDATA%\mdk2-coop\coop` and copies older game-folder data there without overwriting it. Test and couch copies use `<game dir>\coop` when writable, otherwise the profile folder. `bridge.log` starts with a `files in <dir>` line. The launcher's lobby (UDP only) is in `bridge/launcher.c`; an enemy killed on the host has its OnDie run on every client (`bridge/entities.c`).
 
 Background test mode (`tools/qa.sh` and `tools/sweep.sh` use it; `MDK2_BACKGROUND=1 tools/install.sh` sets
 `[test] background=1` in coop.ini): both games open side by side on the second monitor, behind other windows,
