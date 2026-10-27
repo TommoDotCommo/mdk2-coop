@@ -107,8 +107,23 @@ Shots produced by copied attack animations are discarded when launched, avoiding
 `coop_shots_dump()` logs live class 5 shots, positions, velocities and ownership flags for diagnostics.
 
 Pickups (`OBJ` types 300-399): every pickup path asks the engine whether the item has an OnPickedUp
-handler (0x40cf60, event 15), which the bridge hooks. The picker keeps the item and sends PICKUP; the
-peer deletes its copy. Items are matched by name, so only level-placed items are synced so far.
+handler (0x40cf60, event 15), which the bridge hooks. The picker sends PICKUP with the item type;
+each connected teammate receives the reward and removes its source copy. Inventory rewards use a
+local item collected through the native pickup path. World handlers run immediately; the two tutorial inventory handlers run
+after receipt. Native ammo limits and item effects apply separately to each player. Health pickups heal every
+character directly with its health cap, including heroes that normally hold food instead of consuming
+it on contact. Reward copies do not announce another pickup.
+Unnamed pickups also carry their type. Reconnect history removes consumed world items without
+regranting rewards. Rewards wait while a player is down; character-specific inventory rewards wait
+for a compatible hero. Level changes clear pending rewards.
+
+Level 1's mortar domes use collision and the shooter's OnShotExploded rather than damage. A reliable
+PUZZLE event repeats the completed dome result through the level's own handler, including the glass,
+fan, animation and next mortar location. The host retains completed domes for reconnects. Repeating
+a completed result is harmless. This is specific to this puzzle, not general script replication.
+
+Enemy difficulty scales both current and maximum HP. SPAWN carries the maximum as well as current
+HP so the native enemy health fraction uses the same denominator on all machines.
 
 Rooms: the engine only runs rooms around the camera (others go into stasis, flag 0x8). The bridge
 redirects the room manager's call at 0x430314 so the rooms around the other player's puppet stay active
@@ -524,11 +539,9 @@ syncs. Two kinds of event are carried to the other games and their handlers run 
   second `coop.ProximityTick` wraps each one's handler (`coop.MakeNearest`) so that, while it runs, `mdkGetPlayerGob()`
   returns the nearest player, ours or a puppet. Whoever comes near starts it on every game. The other ~90 handlers that
   read the local player do something to it (damage, items, teleports) and keep seeing the local player.
-- **Items everyone needs.** Of the 42 pickup handlers only two change an inventory: level 1's tutorial grenades and sniper
-  grenade (`mdkKurtRemoveItem` on "the player"; `script_census.py --inventory-pickups`). A peer's pickup of those does not
-  remove ours (`pickups_per_player`): each player takes their own and each game runs the item's script for its own player.
-  Every other pickup works as before: the picker keeps the item, the others run its script with the picker's puppet and
-  lose their copy.
+- **Shared item handlers.** The tutorial grenade handler removes four rounds from the player.
+  Each game grants its native reward first, then runs that handler for its own player, leaving
+  everyone the intended one grenade. Other pickup scripts still update each game's world state.
 - **Limits.** Where room boxes overlap, the engine can choose a different room for a player than the first box we find, so
   now and then a handler runs on the others for a room the entering player's own game did not run (level 7's `l7_tun27b`
   once). A door that locks for another reason during the same handler also counts as closing an area.

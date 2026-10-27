@@ -702,6 +702,8 @@ void event_queue_spawn(int to, int kind, unsigned int netid, int objtype, int hp
     e.netid = netid;
     e.damage = (short)hp;
     e.objtype = (short)objtype;
+    if (kind == EV_SPAWN)
+        e.extra[0] = gob_max_hp(gob_by_handle(netid));
     if (pos)
         memcpy(e.pos, pos, sizeof(e.pos));
     snprintf(e.name, EV_NAME, "%s", name);

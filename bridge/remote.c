@@ -4,7 +4,8 @@
  * handler another player triggered has to be run here too:
  *   - a pickup: the other game removes its copy of the item, but the item's OnPickedUp (pickups.c) never ran
  *   - entering a room: the room's OnEnterRoom (rooms.c) ran for the player who entered, not for the others
- * Both queue the handler here and Lua (coop.HandlerTick) runs it with the other player's puppet as "the player"
+ * Lua (coop.HandlerTick) grants pickups locally before running their handlers for our player;
+ * room handlers run with the other player's puppet as "the player"
  * (mdkGetPlayerGob), because some handlers act on the player. A handler that locks a door behind the one who
  * triggered it closes an area: a player left outside is brought to them (coop.CheckStranded).
  */
@@ -20,9 +21,10 @@ static struct pending {
     int slot, arg, kill;
 } pend[PEND];
 static unsigned int pend_head, pend_tail;
+static unsigned int dome_state;
 
 /* name: the gob's Lua global; event: "OnEnterRoom"; slot: who it happened to; arg: the handler's second argument;
- * kill: remove that item afterwards (a pickup) */
+ * kill: 1 remove after handler, 2 grant a shared reward first, 3 apply a dome result */
 int test_no_remote;         /* coop_test_noremote(1) (background test mode): queue nothing: the old behaviour, for tools/qa_remote.sh */
 
 void remote_queue(const char *name, const char *event, int slot, int arg, int kill)
@@ -52,12 +54,54 @@ void remote_queue(const char *name, const char *event, int slot, int arg, int ki
 void remote_reset(void)
 {
     pend_head = pend_tail = 0;
+    dome_state = 0;
 }
 
 static double num_param_remote(int n)
 {
     unsigned int o = lua_getparam(n);
     return (o && lua_isnumber(o)) ? lua_getnumber(o) : 0.0;
+}
+
+/* The dome puzzle is driven by the shooter's OnShotExploded, not damage.
+ * Replicate its completed result reliably; replays and reconnects are idempotent. */
+static void puzzle_send(int index, int to)
+{
+    struct event e;
+    event_init(&e, EV_PUZZLE);
+    e.type = index;
+    event_send(&e, to);
+}
+
+static void l_coop_puzzle(void)
+{
+    int index = (int)num_param_remote(1);
+    if (cur_level != 1 || index < 1 || index > 3)
+        return;
+    if (role_host) {
+        if (dome_state & (1u << index))
+            return;
+        dome_state |= 1u << index;
+    }
+    puzzle_send(index, role_host ? TO_ALL : 0);
+}
+
+void puzzle_resend(int to)
+{
+    int i;
+    if (role_host && cur_level == 1)
+        for (i = 1; i <= 3; i++)
+            if (dome_state & (1u << i))
+                puzzle_send(i, to);
+}
+
+void puzzle_event(const struct event *e, int from)
+{
+    char name[EV_NAME];
+    if (cur_level != 1 || e->type < 1 || e->type > 3 || (!role_host && from != 0))
+        return;
+    snprintf(name, sizeof(name), "platportal%d", e->type);
+    remote_queue(name, "CoopDome", from, e->type, 3);
 }
 
 /* coop_next_handler() -> name, event, slot, arg, kill; nil when the queue is empty */
@@ -179,6 +223,7 @@ static void l_coop_test_noremote(void)
 
 void remote_lua_init(void)
 {
+    tolua_function(NULL, "coop_puzzle", l_coop_puzzle);
     tolua_function(NULL, "coop_next_handler", l_coop_next_handler);
     tolua_function(NULL, "coop_pickup_finish", l_coop_pickup_finish);
     tolua_function(NULL, "coop_stranded", l_coop_stranded);

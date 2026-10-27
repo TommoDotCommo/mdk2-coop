@@ -345,7 +345,21 @@ void gob_set_own_shot(BYTE *gob, int on)
     set_put(own_set, gob, on);
 }
 
-/* hp of a gob with a game object (enemies: no maximum to keep in step) */
+/* The native health bar divides current HP (+0x12) by maximum HP (+0x14). */
+int gob_max_hp(BYTE *gob)
+{
+    BYTE *info = gob ? *(BYTE **)(gob + GOB_INFO) : NULL;
+    return info ? *(short *)(info + 0x14) : 0;
+}
+
+void gob_set_max_hp(BYTE *gob, int hp)
+{
+    BYTE *info = gob ? *(BYTE **)(gob + GOB_INFO) : NULL;
+    if (info && hp > 0)
+        *(short *)(info + 0x14) = (short)(hp > 32000 ? 32000 : hp);
+}
+
+/* Current HP; synchronized enemies receive maximum HP separately. */
 void gob_set_hp(BYTE *gob, int hp)
 {
     BYTE *info = *(BYTE **)(gob + GOB_INFO);

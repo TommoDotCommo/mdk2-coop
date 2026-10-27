@@ -75,6 +75,8 @@ static UINT fake_profile_int(const char *section, const char *key, int def, cons
 }
 void logmsg(const char *fmt, ...) { }
 int gob_hp(BYTE *gob) { return 100; }
+int gob_max_hp(BYTE *gob) { return 150; }
+BYTE *gob_by_handle(unsigned int handle) { return (BYTE *)1; }
 int gob_type(BYTE *gob) { return 200; }
 void gob_peername(BYTE *gob, char *out, int size) { out[0] = 0; }
 int revive_life(void) { return 0; }
@@ -230,6 +232,12 @@ int main(void)
     struct steam_identity identity;
     int before;
     setup(); GetCurrentDirectoryA(MAX_PATH,coop_dir); snprintf(path,sizeof(path),"%s\\test.ini",coop_dir);
+    /* A wounded or late-joined enemy keeps its full scaled denominator. */
+    links[1].used=1; links[1].out_next=links[1].out_acked=0;
+    event_queue_spawn(1,EV_SPAWN,123,200,75,NULL,"enemy");
+    CHECK(links[1].out_next==1);
+    CHECK(links[1].outbox[0].damage==75);
+    CHECK(links[1].outbox[0].extra[0]==150);
     DeleteFileA(path); snprintf(ini_path,sizeof(ini_path),"%s",path);
     CHECK(!parse_lobby("",&parsed)); CHECK(!parse_lobby("-1",&parsed));
     CHECK(!parse_lobby("18446744073709551616",&parsed)); CHECK(!parse_lobby("76561198000000001",&parsed));
@@ -347,6 +355,12 @@ int main(void)
         net_level_event(&level); CHECK(cur_epoch==65535 && event_must_wait(&spawn));
         net_level_reset(0); CHECK(cur_epoch==0 && !event_must_wait(&spawn));
     }
+    /* A wounded or late-joined enemy keeps its full scaled denominator. */
+    links[1].used=1; links[1].out_next=links[1].out_acked=0;
+    event_queue_spawn(1,EV_SPAWN,123,200,75,NULL,"enemy");
+    CHECK(links[1].out_next==1);
+    CHECK(links[1].outbox[0].damage==75);
+    CHECK(links[1].outbox[0].extra[0]==150);
     DeleteFileA(path);
     printf("PASS: %d network checks (simulated Steam + real loopback UDP)\n",passed);
     return 0;

@@ -13,6 +13,7 @@ out = root / 'local/tests/network'
 out.mkdir(parents=True, exist_ok=True)
 source = (root / 'bridge/net.c').read_text()
 mutants = {
+    'missing-enemy-maximum': ('e.extra[0] = gob_max_hp(gob_by_handle(netid));', 'e.extra[0] = 0;'),
     'adopt-epoch-before-load': ('pending_epoch = (unsigned short)e->netid;',
                               'pending_epoch = (unsigned short)e->netid; cur_epoch = pending_epoch;'),
     'apply-spawns-during-load': ('return cur_epoch != pending_epoch && e->epoch == pending_epoch;', 'return 0;'),
@@ -49,5 +50,5 @@ with tempfile.TemporaryDirectory(prefix='epochs-', dir=out) as folder:
             raise SystemExit(f'FAIL mutant {name}: not rejected by an assertion: {run.stdout}{run.stderr}')
         else:
             print(f'PASS mutant caught: {name}')
-print(f'PASS: {len(mutants)} epoch mutation twins rejected')
+print(f'PASS: {len(mutants)} network mutation twins rejected')
 PY

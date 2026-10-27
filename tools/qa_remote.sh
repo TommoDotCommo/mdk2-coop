@@ -7,7 +7,7 @@
 #   - an area that closes: whoever is outside it, or on the far side of the door that locks, is brought to the one
 #     who triggered it, with a line saying so; a player on the triggerer's side stays put; a player in a minigame or
 #     a cutscene is moved when it is over
-#   - items everyone needs (level 1's tutorial grenades): a peer's pickup leaves your copy for you to take
+#   - tutorial grenades: everyone receives the reward before their inventory handler removes four
 #   MUTANT=noremote tools/qa_remote.sh    the bridge queues nothing for other players' events: must fail
 # Needs MDK2_N=2, isolated game copies and MDK2_BACKGROUND (see tools/mdk.sh); about 2 minutes.
 set -uo pipefail
@@ -64,7 +64,7 @@ check "the host ran room 7's OnEnterRoom for the client" wait_log 1 '^(lua: )?sc
 check "so the host has the mortars item too"            wait_q 1 'type(l1_r7.mortars)' userdata 10
 to 2 l1_r7mortar01
 check "the client picked the mortars up"                wait_log 2 '^pickup mortars' 20
-check "the host ran the mortars' OnPickedUp"            wait_log 1 '^(lua: )?script event L1: OnPickedUp mortars \(remote, player 2\)' 15
+check "the host ran the mortars' OnPickedUp"            wait_log 1 '^(lua: )?script event L1: OnPickedUp mortars \(remote, player 1\)' 15
 check "the host's script state followed (l1_r7.mortars cleared)" wait_q 1 'type(l1_r7.mortars)' nil 15
 check "the host removed its copy of the item"           wait_log 1 'peer picked up mortars: removing it here after its script' 5
 check "no Lua errors yet"                               bash -c "! grep -qa 'LUA ERROR' '$(mdk_log 1)' '$(mdk_log 2)'"
@@ -134,17 +134,19 @@ sleep 2
 d6=$(dist 2 1)
 check "and stands next to the host ($d6)"               test "$d6" -le 6 -a "$d6" -ge 0
 
-# 7. items everyone needs: the tutorial grenades. Both games make the item as the tutorial script does, the client
-# takes it, the host's copy stays and the host takes its own
+# 7. Shared tutorial grenades: both players receive five, then their own handler
+# removes four. This must happen after the reward is granted, once per player.
 reload
-for i in 1 2; do lua "$i" 'grenades = mdkCreateObjectLua("grenades", OBJ_GRENADEITEM, mdkGetScene(), nil, nil, 0,0,0, 1,0,0,0, nil,0,0,0,0) mdkGobSetPosition(grenades, "l1_r1grengen")'; done
+for i in 1 2; do
+    lua "$i" 'qa_tutorial_before=coop_item_count(mdkGetPlayerGob(),OBJ_GRENADEITEM) qa_tutorial_runs=0 grenades=mdkCreateObjectLua("grenades",OBJ_GRENADEITEM,mdkGetScene(),nil,nil,0,0,0,1,0,0,0,nil,0,0,0,0) mdkGobSetPosition(grenades,"l1_r1grengen") grenades.OnPickedUp=function(gob,id) mdkKurtRemoveItem(mdkGetPlayerGob(),id,4) qa_tutorial_runs=qa_tutorial_runs+1 end'
+done
 check "both games have the grenades"                    bash -c "[ \"$(q 1 'coop_alive(grenades)')\" = 1 ] && [ \"$(q 2 'coop_alive(grenades)')\" = 1 ]"
 to 2 l1_r1grengen
-check "the client took its grenades"                    wait_log 2 '^pickup grenades .*: the others take their own' 15
-sleep 2
-check "the host's grenades are still there"             wait_q 1 'coop_alive(grenades)' 1 5
-to 1 l1_r1grengen
-check "the host takes its own"                          wait_log 1 '^pickup grenades .*: the others take their own' 15
+check "the client took its grenades"                    wait_log 2 '^pickup grenades ' 15
+for i in 1 2; do
+    check "player $i received one tutorial grenade after the script" wait_q "$i" 'coop_item_count(mdkGetPlayerGob(),OBJ_GRENADEITEM)-qa_tutorial_before' 1 15
+    check "player $i ran its tutorial handler once" wait_q "$i" 'qa_tutorial_runs' 1 10
+done
 check "no Lua errors in these parts"                    bash -c "! grep -qa 'LUA ERROR' '$(mdk_log 1)' '$(mdk_log 2)'"
 
 check "both games still running"                        bash -c "for p in $(mdk_pids | tr '\n' ' '); do powershell.exe -NoProfile -Command \"if (-not (Get-Process -Id \$p -ErrorAction SilentlyContinue)) { exit 1 }\" || exit 1; done"

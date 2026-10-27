@@ -97,6 +97,8 @@ void gob_kill(BYTE *gob);
 int gob_type(BYTE *gob);
 int gob_class(BYTE *gob);
 int gob_hp(BYTE *gob);
+int gob_max_hp(BYTE *gob);
+void gob_set_max_hp(BYTE *gob, int hp);
 int gob_is_actor(BYTE *gob);
 int gob_is_projectile(BYTE *gob);
 int gob_is_mirrored(BYTE *gob);
@@ -147,7 +149,7 @@ struct track {
 };
 
 enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY,
-       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE, EV_DIAG };
+       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE, EV_DIAG, EV_PUZZLE };
 #define EV_NAME 32
 /* FIRE part: 0 replays create_object arguments; 1 restores a launched class 5 shot. */
 #define FIRE_LAUNCHED 1
@@ -440,7 +442,7 @@ void doors_reset(void);
 /* ---- pickups.c ---- */
 
 void pickups_init(void);
-void pickups_remove(const char *name, int from);
+void pickups_remove(const char *name, int from, int type);
 void pickups_reset(void);
 void pickups_resend(int to);
 
@@ -488,7 +490,9 @@ void logmsg(const char *fmt, ...);
 
 void remote_queue(const char *name, const char *event, int slot, int arg, int kill);
 void remote_reset(void);
-int pickups_per_player(const char *name);   /* pickups.c: items every player takes their own copy of */
+void puzzle_resend(int to);
+void puzzle_event(const struct event *e, int from);
+void pickups_event(const struct event *e, int from);
 int door_locked(BYTE *door);                /* doors.c */
 void remote_lua_init(void);
 void pickups_finish(const char *name);

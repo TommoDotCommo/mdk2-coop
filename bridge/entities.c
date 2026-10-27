@@ -206,8 +206,13 @@ void ents_host_tick(void)
         e->local = id;
         /* tougher or softer enemies ([game] enemy_hp), and more with more players (enemy_scale % per extra player) */
         if (gob_hp(gob) > 0 && (cfg_enemy_hp != 100 || (cfg_enemy_scale > 0 && players_connected() > 0))) {
+            int max_hp = gob_max_hp(gob);
+            if (max_hp <= 0) max_hp = gob_hp(gob);
+            max_hp = max_hp * cfg_enemy_hp / 100;
             int hp = gob_hp(gob) * cfg_enemy_hp / 100;
             hp += hp * cfg_enemy_scale * players_connected() / 100;
+            max_hp += max_hp * cfg_enemy_scale * players_connected() / 100;
+            gob_set_max_hp(gob, max_hp < 1 ? 1 : max_hp);
             gob_set_hp(gob, hp < 1 ? 1 : hp);
         }
         gob_netname(gob, name, sizeof(name));

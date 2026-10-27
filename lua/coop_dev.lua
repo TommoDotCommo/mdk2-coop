@@ -564,6 +564,7 @@ coop.nclosed = 0
 
 function coop.RunHandler(name, event, slot, arg)
     local g = getglobal(name)
+    if (type(g) == "userdata" and not coop_alive(g)) then g = nil end
     local h = nil
     if (g) then h = g[event] end
     if (type(h) ~= "function") then
@@ -646,15 +647,133 @@ function coop.TryJoin()
     coop.join = nil
 end
 
+-- The native dome result includes the glass, fan, animation and mortar spawn
+-- point. Replay that result instead of hoping a visual projectile hits identically.
+function coop.HookDomePuzzle()
+    coop.dome_pending = {}
+    if (coop.level ~= 1 or not Level or not Level.ShotHitDome) then return end
+    local original = Level.ShotHitDome
+    Level.ShotHitDome = function(gob)
+        local was = gob.shattered
+        %original(gob)
+        if (not was and gob.shattered) then
+            local i = 1
+            while (i <= 3) do
+                if (gob == getglobal("platportal" .. i)) then coop_puzzle(i) end
+                i = i + 1
+            end
+        end
+    end
+    local guard = Level.GetPlatformGuard
+    Level.GetPlatformGuard = function(gob)
+        local g = %guard(gob)
+        if (g and coop_alive(g) == 1) then return g end
+        return nil
+    end
+    local i = 1
+    while (i <= 3) do
+        local g = getglobal("platportal" .. i)
+        if (g and g.shattered and coop_role() == "host") then coop_puzzle(i) end
+        i = i + 1
+    end
+end
+coop.dome_pending = {}
+function coop.DomeTick()
+    local name = next(coop.dome_pending, nil)
+    while (name) do
+        local following = next(coop.dome_pending, name)
+        local g = getglobal(name)
+        local p = coop.real_player()
+        if (g and p and Level and Level.ShotHitDome) then
+            if (not g.shattered) then
+                g.bulletgob = p
+                Level.ShotHitDome(g)
+                coop_log("shared dome result " .. name)
+            end
+            coop.dome_pending[name] = nil
+        end
+        name = following
+    end
+end
+
+-- Inventory rewards use native collection for ammo limits and item effects.
+-- Health rewards heal at the recipient's cap. World handlers run immediately;
+-- tutorial inventory handlers wait until after the recipient receives its ammo.
+coop.rewards = {}
+coop.reward_serial = 0
+function coop.SharedPickup(name, itemtype)
+    coop.reward_serial = coop.reward_serial + 1
+    local key = format("coop_reward_%d", coop.reward_serial)
+    local source = name
+    -- World state must follow now, even if our hero is down or cannot use this
+    -- item yet. Only the two tutorial handlers change the recipient's inventory.
+    if (name ~= "grenades" and name ~= "snipergrenade") then
+        if (name ~= "") then
+            coop.RunHandler(name, "OnPickedUp", coop_slot(), itemtype)
+            coop_pickup_finish(name)
+        end
+        source = ""
+    end
+    coop.rewards[key] = { source = source, label = name, itemtype = itemtype }
+end
+
+function coop.SharedPickupDone(gob, itemtype)
+    local key, r = next(coop.rewards, nil)
+    while (key and r.gob ~= gob) do key, r = next(coop.rewards, key) end
+    if (not key) then return end
+    coop.SharedPickupComplete(key, itemtype)
+end
+
+function coop.SharedPickupComplete(key, itemtype)
+    local r = coop.rewards[key]
+    if (not r) then return end
+    coop.rewards[key] = nil
+    if (r.source ~= "") then
+        coop.RunHandler(r.source, "OnPickedUp", coop_slot(), itemtype)
+        coop_pickup_finish(r.source)
+    end
+    coop_log(format("shared pickup %s type %d received", r.label, itemtype))
+end
+
+function coop.SharedPickupTick()
+    local p = coop.real_player()
+    if (not p or coop_life(coop_slot()) ~= 0) then return end
+    local key, r = next(coop.rewards, nil)
+    while (key) do
+        local following, following_reward = next(coop.rewards, key)
+        if (not r.gob and coop_shared_health(r.itemtype) == 1) then
+            coop.SharedPickupComplete(key, r.itemtype)
+        elseif (not r.gob) then
+            r.gob = mdkCreateObjectLua(key, r.itemtype, mdkGetScene(), nil, nil,
+                p.position.x, p.position.y, p.position.z, 1,0,0,0, nil,0,0,0,0)
+            if (r.gob) then
+                r.gob.OnPickedUp = coop.SharedPickupDone
+                omGobGMSetVisible(r.gob, 0)
+            end
+        elseif (coop_alive(r.gob)) then
+            mdkGobSetPositionXYZ(r.gob, p.position.x, p.position.y, p.position.z)
+        end
+        key, r = following, following_reward
+    end
+end
+
 function coop.HandlerTick()
     local n = 0
     local name, event, slot, arg, kill = coop_next_handler()
     while (name and n < 8) do
-        coop.RunHandler(name, event, slot, arg)
+        if (kill == 3) then
+            coop.dome_pending[name] = 1
+        elseif (kill == 2) then
+            coop.SharedPickup(name, arg)
+        else
+            coop.RunHandler(name, event, slot, arg)
+        end
         if (kill == 1) then coop_pickup_finish(name) end
         n = n + 1
         name, event, slot, arg, kill = coop_next_handler()
     end
+    coop.DomeTick()
+    coop.SharedPickupTick()
     if (coop.join) then coop.TryJoin() end
     coop.ProximityTick()
 end
@@ -987,11 +1106,13 @@ function level(l, cp, sec)
     coop.resume_sid = nil
     coop.following = nil
     coop.puppets = {}
+    coop.rewards = {}
     coop.level = l
     coop.cp = cp
     coop_level(l, cp, announce, save)
     coop.level_ready = 1
     coop.HookMovies()
+    coop.HookDomePuzzle()
     -- host: how far the session has got (not when a save brought us back here) --
     if (announce == 1 and save == 0) then coop_progress(l, cp, coop.sid) end
     -- a client that loaded a save has a world from back then: the host sends its own again --

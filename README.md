@@ -29,7 +29,7 @@ No game files are in this repo. Every player needs their own copy of MDK2 HD on 
 
 - **2 to 16 players** (tested with up to 8), over Steam friends-only lobbies or direct UDP.
 - **The whole campaign in co-op**: everyone follows the host from level to level; enemies, their health,
-  doors, pickups and shots are the same for everyone.
+  doors, pickups and shots are the same for everyone. Pickups give their item, ammo or healing to every connected player.
 - **What one player does happens for everyone**: when anyone walks into a new room or picks something up, the
   level's scripts run for all of you, and a boss starts when anyone gets near it. If a door closes behind them,
   anyone left outside the area, or on the far side of the door, is brought to them (with a note saying so), like a

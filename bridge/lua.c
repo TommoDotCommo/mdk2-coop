@@ -258,7 +258,7 @@ static void l_coop_event(void)
         if (e.kind == EV_MOVIE)
             movie_event(&e, from);      /* Lua gets it, with the sender's slot in netid */
         /* the host passes the clients' shots, pickups and markers on to the others */
-        if (e.kind == EV_FIRE || e.kind == EV_PICKUP || e.kind == EV_MARK)
+        if (e.kind == EV_FIRE || e.kind == EV_MARK)
             event_relay(&e, from);
         if (e.kind == EV_DESPAWN)
             ent_despawn(e.netid, e.objtype);
@@ -279,8 +279,10 @@ static void l_coop_event(void)
         }
         else if (e.epoch != cur_epoch && e.kind != EV_LEVEL)
             logmsg("event %d %s from epoch %u dropped (we are in %u)", e.kind, e.name, e.epoch, cur_epoch);
+        else if (e.kind == EV_PUZZLE)
+            puzzle_event(&e, from);
         else if (e.kind == EV_PICKUP)
-            pickups_remove(e.name, from);
+            pickups_event(&e, from);
         else if (e.kind == EV_REVIVE || e.kind == EV_RESPAWN || e.kind == EV_DIED)
             revive_event(&e, from);
         else
@@ -342,7 +344,7 @@ static void l_coop_apply(void)
         deal_damage_orig(apply_attacker(), gob, damage, type, part);
         /* a mirror keeps its old hp through the hit (the game's handler leaves it alone, and
          * the host may have ignored the hit): take the host's, death comes from its despawn */
-        if (apply_hp > 0 && gob_is_actor(gob) && gob_hp(gob) != apply_hp)
+        if (apply_hp >= 0 && gob_is_actor(gob) && gob_hp(gob) != apply_hp)
             gob_set_hp(gob, apply_hp);
         break;
     case EV_HURT:       /* client: the host's world hurt our player */
@@ -350,6 +352,7 @@ static void l_coop_apply(void)
             damage_local_player(apply_attacker(), damage, type, part);
         break;
     case EV_SPAWN:
+        gob_set_max_hp(gob, apply_hp + 1);
         ent_bind((unsigned int)num_param(3), gob);
         if ((int)num_param(4) > 0 && *(BYTE **)(gob + GOB_INFO) && gob_hp(gob) != (int)num_param(4)) {
             logmsg("ent %s hp %d -> %d (host's)", gob_name(gob), gob_hp(gob), (int)num_param(4));
@@ -641,6 +644,65 @@ static void l_coop_hp(void)
         lua_pushnumber(gob_hp(gob));
 }
 
+/* Read the native inventory for regression checks and diagnostic commands. */
+static void l_coop_item_count(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL), *info, *state;
+    int type = (int)num_param(2), offset, groups, group, count = 0;
+    if (!gob_alive(gob))
+        return;
+    switch (gob_type(gob)) {
+    case 100: offset = 0x94; groups = 2; break;
+    default: return;
+    }
+    info = *(BYTE **)(gob + GOB_INFO);
+    state = *(BYTE **)(info + 0x40);
+    for (group = 0; state && group < groups; group++) {
+        BYTE *inv = state + offset + group * 32;
+        BYTE *entries;
+        int n, i;
+        if (IsBadReadPtr(inv, 32))
+            continue;
+        n = *(int *)(inv + 0x0c);
+        entries = *(BYTE **)(inv + 0x1c);
+        if (n < 0 || n > 64 || !entries || IsBadReadPtr(entries, n * 16))
+            continue;
+        for (i = 0; i < n; i++)
+            if (*(int *)(entries + i * 16) == type)
+                count += *(int *)(entries + i * 16 + 4);
+    }
+    lua_pushnumber(count);
+}
+
+/* Health is shared as healing, including for heroes whose native interaction
+ * would store/hold the item instead of consuming it on contact. */
+static void l_coop_shared_health(void)
+{
+    int item = (int)num_param(1), hero, cap, hp, heal;
+    if ((item < 311 || item > 314) || !gob_alive(local_player) || revive_life() != LIFE_ALIVE) {
+        lua_pushnumber(0);
+        return;
+    }
+    hero = gob_type(local_player);
+    cap = hero == 100 ? 100 : hero == 101 ? 200 : hero == 102 ? 60 : 0;
+    if (!cap) {
+        lua_pushnumber(0);
+        return;
+    }
+    if (local_max_hp > cap) cap = local_max_hp;
+    heal = (item == 311 || item == 313) ? 25 : item == 312 ? 100 : 50;
+    hp = gob_hp(local_player) + heal;
+    gob_set_hp(local_player, hp > cap ? cap : hp);
+    lua_pushnumber(1);
+}
+
+static void l_coop_max_hp(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL);
+    if (gob_alive(gob))
+        lua_pushnumber(gob_max_hp(gob));
+}
+
 /* coop_carry_hp(old, new): the new hero (just made, at its full hp) gets the share of its hp the old one had
  * left (of the most it has had this level), at least 1; what revive.c counts as full follows */
 static void l_coop_carry_hp(void)
@@ -871,6 +933,9 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_face", l_coop_face);
     tolua_function(NULL, "coop_slot", l_coop_slot);
     tolua_function(NULL, "coop_hp", l_coop_hp);
+    tolua_function(NULL, "coop_max_hp", l_coop_max_hp);
+    tolua_function(NULL, "coop_item_count", l_coop_item_count);
+    tolua_function(NULL, "coop_shared_health", l_coop_shared_health);
     tolua_function(NULL, "coop_carry_hp", l_coop_carry_hp);
     tolua_function(NULL, "coop_connected", l_coop_connected);
     tolua_function(NULL, "coop_players", l_coop_players);
