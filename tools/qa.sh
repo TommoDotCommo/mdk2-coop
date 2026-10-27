@@ -75,9 +75,9 @@ check "client sniper rounds replayed on host"   has $H "replay fire type 406"
 # 3. host-spawned enemy, client damage through the host
 mdk_key "$A" 63; sleep 3                                    # F5: host spawns coop_dog1
 check "client bound the host's new Doganboy"    has $C "ent bind .* -> coop_dog1"
-# the client hits it: F1 on the client deals 10 x 2 gun damage from its Kurt (aiming with the
+# the client hits it: Num 1 on the client deals 10 x 2 gun damage from its Kurt (aiming with the
 # mouse depends on where the Doganboy walks); the HIT path is the same as for real shots
-mdk_key "$B" 59; sleep 3
+mdk_key "$B" 79; sleep 3
 host_hp=$(grep -E "^event 1 on coop_dog1" "$(mdk_log $H)" | sed 's/.*-> hp //' | tr '\n' ' ')
 client_hp=$(grep -E "^event 2 on coop_dog1" "$(mdk_log $C)" | sed 's/.*-> hp //' | tr '\n' ' ')
 check "client hits reached the host"            test -n "$host_hp"
@@ -91,7 +91,7 @@ check "client hurt only via host ($hurts HURT for $host_hits host hits; $local_h
 # 3b. same-named spawns (spawners name every spawn alike) and Poopsy damage: the client must
 #     create separate copies and survive hitting them (the Poopsy's damage handler reads the
 #     attacker; a NULL attacker crashed the client in the first manual session)
-mdk_key "$A" 59; sleep 1; mdk_key "$A" 59; sleep 3            # F1 twice: two "coop_spawn"
+mdk_key "$A" 79; sleep 1; mdk_key "$A" 79; sleep 3            # Num 1 twice: two "coop_spawn"
 # the first is unique when announced and goes by name; the second must go as n<id>
 check "first coop_spawn announced by name"      has $H "^ent spawn [0-9a-f]+ coop_spawn type 217"
 check "duplicate announced as n<id>"            bash -c "grep -A50 -E '^ent spawn [0-9a-f]+ coop_spawn' '$(mdk_log $H)' | grep -qE '^ent spawn ([0-9a-f]+) n\\1 type 217'"

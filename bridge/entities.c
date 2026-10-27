@@ -306,6 +306,8 @@ void ent_bind(unsigned int netid, BYTE *gob)
     logmsg("ent bind %x -> %s (local %x, type %d)", netid, gob_name(gob), e->local, gob_type(gob));
 }
 
+int test_no_ondie;              /* coop_test_noondie(1) (background test mode): the old bug, for tools/qa_sign.sh's MUTANT=noondie */
+
 void ent_despawn(unsigned int netid, int died)
 {
     struct ent *e = ent_find(netid);
@@ -317,7 +319,7 @@ void ent_despawn(unsigned int netid, int died)
     logmsg("ent despawn %x (%s)%s", netid, gob ? gob_name(gob) : "already gone", died ? " died: running its OnDie" : "");
     if (e->gob)
         gob_set_mirrored(e->gob, 0);
-    if (gob && died && fire_ondie_orig)
+    if (gob && died && fire_ondie_orig && !test_no_ondie)
         fire_ondie_orig(gob);
     if (gob)
         gob_kill(gob);

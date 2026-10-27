@@ -30,6 +30,15 @@ static int door_open(BYTE *door)
     return state ? (int)state[0] : 0;
 }
 
+/* 1 if the door is locked (mdkProxDoorLock), 0 if not or unknown */
+int door_locked(BYTE *door)
+{
+    BYTE *info = door ? *(BYTE **)(door + GOB_INFO) : NULL;
+    DWORD *state = info ? *(DWORD **)(info + 0x40) : NULL;
+
+    return state ? (int)state[4] : 0;
+}
+
 /* log open/close transitions across one think */
 /* log open/close transitions across one think; nearer: slot of the puppet it saw, -1 ours */
 static void door_log(BYTE *door, int was_open, int nearer)

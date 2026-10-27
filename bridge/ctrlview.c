@@ -483,6 +483,258 @@ void ctrlview_draw(int w, int h)
     hud_font_use(0);
 }
 
+/* ---- F1 quick guide: held in game to show keybinds, features and how co-op works ---- */
+
+static struct {
+    char preset[24];
+    char move[40], jump[32], fire[32], sniper[32], zoom[32];
+    char kurt[56], max[56], doc[56];
+    char chat[32], ping[32], revive[32], voice[32], emote[32], chwheel[32], skip[32];
+} gd = {
+    "Modern",
+    "W/S, A/D (Up/Dn, Left/Right)", "Space", "Left mouse", "Right mouse", "Wh+ W / Wh- S",
+    "Q Wh+ / E Wh- cycle, F Tab open, G close",
+    "Q Wh+ / E Wh- cycle, F equip, G stow",
+    "G Wh+ / F Wh- up/dn, Q / E L/R",
+    "T", "V / Middle mouse", "R", "B", "H", "J", "Backspace",
+};
+
+static int guide_forced;
+static int guide_was_on;
+
+int guide_on(void)
+{
+    int on = guide_forced || (!chat_blocks_keys() && input_down(59, VK_F1));
+    if (on && !guide_was_on)
+        logmsg("guide: shown (%s)", gd.preset);
+    guide_was_on = on;
+    return on;
+}
+
+static void l_guide_show(void)
+{
+    guide_forced = num_param(1) != 0.0;
+}
+
+static void l_guide_keys(void)
+{
+    snprintf(gd.preset, sizeof(gd.preset), "%s", str_param(1));
+    snprintf(gd.move, sizeof(gd.move), "%s", str_param(2));
+    snprintf(gd.jump, sizeof(gd.jump), "%s", str_param(3));
+    snprintf(gd.fire, sizeof(gd.fire), "%s", str_param(4));
+    snprintf(gd.sniper, sizeof(gd.sniper), "%s", str_param(5));
+    snprintf(gd.zoom, sizeof(gd.zoom), "%s", str_param(6));
+    snprintf(gd.kurt, sizeof(gd.kurt), "%s", str_param(7));
+    snprintf(gd.max, sizeof(gd.max), "%s", str_param(8));
+    snprintf(gd.doc, sizeof(gd.doc), "%s", str_param(9));
+    snprintf(gd.chat, sizeof(gd.chat), "%s", str_param(10));
+    snprintf(gd.ping, sizeof(gd.ping), "%s", str_param(11));
+    snprintf(gd.revive, sizeof(gd.revive), "%s", str_param(12));
+    snprintf(gd.voice, sizeof(gd.voice), "%s", str_param(13));
+    snprintf(gd.emote, sizeof(gd.emote), "%s", str_param(14));
+    snprintf(gd.chwheel, sizeof(gd.chwheel), "%s", str_param(15));
+    snprintf(gd.skip, sizeof(gd.skip), "%s", str_param(16));
+    logmsg("guide keys: %s | jump %s | sniper %s | revive %s | chat %s",
+           gd.preset, gd.jump, gd.sniper, gd.revive, gd.chat);
+}
+
+static void guide_sec(float x, float *y, float w, int h, float rowh, int group, const char *title)
+{
+    const float *rgb = group_rgb[group >= 0 && group < G_COUNT ? group : 0];
+    int sh = hud_font_h();
+    float bh = rowh * 1.15f;
+    char buf[96];
+
+    hud_box(x + 4, *y, w - 8, bh, h, rgb[0] * 0.22f, rgb[1] * 0.22f, rgb[2] * 0.22f, 0.9f);
+    hud_box(x + 4, *y, 4, bh, h, rgb[0], rgb[1], rgb[2], 1.0f);
+    fit(buf, sizeof(buf), title, w - 22);
+    hud_text(x + 14, *y + (bh + sh) * 0.5f - 1, h, buf, 1.0f, 0.86f, 0.42f);
+    *y += rowh * 1.25f;
+}
+
+static void guide_kv(float x, float *y, float w, int h, float rowh, int group, const char *key, const char *desc)
+{
+    const float *rgb = group_rgb[group >= 0 && group < G_COUNT ? group : 0];
+    int sh = hud_font_h();
+    float keyw = w * 0.35f, base = *y + (rowh + sh) * 0.5f - 1;
+    char buf[128];
+
+    hud_box(x + 6, *y + (rowh - sh) * 0.5f, 4, (float)sh, h, rgb[0], rgb[1], rgb[2], 1.0f);
+    fit(buf, sizeof(buf), key, keyw - 16);
+    hud_text(x + 14, base, h, buf, 1.0f, 0.93f, 0.72f);
+    fit(buf, sizeof(buf), desc, w - keyw - 10);
+    hud_text(x + keyw, base, h, buf, 0.88f, 0.80f, 0.66f);
+    *y += rowh;
+}
+
+static void guide_item(float x, float *y, float w, int h, float rowh, int group, const char *head, const char *desc)
+{
+    const float *rgb = group_rgb[group >= 0 && group < G_COUNT ? group : 0];
+    int sh = hud_font_h();
+    float base = *y + (rowh + sh) * 0.5f - 1, hx = x + 14;
+    char buf[128];
+
+    if (head && head[0]) {
+        float hw;
+        hud_box(x + 6, *y + (rowh - sh * 0.65f) * 0.5f, 4, sh * 0.65f, h, rgb[0], rgb[1], rgb[2], 1.0f);
+        fit(buf, sizeof(buf), head, w * 0.36f);
+        hud_text(hx, base, h, buf, 1.0f, 0.88f, 0.55f);
+        hw = (float)hud_text_w(buf) + 6;
+        fit(buf, sizeof(buf), desc, w - 18 - hw);
+        hud_text(hx + hw, base, h, buf, 0.88f, 0.82f, 0.70f);
+    } else {
+        fit(buf, sizeof(buf), desc, w - 22);
+        hud_text(hx + 4, base, h, buf, 0.82f, 0.76f, 0.64f);
+    }
+    *y += rowh;
+}
+
+void guide_draw(int w, int h)
+{
+    float m = w * 0.016f, top = h * 0.018f, y0, y1, gap = w * 0.010f, colw, rowh, cx, y;
+    int th, sh;
+    char buf[160];
+
+    if (!guide_on())
+        return;
+    hud_box(0, 0, (float)w, (float)h, h, 0.02f, 0.015f, 0.01f, 0.95f);
+
+    hud_font_use(2);
+    th = hud_font_h();
+    hud_text(m, top + th, h, "MDK2 CO-OP: QUICK GUIDE", amber[0], amber[1], amber[2]);
+
+    hud_font_use(1);
+    snprintf(buf, sizeof(buf), "Preset: %s   |   All settings & rebinding: Esc > Options > Co-op   |   Release F1 to close", gd.preset);
+    fit(buf, sizeof(buf), buf, w - m * 2 - w * 0.36f);
+    hud_text(w - m - hud_text_w(buf), top + th - 2, h, buf, 0.95f, 0.78f, 0.42f);
+
+    y0 = top + th + 6;
+    hud_box(m, y0, (w - m * 2) * 0.45f, 3, h, amber[0], amber[1], amber[2], 1.0f);
+    hud_box(m + (w - m * 2) * 0.45f, y0, (w - m * 2) * 0.55f, 2, h, amber_dim[0], amber_dim[1], amber_dim[2], 0.85f);
+    y0 += 8;
+    y1 = h * 0.958f;
+    colw = (w - m * 2 - gap * 2) / 3.0f;
+
+    rowh = (y1 - y0 - 12) / 28.2f;
+    hud_font_use(1);
+    if (rowh < hud_font_h() + 3)
+        hud_font_use(3);
+    sh = hud_font_h();
+    (void)sh;
+
+    /* Column 1: Keybinds & Controls */
+    cx = m;
+    panel(cx, y0, colw, y1 - y0, h, 8, 1.5f, ink, 0.92f, amber_dim, 0.85f);
+    y = y0 + 6;
+    guide_sec(cx, &y, colw, h, rowh, G_MOVE, "MOVEMENT & COMBAT");
+    guide_kv(cx, &y, colw, h, rowh, G_MOVE, gd.move, "Move forward / back, strafe left / right");
+    guide_kv(cx, &y, colw, h, rowh, G_LOOK, "Mouse (Z / C)", "Mouse look & aim (Z / C turn, Home / End pitch)");
+    guide_kv(cx, &y, colw, h, rowh, G_JUMP, gd.jump, "Jump; Kurt: hold parachute; Max: hold jetpack");
+    guide_kv(cx, &y, colw, h, rowh, G_COMBAT, gd.fire, "Fire weapon, melee, use or combine active item");
+    guide_kv(cx, &y, colw, h, rowh, G_SNIPER, gd.sniper, "Kurt sniper mode on / off (A / D sidestep)");
+    guide_kv(cx, &y, colw, h, rowh, G_SNIPER, gd.zoom, "Zoom sniper scope in / out");
+
+    guide_sec(cx, &y, colw, h, rowh, G_ITEM, "HERO INVENTORIES (KURT / MAX / DOC)");
+    guide_kv(cx, &y, colw, h, rowh, G_ITEM, "Kurt items", gd.kurt);
+    guide_kv(cx, &y, colw, h, rowh, G_ITEM, "Max weapons", gd.max);
+    guide_kv(cx, &y, colw, h, rowh, G_ITEM, "Doc hands", gd.doc);
+
+    guide_sec(cx, &y, colw, h, rowh, G_COOP, "CO-OP KEYS & WHEELS (OPTIONS > CO-OP > CONTROLS)");
+    guide_kv(cx, &y, colw, h, rowh, G_COOP, "Hold F1", "Show this Quick Guide overlay at any time");
+    snprintf(buf, sizeof(buf), "Hold %s", gd.revive);
+    guide_kv(cx, &y, colw, h, rowh, G_COOP, buf, "Hold 3 s beside a downed teammate to revive");
+    guide_kv(cx, &y, colw, h, rowh, G_COOP, gd.chat, "Open text chat (Enter sends, Esc cancels)");
+    guide_kv(cx, &y, colw, h, rowh, G_COOP, gd.ping, "Ping aimed enemy or spot for everyone (6 s)");
+    snprintf(buf, sizeof(buf), "Hold %s", gd.voice);
+    guide_kv(cx, &y, colw, h, rowh, G_COOP, buf, "Push to talk (proximity voice chat)");
+    snprintf(buf, sizeof(buf), "Hold %s + Mouse", gd.emote);
+    guide_kv(cx, &y, colw, h, rowh, G_COOP, buf, "Emote wheel (let go to play; All... = full list)");
+    snprintf(buf, sizeof(buf), "Hold %s + Mouse", gd.chwheel);
+    guide_kv(cx, &y, colw, h, rowh, G_COOP, buf, "Character wheel: switch to Kurt, Max or Doc");
+    guide_kv(cx, &y, colw, h, rowh, G_COOP, gd.skip, "Vote to skip cutscene (any key shows timer)");
+    guide_kv(cx, &y, colw, h, rowh, G_COOP, "Left mouse", "While out of the fight: watch next teammate");
+    guide_kv(cx, &y, colw, h, rowh, G_COOP, "F2", "Mark all logs + screenshot + 60 s flight dump");
+
+    guide_sec(cx, &y, colw, h, rowh, G_SYSTEM, "GAMEPAD (XINPUT & COUCH CO-OP)");
+    guide_kv(cx, &y, colw, h, rowh, G_SYSTEM, "LS / D-pad / RS", "LS / D-pad: Move & menus | RS: Look & aim");
+    guide_kv(cx, &y, colw, h, rowh, G_SYSTEM, "RT / LT / A", "RT: Fire | LT: Sniper | A: Jump / Jet / Chute");
+    guide_kv(cx, &y, colw, h, rowh, G_SYSTEM, "X / Y / LB RB", "Hold X: Revive | Y: Items | LB / RB: Prev / Next");
+    guide_kv(cx, &y, colw, h, rowh, G_SYSTEM, "Back / B, Start", "Back: Ping | B / Start: Pause & menu back");
+
+    /* Column 2: How Co-op Works */
+    cx = m + colw + gap;
+    panel(cx, y0, colw, y1 - y0, h, 8, 1.5f, ink, 0.92f, amber_dim, 0.85f);
+    y = y0 + 6;
+    guide_sec(cx, &y, colw, h, rowh, G_COOP, "HOSTING & JOINING (2 TO 16 PLAYERS)");
+    guide_item(cx, &y, colw, h, rowh, G_COOP, "Host authority:", "Host runs the world; clients follow every level & load");
+    guide_item(cx, &y, colw, h, rowh, G_COOP, "Steam lobbies:", "Options > Co-op > Session > Invite Steam friends");
+    guide_item(cx, &y, colw, h, rowh, G_COOP, "Lobby ID:", "Or share numeric ID -> Join lobby by ID (no port setup)");
+    guide_item(cx, &y, colw, h, rowh, G_COOP, "Direct UDP:", "Host listens on UDP 27900 (forward port for internet)");
+    guide_item(cx, &y, colw, h, rowh, G_COOP, "UDP lobby:", "Launcher lobby shows players, ready state, ping & version");
+    guide_item(cx, &y, colw, h, rowh, G_COOP, "Play solo:", "Launcher > Play solo runs plain single-player MDK2 HD");
+
+    guide_sec(cx, &y, colw, h, rowh, G_COMBAT, "SHARED WORLD, ENEMIES, DOORS & PICKUPS");
+    guide_item(cx, &y, colw, h, rowh, G_COMBAT, "Enemies & AI:", "Host spawns & drives AI; HP & animations sync to all");
+    guide_item(cx, &y, colw, h, rowh, G_COMBAT, "Bosses & triggers:", "Enemy deaths (OnDie) run on every client to open doors");
+    guide_item(cx, &y, colw, h, rowh, G_COMBAT, "Projectiles:", "All shots, sniper rounds & grenades replay across peers");
+    guide_item(cx, &y, colw, h, rowh, G_COMBAT, "Active rooms:", "Rooms around every player stay awake (never frozen)");
+    guide_item(cx, &y, colw, h, rowh, G_COMBAT, "Proximity doors:", "Open automatically for whichever player is nearest");
+    guide_item(cx, &y, colw, h, rowh, G_COMBAT, "Pickups & ammo:", "Placed items shared once; ammo/HP spawners respawn");
+
+    guide_sec(cx, &y, colw, h, rowh, G_JUMP, "DOWN, NOT DEAD: REVIVING & SPECTATING");
+    guide_item(cx, &y, colw, h, rowh, G_JUMP, "Going down:", "Lethal hits put you down (30 s bleed-out; enemies ignore)");
+    guide_item(cx, &y, colw, h, rowh, G_JUMP, "Reviving (Hold R):", "Hold within 5 units for 3 s -> stands up with 50% HP");
+    guide_item(cx, &y, colw, h, rowh, G_JUMP, "Timer paused:", "Your bleed-out clock stops while a teammate revives you");
+    guide_item(cx, &y, colw, h, rowh, G_JUMP, "Out & spectating:", "Bleed out (or lava / black hole / void) -> watch ally");
+    guide_item(cx, &y, colw, h, rowh, G_JUMP, "Respawning:", "Back in when your zone is clear of enemies or at checkpoint");
+    guide_item(cx, &y, colw, h, rowh, G_JUMP, "Team wipe:", "If everyone is down/out at once, checkpoint reloads for all");
+
+    guide_sec(cx, &y, colw, h, rowh, G_LOOK, "CUTSCENES & MINIGAMES TOGETHER");
+    guide_item(cx, &y, colw, h, rowh, G_LOOK, "Synced start:", "Cutscenes wait until all players load in (up to 20 s)");
+    guide_item(cx, &y, colw, h, rowh, G_LOOK, "Skip voting:", "Backspace / Esc votes to skip; majority skips for all");
+    guide_item(cx, &y, colw, h, rowh, G_LOOK, "Timer & tally:", "Press any other key in a movie to see time left & votes");
+    guide_item(cx, &y, colw, h, rowh, G_LOOK, "Synced end:", "Nobody moves to the next level until everyone finishes");
+    guide_item(cx, &y, colw, h, rowh, G_LOOK, "Minigames:", "Skydives & torpedo runs show friends as live ghosts");
+
+    /* Column 3: Saves, Heroes, Settings & Help */
+    cx = m + (colw + gap) * 2;
+    panel(cx, y0, colw, y1 - y0, h, 8, 1.5f, ink, 0.92f, amber_dim, 0.85f);
+    y = y0 + 6;
+    guide_sec(cx, &y, colw, h, rowh, G_ITEM, "CO-OP SAVES, REJOINING & LEVEL SELECT");
+    guide_item(cx, &y, colw, h, rowh, G_ITEM, "Auto-saves:", "Saved 10 s into each level, at checkpoints & every 2 min");
+    guide_item(cx, &y, colw, h, rowh, G_ITEM, "Save now:", "Host can save anytime in Options > Co-op > Session");
+    guide_item(cx, &y, colw, h, rowh, G_ITEM, "Per-player save:", "Every peer saves its own HP, inventory & position");
+    guide_item(cx, &y, colw, h, rowh, G_ITEM, "Crash / drop:", "Rejoining restores your slot & loads your matching save");
+    guide_item(cx, &y, colw, h, rowh, G_ITEM, "Lost connection:", "Clients pause on a reconnect banner until host returns");
+    guide_item(cx, &y, colw, h, rowh, G_ITEM, "Host resume:", "Launcher > Saves (Continue) or Load Game > Resume co-op");
+    guide_item(cx, &y, colw, h, rowh, G_ITEM, "Level selector:", "Host can start at any of 12 levels / 96 checkpoints");
+
+    guide_sec(cx, &y, colw, h, rowh, G_SNIPER, "HERO SWITCHING, EMOTES & DIFFICULTY");
+    guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Character wheel:", "Hold J: switch to Kurt, Max or Doc at any time");
+    guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Health & unstick:", "Keeps your HP % and nudges you free if stuck near walls");
+    guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Level's hero:", "Hyde levels (6, 12) keep their pair; option resets next level");
+    guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Emote wheel:", "Hold H: play hero animations; All... opens paged browser");
+    guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Difficulty:", "Story, Normal, Hard, Nightmare or Custom (host rules)");
+    guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Custom rules:", "Friendly fire, enemy HP & scaling, damage, down/revive time");
+
+    guide_sec(cx, &y, colw, h, rowh, G_MENU, "HUD, VOICE CHAT, COUCH CO-OP & BUG REPORTS");
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "Players panel:", "Top-left: slot, name, HP bar, hero, distance, ping, state");
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "Tags & outlines:", "Overhead names (edge arrows off-screen) & wall outlines");
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "Interface menu:", "Toggle HUD, outlines, timer, ghosts, wheels, chat & pings");
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "Voice chat (B):", "Proximity audio (16 kHz); Short / Med / Long / All");
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "Controls menu:", "Visual key/mouse/pad map; Original, Modern & Custom");
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "Couch co-op:", "Run Couch.cmd for 2-4 split-screen players on 1 PC (pads)");
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "F2 bug marker:", "Writes MARK to all logs + screenshot + 60 s flight dump");
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "Diagnostics:", "Launcher > Help > Send diagnostics zips redacted logs");
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "Launcher start:", "Settings > Display toggles launcher (hold Shift to force)");
+
+    hud_font_use(1);
+    fit(buf, sizeof(buf), "Hold F1: Quick Guide   |   F2: Bug marker & screenshot   |   Esc > Options > Co-op: Players, Session, Gameplay, Difficulty, Interface, Controls, Voice",
+        w - m * 2);
+    hud_text(m, h * 0.985f, h, buf, 0.78f, 0.62f, 0.35f);
+    hud_font_use(0);
+}
+
 void ctrlview_lua_init(void)
 {
     tolua_function(NULL, "coop_ctrl_show", l_ctrl_show);
@@ -494,4 +746,6 @@ void ctrlview_lua_init(void)
     tolua_function(NULL, "coop_ctrl_focus", l_ctrl_focus);
     tolua_function(NULL, "coop_ctrl_padmode", l_ctrl_padmode);
     tolua_function(NULL, "coop_ctrl_padbtn", l_ctrl_padbtn);
+    tolua_function(NULL, "coop_guide_keys", l_guide_keys);
+    tolua_function(NULL, "coop_guide_show", l_guide_show);
 }

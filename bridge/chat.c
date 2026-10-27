@@ -62,7 +62,13 @@ static void add_line(int slot, const char *text)
     lines[i].slot = slot;
     snprintf(lines[i].text, sizeof(lines[i].text), "%s", text);
     lines[i].at = now_ms();
-    logmsg("chat: %s: %s", slot >= 0 && slot < MAX_PLAYERS ? player_name(slot) : "?", text);
+    logmsg("chat: %s: %s", slot >= 0 && slot < MAX_PLAYERS ? player_name(slot) : "(game)", text);
+}
+
+/* a line from the game itself (no speaker): "you were brought to Alice" */
+void chat_notice(const char *text)
+{
+    add_line(-1, text);
 }
 
 /* is that player typing a message (they said so within TYPING_LIFE) */

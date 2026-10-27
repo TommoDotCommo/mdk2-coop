@@ -5,6 +5,7 @@
 #   MDK2_PORT               UDP port of the host (default 27900); instance i listens on MDK2_PORT + i - 1
 #   MDK2_TOOLS              Windows folder for tools/win/*.ps1 (default: tools in copy 1)
 #   MDK2_PIDS               file with the instances' pids, in order
+#   MDK2_REGISTER_PID       optional executable called with each newly started PID
 #   MDK2_PROCESS_SERVICE=1  launch through Win32_Process.Create when the calling process
 #                           forces system DLLs ahead of the local dinput8.dll proxy
 # Keys are DirectInput scancodes (1 Esc, 17 W, 30 A, 31 S, 32 D, 57 Space = jump with the co-op
@@ -35,12 +36,15 @@ mdk_tools_install() (
     mkdir -p "$(mdk_wsl "$MDK2_TOOLS")" || return 1
     cp "$here"/win/*.ps1 "$(mdk_wsl "$MDK2_TOOLS")/"
 )
-mdk_start() { local d; d=$(mdk_dir "${1:-1}") || return 1
+mdk_start() { local d p; d=$(mdk_dir "${1:-1}") || return 1
               if [ "${MDK2_PROCESS_SERVICE:-0}" = 1 ]; then
-                  powershell.exe -NoProfile -Command "(Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='\"$d\\mdk2hd.exe\"';CurrentDirectory='$d'}).ProcessId" | tr -d '\r'
+                  p=$(powershell.exe -NoProfile -Command "(Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='\"$d\\mdk2hd.exe\"';CurrentDirectory='$d'}).ProcessId" | tr -d '\r') || return 1
               else
-                  powershell.exe -NoProfile -Command "(Start-Process -PassThru -FilePath '$d\\mdk2hd.exe' -WorkingDirectory '$d').Id" | tr -d '\r'
-              fi; }
+                  p=$(powershell.exe -NoProfile -Command "(Start-Process -PassThru -FilePath '$d\\mdk2hd.exe' -WorkingDirectory '$d').Id" | tr -d '\r') || return 1
+              fi
+              [[ "$p" =~ ^[1-9][0-9]*$ ]] || { echo "game launch returned no valid PID" >&2; return 1; }
+              if [ -n "${MDK2_REGISTER_PID:-}" ]; then "$MDK2_REGISTER_PID" "$p" >&2 || return 1; fi
+              echo "$p"; }
 mdk_pids()  { cat "$MDK2_PIDS"; }
 mdk_pid()   { local i=0 p; for p in $(mdk_pids); do i=$((i + 1)); [ "$i" = "$1" ] && { echo "$p"; return; }; done; }
 # Input: in background test mode (MDK2_BACKGROUND=1 at install) a Lua line goes to the game

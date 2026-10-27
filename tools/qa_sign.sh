@@ -7,7 +7,10 @@
 #   - the dog goes after each player in turn (host or client) and hurts only that player
 #   - every player's hits (host and both clients) lower the one hp the host keeps, and every game shows it
 #   - the kill happens in every game and dr1_02 opens for each player
+#   - the script trace (bridge/scripttrace.c): the dog's OnDie ran in every game, and tools/script_diff.py finds no
+#     handler of a synced or partly synced event that ran on the host only
 #   SNIPER=<n> tools/qa_sign.sh    which player fires the sniper round (default 2, a client; 1 is the host)
+#   MUTANT=noondie tools/qa_sign.sh   clients skip the dog's OnDie (the bug this test was written for): must fail
 # Needs MDK2_N >= 3, isolated game copies and MDK2_BACKGROUND (see tools/mdk.sh); about 3 minutes.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -44,10 +47,12 @@ every_eventually() {   # every_eventually <seconds> <lua expr> <expected>
     local t; for t in $(seq 1 "$1"); do every "$2" "$3" && return 0; sleep 1; done; return 1; }
 place() {   # place <game> <x> <y>: that game's own player there, in room 2
     lua "$1" "mdkGobSetPositionXYZ(mdkGetPlayerGob(), $2, $3, -30)"; }
+ondie_everywhere() { local i; for i in $(mdk_seq); do has "$i" '^script event L1: OnDie r2_dog01' || return 1; done; }
 hostile() { q 1 'coop_hp(r2_dog01)'; }
 
 mdk_boot
 H=1
+if [ "${MUTANT:-}" = noondie ]; then for i in $(seq 2 "$MDK2_N"); do lua "$i" 'coop_test_noondie(1)'; done; fi
 # everyone into room 2, in front of the glass (the dog is behind it at y 152, the players come in at y 172)
 for i in $(mdk_seq); do place "$i" "$((70 + i * 4))" 172; done
 sleep 4
@@ -118,6 +123,9 @@ for n in $(mdk_seq); do
     sleep 3
 done
 check "all games still running"                         all_alive
+check "the dog's OnDie ran in every game (script trace)" ondie_everywhere
+for i in $(mdk_seq); do cp "$(mdk_log "$i")" "$out/game$i.log"; done
+check "no promised script event ran on the host only"   python3 "$here/script_diff.py" "$out/game1.log" $(for i in $(seq 2 "$MDK2_N"); do printf '%s ' "$out/game$i.log"; done)
 check "no Lua errors anywhere"                          bash -c "! grep -l 'LUA ERROR' $(for i in $(mdk_seq); do printf '%q ' "$(mdk_log "$i")"; done)"
 for i in $(mdk_seq); do cp "$(mdk_log "$i")" "$out/game$i.log"; done
 mdk_kill

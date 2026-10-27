@@ -61,7 +61,7 @@ check "and relayed to client 2"                          has 2 "replay fire type
 # 4. host-spawned Doganboy, hit by the last client: hp identical everywhere
 mdk_key "$HP" 63; sleep 3                                     # F5: host spawns coop_dog1
 check "every client bound coop_dog1"                     every_client "ent bind .* -> coop_dog1"
-mdk_key "$LP" 59; sleep 3                                     # F1: 10 x 2 gun damage on coop_dog1
+mdk_key "$LP" 79; sleep 3                                     # Num 1: 10 x 2 gun damage on coop_dog1
 host_hp=$(grep -E "^event 1 on coop_dog1" "$(mdk_log $H)" | sed 's/.*-> hp //' | tr '\n' ' ')
 check "last client's hits reached the host"              test -n "$host_hp"
 for i in $(seq 2 "$MDK2_N"); do

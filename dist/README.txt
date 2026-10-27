@@ -29,7 +29,8 @@ lobby ID and your name. The Saves tab lists your co-op saves (who played, how fa
 and lets the host start at any level. The Settings tab has every option, in four
 sections: Co-op, Interface, Voice and sound (including the game's own effects,
 music and speech levels), Display. The About tab has the version and links; the Help tab
-makes the diagnostics zip for a bug report.
+makes the diagnostics zip for a bug report. Holding F1 in the launcher or in game
+opens the full-screen 3-column Mod Quick Guide (keybinds, co-op features and how co-op works).
 Enter starts the game, Esc quits.
 Don't want it? Settings > Display > Show launcher at start: Off. Hold Shift while
 the game starts to bring it back. Accepting a Steam invite skips it and joins
@@ -81,6 +82,10 @@ Playing
 -------
 - Up to 16 players. Everyone sees the others, enemies are shared, and pickups and
   doors work for everyone.
+- What one player does happens for everyone: when anyone walks into a new room or picks something
+  up, the level's scripts run for all of you, and a boss starts when anyone gets near it. If a door
+  closes behind them, anyone left outside the area, or on the far side of the door, is brought to
+  them (a note says so). Everyone can take their own tutorial grenades.
 - When you would die you go down instead: a teammate can stand you up by holding R
   next to you for 3 seconds. After 30 seconds down you are out: you watch a teammate
   (click for the next one) and come back when your area is clear of enemies or at
@@ -102,8 +107,8 @@ Keys (the Modern preset, the default; change them in Options > Co-op > Controls)
   teammate to revive, hold B to talk.
 - Hold H for the emote wheel (its last slot, All..., lists every animation), hold J
   for the character wheel (switch to Kurt, Max or Doc at any time). Point and let go.
-- Backspace votes to skip a cutscene. F2 puts a marker in the logs when you want to
-  report something.
+- Backspace votes to skip a cutscene. Hold F1 (in the launcher or in game) for the Mod
+  Quick Guide. F2 puts a marker in the logs when you want to report something.
 - A gamepad works too: left stick move, right stick look, right trigger fire, left
   trigger sniper, A jump, X revive, Y inventory, Back ping, bumpers change item.
 

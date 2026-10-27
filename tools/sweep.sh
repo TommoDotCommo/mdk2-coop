@@ -184,7 +184,7 @@ act() {
     if [ "$i" = 1 ]; then mdk_cmd "$p" "coop_press(17, 1500)"; sleep 1.5
     else mdk_cmd "$p" "coop_press(17, 1000)"; sleep 1.0; fi
     mdk_cmd "$p" "coop_press(256, 1200)"; sleep 1.2
-    [ "$i" != 1 ] && { mdk_cmd "$p" "coop_press(59, 80)"; sleep 0.15; }     # F1: hits coop_dog1 or the nearest enemy
+    [ "$i" != 1 ] && { mdk_cmd "$p" "coop_press(79, 80)"; sleep 0.15; }     # Num 1: hits coop_dog1 or the nearest enemy
     mdk_cmd "$p" "coop_press($([ $((i % 2)) = 1 ] && echo 32 || echo 30), 800)"; sleep 0.8
 }
 

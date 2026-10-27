@@ -400,6 +400,8 @@ void hud_text(float x, float y, int h, const char *s, float r, float g, float b)
 void hud_box(float x, float y, float w, float bh, int h, float r, float g, float b, float a);
 int ctrlview_on(void);
 void ctrlview_draw(int w, int h);
+int guide_on(void);
+void guide_draw(int w, int h);
 void ctrlview_lua_init(void);
 void hud_lua_init(void);
 BYTE *hud_camera(void);
@@ -407,6 +409,7 @@ BYTE *hud_camera(void);
 /* ---- chat.c: text chat and pings ---- */
 
 void chat_frame(int allowed);
+void chat_notice(const char *text);         /* a line from the game, no speaker */
 void chat_event(struct event *e, int from);
 int chat_is_open(void);
 int chat_typing(int slot);
@@ -437,7 +440,7 @@ void doors_reset(void);
 /* ---- pickups.c ---- */
 
 void pickups_init(void);
-void pickups_remove(const char *name);
+void pickups_remove(const char *name, int from);
 void pickups_reset(void);
 void pickups_resend(int to);
 
@@ -480,6 +483,25 @@ extern char coop_dir[MAX_PATH], game_dir[MAX_PATH];
 extern int coop_enabled;
 void launcher_run(void);
 void logmsg(const char *fmt, ...);
+
+/* ---- remote.c: handlers for what happened to another player ---- */
+
+void remote_queue(const char *name, const char *event, int slot, int arg, int kill);
+void remote_reset(void);
+int pickups_per_player(const char *name);   /* pickups.c: items every player takes their own copy of */
+int door_locked(BYTE *door);                /* doors.c */
+void remote_lua_init(void);
+void pickups_finish(const char *name);
+void pickups_frame(void);                   /* pickups.c: pickups that arrived before their item did */      /* pickups.c: remove the item the peer picked up, after its handler ran */
+void rooms_center(const char *name, float *out, int *found);
+void rooms_remote_frame(void);              /* rooms.c: a teammate entered a room: run its OnEnterRoom here too */
+int rooms_suppress_enter(BYTE *room);       /* rooms.c: the engine is about to run OnEnterRoom; a teammate already did */
+
+/* ---- scripttrace.c: which script handlers ran ---- */
+
+void script_trace(BYTE *gob, int event);    /* the engine asked has_lua_event(gob, event) and got yes */
+void script_trace_reset(void);              /* per level */
+void script_trace_dump(void);
 
 /* ---- diag.c: session logs, flight recorder, desync check, diagnostics bundle ---- */
 

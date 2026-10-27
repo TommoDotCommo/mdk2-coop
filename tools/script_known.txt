@@ -1,0 +1,39 @@
+# Differences between what ran on the host and on a client that someone has looked at (tools/script_diff.py).
+# level | event | gob (wildcards) | host only / client only / * | reviewed or bug | note
+# reviewed: expected, harmless. bug: real and still open. unreviewed: seen, nobody has looked yet (the backlog). None of them fails a run.
+8 | OnTimer | l8r1_cc* | host only | reviewed | level8.lua ConeScared: a scared conehead civilian's timer plays shrieks, spawns a teleport effect and deletes it. Clients get the delete (despawn), not the sound or the effect: cosmetic
+1 | OnAnimLoop | l1_con2adr0* | host only | unreviewed | seen once in a trigger visit (door animation loops); not seen in the next run
+1 | OnCreate | fan1_01 | host only | unreviewed | seen once in a trigger visit
+1 | OnCreate | l1_r6 | host only | unreviewed | seen once in a trigger visit
+1 | OnUpdate | l1_r6 | host only | unreviewed | seen once in a trigger visit
+7 | OnTimer | l7r1_floor1 | host only | unreviewed | seen in a trigger visit
+3 | OnCollision | psiblast | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+3 | OnAnimLoop | l3_elev01 | client only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+3 | OnAnimLoop | l3_slide | client only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+3 | OnCustomKey | l3_slide | client only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+3 | OnEnterRoom | l3_w_hub00 | client only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+3 | OnTimer | l3_air00 | client only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+3 | OnTimer | l3_bay | client only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+3 | OnTimer | l3_slide | client only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+4 | OnSpawn | l4_r8generator | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+5 | OnCreate | l5_r10e | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+5 | OnCreate | l5_r10edeath | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+5 | OnSpawn | l5_r2gen00 | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+5 | OnUpdate | l5_r10eldog | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+5 | OnCreate | l5_r10 | client only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+6 | OnEnterRoom | l6_r6 | client only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+6 | OnTimer | l6_r6 | client only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+8 | OnCollision | l8r7_schwang | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+8 | OnCreate | l8r6 | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+8 | OnDamage | l8r1_dog01 | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+8 | OnDamage | l8r1_dog02 | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+8 | OnDamage | l8r1_dog03 | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+8 | OnDamage | l8r1_poop01 | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+8 | OnDamage | l8r1_poop03 | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+8 | OnEnterRoom | l8r6 | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+8 | OnSpawn | l8r6_bbs01 | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+8 | OnSpawn | l8r6_bbs02 | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+8 | OnSpawn | l8r6_bbs03 | host only | unreviewed | seen in a trigger visit (first broad run, levels 2-9)
+7 | OnEnterRoom | l7_tun27b | host only | unreviewed | a puppet's room is the first room box that holds it (rooms.c); where boxes overlap the engine can pick another one for the player's own game, so the host ran this room's handler for player 2 while player 2's own game did not
+7 | OnCustomKey | zizrail* | client only | unreviewed | the level 7 boss now starts on every game when anyone comes near (tools/qa_proximity.sh: the rails run on both), but in a trigger visit, where the client passes r8_center and leaves within 3 s, the rails' custom key was seen on the client only; not looked at
+1 | OnSpawn | l1_r8gen* | host only | unreviewed | level 1's last boss start now runs on every game (nearest player); the generators' OnSpawn ran on the host only

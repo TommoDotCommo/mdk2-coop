@@ -54,7 +54,7 @@ FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
                 ("level8-intro", "qa_level8_intro", 2, "counts"),
                 ("character-wheel", "qa_char", 1, "counts"), ("character-puppet", "qa_char2", 2, "counts"),
                 ("emotes", "qa_emote", 1, "counts"), ("crash-log", "qa_crashlog", 1, "counts"),
-                ("controls", "qa_controls", 1, "counts"), ("diagnostics", "qa_diag", 2, "counts"), ("launcher", "qa_launcher", 2, "counts"),
+                ("controls", "qa_controls", 1, "counts"), ("diagnostics", "qa_diag", 2, "counts"), ("triggers", "qa_triggers", 2, "counts"), ("remote-events", "qa_remote", 2, "counts"), ("proximity", "qa_proximity", 2, "counts"), ("launcher", "qa_launcher", 2, "counts"),
                 ("lobby", "qa_lobby", 3, "counts"),
                 ("first-enemy", "qa_sign", 3, "counts"),
                 ("character-motion", "qa_motion", 2, "counts"),

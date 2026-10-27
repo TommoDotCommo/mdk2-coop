@@ -1,0 +1,27 @@
+# Script events the game's level scripts hang handlers on, and what the mod does about each.
+# id | event | status | handled by | note        (id: the engine's event number, - for names scripts call themselves)
+# status: synced | partial | local | unaudited. See tools/script_census.py; the ids are NOTES.md session 1j.
+0  | OnUpdate      | partial   | coop_dev.lua    | the handlers that only look at the player (14 on levels 1-7 and 11, tools/script_census.py --proximity-lua) get the nearest player, ours or a puppet, so whoever comes near starts a boss on every game (tools/qa_proximity.sh); the ~90 that do something to the player (damage, items, teleports) still see only the local one
+1  | OnCollision    | unaudited | -               |
+2  | OnDestroy      | unaudited | -               |
+3  | OnDamage       | unaudited | -               | damage is applied on the host and told to clients (HIT/APPLY); whether the client's handler runs is not checked
+4  | OnHear         | unaudited | -               |
+5  | OnAnimLoop     | unaudited | -               |
+6  | OnCustomKey    | unaudited | -               |
+7  | OnTimer        | unaudited | -               | a timer starts from another event: it never starts where that event did not run
+8  | OnCreate       | unaudited | -               |
+9  | OnSpawn        | unaudited | -               |
+10 | OnDie          | partial   | entities.c      | run on the clients' mirror for synced actors the host ran it for (tools/qa_sign.sh); deaths that skip the damage function, and gobs that are not synced actors, are not checked
+11 | OnEnterRoom    | partial   | remote.c, rooms.c | run on every game when anyone enters a room nobody is in (tools/qa_remote.sh); a puppet's room is the first room box that holds it, and a room visible through the door counts as the same area
+12 | OnShotLanded   | unaudited | -               |
+13 | OnShotExploded | unaudited | -               |
+14 | OnOutOfAmmo    | unaudited | -               |
+15 | OnPickedUp     | partial   | pickups.c, remote.c | named level-placed items only; the other games run the handler too, with the picker's puppet as the player (tools/qa_remote.sh)
+16 | OnItemUsed     | unaudited | -               |
+17 | OnModeSwitch   | unaudited | -               |
+18 | OnItemEquiped  | unaudited | -               |
+-  | OnSpawnTrigger | unaudited | -               | not in the engine's 0-18 table: probably called by script code, so it runs where that script runs (unverified)
+-  | OnPuzzleSolved | unaudited | -               | as OnSpawnTrigger
+-  | OnAIUpdate     | unaudited | -               | as OnSpawnTrigger
+-  | OnStopScript   | unaudited | -               | as OnSpawnTrigger
+-  | OnDieOnTimer   | unaudited | -               | as OnSpawnTrigger

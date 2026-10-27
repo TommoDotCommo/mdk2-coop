@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <stdarg.h>
 #include "../bridge/input.c"
+struct build_addrs ADDR;
 char coop_dir[MAX_PATH] = ".";
 double now_ms(void) { return 1000; }
 void logmsg(const char *fmt, ...) { (void)fmt; }

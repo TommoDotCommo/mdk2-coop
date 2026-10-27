@@ -7,7 +7,7 @@ GAME_DIR ?=
 
 .DEFAULT_GOAL := dinput8.dll
 
-SRCS = dinput8.c game.c net.c steam.c entities.c shots.c pickups.c doors.c rooms.c frame.c input.c state.c saves.c settings.c loader.c launcher.c hud.c ctrlview.c netstats.c revive.c chat.c movie.c emote.c voice.c lua.c route.c bot.c pad.c diag.c
+SRCS = dinput8.c game.c net.c steam.c entities.c shots.c pickups.c doors.c rooms.c frame.c input.c state.c saves.c settings.c loader.c launcher.c hud.c ctrlview.c netstats.c revive.c chat.c movie.c emote.c voice.c lua.c route.c bot.c pad.c diag.c scripttrace.c remote.c
 
 # the diagnostics bundle script, embedded as a C string so it always matches this DLL
 diag_ps1.h: ../dist/diag.ps1

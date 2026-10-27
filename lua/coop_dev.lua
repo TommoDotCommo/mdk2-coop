@@ -83,7 +83,8 @@ coop.keynames = {
     [40]="'", [41]="`", [42]="Shift", [43]="\\", [44]="Z", [45]="X", [46]="C", [47]="V", [48]="B", [49]="N",
     [50]="M", [51]=",", [52]=".", [53]="/", [54]="Shift", [56]="Alt", [57]="Space", [58]="Caps",
     [59]="F1", [60]="F2", [61]="F3", [62]="F4", [63]="F5", [64]="F6", [65]="F7", [66]="F8", [67]="F9",
-    [68]="F10", [87]="F11", [88]="F12", [157]="Ctrl", [184]="Alt", [199]="Home", [200]="Up", [201]="PgUp",
+    [68]="F10", [71]="Num 7", [72]="Num 8", [73]="Num 9", [75]="Num 4", [76]="Num 5", [77]="Num 6",
+    [79]="Num 1", [82]="Num 0", [87]="F11", [88]="F12", [157]="Ctrl", [184]="Alt", [199]="Home", [200]="Up", [201]="PgUp",
     [203]="Left", [205]="Right", [207]="End", [208]="Down", [209]="PgDn", [210]="Insert", [211]="Delete",
     [1000]="Left mouse", [1001]="Right mouse", [1002]="Middle mouse", [1003]="Side mouse",
     [1004]="Mouse right", [1005]="Mouse left", [1006]="Mouse down", [1007]="Mouse up",
@@ -243,6 +244,7 @@ function coop.ApplyControls()
     coop_pad_keys(coop.PadKey("fwd"), coop.PadKey("back"), coop.PadKey("strl"), coop.PadKey("strr"),
         coop.PadKey("jump"), coop.PadKey("shoot"), coop.PadKey("sniper"), coop.PadKey("kuse"),
         coop.PadKey("revive"), coop.PadKey("ping"))
+    coop.SyncGuideKeys()
 end
 
 -- the first key of an action a pad button can press (keys and mouse buttons, not the wheel), or -1 --
@@ -295,6 +297,35 @@ function coop.KeyText(k)
     end
     if (t == "") then t = "(none)" end
     return t
+end
+
+function coop.SyncGuideKeys()
+    local s, t = coop.ShortKeyText, coop.KeyText
+    local k = coop.Keys
+    local p = function(id)
+        local a = coop.Keys(id)
+        if (a[1] >= 0) then return coop.shortnames[a[1]] or coop.KeyName(a[1]) end
+        if (a[2] >= 0) then return coop.shortnames[a[2]] or coop.KeyName(a[2]) end
+        return "-"
+    end
+    coop_guide_keys(
+        coop.preset_names[coop.preset] or "Modern",
+        format("%s / %s, %s / %s", p("fwd"), p("back"), p("strl"), p("strr")),
+        t(k("jump")),
+        t(k("shoot")),
+        t(k("sniper")),
+        format("%s / %s", s(k("zoomin")), s(k("zoomout"))),
+        format("%s / %s, %s open, %s close", s(k("kinvl")), s(k("kinvr")), s(k("kuse")), s(k("kclose"))),
+        format("%s / %s, %s equip, %s stow", s(k("minvl")), s(k("minvr")), s(k("mequip")), s(k("munequip"))),
+        format("%s / %s U/D, %s / %s L/R", s(k("dup")), s(k("ddown")), s(k("dleft")), s(k("dright"))),
+        t(k("chat")),
+        t(k("ping")),
+        t(k("revive")),
+        t(k("voice")),
+        t(k("emote")),
+        t(k("char")),
+        t(k("skip"))
+    )
 end
 
 -- the action using key `code` in a set with action `id`, if any --
@@ -388,14 +419,14 @@ omMakeCommand(COM_SAVEINSTANT, "", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_LOADINSTANT, "", CON_BUTTON_FALL, 0, 0)
 
 -- Developer keys ([controls] devkeys, Options > Co-op > Gameplay; off for players, on in
--- the test installs): F1 hit / spawn, F3 lava, F4 teleport, F5 Doganboy, F6 / F7 / F8
+-- the test installs): Num 1 hit / spawn, F3 lava, F4 teleport, F5 Doganboy, F6 / F7 / F8
 -- checkpoints and levels for everyone, F9 BioWare debug menu, F10 test error, F11 anim log,
 -- PgDn / PgUp (keypad 6 / 4) step through the player's animations as emotes (Home / End, keypad 9 / 7,
 -- jump 10; Insert, keypad 5, keeps; Delete, keypad 8, lists; keypad 0 stops, and so does Backspace -- the game's
 -- abort-movie key, see the cutscene vote -- when no movie plays).
--- F2 (marker in every log, and a screenshot) stays on: it is how players report a problem. --
+-- F1 holds open the Mod Quick Guide. F2 (marker in every log, and a screenshot) stays on: it is how players report a problem. --
 coop.devkeys = {
-    { COM_SHOWBARS, "F1" }, { COM_CLEARCONSOLE, "F3" }, { COM_TOGLG, "F4" }, { COM_NEXTSECTION, "F5" },
+    { COM_SHOWBARS, "NUM 1", 79 }, { COM_CLEARCONSOLE, "F3" }, { COM_TOGLG, "F4" }, { COM_NEXTSECTION, "F5" },
     { COM_TOGL1, "F6" }, { COM_TOGL2, "F7" }, { COM_TOGL3, "F8" }, { COM_DEBUGMENUTOG, "F9" },
     { COM_PRINTCOL, "F10" }, { COM_TOGL4, "F11" },
     { COM_LIGHTRESET, "NUM 0" }, { COM_LIGHTDEFAULT4, "NUM 4", 201 }, { COM_LIGHTDEFAULT5, "NUM 5", 210 },
@@ -505,6 +536,201 @@ end
 
 -- every frame, called by the bridge after the scene update (menus and title included):
 -- send our player, apply the others' events, put each puppet where its player is --
+-- Script handlers for what happened to another player (bridge/remote.c). The level scripts' handlers run only in the
+-- game where the event happens, and what they change (a door locked behind the player, "the mortars are gone") is
+-- script state no one syncs: a pickup or a room entered by someone else is run here too, with their puppet as "the
+-- player" (mdkGetPlayerGob), because some handlers act on the player. A handler that locks a door closes an area:
+-- whoever is on the far side of it, or outside the area, is brought to the one who triggered it, like a modern game. --
+if (not coop_handlers_wrapped) then
+    coop_handlers_wrapped = 1
+    local real_player = mdkGetPlayerGob
+    mdkGetPlayerGob = function()
+        if (coop.ctx) then return coop.ctx end
+        return %real_player()
+    end
+    local real_lock = mdkProxDoorLock
+    mdkProxDoorLock = function(door, lock)
+        -- a lock the handler of a remote event makes (not one already there) closes something --
+        if (coop.ctxslot and lock and lock ~= 0 and door and coop_door_locked(door) == 0) then
+            coop.nclosed = (coop.nclosed or 0) + 1
+            coop.closed[coop.nclosed] = door
+        end
+        return %real_lock(door, lock)
+    end
+    coop.real_player = real_player
+end
+coop.closed = {}
+coop.nclosed = 0
+
+function coop.RunHandler(name, event, slot, arg)
+    local g = getglobal(name)
+    local h = nil
+    if (g) then h = g[event] end
+    if (type(h) ~= "function") then
+        coop_log(format("remote %s %s: nothing to run here", event, name))
+        return
+    end
+    -- the trace (bridge/scripttrace.c) sees the handlers the engine runs; this one is ours --
+    coop_log(format("script event L%d: %s %s (remote, player %d)", coop.level or 0, event, name, slot + 1))
+    coop.ctx = coop.puppets[slot]
+    coop.ctxslot = slot
+    coop.nclosed = 0
+    local args = {}
+    args[1] = g args[2] = arg args.n = 2
+    call(h, args, "x")
+    coop.ctx = nil
+    coop.ctxslot = nil
+    if (coop.nclosed > 0) then coop.StartJoin(slot, name) end
+    coop.nclosed = 0
+end
+
+-- is the door between a and b: near the straight line from one to the other, and between them --
+function coop.DoorBetween(door, a, b)
+    local dx, dy, dz = door.position.x, door.position.y, door.position.z
+    local ax, ay, az = a.position.x, a.position.y, a.position.z
+    local vx, vy, vz = b.position.x - ax, b.position.y - ay, b.position.z - az
+    local len2 = vx * vx + vy * vy + vz * vz
+    if (len2 < 1) then return nil end
+    local t = ((dx - ax) * vx + (dy - ay) * vy + (dz - az) * vz) / len2
+    if (t <= 0.02 or t >= 0.98) then return nil end
+    local ex, ey, ez = ax + t * vx - dx, ay + t * vy - dy, az + t * vz - dz
+    if (ex * ex + ey * ey + ez * ez <= coop.DOOR_REACH * coop.DOOR_REACH) then return 1 end
+    return nil
+end
+coop.DOOR_REACH = 7
+
+-- a cutscene, a minigame, a menu, or a ladder: not the moment to be moved --
+function coop.JoinBusy()
+    if (Save.movietocancel or Save.inminigame or coop.waiting) then return 1 end
+    if (gamecontrol and gamecontrol.showmenu == 1) then return 1 end
+    if (coop_near_type(OBJ_LADDER, OBJ_LADDERSPOT, 4) == 1) then return 1 end
+    return nil
+end
+
+-- doors player `slot`'s handler `why` just locked: are we cut off from them? --
+function coop.StartJoin(slot, why)
+    local doors, n = {}, coop.nclosed
+    local i = 1
+    while (i <= n) do doors[i] = coop.closed[i] i = i + 1 end
+    coop.join = { slot = slot, why = why, doors = doors, n = n, ends = coop_ms() + 20000 }
+    coop.TryJoin()
+end
+
+function coop.TryJoin()
+    local j = coop.join
+    if (not j) then return end
+    local pp = coop.puppets[j.slot]
+    local me = coop.real_player()
+    if (coop_ms() > j.ends or not pp or not me or coop_life(j.slot) ~= 0 or coop_life(coop_slot()) ~= 0) then
+        coop.join = nil
+        return
+    end
+    -- outside their area, or on the far side of a door that just locked --
+    local cut = nil
+    if (coop_stranded(j.slot) == 1) then cut = "outside their area" end
+    local i = 1
+    while (not cut and i <= j.n) do
+        if (coop_alive(j.doors[i]) and coop.DoorBetween(j.doors[i], me, pp)) then cut = "on the far side of a locked door" end
+        i = i + 1
+    end
+    if (not cut) then
+        coop.join = nil
+        return
+    end
+    if (coop.JoinBusy()) then return end        -- try again in a moment, for up to 20 s
+    coop_log(format("%s closed an area behind player %d and we are outside it (%s): joining them", j.why, j.slot + 1, cut))
+    coop_log(format("join: we are at (%.1f, %.1f, %.1f), they at (%.1f, %.1f, %.1f)", me.position.x, me.position.y, me.position.z,
+                    pp.position.x, pp.position.y, pp.position.z))
+    mdkGobSetPositionXYZ(me, pp.position.x + 1.5, pp.position.y, pp.position.z + 0.5)
+    coop_notice(format("The way back closed: you joined %s", coop_player_name(j.slot)))
+    coop.join = nil
+end
+
+function coop.HandlerTick()
+    local n = 0
+    local name, event, slot, arg, kill = coop_next_handler()
+    while (name and n < 8) do
+        coop.RunHandler(name, event, slot, arg)
+        if (kill == 1) then coop_pickup_finish(name) end
+        n = n + 1
+        name, event, slot, arg, kill = coop_next_handler()
+    end
+    if (coop.join) then coop.TryJoin() end
+    coop.ProximityTick()
+end
+
+-- Handlers that start something when "the player" comes near (the boss on level 7 when the player is within 40 of
+-- r8_center) look at the local player only, so a game whose player was far away never started it. These look at the
+-- player and nothing else (tools/script_census.py --proximity-lua); each game gives them the NEAREST player,
+-- ours or a puppet, so whoever comes near starts it on every game. --
+coop.nearest = {
+    [1] = { "l1_r3spinners", "OnUpdate", "l1_r8", "OnUpdate" },
+    [2] = { "l2_r8", "OnUpdate", "l2_rright", "OnUpdate" },
+    [3] = { "l3_maze", "OnUpdate", "l3_hublad01", "OnUpdate" },
+    [4] = { "l4_r4snipball00", "OnUpdate", "l4_r4snipball01", "OnUpdate", "l4_r4snipball02", "OnUpdate", "l4_r5side", "OnUpdate" },
+    [6] = { "l6_r4a", "OnUpdate", "l6_r4d", "OnUpdate", "l6_doors12", "OnUpdate", "l6_doors13", "OnUpdate", "l6_doors15", "OnUpdate", "l6_door", "OnUpdate" },
+    [7] = { "l7r2", "OnUpdate", "l7r4", "OnUpdate", "l7r6", "OnTimer", "r8", "OnUpdate", "l7r1_floor1", "OnUpdate" },
+    [11] = { "l10r2", "OnUpdate" },
+}
+
+function coop.NearestPlayer(gob)
+    local me = coop.real_player()
+    local best = me
+    local bd = nil
+    if (me) then bd = coop.Dist2(me, gob) end
+    local s, p = next(coop.puppets, nil)
+    while (s) do
+        if (p and coop_alive(p) and coop_life(s) == 0) then
+            local d = coop.Dist2(p, gob)
+            if (not bd or d < bd) then best = p bd = d end
+        end
+        s, p = next(coop.puppets, s)
+    end
+    return best
+end
+
+function coop.Dist2(a, b)
+    local x, y, z = a.position.x - b.position.x, a.position.y - b.position.y, a.position.z - b.position.z
+    return x * x + y * y + z * z
+end
+
+coop.nearwrapped = {}
+
+function coop.MakeNearest(h)
+    return function(gob, a, b, c)
+        local before = coop.ctx
+        if (not before) then coop.ctx = coop.NearestPlayer(gob) end
+        local args = {}
+        args[1] = gob args[2] = a args[3] = b args[4] = c args.n = 4
+        local r = call(%h, args, "x")
+        coop.ctx = before
+        return r
+    end
+end
+
+function coop.ProximityTick()
+    coop.proxticks = (coop.proxticks or 0) + 1
+    if (coop.proxticks < 45 or not coop.level or coop_players() < 1 or coop.no_nearest) then return end
+    coop.proxticks = 0
+    local list = coop.nearest[coop.level]
+    if (not list) then return end
+    local i = 1
+    while (list[i]) do
+        local g = getglobal(list[i])
+        if (g) then
+            local event = list[i + 1]
+            local h = g[event]
+            if (type(h) == "function" and not coop.nearwrapped[h]) then
+                local w = coop.MakeNearest(h)
+                g[event] = w
+                coop.nearwrapped[w] = 1
+                coop_log(format("proximity: %s.%s sees the nearest player", list[i], event))
+            end
+        end
+        i = i + 2
+    end
+end
+
 function coop.Tick()
     coop.ControlsCheck()
     -- host autostart (tools/play.sh <level> <cp>): once the title screen has been up a while
@@ -534,6 +760,7 @@ function coop.Tick()
     coop_send(p)
     coop_recv()
     coop.HandleEvents()
+    coop.HandlerTick()
     coop.ReviveTick(p)
     coop.UnstickTick(p)
     coop.CharTick(p)
@@ -2275,7 +2502,7 @@ comfuncs.fkey[COM_CLEARCONSOLE] = function()
     mdkDealDamage(nil, mdkGetPlayerGob(), 200, 64, -1)
 end
 
--- F1 (was debug.lua's bars): host spawns a Poopsy ahead, always named "coop_spawn" like a
+-- Num 1 (was debug.lua's bars on F1; F1 now holds open the Quick Guide): host spawns a Poopsy ahead, always named "coop_spawn" like a
 -- spawner's spawns, to test duplicate names; the client hits coop_dog1 (else the nearest
 -- synced enemy) ten times for 2 with its gun's damage type, through the normal damage
 -- function (as if shot, without aiming) --
@@ -2920,6 +3147,7 @@ coop.derived = {
         { from = "strr", group = 1, short = "S2 R", long = "Stick 2 right" },
     },
     coop = {
+        { codes = { 59 }, group = 8, short = "Guide", long = "Quick guide: hold for keybinds, features and how co-op works" },
         { codes = { 1000 }, group = 8, short = "Next", long = "While you are out of the fight: watch the next teammate" },
         { codes = { 60 }, group = 8, short = "Mark", long = "Co-op marker: a note in every log and a screenshot, for bug reports" },
     },

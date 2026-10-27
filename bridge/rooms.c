@@ -7,6 +7,13 @@
  * no OnEnterRoom, music or current room change) keeps the world running wherever a
  * player is. Each game also activates the rooms at its own player (the others do, for
  * its puppet), so all wake the same rooms.
+ *
+ * OnEnterRoom (the level scripts lock doors behind the player, start waves, set hints) fires in the engine only
+ * for the game's own camera, so a room a teammate entered never ran it here. rooms_remote_frame watches which
+ * room each puppet is in and, when one enters a room nobody was in, queues the room's OnEnterRoom for remote.c
+ * (run here with that puppet as the player); the engine's own call for our player is held back
+ * (rooms_suppress_enter) when a teammate already ran it, so a room's handler runs once per entry, wherever
+ * the entry was and on every game.
  */
 #include <string.h>
 #include "bridge.h"
@@ -76,6 +83,115 @@ int rooms_in_zone(const float *zone_pos, const float *p)
     return 0;
 }
 
+/* ---- rooms the other players enter ---- */
+
+#define TRACK_ROOMS     1024
+#define ENTER_DELAY_MS  3000.0      /* after a level starts the room list is rebuilt: leave it alone */
+
+static double level_started;
+static int prev_room[MAX_PLAYERS];      /* the room each puppet is in; -2 not known yet */
+static unsigned char fired[TRACK_ROOMS];/* a puppet entered this room and ran its OnEnterRoom here */
+static int local_room;
+
+static int room_list_ok(void)
+{
+    return ROOM_COUNT > 0 && ROOM_COUNT <= TRACK_ROOMS && !IsBadReadPtr(ROOM_ARRAY, ROOM_COUNT * sizeof(BYTE *));
+}
+
+static int room_of(const float *pos)
+{
+    int i;
+
+    for (i = 0; i < ROOM_COUNT; i++) {
+        BYTE *room = ROOM_ARRAY[i];
+        if (room && !IsBadReadPtr(room, 0x44) && point_in_box((float *)pos, (float *)(room + 0x2c), (float *)(room + 0x38)))
+            return i;
+    }
+    return -1;
+}
+
+static int puppet_in(int room, int except)
+{
+    int s;
+
+    for (s = 0; s < MAX_PLAYERS; s++)
+        if (s != except && prev_room[s] == room)
+            return 1;
+    return 0;
+}
+
+void rooms_remote_frame(void)
+{
+    int s;
+
+    if (!have_remote || now_ms() - level_started < ENTER_DELAY_MS || !room_list_ok())
+        return;
+    local_room = gob_alive(local_player) ? room_of((float *)(local_player + GOB_POSITION)) : -1;
+    for (s = 0; s < MAX_PLAYERS; s++) {
+        int r, old;
+
+        if (s == my_slot || !gob_alive(puppets[s]) || player_life(s) != LIFE_ALIVE) {
+            prev_room[s] = -2;          /* gone, or down or dead and parked somewhere: not entering anything */
+            continue;
+        }
+        r = room_of((float *)(puppets[s] + GOB_POSITION));
+        if (prev_room[s] == -2) {
+            prev_room[s] = r;           /* the room they start in is not an entry */
+            continue;
+        }
+        if (r < 0 || r == prev_room[s])
+            continue;                   /* between boxes: still where they were */
+        old = prev_room[s];
+        prev_room[s] = r;
+        if (old >= 0 && !puppet_in(old, -1))
+            fired[old] = 0;
+        if (r == local_room || puppet_in(r, s))
+            continue;                   /* somebody is in it already: that was the entry */
+        {
+            const char *name = gob_name(*(BYTE **)ROOM_ARRAY[r]);
+            if (name[0]) {
+                logmsg("player %d entered room %s: running its OnEnterRoom here too", s + 1, name);
+                remote_queue(name, "OnEnterRoom", s, 0, 0);
+                fired[r] = 1;
+            }
+        }
+    }
+}
+
+/* coop_room_center(name) -> x, y, z of the middle of that room's box (tests: somewhere inside it); nil if unknown */
+void rooms_center(const char *name, float *out, int *found)
+{
+    int i;
+
+    *found = 0;
+    if (!room_list_ok())
+        return;
+    for (i = 0; i < ROOM_COUNT; i++) {
+        BYTE *room = ROOM_ARRAY[i];
+        if (room && !IsBadReadPtr(room, 0x44) && *(BYTE **)room && strcmp(gob_name(*(BYTE **)room), name) == 0) {
+            float *lo = (float *)(room + 0x2c), *hi = (float *)(room + 0x38);
+            out[0] = (lo[0] + hi[0]) / 2;
+            out[1] = (lo[1] + hi[1]) / 2;
+            out[2] = (lo[2] + hi[2]) / 2;
+            *found = 1;
+            return;
+        }
+    }
+}
+
+/* The engine is about to run `room`'s OnEnterRoom for our player: not if a puppet that entered it has run it here */
+int rooms_suppress_enter(BYTE *room)
+{
+    int i;
+
+    if (!have_remote || !room_list_ok())
+        return 0;
+    for (i = 0; i < ROOM_COUNT; i++)
+        if (ROOM_ARRAY[i] && !IsBadReadPtr(ROOM_ARRAY[i], 4) && *(BYTE **)ROOM_ARRAY[i] == room)
+            return fired[i] && puppet_in(i, -1);
+    return 0;
+}
+
 static void __cdecl mark_rooms_all(void *arg, BYTE *camera, int set_current)
 {
     int s;
@@ -91,15 +207,21 @@ static void __cdecl mark_rooms_all(void *arg, BYTE *camera, int set_current)
      * only woke over there and made its items there only */
     if (gob_alive(local_player))
         activate_rooms_at((float *)(local_player + GOB_POSITION));
+    rooms_remote_frame();
 }
 
 /* Lowest point of the level: min z over the room boxes (computed once per level) */
 static float level_floor;
 static int have_floor;
-static double level_started;
 
 void rooms_level_reset(void)
 {
+    int s;
+
+    for (s = 0; s < MAX_PLAYERS; s++)
+        prev_room[s] = -2;
+    memset(fired, 0, sizeof(fired));
+    local_room = -1;
     have_floor = 0;
     level_started = now_ms();
 }

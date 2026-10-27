@@ -64,6 +64,7 @@ check "Modern: push to talk B, handed to the bridge"     bash -c "[ '$(bound voi
 lua 'coop.EditCustom() coop.custom.chat = { 34, -1 } coop.custom.revive = { 35, -1 } coop.ApplyControls()'; sleep 1
 check "a custom chat key is handed to the bridge (G)"     has "^game keys 0: 34/-1"
 check "a custom revive key is handed to the bridge (H)"   has "^game keys 2: 35/-1"
+check "the F1 quick guide receives the custom keys"       has "^guide keys: Custom [|] jump Space [|] sniper Right mouse [|] revive H [|] chat G"
 lua 'coop.SetPreset("modern")'; sleep 1
 check "back on Modern the bridge has T again"             has "^game keys 0: 20/-1"
 check "preset kept in coop.ini"                           eq "$(ini preset)" modern
@@ -109,7 +110,14 @@ dump
 check "after a restart the Custom preset is still active" eq "$(ini preset)" custom
 check "after a restart Back is still cleared"             eq "$(bound back)" "-1 -1"
 check "after a restart Forward is still Up only"          eq "$(bound fwd)" "200 -1"
-lua 'coop.SetPreset("modern")'
+lua 'coop.SetPreset("modern")'; sleep 1
+# 8. holding F1 in game shows the full-screen Mod Quick Guide and releasing F1 dismisses it
+lua 'coop_press(59, 2500)'; sleep 1
+mdk_shot "$HP" "$out/guide.png"
+sleep 2.2
+mdk_shot "$HP" "$out/after_guide.png"
+check "holding F1 opens the in-game quick guide"          has "^guide: shown \\(Modern\\)"
+check "holding F1 draws the quick guide on screen"        bash -c "[ -s '$out/guide.png' ] && [ -s '$out/after_guide.png' ] && ! cmp -s '$out/guide.png' '$out/after_guide.png'"
 check "no Lua errors"                                     bash -c "! grep -q 'LUA ERROR' '$(log)'"
 mdk_kill
 

@@ -107,6 +107,9 @@ check "host: launcher up before the game window"        wait_log 1 "^launcher: s
 check "client: launcher up"                             wait_log 2 "^launcher: shown at 1280x720" 30
 check "no co-op before Play"                            bash -c "! grep -q 'coop_init' '$(mdk_log 1)'"
 shot 1 play; lcmd 1 "$T_SET"; shot 1 settings; lcmd 1 "$T_ABOUT"; shot 1 about
+lcmd 1 "key 112"; shot 1 guide; lcmd 1 "key 112"
+check "host: F1 opens the full quick guide"             has 1 "^launcher: quick guide shown"
+check "host: F1 quick guide draws over the window"      bash -c "! cmp -s '$out/1_about.png' '$out/1_guide.png'"
 # help: Send diagnostics zips the logs (into a test folder, not the desktop) and says where it went
 diagout="$(dir 1)/coop/diag-out"; rm -rf "$diagout"; mkdir -p "$diagout"
 setini 1 diag out_dir "$(mdk_dir 1)\\coop\\diag-out"

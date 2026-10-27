@@ -30,6 +30,10 @@ No game files are in this repo. Every player needs their own copy of MDK2 HD on 
 - **2 to 16 players** (tested with up to 8), over Steam friends-only lobbies or direct UDP.
 - **The whole campaign in co-op**: everyone follows the host from level to level; enemies, their health,
   doors, pickups and shots are the same for everyone.
+- **What one player does happens for everyone**: when anyone walks into a new room or picks something up, the
+  level's scripts run for all of you, and a boss starts when anyone gets near it. If a door closes behind them,
+  anyone left outside the area, or on the far side of the door, is brought to them (with a note saying so), like a
+  modern co-op game. Everyone can take their own tutorial grenades.
 - **Down, not dead**: a hit that would kill you puts you down, and a teammate can stand you up. Bleed out and
   you watch a teammate until your area is clear or the next checkpoint.
 - **Cutscenes together**: they start when everyone is ready, skipping is a vote, and nobody moves on until
@@ -126,6 +130,7 @@ draws the keyboard and mouse with every key labelled. **Original** gives you the
 | Emote wheel (hold, point, let go) | H |
 | Character wheel (hold, point, let go) | J |
 | Vote to skip a cutscene | Backspace |
+| Hold for the Mod Quick Guide (launcher or in game) | F1 |
 | Put a marker in the logs (for bug reports) | F2 |
 
 The **emote wheel** offers each hero the animations they have; its last slot, **All...**, lists every

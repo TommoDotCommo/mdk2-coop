@@ -743,8 +743,9 @@ static HBITMAP dib, dib_old;
 static DWORD *fb, *bg;
 static int fw, fh;
 static float sc;
-static HFONT f_body, f_small, f_label, f_big;
+static HFONT f_body, f_small, f_label, f_big, f_tiny, f_tiny_b;
 static char face[32];
+static int guide_open;
 
 static int px(float v) { return (int)(v * sc + 0.5f); }
 
@@ -912,6 +913,8 @@ static void fonts_make(void)
     f_small = make_font(16, FW_NORMAL, face);
     f_label = make_font(19, FW_SEMIBOLD, face);
     f_big = make_font(34, FW_BOLD, face);
+    f_tiny = make_font(13, FW_NORMAL, face);
+    f_tiny_b = make_font(13, FW_SEMIBOLD, face);
 }
 
 static void gdi_text(HFONT f, float x, float y, DWORD c, const char *s, UINT align)
@@ -1537,6 +1540,7 @@ static void page_about(void)
                   "-  Text chat, pings and proximity voice chat\n"
                   "-  Difficulty presets, and couch co-op (Couch.cmd)\n"
                   "-  Co-op saves: drop out and rejoin where you left off\n"
+                  "-  Hold F1 (here or in game) for the full Mod Quick Guide\n"
                   "-  In-game settings: Options > Co-op") + 18;
     heading(PX, y, 18, "Credits", C_BLUE, DT_LEFT);
     y += 26;
@@ -1935,6 +1939,163 @@ static void lobby_page(void)
         lob_leave();
 }
 
+static void lg_sec(float x, float *y, float w, const char *title, DWORD col)
+{
+    fill(x + 8, *y, w - 16, 18, 0x15252d, 235);
+    fill(x + 8, *y, 3, 18, col, 255);
+    gdi_text(f_tiny_b, x + 16, *y + 2, col, title, DT_LEFT);
+    *y += 21.0f;
+}
+
+static void lg_kv(float x, float *y, float kw, const char *k, const char *v, DWORD kc)
+{
+    gdi_text(f_tiny_b, x + 12, *y, kc, k, DT_LEFT);
+    gdi_text(f_tiny, x + 12 + kw, *y, C_TEXT, v, DT_LEFT);
+    *y += 16.4f;
+}
+
+static void lg_line(float x, float *y, const char *s, DWORD col)
+{
+    gdi_text(f_tiny, x + 12, *y, col, s, DT_LEFT);
+    *y += 15.5f;
+}
+
+/* Full-window 3-column Mod Quick Guide overlay when F1 is held in the launcher */
+static void draw_full_guide(void)
+{
+    float cw = 402, c1 = 18, c2 = 439, c3 = 860, y1 = 68, y2 = 68, y3 = 68, kw = 104;
+    const char *preset = cfg.controls == 0 ? "Original" : cfg.controls == 2 ? "Custom" : "Modern";
+    int orig = cfg.controls == 0;
+    char hdr[96];
+
+    fill(0, 0, LW, LH, 0x050b0e, 244);
+    fill(18, 12, LW - 36, 44, 0x0d1b22, 248);
+    frame_rect(18, 12, LW - 36, 44, 1, C_ORANGE, 220);
+    fill(18, 12, 5, 44, C_ORANGE, 255);
+    heading(32, 19, 24, "MDK2 HD CO-OP  -  MOD QUICK GUIDE", C_ORANGE, DT_LEFT);
+    snprintf(hdr, sizeof(hdr), "Active preset: %s   |   Release F1 to return to the launcher", preset);
+    gdi_text(f_small, LW - 32, 25, C_BLUE, hdr, DT_RIGHT);
+
+    fill(c1, 62, cw, 620, 0x0a1317, 245);
+    frame_rect(c1, 62, cw, 620, 1, 0x264452, 230);
+    fill(c2, 62, cw, 620, 0x0a1317, 245);
+    frame_rect(c2, 62, cw, 620, 1, 0x264452, 230);
+    fill(c3, 62, cw, 620, 0x0a1317, 245);
+    frame_rect(c3, 62, cw, 620, 1, 0x264452, 230);
+
+    /* Column 1: Keybinds & Controls */
+    snprintf(hdr, sizeof(hdr), "MOVEMENT & COMBAT (%s)", preset);
+    lg_sec(c1, &y1, cw, hdr, C_ORANGE);
+    lg_kv(c1, &y1, kw, "Move / Strafe", orig ? "Up / Down, Left / Right (or WASD)" : "W / S, A / D (or Arrow keys)", C_ORANGE);
+    lg_kv(c1, &y1, kw, "Turn / Look", orig ? "Z / X turn, Home / End look" : "Mouse look; Z / C turn, Home / End", C_ORANGE);
+    lg_kv(c1, &y1, kw, "Jump / Jet", orig ? "Right mouse (Kurt chute, Max jet)" : "Space (Kurt chute, Max jetpack)", C_ORANGE);
+    lg_kv(c1, &y1, kw, "Fire / Melee", "Left mouse button (or use item)", C_ORANGE);
+    lg_kv(c1, &y1, kw, "Sniper Mode", orig ? "Space toggles Kurt's sniper scope" : "Right mouse toggles Kurt's scope", C_ORANGE);
+    lg_kv(c1, &y1, kw, "Sniper Zoom", orig ? "Up / W zoom in, Down / S zoom out" : "Wheel up/dn (or W / S) zoom", C_ORANGE);
+    lg_kv(c1, &y1, kw, "Kurt Items", orig ? "Whl / 1,3 cycle; F/E open; - close" : "Q/E or Whl; F/Tab open; G close", C_ORANGE);
+    lg_kv(c1, &y1, kw, "Max Weapons", orig ? "[ / ] or Wheel; E/Q equip or stow" : "Q/E or Wheel; F equip; G stow", C_ORANGE);
+    lg_kv(c1, &y1, kw, "Doc Items", orig ? "] / [ U/D, - / = L/R, LMB use" : "G/F or Wheel U/D, Q/E L/R, LMB", C_ORANGE);
+    lg_kv(c1, &y1, kw, "Minigames", "Stick 1: Move+Turn; Stick 2: Look+Strafe", C_ORANGE);
+
+    y1 += 5.0f;
+    lg_sec(c1, &y1, cw, "CO-OP KEYS & RADIAL WHEELS", C_BLUE);
+    lg_kv(c1, &y1, kw, "F1 (hold)", "Open this Mod Quick Guide anywhere", C_BLUE);
+    lg_kv(c1, &y1, kw, "R (hold)", "Hold beside downed teammate to revive", C_BLUE);
+    lg_kv(c1, &y1, kw, "T", "Open text chat (Enter sends, Esc cancels)", C_BLUE);
+    lg_kv(c1, &y1, kw, "V / MMB", "Place a 3D ping marker at crosshair", C_BLUE);
+    lg_kv(c1, &y1, kw, "B (hold)", "Push-to-talk proximity voice chat", C_BLUE);
+    lg_kv(c1, &y1, kw, "H (hold)", "Emote wheel: move mouse & release", C_BLUE);
+    lg_kv(c1, &y1, kw, "J (hold)", "Character wheel: switch Kurt / Max / Doc", C_BLUE);
+    lg_kv(c1, &y1, kw, "Backspace", "In cutscene: vote to skip (toggle)", C_BLUE);
+    lg_kv(c1, &y1, kw, "Left mouse", "While bled out: spectate next teammate", C_BLUE);
+    lg_kv(c1, &y1, kw, "F2", "Log marker & screenshot across all peers", C_BLUE);
+
+    y1 += 5.0f;
+    lg_sec(c1, &y1, cw, "GAMEPAD (XINPUT / DINPUT)", 0x5ae085);
+    lg_kv(c1, &y1, kw, "LS / D-pad, RS", "Move & strafe (menus too); RS aims/looks", 0x5ae085);
+    lg_kv(c1, &y1, kw, "A / B / Start", "A: Jump/jet/chute & select; B/Start: Esc", 0x5ae085);
+    lg_kv(c1, &y1, kw, "RT / LT", "RT: Fire / use item; LT: Sniper mode", 0x5ae085);
+    lg_kv(c1, &y1, kw, "RB / LB / Y", "RB/LB: Next/Prev item; Y: Open inv / equip", 0x5ae085);
+    lg_kv(c1, &y1, kw, "X (hold) / Back", "Hold X: revive downed ally; Back: ping", 0x5ae085);
+
+    /* Column 2: How Co-op Works */
+    lg_sec(c2, &y2, cw, "CONNECTING & LOBBIES (2-16 PLAYERS)", C_ORANGE);
+    lg_line(c2, &y2, "- Host runs the authoritative world; up to 15 clients join.", C_TEXT);
+    lg_line(c2, &y2, "- Steam mode: Friends-only Steam lobbies (no port setup).", C_TEXT);
+    lg_line(c2, &y2, "  Invite via Options > Co-op > Session or share Lobby ID.", C_DIM);
+    lg_line(c2, &y2, "- Direct UDP: connects to Host IP:Port (default UDP 27900).", C_TEXT);
+    lg_line(c2, &y2, "  Pre-game lobby shows connected players, ping & ready.", C_DIM);
+    lg_line(c2, &y2, "- Play Solo disables co-op for a plain single-player run.", C_TEXT);
+
+    y2 += 5.0f;
+    lg_sec(c2, &y2, cw, "WORLD SYNC, DOWNED STATE & REVIVES", C_BLUE);
+    lg_line(c2, &y2, "- Enemies, bosses, doors, switches, shots & pickups sync.", C_TEXT);
+    lg_line(c2, &y2, "- At 0 HP you go down instead of dying and a bleedout timer", C_TEXT);
+    lg_line(c2, &y2, "  starts (60s Story, 30s Normal, 20s Hard, 10s Nightmare).", C_DIM);
+    lg_line(c2, &y2, "- Stand beside a downed teammate and hold Revive (R or pad X)", C_TEXT);
+    lg_line(c2, &y2, "  for 2-5s to stand them back up with half health.", C_DIM);
+    lg_line(c2, &y2, "- If the bleedout timer expires, you spectate living allies", C_TEXT);
+    lg_line(c2, &y2, "  (LMB cycles camera) and return when clear or at next CP.", C_DIM);
+    lg_line(c2, &y2, "- If all players are down or out at once, the CP reloads.", C_TEXT);
+
+    y2 += 5.0f;
+    lg_sec(c2, &y2, cw, "CUTSCENES & MINIGAMES", 0x5ae085);
+    lg_line(c2, &y2, "- Cutscenes play in sync. Press Backspace to vote to skip;", C_TEXT);
+    lg_line(c2, &y2, "  when a majority votes, everyone skips together.", C_DIM);
+    lg_line(c2, &y2, "- An optional cutscene countdown bar shows time remaining.", C_TEXT);
+    lg_line(c2, &y2, "- In minigames, teammates appear as translucent ghosts.", C_TEXT);
+
+    y2 += 5.0f;
+    lg_sec(c2, &y2, cw, "CO-OP SAVES, LEVEL SELECT & REJOINING", 0xc882ff);
+    lg_line(c2, &y2, "- The host auto-saves 10s into each level, at checkpoints,", C_TEXT);
+    lg_line(c2, &y2, "  and every 1 / 2 / 5 / 10 min (recording party & progress).", C_DIM);
+    lg_line(c2, &y2, "- Resume any saved session from Saves tab or Options > Co-op.", C_TEXT);
+    lg_line(c2, &y2, "- Start a new game at any Level & Checkpoint from Saves.", C_TEXT);
+    lg_line(c2, &y2, "- Players who disconnect can rejoin at any time and are", C_TEXT);
+    lg_line(c2, &y2, "  placed right into the host's current level and checkpoint.", C_DIM);
+
+    /* Column 3: Features, Settings, Couch & Diagnostics */
+    lg_sec(c3, &y3, cw, "HERO SWITCHING & DIFFICULTY", C_ORANGE);
+    lg_line(c3, &y3, "- Hold J (Character wheel) to switch between Kurt, Max or Doc", C_TEXT);
+    lg_line(c3, &y3, "  at any time during gameplay.", C_DIM);
+    lg_line(c3, &y3, "- 'Back to level's hero' returns you to the stage's default hero", C_TEXT);
+    lg_line(c3, &y3, "  when the next level loads (toggle in Settings / Gameplay).", C_DIM);
+    lg_line(c3, &y3, "- 4 Difficulty Presets + Custom (host's setting applies to all):", C_TEXT);
+    lg_line(c3, &y3, "  Story:     FF Off, 75% HP,  +0%/p,  50% dmg, 60s down, 2s rev", C_DIM);
+    lg_line(c3, &y3, "  Normal:    FF Off, 100% HP, +50%/p, 100% dmg, 30s down, 3s rev", C_DIM);
+    lg_line(c3, &y3, "  Hard:      FF Off, 125% HP, +75%/p, 150% dmg, 20s down, 4s rev", C_DIM);
+    lg_line(c3, &y3, "  Nightmare: FF On,  150% HP, +100%/p, 200% dmg, 10s down, 5s rev", C_DIM);
+    lg_line(c3, &y3, "  Custom:    Tune each setting in Esc > Options > Co-op > Gameplay", C_DIM);
+
+    y3 += 5.0f;
+    lg_sec(c3, &y3, cw, "HUD, VOICE CHAT, PING & EMOTES", C_BLUE);
+    lg_line(c3, &y3, "- Party HUD shows every player's hero, HP bar, state & ping.", C_TEXT);
+    lg_line(c3, &y3, "- 3D name tags & optional through-wall outlines track allies.", C_TEXT);
+    lg_line(c3, &y3, "- Pings (V / MMB / pad Back) highlight a 3D spot for everyone.", C_TEXT);
+    lg_line(c3, &y3, "- Proximity Voice Chat (hold B): 16 kHz audio with distance", C_TEXT);
+    lg_line(c3, &y3, "  attenuation (Short, Medium, Long, or Everywhere).", C_DIM);
+    lg_line(c3, &y3, "- Emote wheel (hold H): perform animations; moving cancels.", C_TEXT);
+
+    y3 += 5.0f;
+    lg_sec(c3, &y3, cw, "COUCH CO-OP & DIAGNOSTICS", 0x5ae085);
+    lg_line(c3, &y3, "- Couch Co-op: run Couch.cmd to launch 2-4 tiled windows on", C_TEXT);
+    lg_line(c3, &y3, "  one PC with per-window gamepad routing and Player 1 audio.", C_DIM);
+    lg_line(c3, &y3, "- Press F2 in game to write a synchronized marker & screenshot", C_TEXT);
+    lg_line(c3, &y3, "  across every connected player's log.", C_DIM);
+    lg_line(c3, &y3, "- Help tab > Send diagnostics creates an anonymized Desktop zip.", C_TEXT);
+
+    y3 += 5.0f;
+    lg_sec(c3, &y3, cw, "DEVELOPER KEYS (WHEN ENABLED)", C_DIM);
+    lg_kv(c3, &y3, kw, "F6 / F7 / F8", "Prev checkpoint / Next checkpoint / Next level", C_DIM);
+    lg_kv(c3, &y3, kw, "F3 / F4 / F5", "200 lava damage / Teleport / Spawn Doganboy", C_DIM);
+    lg_kv(c3, &y3, kw, "Num 1 / F9", "Spawn or damage enemy / BioWare debug menu", C_DIM);
+    lg_kv(c3, &y3, kw, "PgUp/Dn, F10", "Emote browser (Num 0-9) / Test error & anims", C_DIM);
+
+    gdi_text(f_small, LW / 2, 692, C_DIM,
+             "Hold F1 in the launcher or at any time in game to view this Quick Guide   |   Esc > Options > Co-op changes all settings in game",
+             DT_CENTER);
+}
+
 static void render(void)
 {
     char line[160];
@@ -1946,13 +2107,15 @@ static void render(void)
     heading(360, 548, 52, "Online Co-op", C_ORANGE, DT_CENTER);
     snprintf(line, sizeof(line), "%s  -  up to 16 players", MOD_VERSION);
     gdi_text(f_small, 360, 614, C_DIM, line, DT_CENTER);
-    gdi_text(f_small, 24, 690, C_FAINT, lob.on ? (lob.host ? "Enter: start   Esc: leave the lobby" : "Enter: ready   Esc: leave the lobby") :
-             "Enter: play   Tab: next   Esc: quit", DT_LEFT);
+    gdi_text(f_small, 24, 690, C_FAINT, lob.on ? (lob.host ? "Hold F1: quick guide   Enter: start   Esc: leave the lobby" : "Hold F1: quick guide   Enter: ready   Esc: leave the lobby") :
+             "Hold F1: quick guide   Enter: play   Tab: next   Esc: quit", DT_LEFT);
 
     /* right: tabs, page, play */
     fill(600 + 150, 0, 3, LH, C_BLUE, 60);
     if (lob.on) {
         lobby_page();
+        if (guide_open)
+            draw_full_guide();
         return;
     }
     {
@@ -1991,6 +2154,8 @@ static void render(void)
         else
             done = 1;
     }
+    if (guide_open)
+        draw_full_guide();
 }
 
 /* draw until nothing changes (a control acting changes what the others show) */
@@ -2045,6 +2210,23 @@ static void move_focus(int d)
 static void key(int vk)
 {
     int shift = GetKeyState(VK_SHIFT) < 0, ctrl = GetKeyState(VK_CONTROL) < 0;
+    if (vk == VK_F1) {
+        if (!guide_open) {
+            guide_open = 1;
+            logmsg("launcher: quick guide shown");
+        } else if (headless) {
+            guide_open = 0;
+        }
+        pass();
+        present();
+        return;
+    }
+    if (guide_open && vk == VK_ESCAPE) {
+        guide_open = 0;
+        pass();
+        present();
+        return;
+    }
     if (lob.on && (vk == VK_RETURN || vk == VK_ESCAPE)) {
         if (vk == VK_RETURN)
             lob_primary();
@@ -2152,6 +2334,14 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_KEYDOWN:
         key((int)wp);
         return 0;
+    case WM_KEYUP:
+        if (wp == VK_F1 && guide_open) {
+            guide_open = 0;
+            pass();
+            present();
+            return 0;
+        }
+        break;
     case WM_CHAR:
         if (wp >= 32 && wp < 127 && wp != ' ' && ntyped < (int)sizeof(typed) && GetKeyState(VK_CONTROL) >= 0) {
             typed[ntyped++] = (char)wp;
@@ -2266,9 +2456,9 @@ static int canvas_make(void)
 
 static void canvas_free(void)
 {
-    HFONT *f[] = { &f_body, &f_small, &f_label, &f_big };
+    HFONT *f[] = { &f_body, &f_small, &f_label, &f_big, &f_tiny, &f_tiny_b };
     int i;
-    for (i = 0; i < 4; i++)
+    for (i = 0; i < 6; i++)
         if (*f[i]) {
             DeleteObject(*f[i]);
             *f[i] = NULL;

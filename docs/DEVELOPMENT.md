@@ -250,8 +250,8 @@ Options > Co-op (the game's own menus, on the title screen and in the pause menu
 - Gameplay (`coop.ini`; the host's settings count): friendly fire (off by default; hits between
   players arrive as enemy gun damage, since the game ignores a player hitting a player), difficulty
   (see below), co-op save interval, back to the level's hero after a level you switched hero in (`[game] char_follow`)
-  and developer keys (F1, F3-F11 and the F9 debug menu; off for players, on in the test installs; F2 stays on as the
-  report marker).
+  and developer keys (Num 1, F3-F11 and the F9 debug menu; off for players, on in the test installs; F1 holds open the
+  Mod Quick Guide and F2 stays on as the report marker).
 - Interface (each player's own; all on by default except the outlines): players on screen (`[hud] show`), player
   outlines (`[hud] outline`), the cutscene timer (`[hud] movietimer`; off leaves the skip key and the votes), friends in
   minigames (`[features] ghosts`), and the emote wheel, character wheel, text chat and pings (`[features] emotes`,
@@ -277,8 +277,12 @@ Options > Co-op (the game's own menus, on the title screen and in the pause menu
   window) picks the page (On foot, Kurt, Sniper, Max, Doc, Minigames, Co-op, Gamepad, Menus, System) and preset and
   rebinds: select an action, press a key (it joins the action's two keys and the older drops out);
   Delete clears. Lua sends a page with `coop_ctrl_clear / tab / bind / line / hint / focus / show`.
+  Holding **F1** in game (`guide_on` / `guide_draw` in `bridge/ctrlview.c`, fed by `coop_guide_keys` from `coop.ApplyControls`)
+  or in the launcher (`bridge/launcher.c`) draws a
+  full-screen 3-column Mod Quick Guide covering movement, hero inventories, co-op keys, gamepad buttons, world sync,
+  downed/revive/spectate rules, cutscenes, co-op saves, difficulty presets, voice chat, couch co-op and developer keys.
   `tools/qa_controls.sh` drives it with real key presses (pages, presets, rebinding, taking a key
-  from another action, Custom kept across a restart) and saves a screenshot of every page.
+  from another action, Custom kept across a restart, and the F1 Quick Guide) and saves a screenshot of every page.
 Lua reads and writes the settings through `coop_get(section, key, default)` / `coop_set(section, key,
 value)`, which change one key in place. `tools/qa_menu.sh` drives it, keys included.
 
@@ -482,6 +486,93 @@ overlap (it is solid and moved every frame; the characters collide at about 0.88
 the same point).
 The puppet is the character its player plays at that moment (Kurt, Max or Doc; the character wheel changes
 it); any other type is logged and gets your own.
+
+## Other players' events (`bridge/remote.c`, `rooms.c`, `pickups.c`, `coop.RunHandler` in `lua/coop_dev.lua`)
+
+The level scripts' handlers run only in the game where the event happens, and what they change is script state nobody
+syncs. Two kinds of event are carried to the other games and their handlers run there too:
+
+- **A pickup.** The game that did not take the item removed its copy and ran nothing, so the item's `OnPickedUp` never
+  ran (level 1's mortars: `l1_r7.mortars` stayed set). `pickups_remove` now queues the handler (`remote_queue`) and
+  removes the copy after it ran; the engine passes the item's type as the handler's second argument, and so do we. An
+  item that is not here yet (a room's `OnEnterRoom` makes it, and runs here a moment after the peer walked in) is waited
+  for up to 8 s (`pickups_frame`).
+- **A room entered.** The engine fires `OnEnterRoom` for the game's own camera only. `rooms_remote_frame` finds the room
+  each puppet is in (the first room box that holds it; the room list is left alone for 3 s after a level starts) and
+  when one enters a room nobody is in, queues that room's `OnEnterRoom`. The engine's own call for our player is held
+  back (`rooms_suppress_enter`, in the `has_lua_event` hook) when a teammate who entered the room already ran it here, so
+  each entry runs the handler once on every game. The room a puppet starts in, down or dead players and rooms already
+  occupied are not entries.
+- **Running it.** `coop.HandlerTick` takes the queue (`coop_next_handler`) and `coop.RunHandler` calls the gob's
+  handler (`gob.OnEnterRoom` and the like are readable Lua functions) protected by `call(..., "x")`, with the other
+  player's puppet as `mdkGetPlayerGob()`: the wrapper returns it while a handler runs for them, since some handlers act
+  on the player. The script trace logs these as `script event L1: OnEnterRoom l1_con2a02 (remote, player 2)`.
+- **Closing an area.** `mdkProxDoorLock` is wrapped: a handler that locks a door (126 calls in the scripts: the door
+  behind you, an arena) that was not locked, during a remote run, marks the area closed, and `coop.StartJoin` checks
+  whether our player is cut off from the triggerer: outside their zone (`coop_stranded`: the rooms holding them and the
+  rooms visible from those, `rooms_in_zone`, as revive.c's zone) or on the far side of a door that just locked
+  (`coop.DoorBetween`: the door lies between the two of us and within 7 units of the straight line from one to the other).
+  If so, our player is put beside theirs (`mdkGobSetPositionXYZ`) and a line says so (`coop_notice`, drawn in the chat
+  area without a speaker). Each game moves only its own player. A player who is dead or down, in a cutscene, a minigame
+  or a menu, or within 4 units of a ladder (`coop_near_type`) is not moved; `coop.TryJoin` asks again every frame for up
+  to 20 s and moves them when they are free and still cut off.
+- **Proximity triggers.** `OnUpdate` and `OnTimer` handlers that start something when "the player" comes near (level 7's
+  boss at `r8_center`, level 1's last boss at `l1_r8wp`) looked at the local player only. `coop.nearest`
+  (generated by `tools/script_census.py --proximity-lua` from the scripts: handlers that use `mdkGetPlayerGob()` only as
+  an argument of a distance, position, type or health call, on objects with a plain global name) lists them; once a
+  second `coop.ProximityTick` wraps each one's handler (`coop.MakeNearest`) so that, while it runs, `mdkGetPlayerGob()`
+  returns the nearest player, ours or a puppet. Whoever comes near starts it on every game. The other ~90 handlers that
+  read the local player do something to it (damage, items, teleports) and keep seeing the local player.
+- **Items everyone needs.** Of the 42 pickup handlers only two change an inventory: level 1's tutorial grenades and sniper
+  grenade (`mdkKurtRemoveItem` on "the player"; `script_census.py --inventory-pickups`). A peer's pickup of those does not
+  remove ours (`pickups_per_player`): each player takes their own and each game runs the item's script for its own player.
+  Every other pickup works as before: the picker keeps the item, the others run its script with the picker's puppet and
+  lose their copy.
+- **Limits.** Where room boxes overlap, the engine can choose a different room for a player than the first box we find, so
+  now and then a handler runs on the others for a room the entering player's own game did not run (level 7's `l7_tun27b`
+  once). A door that locks for another reason during the same handler also counts as closing an area.
+- **Tests.** `tools/qa_remote.sh` (host and client on level 1): the client walks into room 7 and takes the mortars, then
+  enters `l1_con2a02` (which locks `l1_con2adr01`) with the host far away, then the other way round on a fresh level; a
+  client behind the door is brought to the host, a made-up geometry checks the door test, a client in a minigame waits,
+  and the tutorial grenades stay for the host to take. `tools/qa_proximity.sh` (level 7): the boss starts on both games
+  when either player goes to `r8_center`. `MUTANT=noremote qa_remote.sh` (`coop_test_noremote`, background test mode)
+  queues nothing, and `MUTANT=nonearest qa_proximity.sh` leaves the handlers unwrapped; both must fail. `coop_room_center(name)`
+  gives a place inside a room for tests.
+
+## Script events (`bridge/scripttrace.c`, `tools/script_census.py`, `tools/script_diff.py`)
+
+The level scripts hang handlers on gobs (`gob.OnDie = fn`, `mdkSetLuaEvent(gob, "OnTimer", fn)`) and the engine runs them
+only in the game where the event happens. A handler the mod does not carry over simply never runs on the other
+machines: an enemy's OnDie that opens a door ran on the host only. Three tools keep that class of bug visible.
+
+- **Census and table.** `tools/script_census.py --archive <game dir>/mdk2.tar` counts the handlers per event in the game's
+  own scripts (not in the repository) and lines them up with `tools/script_events.txt`: for every event, whether the
+  mod syncs it (`synced`), partly (`partial`, the note says what is left), leaves it to each machine on purpose
+  (`local`) or has not looked (`unaudited`). `--check` fails on an event the table lacks; `--strict` also fails while
+  any is unaudited (the backlog; today most handlers are). The table's ids are checked against `scripttrace.c` by
+  `tests/script_tools_test.py`.
+- **Trace.** The engine asks `has_lua_event(gob, event)` (0x40cf60, hooked in `pickups.c`) before it runs a handler;
+  every yes is logged once per level as `script event L<level>: <event> <gob> [(mirror)]`, and
+  `coop_script_events()` logs the counts. Only what the engine asks through that function shows: it is a sample of the
+  handlers that ran (about 100 pairs over a level sweep), not all of them.
+- **Diff.** `tools/script_diff.py host.log client.log...` lists the handlers that ran on one machine and not the other,
+  per level and event; a difference in a `synced` or `partial` event fails (`--all`: any). `tools/qa_sign.sh` runs it
+  after the first enemy's fight, and `MUTANT=noondie` (clients skip the death script, the original bug) makes it
+  report `OnDie r2_dog01 (host only)` and fail.
+- **Known differences.** `tools/script_known.txt` records differences someone has looked at (`reviewed`: expected,
+  `bug`: real and open, `unreviewed`: seen, not yet looked at). They are listed apart and never fail a run, so a new
+  one stands out. It holds what a level sweep and the trigger visits found so far: level 8's scared civilians run a
+  timer that plays shrieks and a teleport effect on the host only (cosmetic; the deletion reaches clients), and two
+  open bugs of the same class as the death script: the mortar pickup's `OnPickedUp` (level 1) runs only where it was
+  picked up and the level 7 boss fight starts only on the client that reaches `r8_center`.
+- **Visiting the triggers.** About half of the inline `OnUpdate` handlers (39 of 84) and a third of the `OnCollision`
+  ones read `mdkGetPlayerGob()`: they see the player of the machine they run on. `tools/script_census.py --archive ...
+  --triggers <level>` lists the places they look at; `tools/qa_triggers.sh` (`LEVELS="1 3 7"`, default levels 1 and 7) starts the level with a
+  client and sends each game's player to each place in turn (`mdkGobSetPosition(player, "name")`; the client first),
+  then runs `script_diff.py --client-only`: a handler of a synced or partly synced event, or any handler that ran on
+  a client and never on the host, that `script_known.txt` does not list fails the test. Inline handlers only (a
+  handler assigned by name is not followed), so the places are a lower bound; host-only differences in unaudited
+  events show but do not fail, since the first runs found timing-dependent ones.
 
 ## Automated checks
 

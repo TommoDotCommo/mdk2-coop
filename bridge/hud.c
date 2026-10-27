@@ -700,12 +700,18 @@ static void draw_chat(int w, int h)
         char name[PLAYER_NAME + 4];
 
         chat_line(idx[i], &slot, &msg, &age);
-        slot_colour(slot, c);
-        snprintf(name, sizeof(name), "%s:", player_name(slot));
-        nw = (float)text_width(name) + text_width(" ");
+        slot_colour(slot < 0 ? 0 : slot, c);
+        if (slot < 0) {             /* the game's own notice: no speaker */
+            c[0] = c[1] = c[2] = 0.7f;
+            name[0] = 0;
+        } else {
+            snprintf(name, sizeof(name), "%s:", player_name(slot));
+        }
+        nw = name[0] ? (float)text_width(name) + text_width(" ") : 0.0f;
         box(x - 4, base - font_h, nw + text_width(msg) + 8, line_h, h, 0.0f, 0.0f, 0.0f, 0.4f);
-        text(x, base, h, name, c[0], c[1], c[2]);
-        text(x + nw, base, h, msg, 0.95f, 0.95f, 0.95f);
+        if (name[0])
+            text(x, base, h, name, c[0], c[1], c[2]);
+        text(x + nw, base, h, msg, slot < 0 ? 0.8f : 0.95f, slot < 0 ? 0.8f : 0.95f, slot < 0 ? 0.8f : 0.95f);
     }
     if (open) {
         snprintf(buf, sizeof(buf), "Say: %s%s", chat_input(), (int)(now_ms() / 500) & 1 ? "_" : " ");
@@ -943,7 +949,7 @@ void hud_frame(HDC dc)
 
     chat_frame(have_remote && shown);
     /* the panel and tags follow coop_hud's "shown"; the revive status shows whenever it is set */
-    if (!ctrlview_on() && !emote_wheel_open() && !(caption1[0] && emote_active() >= 0) && !banner1[0] && !banner2[0] && !mbox[0][0] && !mbox[1][0] &&
+    if (!guide_on() && !ctrlview_on() && !emote_wheel_open() && !(caption1[0] && emote_active() >= 0) && !banner1[0] && !banner2[0] && !mbox[0][0] && !mbox[1][0] &&
         (!have_remote || (!shown && !status1[0] && !status2[0] && !voice_talking(-1))))
         return;
     if (ready < 0)
@@ -956,7 +962,7 @@ void hud_frame(HDC dc)
     fsel = 0;
     if (w <= 0 || h <= 0 || !make_font(dc, h / 42 < 13 ? 13 : h / 42))
         return;
-    if (ctrlview_on()) {
+    if (ctrlview_on() || guide_on()) {
         fsel = 1;
         make_font(dc, h / 64 < 10 ? 10 : h / 64);
         fsel = 2;
@@ -1005,6 +1011,7 @@ void hud_frame(HDC dc)
     draw_movie_box(w, h);
     draw_status(w, h);
     ctrlview_draw(w, h);
+    guide_draw(w, h);
     fsel = 0;
     frames_drawn++;
 

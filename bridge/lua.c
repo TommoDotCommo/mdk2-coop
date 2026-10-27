@@ -280,7 +280,7 @@ static void l_coop_event(void)
         else if (e.epoch != cur_epoch && e.kind != EV_LEVEL)
             logmsg("event %d %s from epoch %u dropped (we are in %u)", e.kind, e.name, e.epoch, cur_epoch);
         else if (e.kind == EV_PICKUP)
-            pickups_remove(e.name);
+            pickups_remove(e.name, from);
         else if (e.kind == EV_REVIVE || e.kind == EV_RESPAWN || e.kind == EV_DIED)
             revive_event(&e, from);
         else
@@ -403,6 +403,8 @@ static void l_coop_level(void)
     doors_reset();
     revive_level_reset();
     pickups_reset();
+    remote_reset();
+    script_trace_reset();
     rooms_level_reset();
     net_level_reset(announce);
     memset(puppets, 0, sizeof(puppets));
@@ -768,6 +770,21 @@ static void l_coop_crash(void)
     *(volatile int *)(uintptr_t)0x10 = 1;
 }
 
+/* coop_test_noondie(on): clients stop running a dead enemy's OnDie (the bug fixed in entities.c); background test mode only */
+static void l_coop_test_noondie(void)
+{
+    extern int test_no_ondie;
+
+    if (test_background)
+        test_no_ondie = (int)num_param(1);
+}
+
+/* coop_script_events(): log every script handler that ran this level, and how often (scripttrace.c) */
+static void l_coop_script_events(void)
+{
+    script_trace_dump();
+}
+
 /* coop_diag_test(skew, deaf): break the desync check on purpose (diag.c); only in background test mode */
 static void l_coop_diag_test(void)
 {
@@ -873,6 +890,8 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_emitter_guard", l_coop_emitter_guard);
     tolua_function(NULL, "coop_crash", l_coop_crash);
     tolua_function(NULL, "coop_diag_test", l_coop_diag_test);
+    tolua_function(NULL, "coop_script_events", l_coop_script_events);
+    tolua_function(NULL, "coop_test_noondie", l_coop_test_noondie);
     tolua_function(NULL, "coop_emote", l_coop_emote);
     tolua_function(NULL, "coop_emoting", l_coop_emoting);
     tolua_function(NULL, "coop_revive_tick", l_coop_revive_tick);
@@ -909,6 +928,7 @@ void l_coop_init(void)
     input_lua_init();
     emote_lua_init();
     chat_lua_init();
+    remote_lua_init();
     movie_lua_init();
     voice_lua_init();
     bot_lua_init();
