@@ -11,12 +11,12 @@ assert name == archive.name, 'checksum names a different asset'
 assert hashlib.sha256(archive.read_bytes()).hexdigest() == checksum, 'checksum mismatch'
 root = archive.stem + '/'
 expected = ['MDK2-Coop-Setup.exe', 'dinput8.dll', 'coop/coop.lua', 'mdk2-coop.ps1',
-            'installer-gui.ps1', 'install-state.ps1', 'Couch.cmd', 'mdk2-couch.ps1',
+            'installer-gui.ps1', 'install-state.ps1', 'install-policy.exe', 'Couch.cmd', 'mdk2-couch.ps1',
             'README.txt', 'LICENSE.txt']
 with zipfile.ZipFile(archive) as package:
     assert set(package.namelist()) == {root + f for f in expected}, 'unexpected release inventory'
-    for payload in ['MDK2-Coop-Setup.exe', 'dinput8.dll']:
+    for payload in ['MDK2-Coop-Setup.exe', 'dinput8.dll', 'install-policy.exe']:
         assert package.read(root + payload)[:2] == b'MZ', 'not a Windows PE'
     source = Path(__file__).resolve().parents[1] / 'dist/install-state.ps1'
     assert package.read(root + 'install-state.ps1').decode().replace('\r\n', '\n') == source.read_text(), 'stale policy'
-print('PASS: release checksum, exact ten-file inventory, policy payload and Windows PE headers')
+print('PASS: release checksum, exact eleven-file inventory, policy payload and Windows PE headers')

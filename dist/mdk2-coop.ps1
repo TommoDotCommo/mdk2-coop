@@ -144,7 +144,7 @@ function Add-Loader {
         $backup = "$SettingsPath.coop-backup"
         if (-not (Test-Path $backup)) { Copy-Item $SettingsPath $backup; Say "  backed up settings.lua to $(Split-Path -Leaf $backup)" }
         $existing = [IO.File]::ReadAllText($SettingsPath)
-        if ((Get-CoopLoaderState $existing) -eq 'conflict') { throw 'The loader block was modified; settings were preserved.' }
+        if ((Get-CoopLoaderState $existing) -in 'conflict', 'unknown') { throw 'The loader block was modified; settings were preserved.' }
         $text = Remove-Loader $existing
         if ($text.Length -gt 0 -and -not $text.EndsWith("`n")) { $text += "`r`n" }
     } else {
@@ -284,13 +284,11 @@ function Prepare-UserData($game) {
     $probe = Join-Path $DataPath ([IO.Path]::GetRandomFileName())
     $stream = [IO.File]::Open($probe, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
     $stream.Dispose(); [IO.File]::Delete($probe)
-    # Preserve existing player data from older writable installs. Never replace data
-    # already in the user folder, and do not copy the installed Lua script.
-    $old = Join-Path $game 'coop'
-    if (Test-Path $old) {
-        Get-ChildItem -LiteralPath $old -File | Where-Object { $_.Name -notin 'coop.lua', 'per-user-data' -and $_.Name -notmatch '\.coop-(original|receipt|stage)'  } | ForEach-Object {
-            $target = Join-Path $DataPath $_.Name
-            if (-not (Test-Path -LiteralPath $target)) { Copy-Item -LiteralPath $_.FullName -Destination $target }
+    foreach ($entry in @(Get-CoopDataPlan $game $DataPath)) {
+        if ($entry.copy) {
+            # CreateNew semantics prevent replacement if another process creates it
+            # after inspection. A failed copy leaves a visible partial install.
+            [IO.File]::Copy($entry.source, $entry.target, $false)
         }
     }
 }
@@ -301,7 +299,7 @@ function Remove-UserLoader {
     # exact delimited block; never restore an old settings snapshot over new options.
     if (Test-Path -LiteralPath $SettingsPath) {
         $text = [IO.File]::ReadAllText($SettingsPath)
-        if ((Get-CoopLoaderState $text) -eq 'conflict') { throw 'The loader block was modified; settings were preserved.' }
+        if ((Get-CoopLoaderState $text) -in 'conflict', 'unknown') { throw 'The loader block was modified; settings were preserved.' }
         [IO.File]::WriteAllText($SettingsPath, (Remove-Loader $text), (New-Object Text.ASCIIEncoding))
         Say '  loader block removed; current player options preserved'
     }
@@ -309,7 +307,7 @@ function Remove-UserLoader {
 
 try {
     if ($StatusOnly) {
-        Get-CoopInstallStatus $GameDir $Here $SettingsPath $DataPath | ConvertTo-Json -Depth 6
+        Get-CoopInstallStatus (Resolve-GameDir) $Here $SettingsPath $DataPath ([bool]$PerUserData) | ConvertTo-Json -Depth 6
     } elseif ($Uninstall) { Do-Uninstall } else { Do-Install }
 } catch {
     Fail "Something went wrong: $($_.Exception.Message)"

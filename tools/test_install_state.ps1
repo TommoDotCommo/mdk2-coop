@@ -4,6 +4,9 @@ param([switch]$Mutants)
 $ErrorActionPreference = 'Stop'
 $module = Join-Path (Split-Path -Parent $PSScriptRoot) 'dist/install-state.ps1'
 $source = [IO.File]::ReadAllText($module)
+# scriptblock mutants have no module PSScriptRoot; pin only the helper location.
+$helper = Join-Path (Split-Path -Parent $module) 'install-policy.exe'
+$source = $source.Replace("Join-Path `$PSScriptRoot 'install-policy.exe'", "'$($helper.Replace("'", "''"))'")
 function Require($value, $message) { if (-not $value) { throw "ASSERT: $message" } }
 function Reject($operation, $message) {
     $rejected = $false
@@ -32,12 +35,22 @@ function Run-Checks($code) {
         Require (-not (Get-CoopActions @('current') $true).install) 'no redundant install'
         foreach ($state in 'modified','conflict','unknown') {
             Require (-not (Get-CoopActions @($state,'missing') $true).install) "blocked $state"
+            Require (-not (Get-CoopActions @($state,'missing') $true).uninstall) "blocked uninstall $state"
         }
         $loader = "-- >>> mdk2-coop >>>`r`nif (coop_init) then coop_init() end`r`n-- <<< mdk2-coop <<<`r`n"
         Require ((Get-CoopLoaderState $loader) -eq 'current') 'loader exact'
         Require ((Get-CoopLoaderState ($loader + $loader)) -eq 'conflict') 'duplicate loader'
         Require ((Get-CoopLoaderState ($loader.Replace('coop_init()', 'evil()'))) -eq 'conflict') 'modified loader'
+        Require ((Get-CoopLoaderState ($loader.TrimEnd() + 'foreign()')) -eq 'conflict') 'loader trailing code'
         Require ((Get-CoopLoaderState '-- <<< mdk2-coop <<<') -eq 'conflict') 'partial loader'
+        $outside = Join-Path $root 'outside'
+        New-Item -ItemType Directory $outside | Out-Null
+        $link = Join-Path $root 'junction'
+        New-Item -ItemType Junction -Path $link -Target $outside | Out-Null
+        try {
+            Reject { Install-CoopFile (Join-Path $link 'payload') ([byte[]]@(1)) } 'junction install refused'
+            Require (-not (Test-Path (Join-Path $outside 'payload'))) 'linked destination untouched'
+        } finally { [IO.Directory]::Delete($link) }
         $target = Join-Path $root 'payload'
         [IO.File]::WriteAllText($target, 'original')
         $originalHash = Get-CoopHash $target
@@ -64,8 +77,8 @@ function Run-Checks($code) {
         Require (-not (Test-Path $target)) 'new file stays absent'
         [IO.File]::WriteAllText($target, 'identical')
         Install-CoopFile $target ([Text.Encoding]::ASCII.GetBytes('identical'))
-        Require (Remove-CoopFile $target) 'adopt exact package payload'
-        Require (-not (Test-Path $target)) 'adopted payload is removed'
+        Require (Remove-CoopFile $target) 'own exact package payload with original backup'
+        Require ([IO.File]::ReadAllText($target) -eq 'identical') 'unowned identical original restored'
         [IO.File]::WriteAllText($target, 'unmanaged')
         Require (-not (Remove-CoopFile $target)) 'unmanaged uninstall returns false'
         Require ([IO.File]::ReadAllText($target) -eq 'unmanaged') 'unmanaged bytes preserved'
@@ -83,17 +96,14 @@ function Run-Checks($code) {
 Run-Checks $source
 Write-Output 'PASS: pure install policy and disposable filesystem fixtures'
 if ($Mutants) {
+    # Decision mutants run game-free in test_install_policy.py. These mutants
+    # exercise filesystem guards in this adapter, and must parse before running.
     $twins = @(
-        @("if (`$unknown) { return 'unknown' }", "if (`$false) { return 'unknown' }"),
-        @("if (`$receipt.original -and `$backup -ne `$receipt.original)", 'if ($false)'),
-        @("return 'modified'", "return 'outdated'"),
-        @("if (`$backup) { return 'conflict' }", "if (`$false) { return 'conflict' }"),
         @("if (`$o.status -in 'modified', 'conflict', 'unknown')", 'if ($false)'),
         @("if (`$o.status -in 'modified', 'conflict', 'unknown', 'unmanaged')", 'if ($false)'),
-        @("`$o.observed = `$null } # adopt", "`$o.observed = `$expected } # adopt"),
         @("if (-not `$r) { return `$false }", 'if ($false) { return $false }'),
-        @("-not [regex]::IsMatch(`$text, `$pattern)", '$false'),
-        @("if (`$r.schema -ne 1 -or", 'if ($false -and')
+        @("if (`$r.schema -ne 1 -or", 'if ($false -and'),
+        @('if ((Get-Item -LiteralPath $p -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)', 'if ($false)')
     )
     $index = 0
     foreach ($twin in $twins) {

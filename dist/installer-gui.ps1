@@ -98,6 +98,8 @@ $form.Controls.Add($refresh)
 function Refresh-Status {
     if ($script:busy) { return }
     $inventory.Items.Clear(); $install.Enabled = $false; $uninstall.Enabled = $false
+    $install.Text = 'Install'
+    $status.Text = 'Choose a game folder to inspect its installation.'
     $dir = $path.Text.Trim().Trim('"')
     if (-not $dir -or -not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe'))) { return }
     try {
@@ -108,7 +110,7 @@ function Refresh-Status {
             [void]$inventory.Items.Add($item)
         }
         $install.Enabled = [bool]$snapshot.actions.install
-        $install.Text = if ($snapshot.actions.install) { $snapshot.actions.install } else { 'Up to date' }
+        $install.Text = if ($snapshot.actions.install) { $snapshot.actions.install } elseif ($snapshot.actions.blocked) { 'Needs attention' } else { 'Up to date' }
         $uninstall.Enabled = $snapshot.actions.uninstall
         if ($snapshot.actions.blocked) { $status.Text = 'Conflicting or unreadable files need attention. Modified files are kept.' }
         else { $status.Text = 'Status is read-only. Saves and current player options are kept.' }
@@ -222,6 +224,8 @@ function Perform($remove) {
         return
     }
     try {
+        $preflight = Get-CoopInstallStatus $dir $PSScriptRoot (Join-Path $env:LOCALAPPDATA 'MDK2HD\settings.lua') (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop')
+        if ($preflight.actions.blocked) { throw 'Conflicting or unreadable files must be resolved before setup can continue.' }
         $script:busy = $true
         $form.ControlBox = $false
         foreach ($control in @($path, $browse, $install, $uninstall, $refresh)) { $control.Enabled = $false }

@@ -950,7 +950,7 @@ static float gdi_width(HFONT f, const char *s)
 
 /* ---- immediate-mode widgets ---- */
 
-enum { PAGE_PLAY, PAGE_SAVES, PAGE_SETTINGS, PAGE_ABOUT, PAGE_HELP };
+enum { PAGE_PLAY, PAGE_SAVES, PAGE_SETTINGS, PAGE_ABOUT, PAGE_HELP, PAGE_PROFILES };
 static int page;
 
 static int mouse_x = -1, mouse_y = -1;      /* logical */
@@ -1172,6 +1172,8 @@ static void lan_address(char *out, int size)
     WSACleanup();
 }
 
+static void profile_load(void);
+
 static void page_play(void)
 {
     static const char *conn[] = { "Direct UDP", "Steam" };
@@ -1213,11 +1215,14 @@ static void page_play(void)
     } else if (cfg.mode == MODE_JOIN) {
         field(ID, PX, y, PW - 160, "Host address", cfg.host, sizeof(cfg.host), 0, "e.g. 192.168.1.20");
         field(ID, PX + PW - 140, y, 140, "Port", cfg.port, sizeof(cfg.port), 1, "27900");
+        if (link(ID, PX, y+66, "Saved addresses")) { page = PAGE_PROFILES; changed = 1; }
     } else {
         gdi_para(f_small, PX, y - 6, PW, C_DIM, "The co-op mod stays installed but does nothing until you "
                  "pick Host or Join at the next start.");
     }
 }
+
+#include "launcher_profiles_win.h"
 
 /* "3 days ago" */
 static void ago(long t, char *out, int size)
@@ -1628,6 +1633,8 @@ static struct {
 } lob;
 
 /* our name as it goes on the wire: '|' and line ends separate fields */
+static int profile_session_active(void) { return lob.on; }
+
 static const char *lob_name(void)
 {
     static char name[PLAYER_NAME + 1];
@@ -1742,18 +1749,28 @@ static void lob_poll(void)
 {
     char buf[1500];
     struct sockaddr_in from;
-    int flen, n, i;
+    int flen, n, i, budget;
     DWORD now = GetTickCount();
 
     if (!lob.on)
         return;
-    for (;;) {
+    for (budget = 0; budget < 256; budget++) {
         flen = sizeof(from);
         n = recvfrom(lob.s, buf, sizeof(buf) - 1, 0, (struct sockaddr *)&from, &flen);
         if (n <= 0)
             break;
+        if (lob.host && n == 8 && !memcmp(buf, "CPQ1", 4)) {
+            static DWORD next_probe;
+            unsigned char reply[64];
+            if ((int32_t)(now-next_probe) >= 0) {
+                int bytes = lp_answer((unsigned char *)buf, n, lob.n, 0, MOD_VERSION, reply);
+                next_probe = now+100;
+                if (bytes) sendto(lob.s, (const char *)reply, bytes, 0, (struct sockaddr *)&from, flen);
+            }
+            continue;
+        }
         buf[n] = 0;
-        if (strncmp(buf, "MDKL ", 5))
+        if (n < 7 || memchr(buf, 0, n) || strncmp(buf, "MDKL ", 5))
             continue;
         if (lob.host && buf[5] == 'H') {
             unsigned id;
@@ -2159,6 +2176,8 @@ static void render(void)
         if (lob.on) lobby_page();
         else page_play();
     }
+    else if (page == PAGE_PROFILES)
+        page_profiles();
     else if (page == PAGE_SAVES)
         page_saves();
     else if (page == PAGE_SETTINGS)
@@ -2390,7 +2409,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == 3) {
             diag_poll();
             lob_poll();
-            if (changed || (lob.on && lob.start_at)) {   /* a roster change or the countdown redraws */
+            if (changed || page == PAGE_PROFILES || (lob.on && lob.start_at)) {   /* a roster change or the countdown redraws */
                 pass();
                 present();
             }
@@ -2460,7 +2479,7 @@ static void test_commands(void)
             for (s = line + 5; *s && ntyped < (int)sizeof(typed); s++)
                 typed[ntyped++] = *s;
             pass();
-        } else if (sscanf(line, "page %d", &a) == 1 && a >= PAGE_PLAY && a <= PAGE_HELP) {
+        } else if (sscanf(line, "page %d", &a) == 1 && a >= PAGE_PLAY && a <= PAGE_PROFILES) {
             page = a;
             pass();
         } else if (!strcmp(line, "dump")) {
@@ -2614,6 +2633,7 @@ static void run(void)
         TranslateMessage(&msg);
         DispatchMessageA(&msg);
     }
+    if (profile_loaded) InterlockedExchange(&profile_stop, 1);
     lob_leave();
     DestroyWindow(wnd);
     wnd = NULL;
