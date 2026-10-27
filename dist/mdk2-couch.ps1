@@ -2,7 +2,7 @@
 # Double-click Couch.cmd, or:
 #   powershell -ExecutionPolicy Bypass -File mdk2-couch.ps1 [-Players 2..4] [-Monitor <n>] [-GameDir <folder>]
 #              [-Port 27960] [-Look 700] [-Stop] [-NoLaunch] [-Yes]
-# mdk2-coop must be installed first (Install.cmd). This makes one game copy per player next to the game
+# mdk2-coop must be installed first (MDK2-Coop-Setup.exe). This makes one game copy per player next to the game
 # folder ("MDK 2 HD couch\p1" .. "p4"; mdk2.tar is hard-linked, so a copy costs about 2 MB), tiles one
 # borderless window per player on the chosen monitor and starts them: player 1 hosts, the others join
 # over localhost. Your own game folder and coop.ini are not touched.
@@ -155,7 +155,7 @@ function Do-Couch {
     }
     if (-not (Test-Path (Join-Path $game 'mdk2hd.exe'))) { Fail "No mdk2hd.exe in '$game'." }
     foreach ($f in 'dinput8.dll', 'coop\coop.lua') {
-        if (-not (Test-Path (Join-Path $game $f))) { Fail "$f is missing in the game folder. Run Install.cmd first." }
+        if (-not (Test-Path (Join-Path $game $f))) { Fail "$f is missing in the game folder. Run MDK2-Coop-Setup.exe first." }
     }
     if (Couch-Processes $root) { Fail 'The couch games are already running. Run Couch.cmd -Stop (or close them) first.' }
 

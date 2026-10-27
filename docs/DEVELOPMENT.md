@@ -36,7 +36,8 @@ work around that check.
    [TESTING.md](TESTING.md)). Every gate must pass.
 2. Update `dist/README.txt` (the player's copy in the zip) and the [README](../README.md) for anything new.
 3. `tools/release.sh v0.x.y` builds `local/release/mdk2-coop-v0.x.y.zip`: dinput8.dll, coop\coop.lua,
-   MDK2-Coop-Setup.exe, installer-gui.ps1, Install.cmd, Uninstall.cmd, mdk2-coop.ps1, Couch.cmd,
+   MDK2-Coop-Setup.exe (the only thing a player opens to install or uninstall; it runs installer-gui.ps1, which calls
+   mdk2-coop.ps1, both beside it), Couch.cmd,
    mdk2-couch.ps1, README.txt and LICENSE.txt. The graphical installer requests elevation only for game-folder
    writes; its separate user-settings operation runs as the original user. The version
    is built into the DLL and shown on the launcher's About tab.

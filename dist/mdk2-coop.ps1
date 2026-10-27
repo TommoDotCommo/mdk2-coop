@@ -1,5 +1,5 @@
 # mdk2-coop installer for MDK2 HD (Steam or the Overhaul Games build). Windows PowerShell 5.1, no other tools.
-# Double-click Install.cmd / Uninstall.cmd, or:
+# Run by MDK2-Coop-Setup.exe (the player-facing installer); the command line below is for scripts and tests:
 #   powershell -ExecutionPolicy Bypass -File mdk2-coop.ps1 [-Uninstall] [-GameDir <folder>]
 #              [-Transport steam|udp] [-Role host|join] [-LobbyId <id>]
 #              [-HostAddress <ip>] [-HostPort 27900] [-ClientPort 27901] [-Yes]

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the player zip: local/release/mdk2-coop-<version>.zip with dinput8.dll, coop\coop.lua,
-# the graphical installer and command-line fallback, README.txt and LICENSE.
+# the graphical installer (MDK2-Coop-Setup.exe, which runs the two PowerShell scripts beside it), the couch launcher,
+# README.txt and LICENSE.
 #   tools/release.sh            version from `git describe --tags --always`
 #   tools/release.sh v0.1.0     explicit version
 # Publishing is a separate step: gh release create <version> local/release/mdk2-coop-<version>.zip
@@ -20,7 +21,7 @@ i686-w64-mingw32-gcc -Os -Wall -Wextra -mwindows -o "$stage/MDK2-Coop-Setup.exe"
 rm -f "$out/installer-res.o"
 cp "$here/bridge/dinput8.dll" "$stage/"
 sed 's/\r$//; s/$/\r/' "$here/lua/coop_dev.lua" > "$stage/coop/coop.lua"
-for f in Install.cmd Uninstall.cmd mdk2-coop.ps1 installer-gui.ps1 Couch.cmd mdk2-couch.ps1; do
+for f in mdk2-coop.ps1 installer-gui.ps1 Couch.cmd mdk2-couch.ps1; do
     sed 's/\r$//; s/$/\r/' "$here/dist/$f" > "$stage/$f"; done
 sed 's/\r$//; s/$/\r/; s/@VERSION@/'"$ver"'/' "$here/dist/README.txt" > "$stage/README.txt"
 sed 's/\r$//; s/$/\r/' "$here/LICENSE" > "$stage/LICENSE.txt"
