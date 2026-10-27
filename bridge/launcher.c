@@ -946,7 +946,7 @@ static float gdi_width(HFONT f, const char *s)
 
 /* ---- immediate-mode widgets ---- */
 
-enum { PAGE_PLAY, PAGE_SAVES, PAGE_SETTINGS, PAGE_ABOUT };
+enum { PAGE_PLAY, PAGE_SAVES, PAGE_SETTINGS, PAGE_ABOUT, PAGE_HELP };
 static int page;
 
 static int mouse_x = -1, mouse_y = -1;      /* logical */
@@ -1551,6 +1551,54 @@ static void page_about(void)
         ShellExecuteA(NULL, "open", coop_dir, NULL, NULL, SW_SHOWNORMAL);
 }
 
+/* Help: "Send diagnostics" (diag.c runs dist/diag.ps1 hidden): 0 idle, 1 working, 2 done, 3 failed; diag_msg: the zip, or why not */
+static int diag_state;
+static char diag_msg[MAX_PATH];
+
+/* the bundle script finished? (the window's timer, and the test loop: the launcher is hidden there) */
+static void diag_poll(void)
+{
+    if (diag_state != 1)
+        return;
+    diag_state = diag_bundle_poll(diag_msg, sizeof(diag_msg));
+    changed = 1;
+}
+
+static void page_help(void)
+{
+    float y = 100;
+    char line[200];
+
+    heading(PX, y, 30, "Something wrong?", C_TEXT, DT_LEFT);
+    y += 52;
+    y += gdi_para(f_body, PX, y, PW, C_TEXT,
+                  "One click saves a zip on your desktop with the logs of your recent runs, your co-op settings and a "
+                  "summary of your PC and network. Send it to whoever is fixing the problem.") + 16;
+    if (button(ID, PX, y, 360, 56, diag_state == 1 ? "Collecting..." : "Send diagnostics", 1) && diag_state != 1)
+        diag_state = diag_bundle_start() ? 1 : 3;
+    if (diag_state == 3 && !diag_msg[0])
+        snprintf(diag_msg, sizeof(diag_msg), "could not start PowerShell");
+    y += 72;
+    if (diag_state == 1) {
+        y += gdi_para(f_small, PX, y, PW, C_DIM, "Collecting logs and system details. This takes a few seconds.") + 14;
+    } else if (diag_state == 2) {
+        snprintf(line, sizeof(line), "Saved to your desktop: %s", strrchr(diag_msg, '\\') ? strrchr(diag_msg, '\\') + 1 : diag_msg);
+        y += gdi_para(f_small, PX, y, PW, C_BLUE, line) + 14;
+    } else if (diag_state == 3) {
+        snprintf(line, sizeof(line), "Could not make the bundle: %s", diag_msg);
+        y += gdi_para(f_small, PX, y, PW, C_BAD, line) + 14;
+    }
+    y += gdi_para(f_small, PX, y, PW, C_DIM,
+                  "-  Your Windows and computer names, IP addresses and Steam IDs are replaced first\n"
+                  "-  No saves and no game files go in it\n"
+                  "-  It works after a crash too: start the game again and come here\n"
+                  "-  In a game, F2 marks the moment something goes wrong: every player's game saves the last minute") + 18;
+    if (link(ID, PX, y, "Report a bug"))
+        open_url(ISSUES_URL);
+    if (link(ID, PX + 180, y, "Open mod folder"))
+        ShellExecuteA(NULL, "open", coop_dir, NULL, NULL, SW_SHOWNORMAL);
+}
+
 /* ---- lobby: who has connected, before the game starts ----
  * Host and Join over UDP first meet here. The host listens on the game's port and every joiner says hello
  * every 0.4 s (name, mod version, ready, its last round trip); the host answers with the roster, which
@@ -1908,11 +1956,11 @@ static void render(void)
         return;
     }
     {
-        static const char *tabs[] = { "Play", "Saves", "Settings", "About" };
+        static const char *tabs[] = { "Play", "Saves", "Settings", "About", "Help" };
         float tx = PX;
         int t;
 
-        for (t = 0; t < 4; t++) {
+        for (t = 0; t < 5; t++) {
             if (tab(ID + 6000 + t, tx, 32, tabs[t], page == t))
                 page = t, changed = 1;
             tx += (font.px ? title_width(tabs[t], 26) : gdi_width(f_label, tabs[t])) + 30;
@@ -1928,6 +1976,8 @@ static void render(void)
         page_saves();
     else if (page == PAGE_SETTINGS)
         page_settings();
+    else if (page == PAGE_HELP)
+        page_help();
     else
         page_about();
 
@@ -2111,6 +2161,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_TIMER:
         if (wp == 3) {
+            diag_poll();
             lob_poll();
             if (changed || (lob.on && lob.start_at)) {   /* a roster change or the countdown redraws */
                 pass();
@@ -2313,7 +2364,8 @@ static void run(void)
         if (headless && msg.message == WM_TIMER) {
             test_commands();
             lob_poll();
-            if (changed && lob.on)
+            diag_poll();
+            if (changed && (lob.on || page == PAGE_HELP))
                 pass();
             continue;
         }

@@ -26,13 +26,17 @@ char coop_dir[MAX_PATH], game_dir[MAX_PATH];
 void logmsg(const char *fmt, ...)
 {
     va_list ap;
+    char line[1100];
+
     if (!log_file)
         return;
     va_start(ap, fmt);
-    vfprintf(log_file, fmt, ap);
+    vsnprintf(line, sizeof(line), fmt, ap);
     va_end(ap);
+    fputs(line, log_file);
     fputc('\n', log_file);
     fflush(log_file);
+    diag_log_line(line);        /* the session log (never replaced) and the flight recorder's tail */
 }
 
 /* A crash: the exception, where (module + offset) and what was touched go in bridge.log, so a report has it.
@@ -59,6 +63,7 @@ static LONG CALLBACK crash_logger(EXCEPTION_POINTERS *e)
            (unsigned long)((char *)r->ExceptionAddress - (char *)mod), r->ExceptionAddress,
            r->NumberParameters >= 2 && r->ExceptionInformation[0] ? "writing" : "reading",
            r->NumberParameters >= 2 ? (void *)r->ExceptionInformation[1] : NULL);
+    diag_crash();               /* marks the session as crashed and writes the flight recorder */
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -200,12 +205,15 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
             MoveFileExA(path, previous, MOVEFILE_REPLACE_EXISTING);
         }
         log_file = fopen(path, "w");
+        diag_log_open();
         logmsg("mdk2-coop bridge attached");
         logmsg("files in %s", coop_dir);
         AddVectoredExceptionHandler(1, crash_logger);
         if (install_lua_hook())
             loader_ensure();
         input_init();
+    } else if (reason == DLL_PROCESS_DETACH && reserved) {
+        diag_log_close();           /* a session log without this line ended in a crash or a kill */
     }
     return TRUE;
 }

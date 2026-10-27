@@ -40,7 +40,8 @@ OFFLINE = [Gate("build", ("make", "-C", "bridge")),
            Gate("projectile-core", ("make", "-C", "bridge", "test-shots")),
            Gate("controller-core", ("make", "-C", "bridge", "test-pad")),
            Gate("revive-core", ("make", "-C", "bridge", "test-revive")),
-           Gate("network-core", ("bash", "tools/test_network.sh"))]
+           Gate("network-core", ("bash", "tools/test_network.sh")),
+           Gate("diagnostics-core", ("bash", "tools/test_diag.sh"))]
 SMOKE = [Gate("two-player", ("bash", "tools/qa.sh"), 2, result="counts"),
          Gate("checkpoint-smoke", ("bash", "tools/sweep.sh", "1-1", "1-3"), 2, result="sweep"),
          Gate("level-smoke", ("bash", "tools/sweep.sh", "--levels"), 2, result="sweep")]
@@ -53,7 +54,7 @@ FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
                 ("level8-intro", "qa_level8_intro", 2, "counts"),
                 ("character-wheel", "qa_char", 1, "counts"), ("character-puppet", "qa_char2", 2, "counts"),
                 ("emotes", "qa_emote", 1, "counts"), ("crash-log", "qa_crashlog", 1, "counts"),
-                ("controls", "qa_controls", 1, "counts"), ("launcher", "qa_launcher", 2, "counts"),
+                ("controls", "qa_controls", 1, "counts"), ("diagnostics", "qa_diag", 2, "counts"), ("launcher", "qa_launcher", 2, "counts"),
                 ("lobby", "qa_lobby", 3, "counts"),
                 ("first-enemy", "qa_sign", 3, "counts"),
                 ("character-motion", "qa_motion", 2, "counts"),

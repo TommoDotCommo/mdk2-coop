@@ -67,7 +67,8 @@ PowerShell script (`mdk2-coop.ps1`) that you can read in Notepad first.
 When you start the game, the launcher opens: choose **Host a game**, **Join a friend** or **Play solo**
 (plain MDK2 HD, co-op off for that start), your name, Steam or direct UDP, and press **Enter** (or the big
 button) to start. The **Saves** tab lists your co-op saves with who played and how far you got, and lets the host
-start a new game at any level and checkpoint. The **Settings** tab has every option. **Esc** quits.
+start a new game at any level and checkpoint. The **Settings** tab has every option. **Help** collects what a bug
+report needs in one click (see [Reporting a problem](#reporting-a-problem)). **Esc** quits.
 
 Don't want the launcher? **Settings > Display > Show launcher at start: Off**. Hold **Shift** while the game
 starts to bring it back. Accepting a Steam invite skips it and joins straight away.
@@ -192,12 +193,16 @@ Open a [bug report](https://github.com/TommoDotCommo/mdk2-coop/issues/new?templa
 what's needed:
 
 1. What happened, and what you expected. Press **F2** the moment something goes wrong: it puts a numbered
-   marker in every player's log and saves a screenshot (`coop_mark<N>.tga` in the game folder).
-2. Your log, and the host's if you can get it. To find it, right-click MDK2 HD in Steam, choose **Manage >
-   Browse local files**, and open the `coop` folder: `bridge.log` is this run, **`bridge.previous.log` is the run
-   before**. After a crash, restarting the game moves the crashed run's log to `bridge.previous.log`, so send that
-   one; it records where the game crashed. The logs have the players' chosen names and, over direct UDP, the IP
-   addresses they joined from: blank those out first if you'd rather not post them.
+   marker in every player's log, saves a screenshot (`coop_mark<N>.tga` alongside the log), and every game saves
+   the last minute it saw (frame rate, where everyone was, ping and lost packets) next to its log.
+2. The diagnostics bundle, from everyone if you can, the host's first. Start the game, and in the launcher open
+   **Help > Send diagnostics** (it works after a crash too: start the game again and use it). A few seconds later
+   a zip appears on your desktop with the logs of recent runs, your settings and a summary of your PC and network.
+   Your Windows and computer names, IP addresses and Steam IDs are replaced before it is zipped; it holds no saves
+   and no game files. Attach it to the report. Every run keeps its own log, so nothing is overwritten by playing
+   again (the newest 200 MB are kept; a run that crashed is never deleted).
+   If the launcher is switched off or won't start, the logs are in `%LOCALAPPDATA%\mdk2-coop\coop\logs`
+   (older installs and test copies: the `coop` folder in the game folder); `bridge.log` is the last run.
 3. Which player you were (host or which client), your mod version (launcher's About tab), how you connected
    (Steam or UDP), and the level and checkpoint.
 

@@ -166,6 +166,7 @@ int have_remote;
 static SOCKET sock = INVALID_SOCKET;
 int net_steam;
 BYTE *local_player;             /* last gob passed to coop_send */
+float local_pos[3];             /* where it was when last sent (diag.c) */
 BYTE *puppets[MAX_PLAYERS];
 
 static unsigned int nonce;
@@ -190,6 +191,7 @@ struct link {
     unsigned int last_stamp;            /* their latest stamp, and when it came (ping) */
     double last_stamp_at;
     double ping;                        /* round trip, ms, smoothed; 0 unknown */
+    double jitter;                      /* smoothed change between round trips, ms (diag.c) */
     double last_heard;
     struct event outbox[OUTBOX];
     unsigned int out_next, out_acked;   /* outbox holds ids out_acked+1 .. out_next-1 */
@@ -218,6 +220,7 @@ struct player {
     int type;                   /* OBJ type of their character, 0 if unknown */
     int hp, hp_max;
     int life, reviving;         /* revive.c: LIFE_*, slot + 1 they are reviving */
+    unsigned int rx, lost;      /* direct states received, and numbers skipped between them (diag.c) */
     double clock_offset;        /* their clock - ours, least-delayed estimate */
     int have_clock;
     struct track track;
@@ -458,6 +461,42 @@ int player_life(int slot)
 int player_reviving(int slot)
 {
     return player_connected(slot) ? players[slot].reviving - 1 : -1;
+}
+
+/* diag.c: that player's link quality (direct links only: the host's clients, or the host for a client).
+ * 1 and the numbers when there is one; rx and lost count the states received and the numbers skipped between them */
+int player_netq(int slot, int *rtt, double *jitter, unsigned int *rx, unsigned int *lost)
+{
+    struct link *l;
+
+    if (slot < 0 || slot >= MAX_PLAYERS || slot == my_slot || !player_connected(slot))
+        return 0;
+    l = role_host ? &links[slot] : slot == 0 ? &links[0] : NULL;
+    if (!l || !l->used)
+        return 0;
+    *rtt = (int)(l->ping + 0.5);
+    *jitter = l->jitter;
+    *rx = players[slot].rx;
+    *lost = players[slot].lost;
+    return 1;
+}
+
+/* where a player's link goes, for the diagnostics bundle ("steam" over Steam) */
+int player_addr(int slot, char *out, int size)
+{
+    struct link *l;
+
+    out[0] = 0;
+    if (slot < 0 || slot >= MAX_PLAYERS || slot == my_slot)
+        return 0;
+    l = role_host ? &links[slot] : slot == 0 ? &links[0] : NULL;
+    if (!l || !l->used)
+        return 0;
+    if (net_steam)
+        snprintf(out, size, "steam");
+    else
+        snprintf(out, size, "%s:%d", inet_ntoa(l->addr.sin_addr), (int)ntohs(l->addr.sin_port));
+    return 1;
 }
 
 int player_ping(int slot)
@@ -719,8 +758,13 @@ static void link_ping(struct link *l, const struct player_packet *p, double arri
     if (p->echo) {
         /* our clock is a double, the stamp its low 32 bits: compare in the same width */
         double rtt = (double)(unsigned int)((unsigned int)arrived - p->echo) - p->hold;
-        if (rtt >= 0.0 && rtt < 10000.0)
+        if (rtt >= 0.0 && rtt < 10000.0) {
+            if (l->ping > 0.0) {
+                double d = rtt > l->ping ? rtt - l->ping : l->ping - rtt;
+                l->jitter = l->jitter * 0.9 + d * 0.1;
+            }
             l->ping = l->ping > 0.0 ? l->ping * 0.8 + rtt * 0.2 : rtt;
+        }
     }
 }
 
@@ -1076,6 +1120,7 @@ void net_send_player(BYTE *gob)
         p.life = (unsigned char)revive_life();
         p.reviving = (unsigned char)(revive_reviving() + 1);
         snap_capture(gob, &p.state);
+        memcpy(local_pos, p.state.pos, sizeof(local_pos));
     }
     for (s = 0; s < MAX_PLAYERS; s++) {
         struct link *l = &links[s];
@@ -1125,11 +1170,18 @@ static void accept_state(int slot, const struct player_packet *p, double arrived
     if (!pl->connected) {
         logmsg("player %d connected", slot + 1);
         pl->connected = 1;
+        pl->rx = pl->lost = 0;
     } else if ((int)(p->seq - pl->seq) <= 0 && pl->seq - p->seq < 300) {
         pl->last_heard = arrived;
         return;                         /* late or duplicate (a big step back is a restart) */
     }
     pl->last_heard = arrived;
+    if (!(p->flags & PK_RELAY)) {       /* a relayed state skips numbers by design: only direct links tell loss */
+        int gap = (int)(p->seq - pl->seq);
+        if (pl->rx && gap > 1 && gap < 300)
+            pl->lost += gap - 1;
+        pl->rx++;
+    }
     pl->seq = p->seq;
     if ((p->flags & PK_STATE) && p->level == (unsigned char)cur_level && p->epoch == cur_epoch &&
         p->state.nanims <= SNAP_ANIMS) {

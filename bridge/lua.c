@@ -251,6 +251,10 @@ static void l_coop_event(void)
             event_relay(&e, from);
             continue;
         }
+        if (e.kind == EV_DIAG) {
+            diag_event(&e, from);       /* the desync check and marks (diag.c): Lua never sees them */
+            continue;
+        }
         if (e.kind == EV_MOVIE)
             movie_event(&e, from);      /* Lua gets it, with the sender's slot in netid */
         /* the host passes the clients' shots, pickups and markers on to the others */
@@ -260,8 +264,10 @@ static void l_coop_event(void)
             ent_despawn(e.netid, e.objtype);
         else if (e.kind == EV_FIRE)
             shots_replay(&e);
-        else if (e.kind == EV_MARK)
+        else if (e.kind == EV_MARK) {
             logmsg("lua: MARK %d (from player %d)", e.damage, from + 1);
+            diag_mark((unsigned int)e.damage, from + 1);
+        }
         else if (e.kind == EV_RULES)
             rules_event(&e);
         else if (e.kind == EV_STATE)
@@ -526,6 +532,7 @@ static void l_coop_set_quat(void)
 static void l_coop_mark(void)
 {
     event_queue(EV_MARK, "", (int)num_param(1), 0, 0);
+    diag_mark((unsigned int)num_param(1), 0);       /* and save the last minute here (diag.c) */
 }
 
 /* coop_press(code, ms): hold a key (DirectInput scancode) or mouse button (256 left, 257 right)
@@ -761,6 +768,16 @@ static void l_coop_crash(void)
     *(volatile int *)(uintptr_t)0x10 = 1;
 }
 
+/* coop_diag_test(skew, deaf): break the desync check on purpose (diag.c); only in background test mode */
+static void l_coop_diag_test(void)
+{
+    unsigned int a = lua_getparam(1), b = lua_getparam(2);
+
+    if (!test_background)
+        return;
+    diag_test((a && lua_isnumber(a)) ? (int)lua_getnumber(a) : 0, (b && lua_isnumber(b)) ? (int)lua_getnumber(b) : 0);
+}
+
 /* coop_emitter_guard(on): frame.c's reset of negative emitter counts (tests turn it off to show the crash) */
 static void l_coop_emitter_guard(void)
 {
@@ -855,6 +872,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_emitters", l_coop_emitters);
     tolua_function(NULL, "coop_emitter_guard", l_coop_emitter_guard);
     tolua_function(NULL, "coop_crash", l_coop_crash);
+    tolua_function(NULL, "coop_diag_test", l_coop_diag_test);
     tolua_function(NULL, "coop_emote", l_coop_emote);
     tolua_function(NULL, "coop_emoting", l_coop_emoting);
     tolua_function(NULL, "coop_revive_tick", l_coop_revive_tick);

@@ -147,7 +147,7 @@ struct track {
 };
 
 enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY,
-       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE };
+       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE, EV_DIAG };
 #define EV_NAME 32
 /* FIRE part: 0 replays create_object arguments; 1 restores a launched class 5 shot. */
 #define FIRE_LAUNCHED 1
@@ -193,6 +193,7 @@ extern int sync_anim;
 extern int ent_hz;
 extern int net_steam;           /* [net] transport=steam; absent means legacy UDP */
 extern BYTE *local_player;
+extern float local_pos[3];
 extern BYTE *puppets[MAX_PLAYERS];  /* other players' puppets by slot (coop_face) */
 
 double now_ms(void);
@@ -211,6 +212,8 @@ int player_connected(int slot);
 int player_in_level(int slot);
 const char *player_name(int slot);
 int player_ping(int slot);
+int player_netq(int slot, int *rtt, double *jitter, unsigned int *rx, unsigned int *lost);
+int player_addr(int slot, char *out, int size);
 void player_health(int slot, int *hp, int *hp_max);
 extern int local_max_hp;
 void net_set_name(const char *name);
@@ -477,5 +480,18 @@ extern char coop_dir[MAX_PATH], game_dir[MAX_PATH];
 extern int coop_enabled;
 void launcher_run(void);
 void logmsg(const char *fmt, ...);
+
+/* ---- diag.c: session logs, flight recorder, desync check, diagnostics bundle ---- */
+
+void diag_log_open(void);                   /* from DllMain, once bridge.log is open */
+void diag_log_line(const char *text);       /* every logmsg line: session log and flight recorder */
+void diag_log_close(void);
+void diag_crash(void);                      /* the crash handler: marker file and a flight dump */
+void diag_tick(void);                       /* per frame */
+void diag_event(const struct event *e, int from);
+void diag_mark(unsigned int n, int from);   /* an F2 mark: ours (from 0) or player `from`'s: save the last minute */
+void diag_test(int skew, int deaf);          /* tests: the host reports skew more enemies; deaf: a client ignores the host's report */
+int diag_bundle_start(void);                /* the launcher's button: 1 started, 0 could not */
+int diag_bundle_poll(char *msg, int size);  /* 0 idle, 1 running, 2 done (msg: the zip), 3 failed (msg: why) */
 
 #endif

@@ -107,6 +107,17 @@ check "host: launcher up before the game window"        wait_log 1 "^launcher: s
 check "client: launcher up"                             wait_log 2 "^launcher: shown at 1280x720" 30
 check "no co-op before Play"                            bash -c "! grep -q 'coop_init' '$(mdk_log 1)'"
 shot 1 play; lcmd 1 "$T_SET"; shot 1 settings; lcmd 1 "$T_ABOUT"; shot 1 about
+# help: Send diagnostics zips the logs (into a test folder, not the desktop) and says where it went
+diagout="$(dir 1)/coop/diag-out"; rm -rf "$diagout"; mkdir -p "$diagout"
+setini 1 diag out_dir "$(mdk_dir 1)\\coop\\diag-out"
+lcmd 1 "click 1165 50"; shot 1 help_page
+lcmd 1 "click 944 288"
+check "help: Send diagnostics starts the bundle"        wait_log 1 "^diagnostics: bundling started" 10
+check "help: the bundle is made"                        wait_log 1 "^diagnostics: OK .*mdk2-coop-diag_.*\\.zip" 120
+shot 1 help_done
+check "help: the zip is where the setting says"         bash -c "ls '$diagout'/mdk2-coop-diag_*.zip"
+check "help: it holds this run's log and a manifest"    bash -c "z=\$(ls '$diagout'/mdk2-coop-diag_*.zip | head -1); unzip -Z1 \"\$z\" | grep -q '^logs/.*\\.log\$' && unzip -Z1 \"\$z\" | grep -q '^manifest.json\$'"
+check "help: the bundle is readable by the report tool" python3 "$here/diag_report.py" "$(ls "$diagout"/mdk2-coop-diag_*.zip | head -1)"
 lcmd 1 "$T_SET" "$FF"; shot 1 settings_ff
 lcmd 1 "$SEC_NEXT" "$EMOTE"; shot 1 settings_interface        # Interface: the emote wheel off
 # saves: the sessions are listed with players and progress; a card picks what Host starts

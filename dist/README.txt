@@ -26,7 +26,8 @@ MDK2 HD, co-op off for that start), Steam or direct UDP, the host's address or
 lobby ID and your name. The Saves tab lists your co-op saves (who played, how far)
 and lets the host start at any level. The Settings tab has every option, in four
 sections: Co-op, Interface, Voice and sound (including the game's own effects,
-music and speech levels), Display. The About tab has the version and links.
+music and speech levels), Display. The About tab has the version and links; the Help tab
+makes the diagnostics zip for a bug report.
 Enter starts the game, Esc quits.
 Don't want it? Settings > Display > Show launcher at start: Off. Hold Shift while
 the game starts to bring it back. Accepting a Steam invite skips it and joins
@@ -170,13 +171,17 @@ Reporting a problem
 -------------------
 Open a bug report (or a feature request): https://github.com/TommoDotCommo/mdk2-coop/issues/new/choose
 - Press F2 the moment something goes wrong: a numbered marker goes in every player's
-  log, with a screenshot (coop_mark<N>.tga in the game folder).
-- Attach your log, and the host's if you can. In Steam, right-click MDK2 HD, choose
-  Manage > Browse local files, and open the coop folder. bridge.log is this run;
-  bridge.previous.log is the run before. After a crash, restarting the game moves the
-  crashed run's log to bridge.previous.log: send that one, it records where it crashed.
-  The logs have the players' names and, over UDP, their IP addresses: blank those out
-  if you'd rather not post them.
+  log, with a screenshot (coop_mark<N>.tga alongside the log), and every game saves the
+  last minute it saw (frame rate, positions, ping, lost packets) next to its log.
+- Attach the diagnostics bundle, from everyone if you can, the host's first. In the
+  launcher open Help > Send diagnostics: a few seconds later a zip is on your desktop
+  with the logs of recent runs, your settings and a summary of your PC and network. It
+  also works after a crash: start the game again and use it. Your Windows and computer
+  names, IP addresses and Steam IDs are replaced before it is zipped; it holds no saves
+  and no game files. Every run keeps its own log, so playing again does not overwrite
+  anything (the newest 200 MB are kept; a run that crashed is never deleted).
+  Without the launcher the logs are in %LOCALAPPDATA%\mdk2-coop\coop\logs (older
+  installs and test copies: the coop folder in the game folder); bridge.log is the last run.
 - Say which player you were (host or client), the mod version (launcher's About tab),
   Steam or UDP, and the level and checkpoint.
 

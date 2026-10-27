@@ -85,6 +85,7 @@ static void __cdecl update_scene_and_tick(void *scene)
     fix_emitters();
     ((void (*)(void *))UPDATE_SCENE_ADDR)(scene);
     run_command_file();
+    diag_tick();
     lua_dobuffer(tick_lua, sizeof(tick_lua) - 1, "coop tick");
 }
 

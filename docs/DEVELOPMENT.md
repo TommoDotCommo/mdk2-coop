@@ -291,6 +291,49 @@ Log: `<game dir>\coop\bridge.log`; the previous run's is kept as `bridge.previou
 or Steam replacing the unhandled-exception filter does not hide it); `coop_crash()` crashes on purpose in background
 test mode. Only the two builds above are supported.
 
+## Diagnostics (`bridge/diag.c`, `dist/diag.ps1`, `tools/diag_report.py`)
+
+So a report from a machine nobody can touch is enough to find the fault.
+
+- **Session logs.** `bridge.log` is rewritten each run (the test tools read it). Every run also writes
+  `<coop dir>\logs\<UTC start>_p<pid>.log`: opened append-only, never replaced, every line flushed. A line is
+  `<n> <utc ms> <chain> <text>`; `chain` is FNV-1a/64 of `"<n> <utc ms> <text>"` continued from the previous line's
+  chain, so a missing, cut or edited line breaks every chain value after it. That shows accidents, not forgery.
+  `session end: clean exit` closes a run that ended normally; `<session>.crash` marks one that crashed (the crash
+  handler writes it) and keeps it from being pruned. The folder is kept under `[diag] max_log_mb` (200),
+  oldest sessions first.
+- **Link quality.** Every 5 s a `netq: player <n> rtt .. ms, jitter .. ms, loss ..%` line per direct link (the
+  host's clients, or the host for a client). Loss counts the numbers skipped between a link's own states
+  (relayed states skip numbers by design and are not counted).
+- **Flight recorder.** The last 60 s at 10 Hz (fps, level, epoch, enemies, where every player is, rtt/jitter/loss,
+  life state) and the last 256 log lines are in memory and written to `<session>.flight-<marker>-<kind>.txt`
+  (never replaced) on a crash (`crash`), a desync (`desync` on the client that saw it, `report` on the host it told)
+  and an F2 mark (`mark` where it was pressed, `markp<n>` where it arrived from player n). The F2 mark was already
+  sent to every game, so each one dumps the same moment, filed under the mark's number.
+- **Desync check.** Once a second the host sends an `EV_DIAG` (part 0) with what it believes: level, epoch, number
+  of players, enemies (`ent_count()`), and a 2-bit life state per slot. A client in the same level and epoch that
+  disagrees on a field for 4 samples in a row logs `DESYNC <field>: host has .., we have ..`, dumps, and tells the
+  host (part 2), which logs `DESYNC reported` and dumps too; `desync cleared` follows when they agree again.
+  `coop_diag_test(skew, deaf)` (background test mode) makes the host report `skew` more enemies, or a client ignore
+  the report: the broken variant that `tools/qa_diag.sh` (`MUTANT=deaf`, run by hand: the runner clears mutant
+  switches) must fail.
+- **The bundle.** The launcher's Help tab has **Send diagnostics**. `diag.c` writes its embedded copy of
+  `dist/diag.ps1` (generated into `bridge/diag_ps1.h` by the Makefile, so it always matches the DLL) to the coop
+  folder and runs it hidden. The script reads logs even while the game holds them open, checks every session
+  log's chain, collects `system.txt` (Windows, hardware, game crashes from the event log, Defender detections,
+  overlay programs) and `network.txt` (adapters, Wi-Fi, firewall rules for the game, a ping to `peer_host`, and
+  Tailscale's path to it, direct or relayed, without account or device names), redacts Windows and computer names, the
+  profile folder, IPv4 addresses (`ip-3(lan)`, `(tailscale-or-cgnat)`, `(public)`, `(linklocal)`; the same
+  address always the same number), MAC addresses, Steam IDs and e-mail addresses, and writes one zip with a
+  `manifest.json` (SHA-256 of every file, each log's chain result from before the redaction) to the desktop. Keep
+  the script ASCII: Windows PowerShell 5.1 reads a BOM-less file as ANSI. It writes `diag-result.txt`
+  (`OK <zip>` or `ERR <why>`), which the launcher polls. `[diag] out_dir=<folder>` in coop.ini (tests) puts the zip
+  there instead of the desktop and does not open Explorer; `tools/qa_launcher.sh` clicks the button for real.
+- **Reading a bundle.** `tools/diag_report.py host.zip client.zip` checks the manifest hashes and chains and prints
+  each run (version, role, length, crash, desyncs, marks, rtt/jitter/loss with a sparkline), the flight dumps,
+  and the clock offset between machines from shared marks; `--timeline out.txt [--align]` merges every log line of
+  every bundle into one time-ordered file, `--raw <coop dir>` checks a live folder, `--json` for scripts.
+
 Updates go out at `send_hz` (30) and the other player is drawn `interp_ms` (100) in the past, blended
 between the two updates either side; `[sim]` fakes latency, jitter and loss for testing. While the other
 player moves, bridge.log gets a `smooth:` line every 2 s (step size mean/sd/max, stalled frames, cv = sd/mean;
