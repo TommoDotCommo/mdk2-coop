@@ -35,7 +35,8 @@ class Gate:
     shards: int = 1
 
 
-OFFLINE = [Gate("build", ("make", "-C", "bridge")),
+OFFLINE = [Gate("combat-core", ("python3", "tools/test_combat.py")),
+           Gate("build", ("make", "-C", "bridge")),
            Gate("oracles-routes-input", ("bash", "tools/test_replay.sh")),
            Gate("projectile-core", ("make", "-C", "bridge", "test-shots")),
            Gate("controller-core", ("make", "-C", "bridge", "test-pad")),
@@ -59,17 +60,18 @@ FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
                 ("lobby", "qa_lobby", 3, "counts"),
                 ("first-enemy", "qa_sign", 3, "counts"),
                 ("character-motion", "qa_motion", 2, "counts"),
-                ("hud", "qa_hud", 3, "counts"), ("chat", "qa_chat", 3, "counts"),
+                ("combat-startup", "qa_combat_startup", 1, "counts"), ("combat", "qa_combat", 3, "counts"), ("hud", "qa_hud", 3, "counts"), ("chat", "qa_chat", 3, "counts"),
                 ("voice", "qa_voice", 3, "counts"), ("projectiles", "qa_shots", 3, "projectiles"),
                 ("native-projectiles", "qa_shots_native", 3, "counts"),
                 ("installer", "qa_installer", 1, "installer")]]
 CAMPAIGN = Gate("campaign", ("bash", "tools/sweep.sh"), 2, 5400, "sweep")
 LOSSY = Gate("lossy-projectiles", ("bash", "tools/qa_shots_native.sh"), 3, 600, "counts", "80 30 3")
+LOSSY_COMBAT = Gate("lossy-combat", ("bash", "tools/qa_combat.sh"), 3, 600, "counts", "80 30 3")
 LOSSY_EPOCH = Gate("lossy-level-epochs", ("bash", "tools/qa_epoch.sh"), 2, 600, "counts", "80 30 3")
 PROFILES = {"offline": OFFLINE, "smoke": OFFLINE + SMOKE,
-            "features": OFFLINE + SMOKE[:1] + FEATURES + [LOSSY, LOSSY_EPOCH],
+            "features": OFFLINE + SMOKE[:1] + FEATURES + [LOSSY, LOSSY_EPOCH, LOSSY_COMBAT],
             "campaign": OFFLINE + [CAMPAIGN],
-            "full": OFFLINE + SMOKE[:1] + FEATURES + [LOSSY, LOSSY_EPOCH, CAMPAIGN]}
+            "full": OFFLINE + SMOKE[:1] + FEATURES + [LOSSY, LOSSY_EPOCH, LOSSY_COMBAT, CAMPAIGN]}
 
 
 def score(gate, code, output, timed_out=False):

@@ -183,3 +183,10 @@ keeps that restored world. The feature profile repeats this under simulated loss
 collectors, local reward echo suppression, unnamed drops, respawns, missing local copies,
 and reconnect history without extra rewards. Its four broken behavior variants must fail.
 The network core also rejects a variant that omits enemy maximum HP from spawn events.
+
+## Combat feedback
+
+`python3 tools/test_combat.py` runs the portable core, simulator, fuzzer and mutation twins
+without Windows execution. `tools/qa_combat.sh` is the three-process HP-loss/ledger scenario,
+registered as `combat` in the feature ladder. See [COMBAT.md](COMBAT.md#verification) for
+ordered live commands, the required failing mutant and the limits of T0 layout checks.

@@ -94,6 +94,15 @@ BYTE *ent_gob(unsigned int netid)
     return gob_by_handle(e->local) == e->gob ? e->gob : NULL;
 }
 
+unsigned int ent_netid(BYTE *gob)
+{
+    int i;
+    for (i = 0; i < nents; i++)
+        if (ents[i].gob == gob && gob_by_handle(ents[i].local) == gob)
+            return ents[i].id;
+    return 0;
+}
+
 /* 1 if the gob is one of the synced enemies */
 int ent_is_synced(BYTE *gob)
 {
