@@ -35,7 +35,7 @@ class Gate:
     shards: int = 1
 
 
-OFFLINE = [Gate("build", ("make", "-C", "bridge")),
+OFFLINE = [Gate("presence-core", ("python3", "tools/test_presence.py")), Gate("build", ("make", "-C", "bridge")),
            Gate("oracles-routes-input", ("bash", "tools/test_replay.sh")),
            Gate("projectile-core", ("make", "-C", "bridge", "test-shots")),
            Gate("controller-core", ("make", "-C", "bridge", "test-pad")),
@@ -49,7 +49,8 @@ SMOKE = [Gate("two-player", ("bash", "tools/qa.sh"), 2, result="counts"),
 FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
             for name, script, players, result in [
                 ("multiplayer", "qa_n", 3, "counts"), ("save-reconnect", "qa_save", 3, "counts"),
-                ("level-epochs", "qa_epoch", 2, "counts"), ("enemy-targeting", "qa_ai", 3, "counts"),
+                ("level-epochs", "qa_epoch", 2, "counts"), ("enemy-targeting", "qa_ai", 2, "counts"),
+                ("attached-canopy", "qa_presence", 3, "counts"), ("client-join", "qa_join", 2, "counts"),
                 ("revive", "qa_revive", 3, "counts"), ("menu", "qa_menu", 3, "counts"),
                 ("cutscenes", "qa_cutscene", 2, "counts"), ("minigames", "qa_minigames", 2, "counts"),
                 ("level8-intro", "qa_level8_intro", 2, "counts"),

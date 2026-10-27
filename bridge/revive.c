@@ -124,7 +124,7 @@ static void pose_apply(void)
 {
     struct snap s;
     float phase = (float)((now_ms() - life_since) / 1000.0) * DIE_RATE, one = 1.0f, four = 4.0f, rate = DIE_RATE;
-    DWORD *st = s.anims[0].state;
+    uint32_t *st = s.anims[0].state;
 
     if (phase > DIE_HOLD)
         phase = DIE_HOLD;

@@ -11,6 +11,7 @@
 #include <windows.h>
 #include <stdio.h>
 #include <stdint.h>
+#include "presence.h"
 
 /* ---- engine addresses per game build ----
  * Steam build 3902 and the Overhaul Games (non-Steam) build share nearly all code at the same
@@ -71,6 +72,7 @@ typedef void (*lua_CFunction)(void);
 #define CLASS_SLOTS         14
 #define CLASS_THINK         1       /* slot +0x4: per-frame AI/update, think(gob); +0x0 is used instead
                                        for the player-controlled gob (caller around 0x42b3f0) */
+#define CLASS_ANIMEVENT     7       /* slot +0x1c: native animation events (including attacks) */
 #define CLASS_ANIMLOOP      11      /* slot +0x2c: animation looped, (gob, ?, ?) (caller 0x42b51e) */
 
 /* Engine object table: GOB_SLOTS entries of { gob *, u16 generation, u16 pad };
@@ -119,34 +121,7 @@ void *hook_code(BYTE *fn, const BYTE *expect, int len, void *hook);
 
 /* ---- net.c ---- */
 
-#define ANIM_STATE_DWORDS   10      /* flags, mode, times, rate, weight: plain data, no pointers */
-#define ANIM_TIME0          3       /* [3] and [4]: normalised play position, 0..1 */
-#define ANIM_TIME1          4
-#define ANIM_WEIGHT         6
-#define SNAP_ANIMS          8
-#define NO_ANIM             0xff
-
-struct anim_entry {
-    unsigned char id;
-    DWORD state[ANIM_STATE_DWORDS];
-};
-
-/* One sampled state of a gob: what a snapshot carries and what the puppet shows */
-struct snap {
-    unsigned int time;          /* sender clock, ms */
-    float pos[3];
-    float quat[4];              /* w, x, y, z */
-    unsigned char cur, prev, nanims;
-    struct anim_entry anims[SNAP_ANIMS];
-};
-
-#define TRACK_SNAPS 16
-
-struct track {
-    struct snap snaps[TRACK_SNAPS];     /* ordered by sender time, oldest first */
-    int n;
-    struct snap view;                   /* interpolated state for this frame */
-};
+#include "snapshot.h"
 
 enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY,
        EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE, EV_DIAG, EV_PUZZLE };
@@ -246,6 +221,19 @@ void track_add(struct track *t, const struct snap *s);
 void track_update(struct track *t, double clock_offset);
 double host_clock_offset(void);
 void anim_apply(BYTE *gob, const struct snap *s);
+BYTE *canopy_gob(BYTE *gob);
+void canopy_capture(BYTE *gob, struct canopy_state *s);
+void canopy_apply(BYTE *gob, const struct canopy_state *s);
+void presence_lua_init(void);
+void presence_dump(FILE *f);
+void ai_init(void);
+DWORD ai_run(BYTE *gob, DWORD original, DWORD a, DWORD b, DWORD c);
+int presence_damage_allowed(void *caller);
+int presence_hit(BYTE *from, BYTE *target, int applied);
+int net_join_cancelled(void);
+void net_retry_join(void);
+void net_test_legacy(int on);
+int net_version_mismatch(void);
 
 /* ---- game.c: players ---- */
 int puppet_slot(BYTE *gob);

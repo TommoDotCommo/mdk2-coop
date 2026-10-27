@@ -76,6 +76,8 @@ Choose "udp" at install for LAN/testing or direct internet connections. The host
 forwards UDP 27900 (or their chosen port) on their router for internet play and
 shares their public IPv4 address and port. On a LAN use their local IPv4 address.
 Joining players enter that address and port. Allow MDK2 HD through Windows Firewall.
+Once joined, wait for the host; the game loads automatically. Esc cancels joining.
+Session > Join host again retries. Only the host needs to choose a game.
 Older coop.ini files without a transport key continue to use UDP.
 
 Playing

@@ -39,6 +39,7 @@ static UINT fake_profile_int(const char *, const char *, int, const char *);
 
 char coop_dir[MAX_PATH];
 int local_max_hp;
+int test_background = 1;
 static int passed;
 #define CHECK(expr) do { if (!(expr)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #expr); exit(1); } passed++; } while (0)
 static struct { char file[MAX_PATH], section[32], key[32], value[128]; } profile[128];
@@ -74,6 +75,8 @@ static UINT fake_profile_int(const char *section, const char *key, int def, cons
     return strtol(value,NULL,10);
 }
 void logmsg(const char *fmt, ...) { }
+void canopy_capture(BYTE *gob, struct canopy_state *s) { memset(s,0,sizeof(*s)); }
+void canopy_apply(BYTE *gob, const struct canopy_state *s) { }
 int gob_hp(BYTE *gob) { return 100; }
 int gob_max_hp(BYTE *gob) { return 150; }
 BYTE *gob_by_handle(unsigned int handle) { return (BYTE *)1; }
@@ -238,6 +241,26 @@ int main(void)
     CHECK(links[1].out_next==1);
     CHECK(links[1].outbox[0].damage==75);
     CHECK(links[1].outbox[0].extra[0]==150);
+    /* Joining protections operate before packet/world application. */
+    {
+        BYTE wire[1400];
+        struct sockaddr_in from = {0};
+        unsigned int old_nonce = nonce;
+        int size;
+        role_host=0; net_steam=0; have_remote=0;
+        links[0].addr=from;
+        p=packet(321,654,1); p.slot=0; p.you=1;
+        size=packet_pack(&p,wire,sizeof(wire)); CHECK(size>0);
+        net_cancel_join(); CHECK(net_join_cancelled() && !net_ready());
+        accept_datagram(wire,size,&from,0,1000); CHECK(!have_remote);
+        net_retry_join(); CHECK(!net_join_cancelled() && nonce!=old_nonce && my_slot==-1);
+        accept_datagram(wire,size,&from,0,1001); CHECK(have_remote && my_slot==1);
+        *(unsigned int *)wire=0x434b444d;
+        from.sin_port=htons(1234);
+        accept_datagram(wire,size,&from,0,1002); CHECK(!net_version_mismatch());
+        from=links[0].addr;
+        accept_datagram(wire,size,&from,0,1003); CHECK(net_version_mismatch());
+    }
     DeleteFileA(path); snprintf(ini_path,sizeof(ini_path),"%s",path);
     CHECK(!parse_lobby("",&parsed)); CHECK(!parse_lobby("-1",&parsed));
     CHECK(!parse_lobby("18446744073709551616",&parsed)); CHECK(!parse_lobby("76561198000000001",&parsed));
@@ -361,6 +384,26 @@ int main(void)
     CHECK(links[1].out_next==1);
     CHECK(links[1].outbox[0].damage==75);
     CHECK(links[1].outbox[0].extra[0]==150);
+    /* Joining protections operate before packet/world application. */
+    {
+        BYTE wire[1400];
+        struct sockaddr_in from = {0};
+        unsigned int old_nonce = nonce;
+        int size;
+        role_host=0; net_steam=0; have_remote=0;
+        links[0].addr=from;
+        p=packet(321,654,1); p.slot=0; p.you=1;
+        size=packet_pack(&p,wire,sizeof(wire)); CHECK(size>0);
+        net_cancel_join(); CHECK(net_join_cancelled() && !net_ready());
+        accept_datagram(wire,size,&from,0,1000); CHECK(!have_remote);
+        net_retry_join(); CHECK(!net_join_cancelled() && nonce!=old_nonce && my_slot==-1);
+        accept_datagram(wire,size,&from,0,1001); CHECK(have_remote && my_slot==1);
+        *(unsigned int *)wire=0x434b444d;
+        from.sin_port=htons(1234);
+        accept_datagram(wire,size,&from,0,1002); CHECK(!net_version_mismatch());
+        from=links[0].addr;
+        accept_datagram(wire,size,&from,0,1003); CHECK(net_version_mismatch());
+    }
     DeleteFileA(path);
     printf("PASS: %d network checks (simulated Steam + real loopback UDP)\n",passed);
     return 0;

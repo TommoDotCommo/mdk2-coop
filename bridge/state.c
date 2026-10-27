@@ -57,6 +57,7 @@ void state_dump(const char *tag)
         put_pos(f, puppets[s]);
         fputc('\n', f);
     }
+    presence_dump(f);
     ents_dump(f);
     for (slot = 0; slot < GOB_SLOTS; slot++) {
         BYTE *gob = (BYTE *)GOB_TABLE[slot * 2];

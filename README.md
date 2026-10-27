@@ -86,7 +86,8 @@ starts to bring it back. Accepting a Steam invite skips it and joins straight aw
 
 **Join:** start the game, then accept the host's Steam invite, use **Join Game** in Steam's friends list, or
 enter their lobby ID in **Options > Co-op > Session > Join lobby by ID**. Start the game before accepting an
-invite.
+invite. Once joined, wait for the host: your game loads automatically. **Esc** cancels joining;
+**Session > Join host again** retries. You do not need to choose New Game.
 
 No port forwarding, public IP or extra downloads are needed. Everyone needs Steam online and the same mod
 version. If the Steam overlay is off, share the lobby ID instead.

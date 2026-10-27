@@ -377,14 +377,23 @@ void gob_set_foreign(BYTE *gob, int on)
  * results. think (+0x4): AI, shot flight. anim loop (+0x2c, called when an animation
  * loops, with the Lua OnAnimLoop): Max's deletes the gob an arm holds by handle, and the
  * puppet Max holds nothing, so copying the partner's animations crashed level 2. */
-#define FILTER_SLOTS 2
-static const int filter_slot[FILTER_SLOTS] = { CLASS_THINK, CLASS_ANIMLOOP };
+#define FILTER_SLOTS 3
+static const int filter_slot[FILTER_SLOTS] = { CLASS_THINK, CLASS_ANIMLOOP, CLASS_ANIMEVENT };
 static DWORD slot_orig[FILTER_SLOTS][64];
+
+static DWORD __cdecl ai_think(BYTE *gob, DWORD a, DWORD b, DWORD c)
+{
+    return ai_run(gob, slot_orig[0][gob_class(gob)], a, b, c);
+}
+static DWORD __cdecl ai_anim_event(BYTE *gob, DWORD a, DWORD b, DWORD c)
+{
+    return ai_run(gob, slot_orig[2][gob_class(gob)], a, b, c);
+}
 
 /* Called by a slot thunk: the original for normal gobs, 0 to skip mirrors */
 static DWORD __cdecl slot_filter0(BYTE *gob)
 {
-    return gob_is_mirrored(gob) ? 0 : slot_orig[0][gob_class(gob)];
+    return gob_is_mirrored(gob) ? 0 : role_host && gob_is_actor(gob) ? (DWORD)ai_think : slot_orig[0][gob_class(gob)];
 }
 
 static DWORD __cdecl slot_filter1(BYTE *gob)
@@ -392,7 +401,11 @@ static DWORD __cdecl slot_filter1(BYTE *gob)
     return gob_is_mirrored(gob) ? 0 : slot_orig[1][gob_class(gob)];
 }
 
-static void *const slot_filters[FILTER_SLOTS] = { (void *)slot_filter0, (void *)slot_filter1 };
+static DWORD __cdecl slot_filter2(BYTE *gob)
+{
+    return gob_is_mirrored(gob) ? 0 : role_host && gob_is_actor(gob) ? (DWORD)ai_anim_event : slot_orig[2][gob_class(gob)];
+}
+static void *const slot_filters[FILTER_SLOTS] = { (void *)slot_filter0, (void *)slot_filter1, (void *)slot_filter2 };
 
 /* Thunk: push [esp+4]; call filter; add esp,4; test eax,eax; jz +2; jmp eax; xor eax,eax; ret
  * (the slot's own arguments stay on the stack for the jmp) */

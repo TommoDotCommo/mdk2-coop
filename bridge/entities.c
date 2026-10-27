@@ -196,6 +196,7 @@ void ents_host_tick(void)
 
         if (!gob || !gob_is_actor(gob))
             continue;
+        class_filter_think(gob_class(gob));
         id = gob_handle(slot);
         if (ent_find(id) || nents == MAX_ENTS)
             continue;

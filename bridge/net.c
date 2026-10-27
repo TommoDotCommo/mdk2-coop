@@ -24,7 +24,9 @@
 #include <math.h>
 #include "bridge.h"
 
-#define PLAYER_MAGIC    0x434b444d      /* "MDKC": FIRE includes finished projectile launch state */
+static int join_cancelled, version_mismatch, test_legacy_version;
+
+#define PLAYER_MAGIC    0x544b444d      /* "MDKT": attached canopy state; incompatible with older peers */
 #define PACKET_EVENTS   7      /* 7 x 128-byte events + player state fit in one datagram */
 #define MAX_DATAGRAM    1400
 #define PLAYER_TIMEOUT_MS 10000.0
@@ -39,7 +41,7 @@
  * count records: u8 slot, u8 flags, u8 level, u8 life, u32 id, u32 seq, u16 epoch,
  * i16 player_type, i16 hp, i16 hp_max, u8 reviving, u8 pad, u32 state time, [name, PLAYER_NAME bytes, if PK_NAME], u16 length,
  * snap_encode bytes. The name goes along about once a second. */
-#define RELAY_MAGIC     0x534b444d      /* "MDKS": records with life and reviving */
+#define RELAY_MAGIC     0x554b444d      /* "MDKU": records including attached canopy state */
 struct relay_head {
     unsigned int magic;
     unsigned int nonce;         /* host process */
@@ -139,7 +141,15 @@ static void send_to(int slot, const void *buf, int len);
 static void send_packet(int slot, const struct player_packet *p)
 {
     BYTE wire[MAX_DATAGRAM];
+    struct player_packet reduced;
     int len = packet_pack(p, wire, sizeof(wire));
+    if (!len && p->nevents) {
+        reduced = *p;
+        while (!len && reduced.nevents) {
+            reduced.nevents--;
+            len = packet_pack(&reduced, wire, sizeof(wire));
+        }
+    }
 
     if (len)
         send_to(slot, wire, len);
@@ -919,6 +929,7 @@ void snap_capture(BYTE *gob, struct snap *s)
     BYTE *ctl = *(BYTE **)(gob + GOB_ANIM);
     int id;
 
+    canopy_capture(gob, &s->canopy);
     s->time = (unsigned int)now_ms();
     memcpy(s->pos, gob + GOB_POSITION, sizeof(s->pos));
     memcpy(s->quat, gob + GOB_ORIENTATION, sizeof(s->quat));
@@ -975,7 +986,7 @@ int snap_encode(const struct snap *s, BYTE *out, int max)
     *o++ = s->prev;
     *o++ = s->nanims;
     for (i = 0; i < s->nanims; i++) {
-        const DWORD *st = s->anims[i].state;
+        const uint32_t *st = s->anims[i].state;
         unsigned short mask = 0;
         int quant = 1;
 
@@ -1005,6 +1016,9 @@ int snap_encode(const struct snap *s, BYTE *out, int max)
             }
         }
     }
+    i = canopy_encode(&s->canopy, o, (int)(end - o));
+    if (!i) return 0;
+    o += i;
     return (int)(o - out);
 }
 
@@ -1034,7 +1048,7 @@ int snap_decode(const BYTE *in, int len, struct snap *s)
         return 0;
     for (i = 0; i < s->nanims; i++) {
         unsigned short mask;
-        DWORD *st = s->anims[i].state;
+        uint32_t *st = s->anims[i].state;
 
         if (end - p < 3)
             return 0;
@@ -1059,6 +1073,9 @@ int snap_decode(const BYTE *in, int len, struct snap *s)
             }
         }
     }
+    i = canopy_decode(p, (int)(end - p), &s->canopy);
+    if (!i) return 0;
+    p += i;
     return (int)(p - in);
 }
 
@@ -1068,6 +1085,7 @@ void anim_apply(BYTE *gob, const struct snap *s)
     BYTE *ctl = *(BYTE **)(gob + GOB_ANIM);
     int id, i;
 
+    canopy_apply(gob, &s->canopy);
     if (!ctl)
         return;
     for (id = 0; id < ANIM_ID_MAX; id++) {
@@ -1105,7 +1123,7 @@ void net_send_player(BYTE *gob)
     if (role_host)
         relay_flush();
     memset(&p, 0, PACKET_HEAD);
-    p.magic = PLAYER_MAGIC;
+    p.magic = test_legacy_version && role_host ? 0x434b444d : PLAYER_MAGIC;
     p.nonce = nonce;
     p.id = my_id;
     memcpy(p.name, my_name, PLAYER_NAME);
@@ -1137,6 +1155,12 @@ void net_send_player(BYTE *gob)
         for (id = l->out_acked + 1; id < l->out_next && p.nevents < PACKET_EVENTS; id++)
             p.events[p.nevents++] = l->outbox[id % OUTBOX];
         send_packet(s, &p);
+        if (!role_host && !have_remote && p.seq % 30 == 1) {
+            struct player_packet probe = p;
+            probe.magic = 0x434b444d;
+            probe.flags = probe.nevents = 0;
+            send_packet(s, &probe);
+        }
         if (p.seq % 900 == 0)
             logmsg("send #%u to player %d pos (%.2f, %.2f, %.2f) anim cur %d n %d, events %d unacked", p.seq, s + 1,
                    p.state.pos[0], p.state.pos[1], p.state.pos[2], p.state.cur, p.state.nanims,
@@ -1370,7 +1394,7 @@ static void relay_flush(void)
             if (!(relay_pending[s].to & (1u << d)))
                 continue;
             name = relay_pending[s].count % RELAY_NAME_EVERY == 0;
-            if (buf + sizeof(buf) - o < RELAY_FIXED + PLAYER_NAME + 2 + 400) {
+            if (buf + sizeof(buf) - o < RELAY_FIXED + PLAYER_NAME + 2 + 512) {
                 send_to(d, buf, (int)(o - buf));
                 o = buf + sizeof(*h);
                 h->count = 0;
@@ -1393,7 +1417,7 @@ static void relay_flush(void)
                 memcpy(o, p->name, PLAYER_NAME);
                 o += PLAYER_NAME;
             }
-            n = snap_encode(&p->state, o + 2, 400);
+            n = snap_encode(&p->state, o + 2, 512);
             n16 = (unsigned short)n;
             memcpy(o, &n16, 2);
             o += 2 + n;
@@ -1503,6 +1527,13 @@ static void accept_datagram(const BYTE *buf, int len, const struct sockaddr_in *
     static struct player_packet unpacked;
     const struct player_packet *p = &unpacked;
 
+    if (net_join_cancelled()) return;
+    if (!role_host && len >= (int)WIRE_HEAD && *(const unsigned int *)buf == 0x434b444d &&
+        (net_steam ? steam_id == links[0].steam_id :
+         (from->sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from->sin_port == links[0].addr.sin_port))) {
+        version_mismatch = 1;
+        return;
+    }
     if (len >= (int)sizeof(unsigned int) && *(const unsigned int *)buf == PLAYER_MAGIC) {
         if (!packet_unpack(buf, len, &unpacked))
             return;
@@ -1610,8 +1641,26 @@ static void received(const BYTE *buf, int len, const struct sockaddr_in *from, u
     nsimq++;
 }
 
+int net_join_cancelled(void) { return join_cancelled; }
+int net_version_mismatch(void) { return version_mismatch; }
+void net_retry_join(void)
+{
+    int s;
+    join_cancelled = version_mismatch = 0;
+    if (role_host) return;
+    nonce++; /* require a fresh welcome, including the host's current LEVEL */
+    link_reset(&links[0]);
+    links[0].nonce = 0;
+    for (s = 0; s < MAX_PLAYERS; s++) player_left(s, "retry join");
+    have_remote = 0;
+    my_slot = -1;
+}
+void net_test_legacy(int on) { if (test_background) test_legacy_version = on; }
+void net_cancel_join(void) { if (!role_host) join_cancelled = 1; }
+
 int net_ready(void)
 {
+    if (join_cancelled) return 0;
     return net_steam ? steam_ready() : sock != INVALID_SOCKET;
 }
 
@@ -1626,6 +1675,7 @@ void net_steam_session(int host, uint64_t peer)
     memset(relay_pending, 0, sizeof(relay_pending));
     nsimq = 0;
     have_remote = 0;
+    join_cancelled = version_mismatch = 0;
     role_host = host;
     my_slot = host ? 0 : -1;
     /* A new lobby may contain a different world at the same checkpoint. */
