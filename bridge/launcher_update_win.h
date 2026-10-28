@@ -147,15 +147,15 @@ static DWORD WINAPI update_check_worker(LPVOID arg)
             snprintf(update_msg, sizeof(update_msg), "Update available: %s (%u KB)", rel.tag, (unsigned)((rel.zip_size + 1023) / 1024));
         } else if (newer == 0) {
             update_state = UP_CURRENT;
-            snprintf(update_msg, sizeof(update_msg), "Up to date (%s).", MOD_VERSION);
+            snprintf(update_msg, sizeof(update_msg), "Update check successful: up to date (%s).", MOD_VERSION);
         } else {
             update_state = UP_ERROR;
             update_last_err = LU_ERR_VERSION;
             snprintf(update_msg, sizeof(update_msg), "Release tag format unrecognized.");
         }
     } else if (r == LU_UP_TO_DATE) {
-        update_state = UP_CURRENT;
-        snprintf(update_msg, sizeof(update_msg), "Up to date (%s).", MOD_VERSION);
+        update_state = UP_IDLE;
+        snprintf(update_msg, sizeof(update_msg), "Update check successful: no eligible releases found.");
     } else if (r == LU_ERR_RATELIMIT) {
         update_state = UP_ERROR;
         snprintf(update_msg, sizeof(update_msg), "GitHub API rate limit reached; try again later.");

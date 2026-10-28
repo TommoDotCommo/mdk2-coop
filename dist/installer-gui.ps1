@@ -1,5 +1,5 @@
 # User-facing installer. Only the game-file operation is ever elevated.
-param([string]$ProbePath, [ValidateSet('', 'install', 'uninstall')][string]$TestCompletion = '', [switch]$TestLayout)
+param([string]$ProbePath, [ValidateSet('', 'install', 'uninstall')][string]$TestCompletion = '', [switch]$TestLayout, [string]$TestActionsPath)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -86,7 +86,7 @@ Style-Button $uninstall $false
 $form.Controls.Add($uninstall)
 $inventory = New-Object Windows.Forms.ListView
 $inventory.View = 'Details'; $inventory.FullRowSelect = $true
-$inventory.SetBounds(26, 255, 702, 205); $inventory.Anchor = 'Top, Bottom, Left, Right'
+$inventory.SetBounds(26, 305, 702, 155); $inventory.Anchor = 'Top, Bottom, Left, Right'
 [void]$inventory.Columns.Add('Change', 210)
 [void]$inventory.Columns.Add('Status', 100)
 [void]$inventory.Columns.Add('Details', 800)
@@ -95,6 +95,47 @@ $refresh = New-Object Windows.Forms.Button
 $refresh.Text = 'Refresh'; $refresh.SetBounds(26, 480, 110, 40); $refresh.Anchor = 'Bottom, Left'
 Style-Button $refresh $false
 $form.Controls.Add($refresh)
+$playExisting = New-Object Windows.Forms.Button
+$playExisting.Name = 'PlayExisting'; $playExisting.Text = 'Play MDK2'
+$playExisting.SetBounds(26, 250, 143, 40); $playExisting.Enabled = $false
+Style-Button $playExisting $true
+$form.Controls.Add($playExisting)
+$shortcutExisting = New-Object Windows.Forms.Button
+$shortcutExisting.Text = 'Create desktop shortcut'
+$shortcutExisting.SetBounds(181, 250, 260, 40); $shortcutExisting.Enabled = $false
+Style-Button $shortcutExisting $false
+$form.Controls.Add($shortcutExisting)
+function Start-Mdk2Game($dir) {
+    if (-not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe') -PathType Leaf)) { throw 'Choose the folder containing mdk2hd.exe.' }
+    Start-Process -FilePath (Join-Path $dir 'mdk2hd.exe') -WorkingDirectory $dir -ErrorAction Stop | Out-Null
+}
+function New-Mdk2DesktopShortcut($dir, $desktop = [Environment]::GetFolderPath('DesktopDirectory')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe') -PathType Leaf)) { throw 'Choose the folder containing mdk2hd.exe.' }
+    $shell = New-Object -ComObject WScript.Shell
+    try {
+        $link = $shell.CreateShortcut((Join-Path $desktop 'MDK2 Co-op.lnk'))
+        $link.TargetPath = Join-Path $dir 'mdk2hd.exe'
+        $link.WorkingDirectory = $dir
+        $link.IconLocation = (Join-Path $dir 'mdk2hd.exe') + ',0'
+        $link.Description = 'Play MDK2 HD with the co-op launcher'
+        $link.Save()
+    } finally {
+        if ($link) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($link) }
+        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
+    }
+}
+function Play-Game($dir) {
+    try { Start-Mdk2Game $dir; $form.Close() }
+    catch { [Windows.Forms.MessageBox]::Show($form, "Could not start MDK2 HD. Keep Steam or the Beamdog client running.`n`n$($_.Exception.Message)", 'MDK2 Co-op', 'OK', 'Error') | Out-Null }
+}
+function Add-DesktopShortcut($dir) {
+    try {
+        New-Mdk2DesktopShortcut $dir
+        [Windows.Forms.MessageBox]::Show($form, 'MDK2 Co-op shortcut added to your desktop.', 'MDK2 Co-op', 'OK', 'Information') | Out-Null
+    } catch { [Windows.Forms.MessageBox]::Show($form, "Could not create the shortcut.`n`n$($_.Exception.Message)", 'MDK2 Co-op', 'OK', 'Error') | Out-Null }
+}
+$playExisting.Add_Click({ Play-Game ($path.Text.Trim().Trim('"')) })
+$shortcutExisting.Add_Click({ Add-DesktopShortcut ($path.Text.Trim().Trim('"')) })
 function Refresh-Status {
     if ($script:busy -or $script:refreshing) { return }
     $script:refreshing = $true
@@ -102,9 +143,11 @@ function Refresh-Status {
     try {
         $inventory.Items.Clear(); $install.Enabled = $false; $uninstall.Enabled = $false
         $install.Text = 'Install'
+        $playExisting.Enabled = $false; $shortcutExisting.Enabled = $false
         $status.Text = 'Choose a game folder to inspect its installation.'
         $dir = $path.Text.Trim().Trim('"')
-        if (-not $dir -or -not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe'))) { return }
+        if (-not $dir -or -not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe') -PathType Leaf)) { return }
+        $playExisting.Enabled = $true; $shortcutExisting.Enabled = $true
         try {
             $snapshot = Get-CoopInstallStatus $dir $PSScriptRoot (Join-Path $env:LOCALAPPDATA 'MDK2HD\settings.lua') (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop')
             foreach ($row in $snapshot.items) {
@@ -116,7 +159,8 @@ function Refresh-Status {
             $install.Text = if ($snapshot.actions.install) { $snapshot.actions.install } elseif ($snapshot.actions.blocked) { 'Needs attention' } else { 'Up to date' }
             $uninstall.Enabled = $snapshot.actions.uninstall
             if ($snapshot.actions.blocked) { $status.Text = 'Conflicting or unreadable files need attention. Modified files are kept.' }
-            else { $status.Text = 'Status is read-only. Saves and current player options are kept.' }
+            elseif (-not $snapshot.actions.install) { $status.Text = 'Co-op is already installed. Click Play MDK2 to open the launcher.' }
+            else { $status.Text = 'You can play MDK2 now, or install co-op below. Keep Steam or the Beamdog client running.' }
         } catch { $status.Text = 'Could not inspect this folder. No changes were made.' }
     } finally {
         $inventory.EndUpdate()
@@ -141,22 +185,21 @@ $play.Name = 'Play'; $play.Text = 'Play MDK2'; $play.SetBounds(318, 175, 143, 40
 Style-Button $play $true
 $script:installedDir = ''
 $close.Add_Click({ $form.Close() })
-$play.Add_Click({
-    try {
-        Start-Process -FilePath (Join-Path $script:installedDir 'mdk2hd.exe') -WorkingDirectory $script:installedDir -ErrorAction Stop | Out-Null
-        $form.Close()
-    } catch {
-        [Windows.Forms.MessageBox]::Show($form, "Could not start MDK2 HD. Start it from Steam or the Beamdog client instead.`n`n$($_.Exception.Message)", 'MDK2 Co-op', 'OK', 'Error') | Out-Null
-    }
-})
+$play.Add_Click({ Play-Game $script:installedDir })
+$shortcut = New-Object Windows.Forms.Button
+$shortcut.Text = 'Create desktop shortcut'; $shortcut.SetBounds(26, 175, 280, 40)
+Style-Button $shortcut $false
+$shortcut.Add_Click({ Add-DesktopShortcut $script:installedDir })
 function Show-Completion($remove) {
-    foreach ($control in @($label, $path, $browse, $status, $install, $uninstall, $inventory, $refresh)) { $form.Controls.Remove($control) }
+    foreach ($control in @($label, $path, $browse, $status, $install, $uninstall, $inventory, $refresh, $playExisting, $shortcutExisting)) { $form.Controls.Remove($control) }
     $finish.Controls.Remove($play)
+    $finish.Controls.Remove($shortcut)
     if ($remove) {
         $finishText.Text = 'Co-op has been uninstalled. Your co-op data was kept.'
     } else {
         $finishText.Text = 'Installation complete. Start MDK2 HD to open the co-op launcher. Keep Steam or the Beamdog client running.'
         $finish.Controls.Add($play)
+        $finish.Controls.Add($shortcut)
     }
     $form.Controls.Add($finish)
     $form.AcceptButton = $close
@@ -167,9 +210,10 @@ if ($TestLayout) {
         $form.Scale((New-Object Drawing.SizeF($factor, $factor)))
         $script:previousScale = $scale
         $form.PerformLayout()
-        foreach ($c in @($inventory, $refresh, $install, $uninstall)) {
+        foreach ($c in @($inventory, $refresh, $install, $uninstall, $playExisting, $shortcutExisting)) {
             if ($c.Left -lt 0 -or $c.Top -lt 0 -or $c.Right -gt $form.ClientSize.Width -or $c.Bottom -gt $form.ClientSize.Height) { throw 'Control outside setup client area' }
         }
+        if ($playExisting.Right -gt $shortcutExisting.Left -or $shortcutExisting.Bottom -gt $inventory.Top) { throw 'Play controls overlap' }
         if ($inventory.Bottom -gt $install.Top -or $refresh.Right -gt $install.Left -or $install.Right -gt $uninstall.Left) { throw 'Setup controls overlap' }
     }
     Write-Output 'PASS: setup control geometry at 100, 125, 150 and 200 percent'
@@ -177,10 +221,35 @@ if ($TestLayout) {
 }
 if ($TestCompletion) {
     Show-Completion ($TestCompletion -eq 'uninstall')
-    if (-not $finish.Controls.Contains($close) -or ($finish.Controls.Contains($play) -ne ($TestCompletion -eq 'install'))) { exit 1 }
+    if (-not $finish.Controls.Contains($close) -or ($finish.Controls.Contains($play) -ne ($TestCompletion -eq 'install')) -or ($finish.Controls.Contains($shortcut) -ne ($TestCompletion -eq 'install'))) { exit 1 }
     Write-Output "completion $TestCompletion OK"
     $form.Dispose()
     exit 0
+}
+if ($TestActionsPath) {
+    $path.Text = $TestActionsPath
+    Refresh-Status
+    if (-not $playExisting.Enabled -or -not $shortcutExisting.Enabled) { throw 'Existing game actions disabled' }
+    function Start-Process($FilePath, $WorkingDirectory, $ErrorAction) {
+        $script:startedFile = $FilePath; $script:startedDir = $WorkingDirectory
+    }
+    Start-Mdk2Game $TestActionsPath
+    if ($script:startedFile -ne (Join-Path $TestActionsPath 'mdk2hd.exe') -or $script:startedDir -ne $TestActionsPath) { throw 'Wrong launch target' }
+    New-Mdk2DesktopShortcut $TestActionsPath $TestActionsPath
+    New-Mdk2DesktopShortcut $TestActionsPath $TestActionsPath
+    $shell = New-Object -ComObject WScript.Shell
+    $link = $shell.CreateShortcut((Join-Path $TestActionsPath 'MDK2 Co-op.lnk'))
+    if ($link.TargetPath -ne (Join-Path $TestActionsPath 'mdk2hd.exe') -or $link.WorkingDirectory -ne $TestActionsPath -or $link.IconLocation -ne ((Join-Path $TestActionsPath 'mdk2hd.exe') + ',0')) { throw 'Wrong shortcut target, working directory or icon' }
+    [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($link)
+    [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
+    $path.Text = Join-Path $TestActionsPath 'missing'
+    Refresh-Status
+    if ($playExisting.Enabled -or $shortcutExisting.Enabled) { throw 'Invalid folder actions enabled' }
+    $rejected = $false
+    try { New-Mdk2DesktopShortcut $path.Text $TestActionsPath } catch { $rejected = $true }
+    if (-not $rejected) { throw 'Invalid shortcut accepted' }
+    Write-Output 'PASS: existing game actions and desktop shortcut'
+    $form.Dispose(); exit 0
 }
 $browse.Add_Click({
     $dialog = New-Object Windows.Forms.FolderBrowserDialog
@@ -239,7 +308,7 @@ function Perform($remove) {
         if ($preflight.actions.blocked) { throw 'Conflicting or unreadable files must be resolved before setup can continue.' }
         $script:busy = $true
         $form.ControlBox = $false
-        foreach ($control in @($path, $browse, $install, $uninstall, $refresh)) { $control.Enabled = $false }
+        foreach ($control in @($path, $browse, $install, $uninstall, $refresh, $playExisting, $shortcutExisting)) { $control.Enabled = $false }
         $status.ForeColor = [Drawing.Color]::White
         $status.Text = 'Working...'; $form.Refresh()
         if (-not $remove) { Run-Backend $dir $false 'PrepareDataOnly' $false }
@@ -253,7 +322,7 @@ function Perform($remove) {
         $status.Text = 'Setup did not complete. You can try again.'
         [Windows.Forms.MessageBox]::Show($form, $_.Exception.Message, 'MDK2 Co-op', 'OK', 'Error') | Out-Null
     } finally {
-        foreach ($control in @($path, $browse, $install, $uninstall, $refresh)) { $control.Enabled = $true }
+        foreach ($control in @($path, $browse, $install, $uninstall, $refresh, $playExisting, $shortcutExisting)) { $control.Enabled = $true }
         $form.ControlBox = $true
         $script:busy = $false
         Refresh-Status

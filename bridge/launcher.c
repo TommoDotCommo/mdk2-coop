@@ -1568,7 +1568,6 @@ static void page_about(void)
     LeaveCriticalSection(&update_lock);
 
     heading(PX, y, 28, "MDK2 HD Co-op", C_TEXT, DT_LEFT);
-    snprintf( notes[0] ? notes : line, 1, "%s", ""); /* keep compiler happy before reuse */
     {
         char vline[96];
         snprintf(vline, sizeof(vline), "Version %s  -  alpha", MOD_VERSION);
@@ -1599,7 +1598,7 @@ static void page_about(void)
         changed = 1;
     }
     y += 24;
-    y += gdi_para(f_small, PX, y, PW, st == UP_ERROR ? C_BAD : (st == UP_AVAILABLE || st == UP_APPLIED) ? C_ORANGE : C_DIM, line) + 4;
+    y += gdi_para(f_small, PX, y, PW, st == UP_ERROR ? C_BAD : st == UP_CURRENT ? C_BLUE : (st == UP_AVAILABLE || st == UP_APPLIED) ? C_ORANGE : C_DIM, line) + 4;
     if (st == UP_AVAILABLE) {
         EnterCriticalSection(&update_lock);
         snprintf(notes, sizeof(notes), "Notes: %.140s", update_rel.notes[0] ? update_rel.notes : "Release package verified via .sha256 sidecar.");
@@ -2421,6 +2420,17 @@ static void render(void)
     heading(360, 548, 52, "Online Co-op", C_ORANGE, DT_CENTER);
     snprintf(line, sizeof(line), "%s  -  up to 16 players", MOD_VERSION);
     gdi_text(f_small, 360, 614, C_DIM, line, DT_CENTER);
+    update_init();
+    {
+        char message[220];
+        int state;
+        EnterCriticalSection(&update_lock);
+        state = update_state;
+        snprintf(message, sizeof(message), "%s", update_msg);
+        LeaveCriticalSection(&update_lock);
+        if (message[0])
+            gdi_para(f_tiny, 80, 642, 560, state == UP_ERROR ? C_BAD : C_BLUE, message);
+    }
     gdi_text(f_small, 24, 690, C_FAINT, lob.on ? (lob.host ? "Hold F1: quick guide   Enter: start   Esc: leave the lobby" : "Hold F1: quick guide   Enter: ready   Esc: leave the lobby") :
              "Hold F1: quick guide   Enter: play   Tab: next   Esc: quit", DT_LEFT);
 

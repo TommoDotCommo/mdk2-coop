@@ -213,3 +213,7 @@ The combat log and DPS panels are hidden for now while their presentation is rev
 Counters and bounded history still record in the background. Ctrl+R resets local counters;
 Ctrl+D dumps combat.txt (also saved automatically).
 Recent history is bounded to 512 events. Source IDs describe projectiles or damage channels.
+
+Already installed? Open setup and click Play MDK2. Create desktop shortcut adds
+a shortcut to the game and its co-op launcher. Keep Steam or the Beamdog client
+running. The launcher shows the result of a successful update check.

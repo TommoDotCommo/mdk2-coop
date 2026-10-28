@@ -224,3 +224,7 @@ Check ([IO.File]::ReadAllText((Join-Path $unownedDir 'dinput8.dll')) -eq 'unowne
 $completion = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDir 'installer-gui.ps1') -TestLayout
 Check ($LASTEXITCODE -eq 0) 'setup layout geometry'
 Write-Output "PASS: $script:checks installer checks (including original restoration and layout)"
+
+$actions = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDir 'installer-gui.ps1') -TestActionsPath $maintDir
+Check ($LASTEXITCODE -eq 0 -and $actions -match 'PASS: existing game actions') 'existing game play and shortcut actions'
+Write-Output "PASS: $script:checks installer checks (including play and desktop shortcut)"
