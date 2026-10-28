@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Level 2: r9 entrance must not lock the r8 rear gate until the group crosses.
+# SAVE_RELOAD=1 additionally checks a disk-save/resume while the lock is deferred.
 # LEADER=2 exercises a client leading instead of the host.
 # Uses the native door animation callback and reads the actual engine lock bit.
 # MUTANT=earlylock restores the original callback: the trailing-player checks must fail.
@@ -34,7 +35,7 @@ mdk_boot
 sleep 2
 if [ "${MUTANT:-}" = earlylock ]; then
     for i in 1 2; do
-        lua "$i" 'if coop.rear_gate_original then l2_r9entrdoor.OnAnimLoop=coop.rear_gate_original end; coop.RearGateTick=function() end'
+        lua "$i" 'l2_r9entrdoor.OnAnimLoop=function(g,a) if a==ANIM_OPEN then mdkProxDoorLock(l2_r8entrdoor06,1) end end coop.RearGateTick=function() end'
     done
 fi
 check "both peers loaded level 2" bash -c "grep -q '^level 2 checkpoint 7 started' '$(mdk_log 1)' && grep -q '^level 2 checkpoint 7 started' '$(mdk_log 2)'"
@@ -49,6 +50,16 @@ sleep 2
 check "host leaves rear gate unlocked for trailing player" wait_q 1 'coop_door_locked(l2_r8entrdoor06)' 0 3
 check "client leaves rear gate unlocked for trailing player" wait_q 2 'coop_door_locked(l2_r8entrdoor06)' 0 3
 check "trailing player stays in r8 without catch-up teleport" wait_q "$trailer" 'floor(mdkGetPlayerGob().position.x)' 1198 3
+# Optional disk-save round trip while the rear lock is deferred.
+if [ "${SAVE_RELOAD:-0}" = 1 ]; then
+    check "host has a deferred rear lock" wait_q 1 'Save.coop_rear_gate_pending' 1 3
+    lua 1 'coop.SaveNow()'
+    sleep 3
+    lua 1 'coop.ResumeLatest()'
+    sleep 5
+    check "disk load restores the deferred lock" wait_q 1 'Save.coop_rear_gate_pending' 1 5
+    check "disk load keeps the trailing gate usable" wait_q 2 'coop_door_locked(l2_r8entrdoor06)' 0 5
+fi
 # A client cannot commit the authoritative result.
 lua 2 'coop_puzzle(4)'
 sleep 1

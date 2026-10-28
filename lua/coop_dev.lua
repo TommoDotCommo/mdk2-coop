@@ -825,42 +825,46 @@ function coop.RearGatePast(player, gate, destination)
            (player.position.z - gate.position.z) * dz > length * 3
 end
 
+-- A named global callback survives the game's instant-save function lookup.
+function coopRearGateOnAnimLoop(gob, anim)
+    if (anim ~= ANIM_OPEN) then return end
+    if (coop_players() == 0) then
+        mdkProxDoorLock(l2_r8entrdoor06, 1)
+    elseif (coop_role() == "host") then
+        Save.coop_rear_gate_pending = 1
+    end
+end
+
 function coop.RearGateTick()
     if (coop.level ~= 2) then return end
     local trigger = getglobal("l2_r9entrdoor")
     local gate = getglobal("l2_r8entrdoor06")
     if (not trigger or not gate or not coop_alive(trigger) or not coop_alive(gate)) then return end
-    if (trigger.OnAnimLoop ~= coop.rear_gate_wrapper) then
-        local original = trigger.OnAnimLoop
-        if (type(original) ~= "function") then return end
-        coop.rear_gate_original = original
-        coop.rear_gate_wrapper = function(gob, anim)
-            if (anim == ANIM_OPEN and coop_players() > 0) then
-                if (coop_role() == "host") then coop.rear_gate_pending = 1 end
-            else
-                %original(gob, anim)
-            end
-        end
-        trigger.OnAnimLoop = coop.rear_gate_wrapper
+    if (type(trigger.OnAnimLoop) == "function") then
+        trigger.OnAnimLoop = coopRearGateOnAnimLoop
     end
-    if (coop_role() == "host" and coop.rear_gate_pending) then
+    if (coop_role() == "host" and Save.coop_rear_gate_pending) then
         local me = coop.real_player()
         if (not me or coop_life(coop_slot()) ~= 0 or not coop.RearGatePast(me, gate, trigger)) then return end
         local slot = 0
         local others, slots = coop_players()
         while (slot < slots) do
-            if (slot ~= coop_slot() and coop_connected(slot) == 1 and coop_life(slot) == 0) then
+            -- A downed teammate must remain reachable for revival.
+            if (slot ~= coop_slot() and coop_connected(slot) == 1 and coop_life(slot) <= 1) then
                 local p = coop.puppets[slot]
                 if (not p or not coop_alive(p) or not coop.RearGatePast(p, gate, trigger)) then return end
             end
             slot = slot + 1
         end
-        coop.rear_gate_pending = nil
-        coop.rear_gate_result = 1
+        Save.coop_rear_gate_pending = nil
+        Save.coop_rear_gate_closed = 1
+    end
+    if (coop_role() == "host" and Save.coop_rear_gate_closed) then
         coop_puzzle(4)
+        coop.rear_gate_result = 1
     end
     if (coop.rear_gate_result) then
-        coop.rear_gate_original(trigger, ANIM_OPEN)
+        mdkProxDoorLock(gate, 1)
         coop.rear_gate_result = nil
     end
 end
@@ -1200,10 +1204,7 @@ function level(l, cp, sec)
     coop.parked = {}
     coop.targetable = {}
     coop.rewards = {}
-    coop.rear_gate_pending = nil
     coop.rear_gate_result = nil
-    coop.rear_gate_wrapper = nil
-    coop.rear_gate_original = nil
     coop.level = l
     coop.cp = cp
     coop_level(l, cp, announce, save)
