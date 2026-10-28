@@ -80,6 +80,7 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
     char fromname[EV_NAME], name[EV_NAME];
     int target_slot = puppet_slot(target);
 
+    if (!presence_damage_allowed(__builtin_return_address(0))) return;
     gob_netname(from, fromname, sizeof(fromname));
     gob_netname(target, name, sizeof(name));
     logmsg("damage %s -> %s %d type 0x%x part %d", fromname, name, damage, type, part);
@@ -112,13 +113,16 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
                 damage = scaled;
             }
         }
+        if (presence_hit(from, target, 0)) return;
         if (target_slot >= 0) {
             snprintf(name, sizeof(name), "@p%d", target_slot + 1);
             event_queue_from(target_slot, EV_HURT, name, from, damage, type, part);
             return;
         }
         if (target == local_player) {
+            int before = gob_hp(local_player);
             damage_local_player(from, damage, type, part);
+            if (gob_hp(local_player) < before) presence_hit(from, local_player, 1);
             return;
         }
         deal_damage_orig(from, target, damage, type, part);
@@ -348,8 +352,12 @@ static void l_coop_apply(void)
             gob_set_hp(gob, apply_hp);
         break;
     case EV_HURT:       /* client: the host's world hurt our player */
-        if (gob == local_player)
-            damage_local_player(apply_attacker(), damage, type, part);
+        if (gob == local_player) {
+            int before = gob_hp(gob);
+            BYTE *from = apply_attacker();
+            damage_local_player(from, damage, type, part);
+            if (gob_hp(gob) < before) presence_hit(from, gob, 1);
+        }
         break;
     case EV_SPAWN:
         gob_set_max_hp(gob, apply_hp + 1);
@@ -994,6 +1002,8 @@ void l_coop_init(void)
     emote_lua_init();
     chat_lua_init();
     remote_lua_init();
+    presence_lua_init();
+    ai_init();
     movie_lua_init();
     voice_lua_init();
     bot_lua_init();

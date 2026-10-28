@@ -117,6 +117,8 @@ void event_init(struct event *e, int kind) { memset(e, 0, sizeof(*e)); e->kind =
 void event_send(const struct event *e, int to) { assert(to == TO_ALL); sent++; last = *e; }
 void logmsg(const char *fmt, ...) { (void)fmt; }
 void *hook_code(BYTE *fn, const BYTE *expect, int len, void *hook) { return NULL; }
+void ai_create_enter(const float *pos) { (void)pos; }
+void ai_create_leave(BYTE *gob, const float *pos) { (void)gob; (void)pos; }
 static void test_ignore_owner(void *list, DWORD owner) { ignored_owner = owner; }
 static void test_position(void *gob, float x, float y, float z)
 {

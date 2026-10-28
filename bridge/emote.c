@@ -212,7 +212,7 @@ int emote_play(int id, int looping)
 void emote_frame(void)
 {
     struct snap s;
-    DWORD *st = s.anims[0].state;
+    uint32_t *st = s.anims[0].state;
     double now = now_ms();
     float one = 1.0f, four = 4.0f;
     unsigned i;

@@ -212,10 +212,15 @@ static BYTE *create_hook(const char *name, int type, void *scene, BYTE *parent, 
 {
     BYTE *gob;
     struct event ev, *e = &ev;
+    int actor = !replaying && type >= ACTOR_TYPE_MIN && type <= ACTOR_TYPE_MAX;
 
+    if (actor)
+        ai_create_enter(pos);
     creating++;
     gob = create_orig(name, type, scene, parent, slot, pos, quat, model, a8, a9, a10, a11);
     creating--;
+    if (actor)
+        ai_create_leave(gob, !parent && scene == MAIN_SCENE ? pos : NULL);
     if (!gob || replaying || !have_remote || type < PROJECTILE_TYPE_MIN || type > PROJECTILE_TYPE_MAX)
         return gob;
     if (launch_orig && gob_class(gob) == SHOT_CLASS) {

@@ -13,6 +13,9 @@ out = root / 'local/tests/network'
 out.mkdir(parents=True, exist_ok=True)
 source = (root / 'bridge/net.c').read_text()
 mutants = {
+    'ignore-join-cancellation': ('if (net_join_cancelled()) return;', 'if (0) return;'),
+    'retry-without-welcome': ('nonce++; /* require a fresh welcome, including the host\'s current LEVEL */', '/* omit nonce renewal */'),
+    'ignore-version-mismatch': ('version_mismatch = 1;', 'version_mismatch = 0;'),
     'missing-enemy-maximum': ('e.extra[0] = gob_max_hp(gob_by_handle(netid));', 'e.extra[0] = 0;'),
     'adopt-epoch-before-load': ('pending_epoch = (unsigned short)e->netid;',
                               'pending_epoch = (unsigned short)e->netid; cur_epoch = pending_epoch;'),
@@ -28,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix='epochs-', dir=out) as folder:
     for name, mutation in [('baseline', None), *mutants.items()]:
         binary = folder / (name + '.exe')
         command = ['i686-w64-mingw32-gcc', '-O2', '-Wall', '-Wextra', '-Wno-unused-parameter',
-                   '-I', str(root / 'bridge'), str(root / 'tools/test_network.c'),
+                   '-I', str(root / 'bridge'), str(root / 'tools/test_network.c'), str(root / 'bridge/presence.c'),
                    '-lws2_32', '-static-libgcc', '-o', str(binary)]
         if mutation:
             old, new = mutation

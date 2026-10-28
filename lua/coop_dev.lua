@@ -22,6 +22,18 @@ function coop.OnLuaError(msg)
 end
 coop.olderror = seterrormethod(coop.OnLuaError)
 
+-- Walker attack tasks run through ScriptUpdate, outside their native class think.
+-- Restore the host's handles even when a task raises a Lua error (3.1 protected call).
+coop.scriptupdate_orig = ScriptUpdate
+function ScriptUpdate(gob)
+    if (coop_ai_begin(gob) == 0) then return coop.scriptupdate_orig(gob) end
+    local args = { gob }
+    args.n = 1
+    local r = call(coop.scriptupdate_orig, args, "x")
+    coop_ai_end()
+    return r
+end
+
 -- the client switches its spawners off (the host's make the real enemies), but some make
 -- items (health, ammo respawns: mdk2.lua's item spawners), which the client needs too --
 coop.setspawned_orig = mdkSpawnerSetSpawnedObject
@@ -506,6 +518,7 @@ end
 -- there). save: the co-op save to load, from host hostid's session: our own copy of it has our
 -- inventory, hp and position; without it, the checkpoint. --
 function coop.FollowLevel(l, cp, same, save, hostid)
+    if (coop.join_cancelled) then return end
     if (same == 2) then
         coop_log(format("host is in level %d checkpoint %d: we are still there", l, cp))
         return
@@ -935,6 +948,8 @@ function coop.UpdatePuppet(p, s)
             coop_face(nil, s)
             if (coop_alive(gob)) then omGobDelete(gob) end
             coop.puppets[s] = nil
+            coop.parked[s] = nil
+            coop.targetable[s] = nil
         end
         return
     end
@@ -946,6 +961,7 @@ function coop.UpdatePuppet(p, s)
         if (coop_alive(gob)) then omGobDelete(gob) end
         coop.puppets[s] = nil
         coop.parked[s] = nil
+        coop.targetable[s] = nil
         gob = nil
     end
     if (not gob) then gob = coop.SpawnPuppet(p, s) end
@@ -966,6 +982,7 @@ function coop.UpdatePuppet(p, s)
     coop_face(gob, s)
 end
 coop.parked = {}
+coop.targetable = {}
 
 -- going down, reviving, spectating (bridge revive.c): what needs the game's own calls --
 function coop.ReviveTick(p)
@@ -1106,6 +1123,8 @@ function level(l, cp, sec)
     coop.resume_sid = nil
     coop.following = nil
     coop.puppets = {}
+    coop.parked = {}
+    coop.targetable = {}
     coop.rewards = {}
     coop.level = l
     coop.cp = cp
@@ -2141,7 +2160,61 @@ menu.coopwait.Cancel = function()
     if (coop_transport() == "steam" and coop_steam_lobby() == "") then coop.ShowPage("coopsession") end
 end
 
+-- Client title screen: no New Game selection is required. The host's reliable
+-- LEVEL event is the only authority that starts loading our world.
+menu.coopjoin = mdkCreateMenu(0.5, 0.38, 0.05, 0.05, 0, JUSTIFY_CENTER, 1)
+function coop.CancelJoin()
+    coop.join_cancelled = 1
+    coop_join_tick(coop.level or 0, 0, 1)
+    coop.ShowPage("coopsession")
+end
+menu.coopjoin.Cancel = coop.CancelJoin
+
+function coop.JoinScreenTick()
+    coop_join_screen(0)
+    if (coop_role() == "host") then return end
+    if (coop_transport() == "steam") then
+        local lobby = coop_steam_lobby()
+        -- Before joining, keep Session available for entering an ID or accepting
+        -- an invite. A new accepted invite also releases an earlier cancellation.
+        if (lobby == "" and not coop.join_seen_lobby) then return end
+        if (lobby ~= "") then
+            coop.join_seen_lobby = 1
+            if (coop.join_cancelled and coop_join_cancelled() == 0) then
+                coop.join_cancelled = nil
+                coop.join_state = nil
+                coop_join_retry()
+            end
+        end
+    end
+    if (coop.join_cancelled) then return end
+    local state, text = coop_join_tick(coop.level or 0, coop.following and 1 or 0, 0)
+    if (state == 3) then
+        coop.join_state = state
+        if (menu.current == "coopjoin") then HideMenu() end
+        return
+    end
+    if (coop.level and coop.level >= 1) then return end
+    if (state ~= coop.join_state) then
+        coop.join_state = state
+        mdkClearMenu(menu.coopjoin)
+        coop.Heading(menu.coopjoin, text)
+        if (state ~= 5 and state ~= 6) then
+            coop.Heading(menu.coopjoin, "You will join automatically when the host is ready")
+        end
+        if (state == 5 or state == 6) then
+            local retry = mdkCreateMenuItem(menu.coopjoin, "Retry connection")
+            retry.Select = function() coop_join_retry() coop.join_state = nil end
+        end
+        local cancel = mdkCreateMenuItem(menu.coopjoin, "Cancel join (Esc)")
+        cancel.Select = coop.CancelJoin
+    end
+    if (menu.current ~= "coopjoin") then ShowMenu("coopjoin") end
+    coop_join_screen(menu.current == "coopjoin" and 1 or 0)
+end
+
 function coop.WaitTick()
+    coop.JoinScreenTick()
     if (coop_role() == "host" or not coop.level or coop.level < 1) then
         if (coop.waiting) then coop.StopWaiting() end
         return
@@ -2822,6 +2895,14 @@ function coop.BuildSession()
     local m = menu.coopsession
     mdkClearMenu(m)
     coop.Heading(m, "Session")
+    if (coop.join_cancelled) then
+        local retry = mdkCreateMenuItem(m, "Join host again")
+        retry.Select = function()
+            coop.join_cancelled = nil
+            coop.join_state = nil
+            coop_join_retry()
+        end
+    end
     local item = mdkCreateMenuItem(m, "Name: " .. coop_name())
     item.Select = function(self)
         coop.EditText(menu.coopsession, coop_name(), function(text) coop_set_name(text) end)
@@ -2985,6 +3066,9 @@ function coop.SetHostAddress(text)
         return
     end
     coop.host_note = nil
+    coop.join_cancelled = nil
+    coop.join_state = nil
+    coop_join_retry()
     if (coop_role() == "client" and coop_set_host(host, port)) then
         coop.host_note = "Connecting to " .. host .. ":" .. port
     else

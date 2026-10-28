@@ -21,6 +21,9 @@ for i in $(mdk_seq); do
     d="$(mdk_wsl "$(mdk_dir $i)")"
     [ -f "$d/mdk2hd.exe" ] || { echo "no game in $d (tools/copies.sh makes more copies)"; exit 1; }
     mkdir -p "$d/coop"
+    # A previous run may have stopped before consuming its last background
+    # command. Never execute that command against a fresh game at the title.
+    rm -f "$d/coop/command.lua" "$d/coop/command.tmp"
     cp "$here/bridge/dinput8.dll" "$d/"
     # a host keeps the slot each player id had ([slots] in player.ini) and gives a new id one nobody has had:
     # a test copy that has hosted earlier runs would make its client player 3, 4, ... Forget them (a new file,
