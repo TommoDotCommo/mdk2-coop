@@ -25,3 +25,9 @@ room-8 split/combat saves at 60 and 165 FPS completed without it. This update
 captures fault registers, readable stack words and the specific animation
 arguments at the known dispatcher fault sites. It does not claim to fix that
 crash. `make -C bridge test-crash-context` checks the decoder and its mutants.
+
+A separate resume defect was reproduced on the prior build: native attack tasks
+lost their function reference after an instant load because the original native
+function was kept only inside the co-op table. It now also has a named global
+alias which the game's save resolver can find. `tools/qa_save_scripts.sh` checks
+both clients' restored Poopsy and Bif tasks and rejects the missing-alias mutant.
