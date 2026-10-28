@@ -20,7 +20,30 @@ copied between engine objects by raw handle.
 
 The engine's AI-target getter at `0x42ad50` reads a global target handle, distinct
 from the local-player handle. The mod previously did not change that getter.
-The host now wraps class think and animation-event callbacks (slots 1 and 7),
+However, live investigations revealed three root causes for client targeting failures:
+1. **ABI Calling Convention / Stack Imbalance**: Native actor callbacks (such as
+   Grunt think and animation-event routines) pop their own stack arguments
+   (callee-pop convention, `ret N`), whereas earlier C wrappers invoked them as
+   cdecl (`ret 0` with caller cleanup), resulting in double stack cleanup and
+   stack imbalance. This is resolved by intercepting the return address directly
+   on the stack (`ai_hook_return` rewriting the return slot to `ai_return_thunk`)
+   so native routines run with their original stack frame intact and execute their
+   own epilogues, while `ai_call` explicitly verifies and restores stack balance
+   across both calling conventions.
+2. **Target Acquisition and Stored Target State**: Enemies do not poll `0x42ad50`
+   every frame during idle or movement; instead, native AI routines read the stored
+   target pointer (`GOB_TARGET` at offset `+0x88` in OMGOB) and global handles
+   (`PLAYER_HANDLE` at `0x5494c8` and `AI_TARGET_HANDLE` at `0x5494a8`). When remote
+   players join, enemies must have `GOB_TARGET` pre-seeded upon spawn (`ai_create_leave`),
+   refreshed per frame before scene updates (`ai_before_scene`), and scoped during
+   think/animation callbacks (`ai_scope_enter` scoping `PLAYER_HANDLE` and
+   `AI_TARGET_HANDLE` to the nearest living player).
+3. **Puppet Targetability**: Remote player puppets spawned in Lua were not marked
+   targetable in the engine. Calling `mdkGobSetTargetable(gob, 1)` on alive puppets
+   (and 0 when downed or parked for spectating) allows native perception and
+   line-of-sight checks to treat puppets as valid attack targets.
+
+The host wraps class think and animation-event callbacks (slots 1 and 7),
 scopes the querying actor, and returns the nearest living player in the same
 level/epoch. Native AI retains its line-of-sight, navigation and attack checks.
 Scripted targets other than players keep their original authority. The hook
@@ -98,12 +121,33 @@ height, room clearance, bindings and native timing must be established by the
 verifier. Rendered visibility also remains unverified; controller equality alone
 does not establish pixels on screen.
 
-`qa_ai.sh` requires the enemy's selected target to be the client, a native strike
-on that target, the enemy to reach melee range, the matching HURT source to be
-applied on the client, a health drop there, and unchanged faraway host health.
-`targeting` disables the target patch; `hostaoe` drops actor-to-client HURT routing
-while keeping the direct-only filter. Neither may pass. Repeat with host/client
-roles exchanged and additional enemy families before claiming broad AI coverage.
+`qa_ai.sh` exercises direct melee targeting against the client player:
+- **Baseline Scenario (client near, host far away)**: Host is stationed at `l1_r1grengen`
+  (more than 25 units away) while client is stationed at `l1_r8doganland1`. A native
+  Grunt (`OBJ_GRUNT`, type 202) spawns 8 units from the client. The test asserts:
+  (1) host distance > 25 units;
+  (2) Grunt selects client as target (`matches[0][1] == '@p2'`, query count > 0);
+  (3) Grunt navigates and closes distance from 8 units to melee range (< 5 units);
+  (4) native strike animation executes and calls direct damage returning to `0x434e56`;
+  (5) hit evidence increments on host (`hits > 0`);
+  (6) client receives `EV_HURT` from `qa_melee`, incrementing `direct_receipts`;
+  (7) client player health decreases (`client_hp < before_client_hp`);
+  (8) faraway host health remains 100% intact (`host_hp == before_host_hp`).
+- **Client Alone Away from AOE**: The test enforces `melee_only=1` on the host, which
+  strictly rejects any damage callers other than direct melee strikes (`0x434e56` /
+  `0x434dfb`), eliminating all projectile, splash, or environmental explosion damage.
+  The client's receipt of `qa_melee` proves direct targeting rather than collateral damage.
+- **Host Near Control**: When the host is placed closer to the enemy than the client,
+  the enemy chooses and attacks the host instead of the client; `presence_check.py`
+  asserts `dist(host, client) > 25` to reject false positives where host proximity
+  attracts the enemy.
+- **Targeting-Disabled Mutant (`MUTANT=targeting`)**: Runs `coop_presence_test(0,1,0,1)`
+  which sets `no_targeting=1`. With the targeting fix disabled, the enemy never acquires
+  the client, remains at its spawn point, records no target query/hit, and inflicts no
+  damage. The test must exit nonzero because the oracle assertions fail.
+- **Damage-Routing Mutant (`MUTANT=hostaoe`)**: Runs `coop_presence_test(0,0,1,1)`
+  which sets `no_direct_hurt=1`. Direct actor strikes are dropped before forwarding to
+  the client. The client takes no damage, and the test must exit nonzero.
 
 Native offline Windows executables and live T1–T3 checks were not run during
 implementation. The portable suite uses GCC/ASan/UBSan; leak scanning is disabled
