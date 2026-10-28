@@ -29,6 +29,9 @@ run_case() {
         lua 2 'mdkGobSetPosition(mdkGetPlayerGob(),"l1_r8doganland1")'
     fi
     sleep 3
+    # Reset the level's native target override to its host default. This never
+    # names the client: selecting the nearby puppet still requires the mod.
+    lua 1 'mdkSetAITargetGob(mdkGetPlayerGob())'
     # 0x434e25..0x434e3d supplies the native strike's 50-unit reach and pi/4
     # angle to its LOS check. Start outside reach; let the default AI approach.
     # Alert matches the game's guard spawn scripts. No motion/attack is injected.

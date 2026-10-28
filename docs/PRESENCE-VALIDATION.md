@@ -54,7 +54,10 @@ fixture failures without claiming those observations prove general navigation.
 
 `qa_ai.sh` now starts a native Grunt 64 units from the selected player, records
 its starting process position, then alerts it. It runs client-near/host-far and
-host-near/client-far cases. Its process oracle requires:
+host-near/client-far cases. Each case first sets the native AI target to the
+host player, establishing the host-only control's default explicitly.
+The fixture never assigns the client as the native default target; the mod must
+select that client from its position. Its process oracle requires:
 
 - Fresh native target-getter calls selecting the intended player, plus fresh
   direct strike evidence. Per-frame target seeding does not count as a query.
@@ -118,10 +121,12 @@ separate old release or independent Steam accounts.
 actual attached native canopy's open/close animations and a body steering pose,
 then compares the controller state read from every process. It then drives native
 Space input above a room marker, steers with A, lands at the marker, and releases
-Space for cut-away. These input/terrain fixtures are written but unrun: marker
-height, room clearance, bindings and native timing must be established by the
-verifier. Rendered visibility also remains unverified; controller equality alone
-does not establish pixels on screen.
+Space for cut-away. Live Steam build 3902 validation passed all 27 controller
+and native-input assertions across three peers; disabling canopy replication
+failed all 27. A separate three-peer native-airborne capture also showed the
+client-controlled Kurt's deployed canopy in the host view. That is visual
+inspection of one scenario; the automated assertions compare controller state,
+not pixels, and do not establish rendering across arbitrary poses or levels.
 
 `qa_ai.sh` exercises both direct-targeting cases in one run. A baseline must
 report three passing checks: both targeting cases and restoration of the native
@@ -131,8 +136,15 @@ host-near control can still pass through the original host-only AI.
 Inspect the `client_before`, `client_after`, `host_before`, and `host_after`
 process dumps printed by the harness.
 
-The initial implementation was game-free; the AI follow-up used live Steam
-build 3902 processes. Canopy and join checks require their own live evidence. The portable suite uses GCC/ASan/UBSan; leak scanning is disabled
+Live revalidation on Steam build 3902 passed the AI baseline's three assertions.
+The targeting mutant failed the client case while passing the host-only control;
+the direct-damage-routing mutant failed both damage cases. The join baseline
+passed all seven assertions, including the network outage and incompatible packet;
+disabling its waiting-screen update failed five of the seven assertions.
+The harness installer now clears pending background commands before a new launch:
+a leftover damage command otherwise crashed a fresh client at the title screen.
+
+The initial implementation was game-free. The portable suite uses GCC/ASan/UBSan; leak scanning is disabled
 because LeakSanitizer cannot operate under the test environment's process tracing.
 The engine adapter's fake-world test runs with native host pointers and explicit
 32-bit controller pointers. A 32-bit native Linux runtime was unavailable. Windows
