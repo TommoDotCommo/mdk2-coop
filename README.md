@@ -246,8 +246,9 @@ MIT, see [LICENSE](LICENSE). It covers this repo's code only; MDK2 HD itself is 
 
 ### Shared combat feedback
 
-The colour-coded combat feed and floating hit numbers show host-confirmed enemy HP loss.
-The compact DPS meter shows five-second and fight DPS plus totals. Ctrl+M toggles the meter;
+Floating hit numbers show host-confirmed enemy HP loss. The combat log and DPS panels are
+hidden for now while their presentation is revised. Damage history and counters still record
+in the background. Ctrl+M toggles the underlying meter state;
 Ctrl+R resets local counters; Ctrl+PgUp/PgDn scroll history and page players; Ctrl+L returns to
 live; Ctrl+D dumps recent history to `combat.txt` in the mod data folder. The newest 512
 events are also saved automatically. Source labels use projectile IDs or damage-channel IDs.

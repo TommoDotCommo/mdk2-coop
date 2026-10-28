@@ -1,5 +1,9 @@
 # Shared combat feedback
 
+The combat log and DPS panels are currently hidden while their presentation is revised.
+World hitmarkers and damage numbers remain visible; event history, counters and dumps remain active.
+The panel format and shortcuts below describe the retained implementation.
+
 Enemy hits are confirmed by the host and shown to every connected player. The four-line
 feed uses `P<slot> +<HP lost> T<enemy kind>/<network id> W<source id> <kill>`.
 Player numbers and colours match the team panel, chat and pings. The meter includes names,

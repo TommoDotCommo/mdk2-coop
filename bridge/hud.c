@@ -948,32 +948,36 @@ static void draw_combat(int w, int h)
             hud_box(sx-1, sy-4, 2, 8, h, c[0], c[1], c[2], 1);
         }
     }
-    hud_box(l.x-4, l.y-l.row, l.width+8,
-            l.row * (l.feed_rows + (combat_meter() ? l.meter_rows + 2 : 0) + 1), h, 0, 0, 0, 0.6f);
-    combat_text(l.x, l.y, l.width, h, "COMBAT  Ctrl+M meter  Ctrl+D dump", white);
-    for (i = 0; i < (unsigned)l.feed_rows; i++) {
-        unsigned back = i + combat_scroll();
-        const struct cb_event *e;
-        if (back >= s->size) break;
-        e = &s->lines[(s->next + CB_KEEP - 1 - back) % CB_KEEP].e;
-        slot_colour(e->attacker, c);
-        snprintf(line, sizeof(line), "P%02u +%05u T%03u/%08x W%04u %c",
-                e->attacker+1, e->amount, e->kind, e->target, e->weapon, e->flags & CB_KILL ? 'K' : '-');
-        combat_text(l.x, l.y + (++row)*l.row, l.width, h, line, c);
-    }
-    row = l.feed_rows + 1;
-    if (combat_meter()) {
-        combat_text(l.x, l.y+row++*l.row, l.width, h, "PLAYER  5s/fight DPS  fight/all damage", white);
-        for (p = 0; p < CB_PLAYERS; p++)
-            if (player_connected(p) || s->total[p]) slots[count++] = p;
-        first = count ? (combat_page() % ((count + l.meter_rows - 1) / l.meter_rows)) * l.meter_rows : 0;
-        for (p = first; p < count && p < first + l.meter_rows; p++) {
-            int slot = slots[p];
-            slot_colour(slot, c);
-            snprintf(line, sizeof(line), "P%02d %.6s %.1f/%.1f %llu/%llu", slot+1, player_name(slot),
-                    cb_rolling(s, slot, now), cb_fight_dps(s, slot, now),
-                    (unsigned long long)s->fight[slot], (unsigned long long)s->total[slot]);
-            combat_text(l.x, l.y+row++*l.row, l.width, h, line, c);
+    /* Hide the log and DPS panels until their presentation has been revised.
+     * Keep world hitmarkers, damage numbers and the telemetry ledger active. */
+    if (0) {
+        hud_box(l.x-4, l.y-l.row, l.width+8,
+                l.row * (l.feed_rows + (combat_meter() ? l.meter_rows + 2 : 0) + 1), h, 0, 0, 0, 0.6f);
+        combat_text(l.x, l.y, l.width, h, "COMBAT  Ctrl+M meter  Ctrl+D dump", white);
+        for (i = 0; i < (unsigned)l.feed_rows; i++) {
+            unsigned back = i + combat_scroll();
+            const struct cb_event *e;
+            if (back >= s->size) break;
+            e = &s->lines[(s->next + CB_KEEP - 1 - back) % CB_KEEP].e;
+            slot_colour(e->attacker, c);
+            snprintf(line, sizeof(line), "P%02u +%05u T%03u/%08x W%04u %c",
+                    e->attacker+1, e->amount, e->kind, e->target, e->weapon, e->flags & CB_KILL ? 'K' : '-');
+            combat_text(l.x, l.y + (++row)*l.row, l.width, h, line, c);
+        }
+        row = l.feed_rows + 1;
+        if (combat_meter()) {
+            combat_text(l.x, l.y+row++*l.row, l.width, h, "PLAYER  5s/fight DPS  fight/all damage", white);
+            for (p = 0; p < CB_PLAYERS; p++)
+                if (player_connected(p) || s->total[p]) slots[count++] = p;
+            first = count ? (combat_page() % ((count + l.meter_rows - 1) / l.meter_rows)) * l.meter_rows : 0;
+            for (p = first; p < count && p < first + l.meter_rows; p++) {
+                int slot = slots[p];
+                slot_colour(slot, c);
+                snprintf(line, sizeof(line), "P%02d %.6s %.1f/%.1f %llu/%llu", slot+1, player_name(slot),
+                        cb_rolling(s, slot, now), cb_fight_dps(s, slot, now),
+                        (unsigned long long)s->fight[slot], (unsigned long long)s->total[slot]);
+                combat_text(l.x, l.y+row++*l.row, l.width, h, line, c);
+            }
         }
     }
     hud_font_use(0);
