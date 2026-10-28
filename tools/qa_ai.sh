@@ -24,9 +24,11 @@ capture before
 # Its damage call returns to 0x434e56. Test mode rejects every other damage
 # caller on the host, including all projectile/explosion/AOE paths.
 lua 1 'local p=coop_gob("@p2") qa_melee=mdkCreateObjectLua("qa_melee",OBJ_GRUNT,mdkGetScene(),nil,nil,p.position.x+8,p.position.y,p.position.z+1,1,0,0,0,nil,0,0,0,0)'
+sleep 2
+lua 1 'coop_listgobs() coop_animdump(qa_melee)'
 # Allow acquisition, chase and native animation callbacks to make a direct hit.
 passed=0
-for t in $(seq 1 20); do
+for t in $(seq 1 "${AI_SECONDS:-20}"); do
     sleep 1
     capture after
     if python3 "$here/presence_check.py" ai "$out/before_1.txt" "$out/before_2.txt" "$out/after_1.txt" "$out/after_2.txt" >"$out/oracle.txt"; then passed=1; break; fi

@@ -961,12 +961,6 @@ function coop.UpdatePuppet(p, s)
         omGobGMSetVisible(gob, parked and 0 or 1)
         coop.parked[s] = parked and 1 or 0
     end
-    local targetable = (not parked and coop_life(s) == 0) and 1 or 0
-    if (targetable ~= coop.targetable[s]) then
-        mdkGobSetTargetable(gob, targetable)
-        if (p and coop_alive(p) and coop_revive_life() == 0) then mdkGobSetTargetable(p, 1) end
-        coop.targetable[s] = targetable
-    end
     if (parked) then
         mdkGobSetPositionXYZ(gob, p.position.x, p.position.y, p.position.z - 500)
         return

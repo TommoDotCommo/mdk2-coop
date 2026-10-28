@@ -199,6 +199,15 @@ __asm__(
 
 void ai_hook_return(BYTE *gob, DWORD *ret_slot)
 {
+    static int dumped;
+    if (!dumped && gob && strcmp(gob_name(gob), "qa_melee") == 0) {
+        FILE *f = fopen("coop/ai_code.bin", "wb");
+        dumped = 1;
+        if (f) {
+            fwrite((void *)0x42ac00, 1, 0xa00, f);
+            fclose(f);
+        }
+    }
     ai_scope_enter(gob, ret_slot ? *ret_slot : 0);
 #if defined(__i386__) && defined(_WIN32)
     if (ret_slot) *ret_slot = (DWORD)ai_return_thunk;
