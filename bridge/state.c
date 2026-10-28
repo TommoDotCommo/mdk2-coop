@@ -59,6 +59,7 @@ void state_dump(const char *tag)
     }
     presence_dump(f);
     ents_dump(f);
+    combat_dump(f);
     for (slot = 0; slot < GOB_SLOTS; slot++) {
         BYTE *gob = (BYTE *)GOB_TABLE[slot * 2];
         int t;

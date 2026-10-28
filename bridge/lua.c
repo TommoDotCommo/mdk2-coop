@@ -18,6 +18,7 @@ int local_max_hp;                   /* our player's highest hp seen this level: 
 static char apply_from[EV_NAME];    /* attacker named in the event coop_event last returned */
 static int apply_hp;                /* the host's hp for the target after an APPLY, -1 unknown */
 static int apply_slot;              /* and the slot of the player who sent it */
+static struct event apply_event;
 static int applying_hit;            /* host: inside EV_HIT, damage from that player's puppet is real */
 
 static double num_param(int n)
@@ -125,7 +126,17 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
             if (gob_hp(local_player) < before) presence_hit(from, local_player, 1);
             return;
         }
-        deal_damage_orig(from, target, damage, type, part);
+        {
+            int before = gob_hp(target), kind = gob_type(target);
+            unsigned int id = gob_slot(target) >= 0 ? gob_handle(gob_slot(target)) : 0;
+            float pos[3];
+            int weapon = applying_hit ? apply_event.objtype :
+                (from && gob_is_projectile(from) ? gob_type(from) : (type | 2048));
+            memcpy(pos, (BYTE *)target + GOB_POSITION, sizeof(pos));
+            deal_damage_orig(from, target, damage, type, part);
+            if (kind >= ACTOR_TYPE_MIN && kind <= ACTOR_TYPE_MAX)
+                combat_applied(from_slot, target, id, kind, before, gob_hp(target), weapon, pos);
+        }
         if (target != local_player && name[0])
             event_queue_applied(name, from, damage, type, part, gob_hp(target));
         if (name[0] && gob_is_actor(target))
@@ -148,7 +159,7 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
     if (target_slot >= 0)
         snprintf(name, sizeof(name), "@p%d", target_slot + 1);
     if (name[0])
-        event_queue(EV_HIT, name, damage, type, part);
+        combat_report(from, target, name, damage, type, part);
 }
 
 /* ---- per frame ---- */
@@ -250,6 +261,10 @@ static void l_coop_event(void)
             event_unget(from);
             return;
         }
+        if (e.kind == EV_COMBAT) {
+            combat_event(&e, from);
+            continue;
+        }
         if (e.kind == EV_CHAT || e.kind == EV_PING || e.kind == EV_TYPING) {
             chat_event(&e, from);       /* the host stamps the sender, then passes it on */
             event_relay(&e, from);
@@ -297,6 +312,7 @@ static void l_coop_event(void)
         net_level_event(&e);
         e.part = host_changed_take() || e.extra[2] ? 1 : same ? 2 : 0;
     }
+    apply_event = e;
     apply_slot = from;
     apply_hp = (int)e.extra[0] - 1;
     memcpy(apply_from, e.from, sizeof(apply_from));
@@ -340,6 +356,8 @@ static void l_coop_apply(void)
     }
     switch (kind) {
     case EV_HIT:        /* host: a client's Kurt hit this; goes through the hook so the clients get APPLY */
+        if (!combat_allow_hit(&apply_event, apply_slot, gob)) return;
+        damage = apply_event.damage;
         applying_hit = 1;
         deal_damage_hook(puppets[apply_slot], gob, damage, type, part);
         applying_hit = 0;
@@ -1001,6 +1019,7 @@ void l_coop_init(void)
     input_lua_init();
     emote_lua_init();
     chat_lua_init();
+    combat_lua_init();
     remote_lua_init();
     presence_lua_init();
     ai_init();

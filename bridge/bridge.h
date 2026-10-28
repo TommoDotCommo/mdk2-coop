@@ -126,7 +126,7 @@ void *hook_code(BYTE *fn, const BYTE *expect, int len, void *hook);
 #include "snapshot.h"
 
 enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY,
-       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE, EV_DIAG, EV_PUZZLE };
+       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE, EV_DIAG, EV_PUZZLE, EV_COMBAT };
 #define EV_NAME 32
 /* FIRE part: 0 replays create_object arguments; 1 restores a launched class 5 shot. */
 #define FIRE_LAUNCHED 1
@@ -514,5 +514,21 @@ void diag_mark(unsigned int n, int from);   /* an F2 mark: ours (from 0) or play
 void diag_test(int skew, int deaf);          /* tests: the host reports skew more enemies; deaf: a client ignores the host's report */
 int diag_bundle_start(void);                /* the launcher's button: 1 started, 0 could not */
 int diag_bundle_poll(char *msg, int size);  /* 0 idle, 1 running, 2 done (msg: the zip), 3 failed (msg: why) */
+
+/* Combat telemetry (host-confirmed enemy HP loss). */
+struct cb_state;
+unsigned int ent_netid(BYTE *gob);
+void combat_report(BYTE *from, BYTE *target, const char *name, int damage, int type, int part);
+int combat_allow_hit(struct event *e, int sender, BYTE *target);
+void combat_applied(int attacker, BYTE *target, unsigned int id, int kind, int before,
+                    int after, int weapon, const float *pos);
+void combat_event(const struct event *e, int sender);
+const struct cb_state *combat_state(void);
+void combat_dump(FILE *f);
+void combat_frame(int allowed);
+int combat_meter(void);
+int combat_scroll(void);
+int combat_page(void);
+void combat_lua_init(void);
 
 #endif

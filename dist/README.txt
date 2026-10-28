@@ -204,3 +204,8 @@ Open a bug report (or a feature request): https://github.com/TommoDotCommo/mdk2-
   Steam or UDP, and the level and checkpoint.
 
 MIT licensed (LICENSE.txt). MDK2 HD itself is not included.
+
+Combat feedback: coloured confirmed enemy hits, floating numbers and a DPS meter.
+Ctrl+M toggles DPS, Ctrl+R resets local counters, Ctrl+PgUp/PgDn scrolls/pages,
+Ctrl+L returns to live, Ctrl+D dumps combat.txt (also saved automatically).
+Recent history is bounded to 512 events. Source IDs describe projectiles or damage channels.

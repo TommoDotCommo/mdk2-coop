@@ -15,6 +15,7 @@
 #include <string.h>
 #include <math.h>
 #include "bridge.h"
+#include "combat_core.h"
 
 #define GL_PROJECTION           0x1701
 #define GL_MODELVIEW            0x1700
@@ -592,10 +593,14 @@ BYTE *hud_camera(void)
 /* one colour per player, for chat names and pings */
 static void slot_colour(int slot, float *c)
 {
-    static const float pal[8][3] = { { 0.95f, 0.85f, 0.4f }, { 0.45f, 0.85f, 1.0f }, { 0.55f, 1.0f, 0.55f },
+    static const float pal[16][3] = { { 0.95f, 0.85f, 0.4f }, { 0.45f, 0.85f, 1.0f }, { 0.55f, 1.0f, 0.55f },
                                      { 1.0f, 0.6f, 0.85f }, { 1.0f, 0.65f, 0.3f }, { 0.75f, 0.65f, 1.0f },
-                                     { 0.6f, 1.0f, 0.9f }, { 1.0f, 0.55f, 0.5f } };
-    memcpy(c, pal[slot & 7], sizeof(pal[0]));
+                                     { 0.6f, 1.0f, 0.9f }, { 1.0f, 0.55f, 0.5f },
+                                     { 0.8f, 0.9f, 0.65f }, { 0.55f, 0.7f, 1.0f },
+                                     { 1.0f, 0.8f, 0.65f }, { 0.9f, 0.55f, 1.0f },
+                                     { 0.65f, 0.95f, 0.8f }, { 1.0f, 0.9f, 0.75f },
+                                     { 0.8f, 0.7f, 0.95f }, { 0.75f, 0.95f, 1.0f } };
+    memcpy(c, pal[slot & 15], sizeof(pal[0]));
 }
 
 /* Pings: a diamond-ish marker (two boxes) at the point, name and distance beside it; off screen,
@@ -903,6 +908,77 @@ static void draw_movie_box(int w, int h)
         logmsg("hud moviebox: %s | %s | %s", mbox[0], mbox[1], mbox[2]);
 }
 
+/* Text is measured with the actual menu font before drawing; bounded pools only. */
+static void combat_text(int x, int y, int width, int h, const char *line, const float *c)
+{
+    char clipped[128];
+    size_t n;
+    snprintf(clipped, sizeof(clipped), "%s", line);
+    n = strlen(clipped);
+    while (n && hud_text_w(clipped) > width) clipped[--n] = 0;
+    hud_text(x, y, h, clipped, c[0], c[1], c[2]);
+}
+static void draw_combat(int w, int h)
+{
+    const struct cb_state *s = combat_state();
+    struct cb_layout l;
+    const float white[3] = {0.9f, 0.9f, 0.9f};
+    float c[3], sx, sy;
+    unsigned i;
+    int row = 0, p, first, count = 0, slots[CB_PLAYERS];
+    char line[128];
+    uint64_t now = (uint64_t)now_ms();
+    hud_font_use(1);
+    l = cb_layout(w, h, hud_font_h());
+    /* At most 32 recent world markers. Rising numbers share the chat palette. */
+    for (i = 0; i < s->size && i < 32; i++) {
+        const struct cb_line *hit = &s->lines[(s->next + CB_KEEP - 1 - i) % CB_KEEP];
+        double age = (double)(now - hit->at);
+        float pos[3];
+        if (age > 1000) continue;
+        memcpy(pos, hit->e.pos, sizeof(pos)); pos[2] += 1.0f + (float)age / 700.0f;
+        if (!project(pos, w, h, &sx, &sy)) continue;
+        slot_colour(hit->e.attacker, c);
+        snprintf(line, sizeof(line), "+%u%s", hit->e.amount, hit->e.flags & CB_KILL ? " K" : "");
+        if (sx < 8 || sx + hud_text_w(line) > w - 8 || sy < hud_font_h() + 8 || sy > h - 8) continue;
+        /* Cross at the reported target position, number rising above it. */
+        hud_text(sx, sy, h, line, c[0], c[1], c[2]);
+        if (age < 250 && project(hit->e.pos, w, h, &sx, &sy) && sx >= 6 && sx <= w-6 && sy >= 6 && sy <= h-6) {
+            hud_box(sx-4, sy-1, 8, 2, h, c[0], c[1], c[2], 1);
+            hud_box(sx-1, sy-4, 2, 8, h, c[0], c[1], c[2], 1);
+        }
+    }
+    hud_box(l.x-4, l.y-l.row, l.width+8,
+            l.row * (l.feed_rows + (combat_meter() ? l.meter_rows + 2 : 0) + 1), h, 0, 0, 0, 0.6f);
+    combat_text(l.x, l.y, l.width, h, "COMBAT  Ctrl+M meter  Ctrl+D dump", white);
+    for (i = 0; i < (unsigned)l.feed_rows; i++) {
+        unsigned back = i + combat_scroll();
+        const struct cb_event *e;
+        if (back >= s->size) break;
+        e = &s->lines[(s->next + CB_KEEP - 1 - back) % CB_KEEP].e;
+        slot_colour(e->attacker, c);
+        snprintf(line, sizeof(line), "P%02u +%05u T%03u/%08x W%04u %c",
+                e->attacker+1, e->amount, e->kind, e->target, e->weapon, e->flags & CB_KILL ? 'K' : '-');
+        combat_text(l.x, l.y + (++row)*l.row, l.width, h, line, c);
+    }
+    row = l.feed_rows + 1;
+    if (combat_meter()) {
+        combat_text(l.x, l.y+row++*l.row, l.width, h, "PLAYER  5s/fight DPS  fight/all damage", white);
+        for (p = 0; p < CB_PLAYERS; p++)
+            if (player_connected(p) || s->total[p]) slots[count++] = p;
+        first = count ? (combat_page() % ((count + l.meter_rows - 1) / l.meter_rows)) * l.meter_rows : 0;
+        for (p = first; p < count && p < first + l.meter_rows; p++) {
+            int slot = slots[p];
+            slot_colour(slot, c);
+            snprintf(line, sizeof(line), "P%02d %.6s %.1f/%.1f %llu/%llu", slot+1, player_name(slot),
+                    cb_rolling(s, slot, now), cb_fight_dps(s, slot, now),
+                    (unsigned long long)s->fight[slot], (unsigned long long)s->total[slot]);
+            combat_text(l.x, l.y+row++*l.row, l.width, h, line, c);
+        }
+    }
+    hud_font_use(0);
+}
+
 /* SwapBuffers hook, before the game's frame is shown */
 static void draw_status(int w, int h)
 {
@@ -948,6 +1024,7 @@ void hud_frame(HDC dc)
     RECT rc;
 
     chat_frame(have_remote && shown);
+    combat_frame(have_remote && shown);
     /* the panel and tags follow coop_hud's "shown"; the revive status shows whenever it is set */
     if (!guide_on() && !ctrlview_on() && !emote_wheel_open() && !(caption1[0] && emote_active() >= 0) && !banner1[0] && !banner2[0] && !mbox[0][0] && !mbox[1][0] &&
         (!have_remote || (!shown && !status1[0] && !status2[0] && !voice_talking(-1))))
@@ -962,7 +1039,7 @@ void hud_frame(HDC dc)
     fsel = 0;
     if (w <= 0 || h <= 0 || !make_font(dc, h / 42 < 13 ? 13 : h / 42))
         return;
-    if (ctrlview_on() || guide_on()) {
+    if (ctrlview_on() || guide_on() || (shown && have_remote)) {
         fsel = 1;
         make_font(dc, h / 64 < 10 ? 10 : h / 64);
         fsel = 2;
@@ -1005,6 +1082,8 @@ void hud_frame(HDC dc)
         draw_pings(w, h);
         draw_bubbles(w, h);
         draw_chat(w, h);
+        if (!ctrlview_on() && !guide_on() && !emote_wheel_open() &&
+            !banner1[0] && !banner2[0] && !mbox[0][0] && !status1[0]) draw_combat(w, h);
     }
     draw_emote_wheel(w, h);
     draw_banner(w, h);
