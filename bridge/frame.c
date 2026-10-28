@@ -83,6 +83,7 @@ static void __cdecl update_scene_and_tick(void *scene)
     input_pad_frame();
     bot_before_frame();
     fix_emitters();
+    ai_before_scene();
     ((void (*)(void *))UPDATE_SCENE_ADDR)(scene);
     run_command_file();
     diag_tick();

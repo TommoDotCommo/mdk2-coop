@@ -120,7 +120,9 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
             return;
         }
         if (target == local_player) {
+            int before = gob_hp(local_player);
             damage_local_player(from, damage, type, part);
+            if (gob_hp(local_player) < before) presence_hit(from, local_player, 1);
             return;
         }
         deal_damage_orig(from, target, damage, type, part);

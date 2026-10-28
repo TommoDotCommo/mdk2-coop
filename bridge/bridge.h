@@ -67,6 +67,7 @@ typedef void (*lua_CFunction)(void);
 #define GOB_ORIENTATION     0x24    /* float quaternion w, x, y, z; engine setter copies it raw */
 #define GOB_ANIM            0x60    /* anim controller: +0x24 states, +0x28/+0x2c current/previous */
 #define GOB_INFO            0x84    /* -> game object: short type +0, damage filter +0x10, hp +0x12 */
+#define GOB_TARGET          0x88    /* -> current target OMGOB (actor AI / shots) */
 #define INFO_CLASS          0xb4    /* game object field; & 0x3f = index into CLASS_TABLE */
 #define CLASS_TABLE         ((BYTE **)ADDR.class_table)
 #define CLASS_SLOTS         14
@@ -227,6 +228,11 @@ void canopy_apply(BYTE *gob, const struct canopy_state *s);
 void presence_lua_init(void);
 void presence_dump(FILE *f);
 void ai_init(void);
+void ai_before_scene(void);
+void ai_create_enter(const float *pos);
+void ai_create_leave(BYTE *gob, const float *pos);
+void ai_hook_return(BYTE *gob, DWORD *ret_slot);
+DWORD ai_leave(void);
 DWORD ai_run(BYTE *gob, DWORD original, DWORD a, DWORD b, DWORD c);
 int presence_damage_allowed(void *caller);
 int presence_hit(BYTE *from, BYTE *target, int applied);

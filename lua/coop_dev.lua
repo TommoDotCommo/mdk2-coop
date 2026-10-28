@@ -936,6 +936,8 @@ function coop.UpdatePuppet(p, s)
             coop_face(nil, s)
             if (coop_alive(gob)) then omGobDelete(gob) end
             coop.puppets[s] = nil
+            coop.parked[s] = nil
+            coop.targetable[s] = nil
         end
         return
     end
@@ -947,6 +949,7 @@ function coop.UpdatePuppet(p, s)
         if (coop_alive(gob)) then omGobDelete(gob) end
         coop.puppets[s] = nil
         coop.parked[s] = nil
+        coop.targetable[s] = nil
         gob = nil
     end
     if (not gob) then gob = coop.SpawnPuppet(p, s) end
@@ -958,6 +961,12 @@ function coop.UpdatePuppet(p, s)
         omGobGMSetVisible(gob, parked and 0 or 1)
         coop.parked[s] = parked and 1 or 0
     end
+    local targetable = (not parked and coop_life(s) == 0) and 1 or 0
+    if (targetable ~= coop.targetable[s]) then
+        mdkGobSetTargetable(gob, targetable)
+        if (p and coop_alive(p) and coop_revive_life() == 0) then mdkGobSetTargetable(p, 1) end
+        coop.targetable[s] = targetable
+    end
     if (parked) then
         mdkGobSetPositionXYZ(gob, p.position.x, p.position.y, p.position.z - 500)
         return
@@ -967,6 +976,7 @@ function coop.UpdatePuppet(p, s)
     coop_face(gob, s)
 end
 coop.parked = {}
+coop.targetable = {}
 
 -- going down, reviving, spectating (bridge revive.c): what needs the game's own calls --
 function coop.ReviveTick(p)
@@ -1107,6 +1117,8 @@ function level(l, cp, sec)
     coop.resume_sid = nil
     coop.following = nil
     coop.puppets = {}
+    coop.parked = {}
+    coop.targetable = {}
     coop.rewards = {}
     coop.level = l
     coop.cp = cp

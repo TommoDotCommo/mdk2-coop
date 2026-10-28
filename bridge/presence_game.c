@@ -1,6 +1,20 @@
 /* Engine adapters for attached visuals, host AI queries and the client waiting UI. */
+#include <assert.h>
 #include <string.h>
 #include "bridge.h"
+
+#ifndef GOB_TARGET
+#define GOB_TARGET          0x88
+#endif
+#ifndef PLAYER_HANDLE
+#define PLAYER_HANDLE       (*(DWORD *)ADDR.player_handle)
+#endif
+#ifndef AI_TARGET_HANDLE
+#define AI_TARGET_HANDLE    (*(DWORD *)(ADDR.player_handle - 0x20))
+#endif
+#ifndef GOB_TABLE_AT
+#define GOB_TABLE_AT(i)     ((BYTE *)GOB_TABLE[(i) * 2])
+#endif
 
 static double num_param(int n)
 {
@@ -65,14 +79,29 @@ static BYTE *(*target_original)(void);
 static struct { DWORD actor, victim; unsigned int queries, hits; } ai_evidence[GOB_SLOTS];
 static unsigned int local_direct_hits;
 static char local_direct_source[EV_NAME];
-static BYTE *ai_target(void)
+
+#define AI_STACK_MAX 16
+static struct {
+    BYTE *actor, *actor_cur;
+    DWORD player_handle, target_handle, ret;
+    int queried;
+} ai_stack[AI_STACK_MAX];
+static int ai_depth;
+
+static BYTE *base_target(void)
+{
+    if (target_original) return target_original();
+    return AI_TARGET_HANDLE ? gob_by_handle(AI_TARGET_HANDLE) : gob_by_handle(PLAYER_HANDLE);
+}
+
+static BYTE *ai_select(const float *pos, BYTE *actor)
 {
     struct presence_player candidates[MAX_PLAYERS] = {0};
     BYTE *bodies[MAX_PLAYERS] = {0};
-    BYTE *fallback = target_original();
+    BYTE *fallback = base_target();
     int s, best, index;
     /* Scripted targets (boss objects, movie gobs, decoys) retain their authority. */
-    if (!role_host || no_targeting || !have_remote || !gob_alive(ai_actor) ||
+    if (!role_host || no_targeting || !have_remote || (actor ? !gob_alive(actor) : !pos) ||
         (fallback && fallback != local_player && puppet_slot(fallback) < 0)) return fallback;
     for (s = 0; s < MAX_PLAYERS; s++) {
         bodies[s] = s == my_slot ? local_player : puppets[s];
@@ -81,27 +110,196 @@ static BYTE *ai_target(void)
         candidates[s].eligible = 1;
         memcpy(candidates[s].pos, bodies[s] + GOB_POSITION, sizeof(candidates[s].pos));
     }
-    best = presence_nearest((float *)(ai_actor + GOB_POSITION), candidates, MAX_PLAYERS);
-    index = gob_slot(ai_actor);
+    best = presence_nearest(pos, candidates, MAX_PLAYERS);
+    index = actor ? gob_slot(actor) : -1;
     if (index >= 0 && best >= 0) {
+        int in_scope = ai_depth > 0 && ai_stack[ai_depth - 1].actor_cur == actor;
         if (ai_evidence[index].actor != gob_handle(index)) memset(&ai_evidence[index], 0, sizeof(ai_evidence[index]));
         ai_evidence[index].actor = gob_handle(index);
         ai_evidence[index].victim = gob_handle(gob_slot(bodies[best]));
-        ai_evidence[index].queries++;
+        if (!in_scope || !ai_stack[ai_depth - 1].queried) ai_evidence[index].queries++;
+        if (in_scope) ai_stack[ai_depth - 1].queried = 1;
     }
     return best >= 0 ? bodies[best] : NULL;
 }
 
-/* Both think and animation-event callbacks ask for the target. Keep the context
- * scoped, including nested callbacks, and forward all four cdecl argument slots. */
-DWORD ai_run(BYTE *gob, DWORD original, DWORD a, DWORD b, DWORD c)
+static BYTE *ai_target(void)
+{
+    return ai_select(ai_actor ? (const float *)(ai_actor + GOB_POSITION) : NULL, ai_actor);
+}
+
+static void ai_store_target(BYTE *gob, BYTE *target)
+{
+    if (gob && target) *(BYTE **)(gob + GOB_TARGET) = target;
+}
+
+static void ai_scope_handles(BYTE *target)
+{
+    int tslot = target ? gob_slot(target) : -1;
+    if (tslot >= 0) {
+        DWORD h = gob_handle(tslot);
+        if (target == local_player || puppet_slot(target) >= 0) PLAYER_HANDLE = h;
+        AI_TARGET_HANDLE = h;
+    }
+}
+
+static void ai_scope_enter(BYTE *gob, DWORD ret)
 {
     BYTE *saved = ai_actor;
-    DWORD result;
+    DWORD saved_player = PLAYER_HANDLE, saved_target = AI_TARGET_HANDLE;
+
     if (role_host && gob_is_actor(gob)) ai_actor = gob;
-    result = ((DWORD (*)(BYTE *, DWORD, DWORD, DWORD))original)(gob, a, b, c);
+    if (ai_depth < AI_STACK_MAX) {
+        ai_stack[ai_depth].actor = saved;
+        ai_stack[ai_depth].actor_cur = ai_actor;
+        ai_stack[ai_depth].player_handle = saved_player;
+        ai_stack[ai_depth].target_handle = saved_target;
+        ai_stack[ai_depth].ret = ret;
+        ai_stack[ai_depth].queried = 0;
+        ai_depth++;
+    }
+    if (role_host && gob_is_actor(gob)) {
+        BYTE *target = ai_target();
+        ai_store_target(gob, target);
+        ai_scope_handles(target);
+    }
+}
+
+DWORD ai_leave(void)
+{
+    BYTE *saved = NULL, *gob = ai_actor;
+    DWORD ret = 0;
+    if (ai_depth > 0) {
+        ai_depth--;
+        saved = ai_stack[ai_depth].actor;
+        PLAYER_HANDLE = ai_stack[ai_depth].player_handle;
+        AI_TARGET_HANDLE = ai_stack[ai_depth].target_handle;
+        ret = ai_stack[ai_depth].ret;
+    }
     ai_actor = saved;
+    (void)gob;
+    return ret;
+}
+
+#if defined(__i386__) && defined(_WIN32)
+void ai_return_thunk(void);
+__asm__(
+    ".text\n"
+    ".globl _ai_return_thunk\n"
+    "_ai_return_thunk:\n"
+    "\tpushl %eax\n"
+    "\tpushl %edx\n"
+    "\tcall _ai_leave\n"
+    "\tmovl %eax, %ecx\n"
+    "\tpopl %edx\n"
+    "\tpopl %eax\n"
+    "\tjmpl *%ecx\n"
+);
+#endif
+
+void ai_hook_return(BYTE *gob, DWORD *ret_slot)
+{
+    ai_scope_enter(gob, ret_slot ? *ret_slot : 0);
+#if defined(__i386__) && defined(_WIN32)
+    if (ret_slot) *ret_slot = (DWORD)ai_return_thunk;
+#endif
+}
+
+/* Call a slot callback and verify/restore the stack pointer afterwards so both
+ * caller-pop (__cdecl) and callee-pop (__stdcall / ret N) callbacks stay balanced. */
+static DWORD __attribute__((noinline)) ai_call(uintptr_t original, BYTE *gob, DWORD a, DWORD b, DWORD c)
+{
+    DWORD result;
+#if defined(__i386__)
+    uintptr_t saved_sp, after_sp;
+    DWORD args[4] = { (DWORD)gob, a, b, c };
+    __asm__ volatile(
+        "movl %%esp, %1\n\t"
+        "pushl 12(%4)\n\t"
+        "pushl 8(%4)\n\t"
+        "pushl 4(%4)\n\t"
+        "pushl 0(%4)\n\t"
+        "call *%3\n\t"
+        "movl %1, %%esp\n\t" /* restore caller stack for both caller-pop and callee-pop */
+        "movl %%esp, %2\n\t"
+        "movl %1, %%esp\n\t"
+        : "=a"(result), "=&r"(saved_sp), "=&r"(after_sp)
+        : "r"(original), "r"(args)
+        : "ecx", "edx", "cc", "memory"
+    );
+    assert(after_sp == saved_sp);
+#elif defined(__x86_64__)
+    uintptr_t saved_sp, after_sp;
+    uintptr_t rdi_gob = (uintptr_t)gob, rsi_a = a, rdx_b = b, rcx_c = c;
+    __asm__ volatile(
+        "movq %%rsp, %1\n\t"
+        "pushq %6\n\t"
+        "pushq %5\n\t"
+        "pushq %4\n\t"
+        "pushq %3\n\t"
+        "callq *%7\n\t"
+        "movq %1, %%rsp\n\t" /* restore caller stack for both caller-pop and callee-pop */
+        "movq %%rsp, %2\n\t"
+        "movq %1, %%rsp\n\t"
+        : "=a"(result), "=&r"(saved_sp), "=&r"(after_sp),
+          "+D"(rdi_gob), "+S"(rsi_a), "+d"(rdx_b), "+c"(rcx_c)
+        : "r"(original)
+        : "r8", "r9", "r10", "r11", "cc", "memory"
+    );
+    assert(after_sp == saved_sp);
+#else
+    result = ((DWORD (*)(BYTE *, DWORD, DWORD, DWORD))original)(gob, a, b, c);
+#endif
     return result;
+}
+
+/* Both think and animation-event callbacks ask for the target. Keep the context
+ * scoped, including nested callbacks, and preserve stack balance across conventions. */
+DWORD ai_run(BYTE *gob, DWORD original, DWORD a, DWORD b, DWORD c)
+{
+    DWORD result;
+    ai_scope_enter(gob, 0);
+    result = ai_call((uintptr_t)original, gob, a, b, c);
+    ai_leave();
+    return result;
+}
+
+void ai_create_enter(const float *pos)
+{
+    if (ai_depth < AI_STACK_MAX) {
+        ai_stack[ai_depth].actor = ai_actor;
+        ai_stack[ai_depth].actor_cur = NULL;
+        ai_stack[ai_depth].player_handle = PLAYER_HANDLE;
+        ai_stack[ai_depth].target_handle = AI_TARGET_HANDLE;
+        ai_stack[ai_depth].ret = 0;
+        ai_stack[ai_depth].queried = 0;
+        ai_depth++;
+    }
+    if (role_host && !no_targeting && have_remote && pos)
+        ai_scope_handles(ai_select(pos, NULL));
+}
+
+void ai_create_leave(BYTE *gob, const float *pos)
+{
+    ai_leave();
+    if (!role_host || !gob || !gob_is_actor(gob)) return;
+    class_filter_think(gob_class(gob));
+    if (no_targeting || !have_remote) return;
+    if (pos) gob_set_position(gob, pos[0], pos[1], pos[2]);
+    ai_store_target(gob, ai_select(pos ? pos : (const float *)(gob + GOB_POSITION), gob));
+}
+
+void ai_before_scene(void)
+{
+    int i;
+    if (!role_host) return;
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *g = GOB_TABLE_AT(i);
+        if (!g || !gob_alive(g) || !gob_is_actor(g)) continue;
+        class_filter_think(gob_class(g));
+        if (!no_targeting && have_remote)
+            ai_store_target(g, ai_select((const float *)(g + GOB_POSITION), g));
+    }
 }
 
 void ai_init(void)
@@ -119,7 +317,7 @@ int presence_hit(BYTE *from, BYTE *target, int applied)
 {
     int index = gob_slot(from), victim = gob_slot(target);
     if (index < 0 || victim < 0 || !gob_is_actor(from)) return 0;
-    if (role_host) {
+    if (role_host && !applied) {
         if (no_direct_hurt) return 1;
         if (ai_evidence[index].actor == gob_handle(index) &&
             ai_evidence[index].victim == gob_handle(victim)) ai_evidence[index].hits++;

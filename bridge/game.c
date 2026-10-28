@@ -381,38 +381,35 @@ void gob_set_foreign(BYTE *gob, int on)
 static const int filter_slot[FILTER_SLOTS] = { CLASS_THINK, CLASS_ANIMLOOP, CLASS_ANIMEVENT };
 static DWORD slot_orig[FILTER_SLOTS][64];
 
-static DWORD __cdecl ai_think(BYTE *gob, DWORD a, DWORD b, DWORD c)
+/* Called by a slot thunk with the caller's stack pointer (frame[0] = return address,
+ * frame[1] = gob): returns the original slot so the thunk jumps directly to it with the
+ * caller's stack frame intact (preserving both caller-pop and callee-pop conventions),
+ * or 0 to skip mirrored gobs. For host actors on think/animevent slots, ai_hook_return
+ * scopes the AI target state and intercepts the return address without touching arguments. */
+static DWORD slot_filter(int f, DWORD *frame)
 {
-    return ai_run(gob, slot_orig[0][gob_class(gob)], a, b, c);
-}
-static DWORD __cdecl ai_anim_event(BYTE *gob, DWORD a, DWORD b, DWORD c)
-{
-    return ai_run(gob, slot_orig[2][gob_class(gob)], a, b, c);
+    BYTE *gob = (BYTE *)frame[1];
+    DWORD orig;
+
+    if (gob_is_mirrored(gob))
+        return 0;
+    orig = slot_orig[f][gob_class(gob)];
+    if ((f == 0 || f == 2) && orig && role_host && gob_is_actor(gob))
+        ai_hook_return(gob, &frame[0]);
+    return orig;
 }
 
-/* Called by a slot thunk: the original for normal gobs, 0 to skip mirrors */
-static DWORD __cdecl slot_filter0(BYTE *gob)
-{
-    return gob_is_mirrored(gob) ? 0 : role_host && gob_is_actor(gob) ? (DWORD)ai_think : slot_orig[0][gob_class(gob)];
-}
-
-static DWORD __cdecl slot_filter1(BYTE *gob)
-{
-    return gob_is_mirrored(gob) ? 0 : slot_orig[1][gob_class(gob)];
-}
-
-static DWORD __cdecl slot_filter2(BYTE *gob)
-{
-    return gob_is_mirrored(gob) ? 0 : role_host && gob_is_actor(gob) ? (DWORD)ai_anim_event : slot_orig[2][gob_class(gob)];
-}
+static DWORD __cdecl slot_filter0(DWORD *frame) { return slot_filter(0, frame); }
+static DWORD __cdecl slot_filter1(DWORD *frame) { return slot_filter(1, frame); }
+static DWORD __cdecl slot_filter2(DWORD *frame) { return slot_filter(2, frame); }
 static void *const slot_filters[FILTER_SLOTS] = { (void *)slot_filter0, (void *)slot_filter1, (void *)slot_filter2 };
 
-/* Thunk: push [esp+4]; call filter; add esp,4; test eax,eax; jz +2; jmp eax; xor eax,eax; ret
+/* Thunk: push esp; call filter; add esp,4; test eax,eax; jz +2; jmp eax; xor eax,eax; ret
  * (the slot's own arguments stay on the stack for the jmp) */
 static BYTE *make_thunk(void *filter)
 {
-    static const BYTE code[21] = {
-        0xff, 0x74, 0x24, 0x04,         /* push dword [esp+4] */
+    static const BYTE code[18] = {
+        0x54,                           /* push esp */
         0xe8, 0, 0, 0, 0,               /* call filter */
         0x83, 0xc4, 0x04,               /* add esp, 4 */
         0x85, 0xc0,                     /* test eax, eax */
@@ -426,7 +423,7 @@ static BYTE *make_thunk(void *filter)
     if (!t)
         return NULL;
     memcpy(t, code, sizeof(code));
-    *(DWORD *)(t + 5) = (DWORD)filter - (DWORD)(t + 9);
+    *(DWORD *)(t + 2) = (DWORD)filter - (DWORD)(t + 6);
     return t;
 }
 
