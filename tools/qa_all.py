@@ -59,6 +59,7 @@ SMOKE = [Gate("two-player", ("bash", "tools/qa.sh"), 2, result="counts"),
 FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
             for name, script, players, result in [
                 ("multiplayer", "qa_n", 3, "counts"), ("save-reconnect", "qa_save", 3, "counts"),
+                ("save-script-tasks", "qa_save_scripts", 2, "counts"),
                 ("level-epochs", "qa_epoch", 2, "counts"), ("enemy-targeting", "qa_ai", 2, "counts"), ("native-room-ai", "qa_room_ai", 2, "counts"),
                 ("hans-targeting", "qa_hans", 2, "counts"),
                 ("attached-canopy", "qa_presence", 3, "counts"), ("client-join", "qa_join", 2, "counts"),

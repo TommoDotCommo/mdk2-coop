@@ -36,7 +36,9 @@ end
 
 -- The first behind-glass enemy calls the native attack directly from its
 -- authored OnUpdate, outside ScriptUpdate and outside the class callback.
-coop.doganattack_orig = mdkDoganboyAttack
+-- Instant saves resolve native task functions by global name, not through coop.
+coopNativeDoganboyAttack = mdkDoganboyAttack
+coop.doganattack_orig = coopNativeDoganboyAttack
 function mdkDoganboyAttack(gob)
     if (coop_ai_begin(gob) == 0) then return coop.doganattack_orig(gob) end
     local args = { gob }
