@@ -187,3 +187,15 @@ because LeakSanitizer cannot operate under the test environment's process tracin
 The engine adapter's fake-world test runs with native host pointers and explicit
 32-bit controller pointers. A 32-bit native Linux runtime was unavailable. Windows
 cross-compilation does not establish runtime ABI correctness.
+
+`qa_hans.sh` isolates level one's authored final Hans attack task. It advances
+through the pilot's final transition, downs the host, and leaves the client as
+the only living target. It checks both task getters, native target queries,
+actual movement of one native type-421 projectile toward the client, damage
+credited to Hans on the client, and restoration of the host's player handle and
+scope depth. Stasis marker gobs expose probe values through atomic process-state
+dumps; bridge log target labels alone cannot satisfy the flight assertion.
+Run `MUTANT=script-scope bash tools/qa_hans.sh` to bypass the ScriptUpdate wrapper,
+or `MUTANT=targeting bash tools/qa_hans.sh` to disable target selection. Both must
+fail. This skips the earlier ship encounter and does not cover full progression
+or establish Overhaul runtime behavior from Steam results.
