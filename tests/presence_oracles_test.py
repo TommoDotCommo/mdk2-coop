@@ -23,7 +23,7 @@ class PresenceOracles(unittest.TestCase):
         host['ai'] = [['qa_melee','@p2','10','1']]
         host['ent'] = [['123','202','100','51','0','0','qa_melee']]
         client['direct_receipts'] = [['1']]
-        client['direct_source'] = [['qa_melee']]
+        client['direct_source'] = [['n123']]
         client['player'][0][1] = '99'
         return bh, bc, host, client
 

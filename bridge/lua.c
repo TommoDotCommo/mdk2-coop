@@ -85,6 +85,7 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
     gob_netname(from, fromname, sizeof(fromname));
     gob_netname(target, name, sizeof(name));
     logmsg("damage %s -> %s %d type 0x%x part %d", fromname, name, damage, type, part);
+    gob_peername(target, name, sizeof(name)); /* stable event destination, independent of display name */
 
     if (!net_ready() || !have_remote) {
         deal_damage_orig(from, target, damage, type, part);
@@ -412,6 +413,13 @@ static void l_coop_gob(void)
         return;
     }
     push_gob(role_host ? gob_by_handle(id) : ent_gob(id));
+}
+
+/* A live binding belongs to one host entity even when authored names repeat. */
+static void l_coop_netid(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL);
+    lua_pushnumber(gob_alive(gob) ? ent_netid(gob) : 0);
 }
 
 /* coop_level(level, checkpoint, announce, save): a level has started here. Resets
@@ -968,6 +976,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_event", l_coop_event);
     tolua_function(NULL, "coop_apply", l_coop_apply);
     tolua_function(NULL, "coop_gob", l_coop_gob);
+    tolua_function(NULL, "coop_netid", l_coop_netid);
     tolua_function(NULL, "coop_role", l_coop_role);
     tolua_function(NULL, "coop_level", l_coop_level);
     tolua_function(NULL, "coop_peer_type", l_coop_peer_type);

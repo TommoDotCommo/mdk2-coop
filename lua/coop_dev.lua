@@ -34,6 +34,18 @@ function ScriptUpdate(gob)
     return r
 end
 
+-- The first behind-glass enemy calls the native attack directly from its
+-- authored OnUpdate, outside ScriptUpdate and outside the class callback.
+coop.doganattack_orig = mdkDoganboyAttack
+function mdkDoganboyAttack(gob)
+    if (coop_ai_begin(gob) == 0) then return coop.doganattack_orig(gob) end
+    local args = { gob }
+    args.n = 1
+    local r = call(coop.doganattack_orig, args, "x")
+    coop_ai_end()
+    return r
+end
+
 -- the client switches its spawners off (the host's make the real enemies), but some make
 -- items (health, ammo respawns: mdk2.lua's item spawners), which the client needs too --
 coop.setspawned_orig = mdkSpawnerSetSpawnedObject
@@ -477,7 +489,11 @@ end
 
 -- client: bind a host actor to our gob of the same name, creating it if we lack one --
 function coop.Spawn(name, netid, objtype, x, y, z, hp)
-    local gob = coop.FindGob(name)
+    local gob = coop_gob(format("n%x", netid))
+    if (not gob) then
+        gob = coop.FindGob(name)
+        if (gob and (mdkGetGobType(gob) ~= objtype or coop_netid(gob) ~= 0)) then gob = nil end
+    end
     if (not gob) then
         gob = mdkCreateObjectLua(name, objtype, mdkGetScene(), nil, nil, x,y,z, 1,0,0,0, nil,0,0,0,0)
     end

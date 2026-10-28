@@ -44,7 +44,7 @@ int gob_is_actor(BYTE *gob)
 {
     int t;
 
-    if (!*(BYTE **)(gob + GOB_INFO))
+    if (!gob || !*(BYTE **)(gob + GOB_INFO))
         return 0;
     t = gob_type(gob);
     return t >= ACTOR_TYPE_MIN && t <= ACTOR_TYPE_MAX;
@@ -64,6 +64,7 @@ int gob_slot(BYTE *gob)
 {
     int i;
 
+    if (!gob) return -1; /* empty table slots are not a live object */
     for (i = 0; i < GOB_SLOTS; i++)
         if ((BYTE *)GOB_TABLE[i * 2] == gob)
             return i;
@@ -206,8 +207,14 @@ void gob_peername(BYTE *gob, char *out, int size)
         snprintf(out, size, "@p%d", my_slot + 1);
     else if (s >= 0)
         snprintf(out, size, "@p%d", s + 1);
-    else
-        gob_netname(gob, out, size);
+    else {
+        unsigned int id = ent_netid(gob);
+        /* Entity names can become ambiguous as a generator makes more enemies,
+         * then become unique again when siblings die. Events must keep using
+         * the binding's identity throughout that lifetime. */
+        if (id) snprintf(out, size, "n%x", id);
+        else gob_netname(gob, out, size);
+    }
 }
 
 /* The reverse, on the receiving side: NULL if we have nothing by that name */

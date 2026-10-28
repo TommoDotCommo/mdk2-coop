@@ -1,5 +1,6 @@
 /*
- * Enemy sync. The host runs every actor (OBJ types 200-259); the client mirrors them.
+ * Enemy sync. The host runs every actor (OBJ types 200-259) and visible generator (511);
+ * the client mirrors them.
  * (Shots are replayed instead, see shots.c.)
  *
  * Host: scans the engine's gob table, gives each actor a network id (its gob handle),
@@ -43,6 +44,14 @@ struct ent {
     double last_sent;
 };
 
+/* The visible, damageable generator needs host animation/lifetime too. Merely
+ * disabling its client think leaves its model stuck before opening. Generic
+ * invisible spawners (540) keep their existing script/item policy. */
+static int replicated_object(BYTE *gob)
+{
+    return gob && (gob_is_actor(gob) || gob_type(gob) == 511);
+}
+
 static struct ent ents[MAX_ENTS];
 static int nents;
 
@@ -68,7 +77,7 @@ int ents_alive_in_zone(const float *zone_pos)
 
     for (i = 0; i < nents; i++) {
         BYTE *gob = ents[i].gob;
-        if (gob_alive(gob) && gob_hp(gob) > 0 && rooms_in_zone(zone_pos, (float *)(gob + GOB_POSITION)))
+        if (gob_alive(gob) && gob_is_actor(gob) && gob_hp(gob) > 0 && rooms_in_zone(zone_pos, (float *)(gob + GOB_POSITION)))
             n++;
     }
     return n;
@@ -130,6 +139,11 @@ void ents_dump(FILE *f)
         p = (float *)(gob + GOB_POSITION);
         fprintf(f, "ent %x %d %d %.2f %.2f %.2f %s\n", ents[i].id, gob_type(gob), gob_hp(gob),
                 p[0], p[1], p[2], gob_name(gob));
+        if (gob_type(gob) == 511) {
+            struct snap sn;
+            snap_capture(gob, &sn);
+            fprintf(f, "generator %x %u %u %u\n", ents[i].id, sn.cur, sn.prev, sn.nanims);
+        }
     }
 }
 
@@ -189,7 +203,7 @@ void ents_host_tick(void)
      * then delete that gob for the old id */
     for (i = 0; i < nents; ) {
         BYTE *gob = gob_by_handle(ents[i].id);
-        if (gob != ents[i].gob || !gob_is_actor(gob)) {
+        if (gob != ents[i].gob || !replicated_object(gob)) {
             event_queue_spawn(TO_ALL, EV_DESPAWN, ents[i].id, ents[i].died, 0, NULL, "");     /* objtype 1: it died */
             logmsg("ent despawn %x%s", ents[i].id, ents[i].died ? " (died)" : "");
             ent_remove(&ents[i]);
@@ -203,7 +217,7 @@ void ents_host_tick(void)
         struct ent *e;
         char name[EV_NAME];
 
-        if (!gob || !gob_is_actor(gob))
+        if (!replicated_object(gob))
             continue;
         class_filter_think(gob_class(gob));
         id = gob_handle(slot);
@@ -215,7 +229,7 @@ void ents_host_tick(void)
         e->gob = gob;
         e->local = id;
         /* tougher or softer enemies ([game] enemy_hp), and more with more players (enemy_scale % per extra player) */
-        if (gob_hp(gob) > 0 && (cfg_enemy_hp != 100 || (cfg_enemy_scale > 0 && players_connected() > 0))) {
+        if (gob_is_actor(gob) && gob_hp(gob) > 0 && (cfg_enemy_hp != 100 || (cfg_enemy_scale > 0 && players_connected() > 0))) {
             int max_hp = gob_max_hp(gob);
             if (max_hp <= 0) max_hp = gob_hp(gob);
             max_hp = max_hp * cfg_enemy_hp / 100;

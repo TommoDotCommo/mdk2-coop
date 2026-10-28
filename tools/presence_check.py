@@ -50,7 +50,6 @@ def ai(before_host, before_client, host, client, host_near=False):
     assert math.dist(player(host)[1], player(client)[1]) > 100, 'other player must be out of strike range'
     assert player(target)[0] < player(before_target)[0], 'selected player did not lose hp'
     assert player(other)[0] == player(before_other)[0], 'distant player was damaged'
-    assert target.get('direct_source') == [['qa_melee']], 'HURT came from another actor'
     assert number(target, 'direct_receipts') > number(before_target, 'direct_receipts'), 'no applied direct HURT'
     matches = [r for r in host.get('ai', []) if r[0] == 'qa_melee']
     assert len(matches) == 1 and len(matches[0]) == 4, 'missing target memory'
@@ -62,6 +61,7 @@ def ai(before_host, before_client, host, client, host_near=False):
     initial = [r for r in before_host.get('ent', []) if r[-1] == 'qa_melee']
     assert len(enemies) == len(initial) == 1
     assert enemies[0][0] == initial[0][0], 'enemy was replaced'
+    assert target.get('direct_source') == [['n' + enemies[0][0]]], 'HURT came from another actor'
     assert int(enemies[0][1]) == 202 and int(enemies[0][2]) > 0
     start = tuple(map(float, initial[0][3:6]))
     end = tuple(map(float, enemies[0][3:6]))
