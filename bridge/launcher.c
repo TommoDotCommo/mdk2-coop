@@ -1694,6 +1694,7 @@ static struct {
     struct sockaddr_in hostaddr;
     char status[96];
     char chat_in[LS_CHAT_MAX + 1];
+    char address_status[180];
 } lob;
 
 /* our name as it goes on the wire: '|' and line ends separate fields */
@@ -2193,10 +2194,30 @@ static void lobby_page(void)
     }
 
     y = LH - 224;
+    if (button(ID, PX + PW - 140, y, 140, 28, "Save address", 0)) {
+        char address[32];
+        unsigned port;
+        if (lob.host) {
+            lan_address(address, sizeof(address));
+            port = (unsigned)atoi(cfg.listen);
+        } else {
+            snprintf(address, sizeof(address), "%s", inet_ntoa(lob.hostaddr.sin_addr));
+            port = ntohs(lob.hostaddr.sin_port);
+        }
+        if (!strcmp(address, "unknown")) {
+            snprintf(lob.address_status, sizeof(lob.address_status), "Could not find this lobby's IP address.");
+        } else {
+            profile_save_endpoint(address, port);
+            snprintf(lob.address_status, sizeof(lob.address_status), "%s", profile_message);
+        }
+        changed = 1;
+    }
     if (lob.start_at) {
         int left = (int)(lob.start_at - now);
         snprintf(line, sizeof(line), "Starting in %d...", left > 0 ? (left + 999) / 1000 : 0);
         heading(PX, y, 24, line, C_ORANGE, DT_LEFT);
+    } else if (lob.address_status[0]) {
+        gdi_para(f_small, PX, y, PW - 152, C_DIM, lob.address_status);
     } else if (lob.host) {
         snprintf(line, sizeof(line), "Everyone is ready.");
         if (lob.n < 2) {
@@ -2208,9 +2229,9 @@ static void lobby_page(void)
         } else if (others_unready) {
             snprintf(line, sizeof(line), "%d not ready yet (you can start anyway).", others_unready);
         }
-        gdi_para(f_small, PX, y, PW, C_DIM, line);
+        gdi_para(f_small, PX, y, PW - 152, C_DIM, line);
     } else if (lob.connected) {
-        gdi_para(f_small, PX, y, PW, C_DIM, "Connected. Press Ready, then wait for the host to start.");
+        gdi_para(f_small, PX, y, PW - 152, C_DIM, "Connected. Press Ready, then wait for the host to start.");
     }
     if (mismatch)
         gdi_para(f_small, PX, y + 32, PW, C_BAD, "A different mod version is in the lobby: everyone should update.");
