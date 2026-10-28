@@ -35,7 +35,14 @@ class Gate:
     shards: int = 1
 
 
-OFFLINE = [Gate("presence-core", ("python3", "tools/test_presence.py")), Gate("build", ("make", "-C", "bridge")),
+OFFLINE = [Gate("presence-core", ("python3", "tools/test_presence.py")),
+           Gate("launcher-audio", ("bash", "tools/test_launcher_audio.sh")),
+           Gate("launcher-profiles", ("python3", "tools/test_launcher_profiles.py")),
+           Gate("install-policy", ("python3", "tools/test_install_policy.py")),
+           Gate("launcher-session", ("python3", "tools/test_launcher_session.py")),
+           Gate("launcher-update", ("python3", "tools/test_launcher_update.py")),
+           Gate("ui-layout", ("python3", "tools/test_ui_layout.py")),
+           Gate("build", ("make", "-C", "bridge")),
            Gate("oracles-routes-input", ("bash", "tools/test_replay.sh")),
            Gate("projectile-core", ("make", "-C", "bridge", "test-shots")),
            Gate("controller-core", ("make", "-C", "bridge", "test-pad")),

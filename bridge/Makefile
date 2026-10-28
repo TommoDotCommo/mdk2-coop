@@ -1,6 +1,6 @@
 CC = i686-w64-mingw32-gcc
 CFLAGS = -O2 -Wall -Wextra -Wno-unused-parameter
-LDFLAGS = -shared -static-libgcc -Wl,--enable-stdcall-fixup -Wl,--kill-at -lws2_32 -ldxguid -lgdi32 -lwinmm -lshell32
+LDFLAGS = -shared -static-libgcc -Wl,--enable-stdcall-fixup -Wl,--kill-at -lws2_32 -ldxguid -lgdi32 -lwinmm -lshell32 -lwininet
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 GAME_DIR ?=
@@ -14,7 +14,7 @@ diag_ps1.h: ../dist/diag.ps1
 	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r$$//' -e 's/^/"/' -e 's/$$/\\n"/' $< | \
 		{ echo 'static const char diag_script[] ='; cat; echo ';'; } > $@
 
-dinput8.dll: $(SRCS) bridge.h presence.h snapshot.h steam_abi.h route.h pad.h dinput8.def diag_ps1.h
+dinput8.dll: $(SRCS) bridge.h presence.h snapshot.h steam_abi.h route.h pad.h launcher_session.h launcher_profiles.h launcher_profiles_win.h launcher_update.h launcher_update_win.h launcher_voice_win.h dinput8.def diag_ps1.h
 	$(CC) $(CFLAGS) -DMOD_VERSION='"$(VERSION)"' -o $@ $(SRCS) dinput8.def $(LDFLAGS)
 
 install: dinput8.dll

@@ -37,11 +37,12 @@ work around that check.
 2. Update `dist/README.txt` (the player's copy in the zip) and the [README](../README.md) for anything new.
 3. `tools/release.sh v0.x.y` builds `local/release/mdk2-coop-v0.x.y.zip`: dinput8.dll, coop\coop.lua,
    MDK2-Coop-Setup.exe (the only thing a player opens to install or uninstall; it runs installer-gui.ps1, which calls
-   mdk2-coop.ps1, both beside it), Couch.cmd,
+   mdk2-coop.ps1 and install-state.ps1, all beside it), Couch.cmd,
    mdk2-couch.ps1, README.txt and LICENSE.txt. The graphical installer requests elevation only for game-folder
    writes; its separate user-settings operation runs as the original user. The version
    is built into the DLL and shown on the launcher's About tab.
-4. Tag and publish: `gh release create v0.x.y local/release/mdk2-coop-v0.x.y.zip` (`--prerelease` for alphas).
+   A matching `.zip.sha256` is generated; include it with the ZIP when publishing.
+4. Tag and publish: `gh release create v0.x.y local/release/mdk2-coop-v0.x.y.zip local/release/mdk2-coop-v0.x.y.zip.sha256` (`--prerelease` for alphas).
 
 ## Dev harness
 
@@ -403,7 +404,8 @@ Steam requires a separate logged-in account for each player; same-PC multi-insta
 checks new installs, upgrades, transport selection, lobby IDs, settings preservation and uninstall in
 disposable fixtures. It copies the executable into the fixtures, never runs it, and overrides the settings
 path so the real game settings stay untouched. Use a scratch directory on a Windows
-filesystem with `-TestRoot`.
+filesystem with `-TestRoot`. See [launcher maintenance](LAUNCHER-MAINTENANCE.md) for
+ownership journals, lifecycle policy, checksum conventions and ordered verification commands.
 
 To build the Steam smoke test: `i686-w64-mingw32-gcc -O2 -o steam_smoke.exe tools/steam_smoke.c
 -static-libgcc`. With permission to use the Steam account, run it on Windows as

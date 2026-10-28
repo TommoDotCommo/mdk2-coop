@@ -23,6 +23,10 @@
 #include <stddef.h>
 #include <math.h>
 #include "bridge.h"
+#include "launcher_profiles.h"
+#ifndef MOD_VERSION
+#define MOD_VERSION "dev"
+#endif
 
 static int join_cancelled, version_mismatch, test_legacy_version;
 
@@ -1731,7 +1735,15 @@ void net_poll(void)
                 continue;
             if (n <= 0)
                 break;
-            received(buf, n, &from, 0, now);
+            if (role_host && n == 8 && !memcmp(buf, "CPQ1", 4)) {
+                static double next_probe;
+                unsigned char reply[64];
+                if (now >= next_probe) {
+                    int bytes = lp_answer(buf, n, 1 + players_connected(), 1, MOD_VERSION, reply);
+                    next_probe = now + 100;
+                    if (bytes) sendto(sock, (char *)reply, bytes, 0, (struct sockaddr *)&from, fromlen);
+                }
+            } else received(buf, n, &from, 0, now);
         }
     }
     for (i = 0; i < nsimq; ) {

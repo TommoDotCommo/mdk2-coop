@@ -216,15 +216,17 @@ what's needed:
 
 ## Uninstall
 
-Open **MDK2-Coop-Setup.exe** and choose **Uninstall**. It removes the mod's files from the game folder and restores your game settings
-from the backup made at install. Co-op settings, logs and saves in `%LOCALAPPDATA%\mdk2-coop\coop` stay;
+Open **MDK2-Coop-Setup.exe** and choose **Uninstall**. It removes owned mod files, restores verified original files and removes the settings loader while keeping current player options. Co-op settings, logs and saves in `%LOCALAPPDATA%\mdk2-coop\coop` stay;
 delete that folder if you like. Older installs may also have data in the game folder's `coop` subfolder.
 
-What the installer changes: `<game folder>\dinput8.dll` (an earlier one is kept as `dinput8.dll.coop-backup`),
+What the installer changes: `<game folder>\dinput8.dll` (an earlier one is kept as `dinput8.dll.coop-original`),
 `<game folder>\coop\` (the mod's script and data-location marker), and one loader line in
 `%LOCALAPPDATA%\MDK2HD\settings.lua`, backed up first as `settings.lua.coop-backup`. The game rewrites that file
 when you change its options, and the mod puts the line back at the next start. The installer copies existing
 co-op data to `%LOCALAPPDATA%\mdk2-coop\coop`, without replacing data already there.
+Setup lists file status and refreshes on activation or Refresh. Hash receipts beside deployed files protect
+modified payloads and original backups. Review legacy backups before migrating older installations.
+See [launcher maintenance](docs/LAUNCHER-MAINTENANCE.md) for recovery and verification limits.
 
 ## For developers
 

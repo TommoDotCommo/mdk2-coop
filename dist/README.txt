@@ -12,7 +12,7 @@ accepted but untested. Every player needs their own copy.
 Install
 -------
 1. Unzip this folder anywhere (not inside the game folder).
-2. Double-click MDK2-Coop-Setup.exe and choose Install / Repair.
+2. Double-click MDK2-Coop-Setup.exe and choose Install, Update or Repair as offered by its status check.
    - It finds MDK2 HD in your Steam libraries or the Overhaul Games folder (or asks for the
      folder) and installs. Windows asks for administrator permission if the game folder is protected.
      It does not check the game version: the mod picks the Steam or the Overhaul engine
@@ -116,21 +116,28 @@ Keys (the Modern preset, the default; change them in Options > Co-op > Controls)
 
 Uninstall
 ---------
-Open MDK2-Coop-Setup.exe and choose Uninstall. It removes the mod's DLL and coop.lua from the game
-folder and restores your game settings from the backup made at install. Co-op
+Open MDK2-Coop-Setup.exe and choose Uninstall. It removes owned mod files, restores verified originals
+and removes the loader while keeping current player options. Co-op
 settings, logs and saves in %LOCALAPPDATA%\mdk2-coop\coop stay; delete that folder
 if you like. Older installs may also have data in the game folder's coop subfolder.
 
 What the installer changes
 --------------------------
 - <game folder>\dinput8.dll (the mod; any earlier dinput8.dll is kept as
-  dinput8.dll.coop-backup and put back on uninstall)
-- <game folder>\coop\coop.lua and the per-user-data marker
+  dinput8.dll.coop-original and put back on uninstall)
+- <game folder>\coop\coop.lua and the per-user-data marker; replaced originals
+  use .coop-original and deployed files have .coop-receipt.json hash receipts
 - %LOCALAPPDATA%\mdk2-coop\coop (settings, logs and co-op data; existing game-folder
   data is copied here on install without replacing files already present)
 - one loader line at the end of %LOCALAPPDATA%\MDK2HD\settings.lua (backed up first
   as settings.lua.coop-backup). The game rewrites that file when you change options;
   the mod puts the line back at the next start.
+
+Setup refreshes status on activation or Refresh. Modified files and damaged backups
+block replacement. Uninstall keeps files without ownership receipts. Legacy
+.coop-backup files are preserved and need review before replacement. Keep backups
+and receipts until uninstall completes. Recovery is per file; a failed operation
+may need repair before the installation is complete.
 
 Settings in the game
 --------------------

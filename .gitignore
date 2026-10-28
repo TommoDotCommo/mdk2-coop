@@ -2,3 +2,4 @@ local/
 bridge/*.dll
 bridge/diag_ps1.h
 __pycache__/
+dist/install-policy.exe
