@@ -1554,13 +1554,14 @@ static void page_about(void)
 {
     float y = 92;
     char line[240], notes[180];
-    int st, rb, auto_en;
+    int st, rb, auto_en, pre_en;
 
     update_init();
     EnterCriticalSection(&update_lock);
     st = update_state;
     rb = update_rollback_ready;
     auto_en = update_sched.auto_enabled;
+    pre_en = update_sched.include_prereleases;
     snprintf(line, sizeof(line), "%s", update_msg[0] ? update_msg :
              (auto_en ? "Auto-check enabled (checks GitHub at most once per 24h)." : "Automatic update checks are off."));
     snprintf(notes, sizeof(notes), "%.160s", update_rel.notes);
@@ -1583,6 +1584,13 @@ static void page_about(void)
                   "-  Difficulty presets, Couch.cmd split-screen, and F1 Mod Quick Guide") + 12;
 
     heading(PX, y, 18, "Updates", C_BLUE, DT_LEFT);
+    if (link(ID, PX + PW - 270, y - 2, pre_en ? "Pre-releases: On" : "Pre-releases: Off")) {
+        EnterCriticalSection(&update_lock);
+        update_sched.include_prereleases = !update_sched.include_prereleases;
+        update_save_schedule();
+        LeaveCriticalSection(&update_lock);
+        changed = 1;
+    }
     if (link(ID, PX + PW - 130, y - 2, auto_en ? "Auto-check: On" : "Auto-check: Off")) {
         EnterCriticalSection(&update_lock);
         update_sched.auto_enabled = !update_sched.auto_enabled;

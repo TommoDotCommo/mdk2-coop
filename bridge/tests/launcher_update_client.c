@@ -71,27 +71,29 @@ static int http_get_local(const char *url, int *status_code, int *rl_rem, uint32
 int main(int argc, char **argv)
 {
     const char *api_url, *game_dir, *cur_ver;
-    int expected_result, fail_step;
+    int expected_result, fail_step, include_prereleases = 1;
     int status = 0, rl_rem = -1;
     uint32_t retry_after = 0;
     unsigned char *body = NULL, *sha_body = NULL, *zip_body = NULL;
     size_t body_len = 0, sha_len = 0, zip_len = 0;
-    struct lu_schedule sched = { 1, 0, 0 };
+    struct lu_schedule sched = { 1, 0, 0, 1 };
     struct lu_release rel;
     char expected_sha[65];
     enum lu_result r;
 
-    assert(argc == 6);
+    assert(argc == 6 || argc == 7);
     api_url = argv[1];
     game_dir = argv[2];
     cur_ver = argv[3];
     expected_result = atoi(argv[4]);
     fail_step = atoi(argv[5]);
+    if (argc == 7) include_prereleases = atoi(argv[6]);
+    sched.include_prereleases = include_prereleases;
 
     http_get_local(api_url, &status, &rl_rem, &retry_after, &body, &body_len);
     r = lu_http_classify(status, rl_rem, retry_after, 1000, &sched);
     if (r == LU_OK) {
-        r = lu_parse_release((const char *)body, body_len, "mdk2-coop", &rel);
+        r = lu_parse_release((const char *)body, body_len, "mdk2-coop", include_prereleases, &rel);
     }
     free(body);
     if (r == LU_OK) {

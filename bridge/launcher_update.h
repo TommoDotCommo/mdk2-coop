@@ -53,6 +53,7 @@ struct lu_schedule {
     int auto_enabled;
     uint64_t last_check;
     uint64_t retry_after;
+    int include_prereleases;
 };
 
 struct lu_release {
@@ -64,6 +65,8 @@ struct lu_release {
     char sha_url[LU_URL_MAX];
     size_t sha_size;
     char notes[LU_NOTES_MAX];
+    char published_at[36];
+    int prerelease;
 };
 
 /* ---- FIPS 180-4 SHA-256 ---- */
@@ -216,6 +219,16 @@ static inline int lu_parse_semver(const char *tag, struct lu_semver *v)
     return 1;
 }
 
+static inline int lu_semver_cmp(const struct lu_semver *a, const struct lu_semver *b)
+{
+    if (a->major != b->major) return a->major > b->major ? 1 : -1;
+    if (a->minor != b->minor) return a->minor > b->minor ? 1 : -1;
+    if (a->patch != b->patch) return a->patch > b->patch ? 1 : -1;
+    if (!a->pre[0] && b->pre[0]) return 1;
+    if (a->pre[0] && !b->pre[0]) return -1;
+    return strcmp(a->pre, b->pre);
+}
+
 /* Returns 1 if candidate is a valid semver strictly newer than current, 0 if up to date/older,
  * or -1 if candidate is not a valid semver tag. "dev" is treated as older than any valid release. */
 static inline int lu_version_is_newer(const char *current, const char *candidate)
@@ -339,21 +352,54 @@ static inline int lu_url_valid(const char *url)
     return 1;
 }
 
-static inline enum lu_result lu_parse_release(const char *json, size_t len, const char *prefix, struct lu_release *out)
+static inline int lu_json_bool(const char *p, const char *end)
 {
-    const char *end = json + len, *v, *assets, *p;
-    struct lu_semver sv;
+    if (!p || p >= end) return 0;
+    while (p < end && (*p == ' ' || *p == '\t')) p++;
+    return (end - p >= 4 && !strncmp(p, "true", 4)) ? 1 : 0;
+}
+
+static inline enum lu_result lu_parse_single_release(const char *start, const char *end,
+                                                     const char *prefix, int include_prereleases,
+                                                     struct lu_release *out, struct lu_semver *out_sv)
+{
+    const char *v, *assets, *p;
     memset(out, 0, sizeof(*out));
-    if (!json || !len || len >= LU_MAX_JSON_BYTES || memchr(json, 0, len)) return LU_ERR_JSON;
-    v = lu_json_find_key(json, end, "tag_name");
-    if (!v || !lu_json_str(v, end, out->tag, sizeof(out->tag), 0)) return LU_ERR_JSON;
-    if (!lu_parse_semver(out->tag, &sv)) return LU_ERR_VERSION;
-    v = lu_json_find_key(json, end, "body");
-    if (v && *v == '"') lu_json_str(v, end, out->notes, sizeof(out->notes), 1);
+    memset(out_sv, 0, sizeof(*out_sv));
+
+    v = lu_json_find_key(start, end, "draft");
+    if (v && lu_json_bool(v, end))
+        return LU_UP_TO_DATE;
+
+    v = lu_json_find_key(start, end, "prerelease");
+    if (v && lu_json_bool(v, end)) {
+        out->prerelease = 1;
+        if (!include_prereleases) return LU_UP_TO_DATE;
+    }
+
+    v = lu_json_find_key(start, end, "published_at");
+    if (v && *v == '"') {
+        char pub[36] = {0};
+        if (lu_json_str(v, end, pub, sizeof(pub), 0))
+            snprintf(out->published_at, sizeof(out->published_at), "%s", pub);
+    }
+
+    v = lu_json_find_key(start, end, "tag_name");
+    if (!v || !lu_json_str(v, end, out->tag, sizeof(out->tag), 0))
+        return LU_ERR_JSON;
+    if (!lu_parse_semver(out->tag, out_sv))
+        return LU_ERR_VERSION;
+
+    v = lu_json_find_key(start, end, "body");
+    if (v && *v == '"')
+        lu_json_str(v, end, out->notes, sizeof(out->notes), 1);
+
     snprintf(out->zip_name, sizeof(out->zip_name), "%s-%s.zip", prefix, out->tag);
     snprintf(out->sha_name, sizeof(out->sha_name), "%s-%s.zip.sha256", prefix, out->tag);
-    assets = lu_json_find_key(json, end, "assets");
-    if (!assets || *assets != '[') return LU_ERR_ASSET;
+
+    assets = lu_json_find_key(start, end, "assets");
+    if (!assets || *assets != '[')
+        return LU_ERR_ASSET;
     p = assets + 1;
     while (p < end && *p != ']') {
         if (*p == '{') {
@@ -397,6 +443,77 @@ static inline enum lu_result lu_parse_release(const char *json, size_t len, cons
     if (!out->zip_url[0] || !out->zip_size || !out->sha_url[0] || !out->sha_size)
         return LU_ERR_ASSET;
     return LU_OK;
+}
+
+static inline enum lu_result lu_parse_release(const char *json, size_t len, const char *prefix,
+                                              int include_prereleases, struct lu_release *out)
+{
+    const char *end = json + len, *p;
+    int have_best = 0;
+    struct lu_semver best_sv;
+    enum lu_result last_err = LU_ERR_JSON;
+    memset(out, 0, sizeof(*out));
+
+    if (!json || !len || len >= LU_MAX_JSON_BYTES || memchr(json, 0, len))
+        return LU_ERR_JSON;
+
+    p = json;
+    while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+    if (p >= end) return LU_ERR_JSON;
+
+    if (*p == '{') {
+        return lu_parse_single_release(p + 1, end, prefix, include_prereleases, out, &best_sv);
+    }
+
+    if (*p != '[') return LU_ERR_JSON;
+
+    p++;
+    while (p < end && *p != ']') {
+        if (*p == '{') {
+            const char *obj_start = p + 1, *obj_end = p + 1;
+            int depth = 1;
+            while (obj_end < end && depth > 0) {
+                if (*obj_end == '"') {
+                    char skip[4];
+                    const char *next = lu_json_str(obj_end, end, skip, sizeof(skip), 1);
+                    if (!next) return LU_ERR_JSON;
+                    obj_end = next;
+                    continue;
+                }
+                if (*obj_end == '{') depth++;
+                else if (*obj_end == '}') depth--;
+                if (depth > 0) obj_end++;
+            }
+            if (depth != 0) return LU_ERR_JSON;
+            {
+                struct lu_release cand;
+                struct lu_semver cand_sv;
+                enum lu_result r = lu_parse_single_release(obj_start, obj_end, prefix, include_prereleases, &cand, &cand_sv);
+                if (r == LU_OK) {
+                    if (!have_best) {
+                        *out = cand;
+                        best_sv = cand_sv;
+                        have_best = 1;
+                    } else {
+                        int cmp = lu_semver_cmp(&cand_sv, &best_sv);
+                        if (cmp > 0 || (cmp == 0 && strcmp(cand.published_at, out->published_at) > 0)) {
+                            *out = cand;
+                            best_sv = cand_sv;
+                        }
+                    }
+                } else if (r != LU_UP_TO_DATE) {
+                    last_err = r;
+                }
+            }
+            p = obj_end + 1;
+        } else {
+            p++;
+        }
+    }
+    if (p >= end || *p != ']') return LU_ERR_JSON;
+    if (have_best) return LU_OK;
+    if (last_err == LU_ERR_ASSET || last_err == LU_ERR_VERSION) return last_err;
+    return LU_UP_TO_DATE;
 }
 
 /* ---- Sidecar & download verification ---- */

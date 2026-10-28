@@ -51,7 +51,7 @@ No registry entries or shortcuts are created, and the game executable is not pat
 
 `bridge/launcher_update.h` and `bridge/launcher_update_win.h` implement GitHub release
 discovery and safe self-updating:
-- Queries the unauthenticated public GitHub API (`/repos/TommoDotCommo/mdk2-coop/releases/latest`),
+- Queries the unauthenticated public GitHub API (`/repos/TommoDotCommo/mdk2-coop/releases?per_page=10`),
   with configurable `[update] api_url` for testing with a local fake server.
 - Enforces an 86,400s (24h) auto-check interval (`lu_can_check`), honors HTTP 429 and `Retry-After` /
   `X-RateLimit-Remaining` rate limits, and tolerates offline networks gracefully.

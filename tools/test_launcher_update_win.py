@@ -47,13 +47,14 @@ mode = ''
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
     def do_GET(self):
-        if self.path == '/latest':
+        if self.path.startswith('/latest') or self.path.startswith('/releases'):
             release_name = a.old_package.name if mode == 'current' else name
             assets = [{'name': release_name, 'size': len(archive), 'browser_download_url': base+'/asset.zip'}]
             if mode != 'missing-sidecar':
                 assets.append({'name': release_name+'.sha256', 'size': len(sidecar), 'browser_download_url': base+'/asset.sha256'})
-            body = json.dumps({'tag_name': 'v0.3.2-test' if mode == 'current' else 'v0.4.0-test',
-                               'body': 'Local verification release', 'assets': assets}).encode()
+            body = json.dumps([{'tag_name': 'v0.3.2-test' if mode == 'current' else 'v0.4.0-test',
+                                'draft': False, 'prerelease': False,
+                                'body': 'Local verification release', 'assets': assets}]).encode()
         elif self.path.endswith('.sha256'):
             body = b'0'*64 + sidecar[64:] if mode == 'checksum' else sidecar
         else:
@@ -84,7 +85,7 @@ with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
             # path as the game, independent of WSL executable interop quirks.
             quote = lambda value: "'" + str(value).replace("'", "''") + "'"
             stdout, stderr = game/'stdout.txt', game/'stderr.txt'
-            args = f'"{winpath(game)}" "{mode if mode == "real-api" else base+"/latest"}" {expected}'
+            args = f'"{winpath(game)}" "{mode if mode == "real-api" else base+"/releases?per_page=10"}" {expected}'
             command = (f"$ErrorActionPreference='Stop'; $env:LOCALAPPDATA={quote(winpath(profile))}; $env:TEMP=$env:TMP={quote(winpath(profile))}; "
                        f"$p=Start-Process -FilePath {quote(winpath(game/exe.name))} "
                        f"-ArgumentList {quote(args)} -WindowStyle Hidden -Wait -PassThru "
