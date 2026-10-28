@@ -406,6 +406,11 @@ disposable fixtures. It copies the executable into the fixtures, never runs it, 
 path so the real game settings stay untouched. Use a scratch directory on a Windows
 filesystem with `-TestRoot`. See [launcher maintenance](LAUNCHER-MAINTENANCE.md) for
 ownership journals, lifecycle policy, checksum conventions and ordered verification commands.
+`tools/test_install_state.ps1 -Mutants` also checks that helper processes have no console,
+capture output and errors without blocking, and preserve arguments and exit codes.
+`tools/test_installer_startup.ps1 -PackageDir <unpacked release>` checks the real
+setup window is visible and its status helper runs without elevation; it closes
+the window without installing anything.
 
 To build the Steam smoke test: `i686-w64-mingw32-gcc -O2 -o steam_smoke.exe tools/steam_smoke.c
 -static-libgcc`. With permission to use the Steam account, run it on Windows as

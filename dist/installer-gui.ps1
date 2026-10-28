@@ -96,25 +96,32 @@ $refresh.Text = 'Refresh'; $refresh.SetBounds(26, 480, 110, 40); $refresh.Anchor
 Style-Button $refresh $false
 $form.Controls.Add($refresh)
 function Refresh-Status {
-    if ($script:busy) { return }
-    $inventory.Items.Clear(); $install.Enabled = $false; $uninstall.Enabled = $false
-    $install.Text = 'Install'
-    $status.Text = 'Choose a game folder to inspect its installation.'
-    $dir = $path.Text.Trim().Trim('"')
-    if (-not $dir -or -not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe'))) { return }
+    if ($script:busy -or $script:refreshing) { return }
+    $script:refreshing = $true
+    $inventory.BeginUpdate()
     try {
-        $snapshot = Get-CoopInstallStatus $dir $PSScriptRoot (Join-Path $env:LOCALAPPDATA 'MDK2HD\settings.lua') (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop')
-        foreach ($row in $snapshot.items) {
-            $item = New-Object Windows.Forms.ListViewItem($row.item)
-            [void]$item.SubItems.Add($row.status); [void]$item.SubItems.Add($row.detail)
-            [void]$inventory.Items.Add($item)
-        }
-        $install.Enabled = [bool]$snapshot.actions.install
-        $install.Text = if ($snapshot.actions.install) { $snapshot.actions.install } elseif ($snapshot.actions.blocked) { 'Needs attention' } else { 'Up to date' }
-        $uninstall.Enabled = $snapshot.actions.uninstall
-        if ($snapshot.actions.blocked) { $status.Text = 'Conflicting or unreadable files need attention. Modified files are kept.' }
-        else { $status.Text = 'Status is read-only. Saves and current player options are kept.' }
-    } catch { $status.Text = 'Could not inspect this folder. No changes were made.' }
+        $inventory.Items.Clear(); $install.Enabled = $false; $uninstall.Enabled = $false
+        $install.Text = 'Install'
+        $status.Text = 'Choose a game folder to inspect its installation.'
+        $dir = $path.Text.Trim().Trim('"')
+        if (-not $dir -or -not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe'))) { return }
+        try {
+            $snapshot = Get-CoopInstallStatus $dir $PSScriptRoot (Join-Path $env:LOCALAPPDATA 'MDK2HD\settings.lua') (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop')
+            foreach ($row in $snapshot.items) {
+                $item = New-Object Windows.Forms.ListViewItem($row.item)
+                [void]$item.SubItems.Add($row.status); [void]$item.SubItems.Add($row.detail)
+                [void]$inventory.Items.Add($item)
+            }
+            $install.Enabled = [bool]$snapshot.actions.install
+            $install.Text = if ($snapshot.actions.install) { $snapshot.actions.install } elseif ($snapshot.actions.blocked) { 'Needs attention' } else { 'Up to date' }
+            $uninstall.Enabled = $snapshot.actions.uninstall
+            if ($snapshot.actions.blocked) { $status.Text = 'Conflicting or unreadable files need attention. Modified files are kept.' }
+            else { $status.Text = 'Status is read-only. Saves and current player options are kept.' }
+        } catch { $status.Text = 'Could not inspect this folder. No changes were made.' }
+    } finally {
+        $inventory.EndUpdate()
+        $script:refreshing = $false
+    }
 }
 $refresh.Add_Click({ Refresh-Status })
 $path.Add_TextChanged({ Refresh-Status })
@@ -211,8 +218,12 @@ function Run-Backend($dir, $remove, $part, $elevate) {
     $arguments += ' -PerUserData'
     if ($remove) { $arguments += ' -Uninstall' }
     $options = @{ FilePath = 'powershell.exe'; ArgumentList = $arguments; Wait = $true; PassThru = $true; WindowStyle = 'Hidden' }
-    if ($elevate) { $options.Verb = 'RunAs' }
-    $process = Start-Process @options
+    if ($elevate) {
+        $options.Verb = 'RunAs'
+        $process = Start-Process @options
+    } else {
+        $process = Invoke-CoopHiddenProcess 'powershell.exe' $arguments
+    }
     if ($process.ExitCode -ne 0) { throw 'The installer could not complete this step. Check that the game is closed and the folder is writable.' }
 }
 $script:busy = $false
@@ -252,8 +263,8 @@ function Perform($remove) {
 $install.Add_Click({ Perform $false })
 $uninstall.Add_Click({ Perform $true })
 try {
-    $found = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $backend -FindOnly -Yes 2>&1
-    foreach ($line in $found) { if ("$line" -match '^Game folder: (.+)$') { $path.Text = $Matches[1]; break } }
+    $found = Invoke-CoopHiddenProcess 'powershell.exe' ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -FindOnly -Yes' -f $backend)
+    foreach ($line in ($found.Output -split '\r?\n')) { if ("$line" -match '^Game folder: (.+)$') { $path.Text = $Matches[1]; break } }
 } catch { }
 Refresh-Status
 [void]$form.ShowDialog()

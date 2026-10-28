@@ -1,6 +1,6 @@
 # Game-free: pure policy, disposable filesystem fixtures and source mutants.
 # Windows PowerShell 5.1: powershell -NoProfile -File tools/test_install_state.ps1 -Mutants
-param([switch]$Mutants)
+param([switch]$Mutants, [string]$PolicyPath)
 $ErrorActionPreference = 'Stop'
 # Parse every shipped script with the actual Windows PowerShell grammar.
 foreach ($scriptFile in Get-ChildItem (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist') -Filter '*.ps1') {
@@ -11,13 +11,79 @@ foreach ($scriptFile in Get-ChildItem (Join-Path (Split-Path -Parent $PSScriptRo
 $module = Join-Path (Split-Path -Parent $PSScriptRoot) 'dist/install-state.ps1'
 $source = [IO.File]::ReadAllText($module)
 # scriptblock mutants have no module PSScriptRoot; pin only the helper location.
-$helper = Join-Path (Split-Path -Parent $module) 'install-policy.exe'
+$helper = if ($PolicyPath) { $PolicyPath } else { Join-Path (Split-Path -Parent $module) 'install-policy.exe' }
 $source = $source.Replace("Join-Path `$PSScriptRoot 'install-policy.exe'", "'$($helper.Replace("'", "''"))'")
 function Require($value, $message) { if (-not $value) { throw "ASSERT: $message" } }
 function Reject($operation, $message) {
     $rejected = $false
     try { & $operation | Out-Null } catch { $rejected = $true }
     Require $rejected $message
+}
+# Exercise the actual child process, not just ProcessStartInfo properties. The
+# console probe reports a failure if Windows attached or allocated any console.
+function Test-HiddenProcess($code) {
+    . ([scriptblock]::Create($code))
+    $root = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+    New-Item -ItemType Directory $root | Out-Null
+    try {
+        $probe = Join-Path $root 'console probe.exe'
+        Add-Type -OutputAssembly $probe -OutputType ConsoleApplication -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+class ConsoleProbe {
+    [DllImport("kernel32.dll")] static extern IntPtr GetConsoleWindow();
+    static int Main(string[] args) {
+        if (GetConsoleWindow() != IntPtr.Zero) return 91;
+        if (args.Length != 1 || args[0] != "argument with spaces") return 92;
+        Console.Error.Write(new string('e', 131072));
+        Console.Out.WriteLine("17");
+        return 0;
+    }
+}
+'@
+        $result = Invoke-CoopHiddenProcess $probe '"argument with spaces"'
+        Require ($result.ExitCode -eq 0) 'child has no console and receives quoted arguments'
+        Require ($result.Output.Trim() -eq '17') 'stdout captured'
+        Require ($result.Error.Length -eq 131072) 'stderr drained without deadlock'
+        $result = Invoke-CoopHiddenProcess $probe 'wrong'
+        Require ($result.ExitCode -eq 92) 'nonzero exit preserved'
+        $script:CoopPolicy = $probe
+        Reject { Invoke-CoopPolicy @('wrong') } 'policy rejects failed child'
+        Reject { Invoke-CoopPolicy @('unsafe argument') } 'policy rejects non-protocol arguments'
+    } finally { Remove-Item -LiteralPath $root -Recurse -Force }
+}
+# A pseudoconsole has no HWND. Use a hidden real console for the inheritance
+# mutant, restoring the runner's parent console afterwards.
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public class ProbeConsole {
+    [DllImport("kernel32.dll")] public static extern bool AllocConsole();
+    [DllImport("kernel32.dll")] public static extern bool FreeConsole();
+    [DllImport("kernel32.dll")] public static extern bool AttachConsole(uint pid);
+    [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int show);
+}
+'@
+$allocated = $false
+try {
+    if ([ProbeConsole]::GetConsoleWindow() -eq [IntPtr]::Zero) {
+        [void][ProbeConsole]::FreeConsole()
+        $allocated = [ProbeConsole]::AllocConsole()
+        if (-not $allocated) { throw 'Could not establish console inheritance fixture' }
+        [void][ProbeConsole]::ShowWindow([ProbeConsole]::GetConsoleWindow(), 0)
+    }
+    Test-HiddenProcess $source
+    Write-Output 'PASS: hidden helper process, streams, arguments and exit status'
+    if ($Mutants) {
+        Reject { Test-HiddenProcess ($source.Replace('$info.CreateNoWindow = $true', '$info.CreateNoWindow = $false')) } 'console-window mutant detected'
+        Write-Output 'PASS: console-window mutant rejected'
+    }
+} finally {
+    if ($allocated) {
+        [void][ProbeConsole]::FreeConsole()
+        [void][ProbeConsole]::AttachConsole([uint32]::MaxValue)
+    }
 }
 function Run-Checks($code) {
     . ([scriptblock]::Create($code))

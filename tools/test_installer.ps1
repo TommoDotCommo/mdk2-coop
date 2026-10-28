@@ -27,6 +27,30 @@ function Install($dir, [string[]]$extra, [int]$expected=0) {
     if ($LASTEXITCODE -ne $expected) { throw "Installer exit $LASTEXITCODE, expected ${expected}: $output" }
 }
 . (Join-Path $PackageDir 'install-state.ps1')
+# Exercise the shipped native bootstrap with a headless script beside it. This
+# checks console allocation before WinForms starts without changing any game.
+if (Test-Path (Join-Path $PackageDir 'MDK2-Coop-Setup.exe')) {
+    $startupDir = Join-Path $root 'setup startup'
+    New-Item -ItemType Directory $startupDir | Out-Null
+    $setup = Join-Path $startupDir 'MDK2-Coop-Setup.exe'
+    Copy-Item (Join-Path $PackageDir 'MDK2-Coop-Setup.exe') $setup
+    [IO.File]::WriteAllText((Join-Path $startupDir 'installer-gui.ps1'), @'
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class StartupProbe {
+    [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+}
+"@
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'console.txt'), [StartupProbe]::GetConsoleWindow().ToInt64().ToString())
+'@)
+    $process = Start-Process -FilePath $setup -PassThru -Wait
+    Check ($process.ExitCode -eq 0) 'native setup starts successfully'
+    $resultFile = Join-Path $startupDir 'console.txt'
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    while (-not (Test-Path $resultFile) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+    Check ((Test-Path $resultFile) -and [IO.File]::ReadAllText($resultFile) -eq '0') 'native setup starts PowerShell without a console window'
+}
 $hostDir = Fixture 'host'
 foreach ($mode in 'install', 'uninstall') {
     $completion = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDir 'installer-gui.ps1') -TestCompletion $mode
