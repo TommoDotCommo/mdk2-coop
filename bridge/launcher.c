@@ -2413,8 +2413,10 @@ static void render(void)
     fill(PX, 80, PW, 1, 0x22343c, 255);
 
     if (page == PAGE_PLAY) {
-        if (lob.on) lobby_page();
-        else page_play();
+        if (lob.on) {
+            lobby_page();
+            if (!lob.on) return; /* Leave must not activate the Play footer in this pass. */
+        } else page_play();
     }
     else if (page == PAGE_PROFILES)
         page_profiles();
