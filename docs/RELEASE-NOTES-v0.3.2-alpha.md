@@ -1,42 +1,80 @@
 # MDK2 HD Co-op v0.3.2-alpha
 
-## What's New
+This alpha includes the merged gameplay, launcher and installer work, plus fixes
+from paired multiplayer playtesting.
 
-### Direct AI Targeting & Remote Kurt Canopy
-- Enemies now target, pursue, and damage client players directly (`bridge/presence.c`, `bridge/presence_game.c`, `bridge/net.c`).
-- Client join flow rewritten with explicit version mismatch detection, cancellation handling, and clean reconnection retry.
-- Remote Kurt canopy state captured, encoded, decoded, and animated seamlessly on puppets across players.
-- Engine ABI stack balance fixes for actor callbacks.
+## Gameplay fixes
 
-### Launcher, Installer & Lobby Enhancements
-- Single graphical installer (`MDK2-Coop-Setup.exe`) with transaction-verified ownership receipts (`dinput8.dll.coop-receipt.json`), install policy engine (`install-policy.exe`), and status UI.
-- Saved-IP server profiles with live UDP status probes (`bridge/launcher_profiles.h`, `bridge/launcher_profiles_win.h`).
-- Persistent lobby sessions with pregame text chat and voice chat support (`bridge/launcher_session.h`, `bridge/launcher_voice_win.h`).
-- Automatic update discovery from GitHub releases: queries GitHub releases list endpoint (`/releases?per_page=10`), parses release arrays, ignores drafts, orders pre-releases and final releases by semver (`v0.3.2-alpha` above `v0.3.1-alpha`, final `v0.3.2` above `v0.3.2-alpha`), breaks ties by `published_at`, and adds an "include pre-releases" option (defaults to ON for alpha releases).
-- Atomic package installation with SHA-256 sidecar checksum verification, PE header validation, and verified automatic rollback on failure.
+- Enemies can acquire, pursue and damage client players. Native ranged attacks
+  now aim at the selected player, including corridor turrets and round enemies.
+  The first behind-glass enemy's scripted attack follows the same targeting rules.
+- The first visible enemy generator now mirrors its animation and lifetime on
+  clients. Stable enemy identities prevent repeated spawn messages or changes in
+  a group of same-named enemies from producing stray or apparently unkillable mirrors.
+- Fixed a crash when a projectile hits after its original shooter has disappeared.
+- Included mortar progression synchronization, shared pickup rewards and enemy
+  maximum-health display corrections.
+- Remote Kurt parachutes mirror deployment, steering, landing and cut-away.
+- Client joining handles waiting, host departures, cancellation, retry and
+  incompatible versions more clearly. Native actor callback fixes are included.
 
-### Combat Feedback & DPS Meter
-- Real-time combat feed and damage log (`bridge/combat.c`, `bridge/combat_core.c`, `docs/COMBAT.md`).
-- Floating hitmarkers and rising damage numbers colored per player.
-- In-game DPS meter showing 5-second rolling DPS, fight DPS, and total fight damage (toggle with `Ctrl+M`, reset with `Ctrl+R`, scroll with `Ctrl+PgUp`/`Ctrl+PgDn`, dump to `combat.txt` with `Ctrl+D`).
-- Host-confirmed enemy HP loss telemetry using event `EV_COMBAT` in sync core.
+## Launcher, installer and lobby
 
-### Sync Core & Gameplay Fixes
-- Progression synchronization for mortar weapons, shared pickup distributions, and enemy health display bars.
-- Comprehensive game-free mutation suites, sync simulator, fuzzers, and lossy link test suites.
+- Fixed Leave lobby immediately rejoining from the same click.
+- Save address adds the current lobby address and port to Saved addresses without
+  leaving the lobby. Existing names and notes are preserved when already saved.
+- Joining a saved address opens the connected lobby page directly.
+- Saved addresses include live UDP status checks. Lobby connections and pregame
+  text and voice chat remain active while browsing launcher pages.
+- The graphical installer supports Install, Update and Repair, with ownership
+  receipts and clearer installation status.
+- Automatic updates include alpha releases by default, ignore drafts, compare
+  release versions and verify package checksums. Failed installations can roll back.
 
-## Known Issues
+## Combat feedback
 
-- **Combat feedback not live-verified**: The combat feed, DPS meter, hitmarkers, and floating damage numbers have been verified in native core tests, sync simulation, and mutation suites, but have not undergone live in-game multiplayer playtesting.
-- **Voice chat hardware**: Voice chat codecs and networking have been tested with synthetic audio loopbacks and protocol simulations, but have not been tested with a physical microphone.
-- **Base playtest synchronization**: Features from earlier playtest work (mortar progression, shared pickups, and enemy health displays) are included in the build but are not live-verified.
-- **Pre-release status**: This is an alpha release candidate; live multiplayer verification may follow.
+- Host-confirmed hitmarkers and floating damage numbers remain enabled.
+- The combat log and DPS panels are hidden for now while their presentation is
+  revised. Bounded event history, counters and diagnostic dumps remain available.
 
-## Maintainer Release Instructions
+## Validation
 
-To create the GitHub pre-release, run:
+- All 16 offline regression gates and all 66 Python unit tests passed.
+- Eight native level-one encounter checks passed: generator animation, real
+  ranged client damage with the host unharmed, repeated spawn announcements,
+  sibling removal, matching survivor health, survivor death on both peers,
+  client-targeted turret launches, and the first enemy after sniping its sign.
+  Disabling targeting made the native ranged-damage check fail as required.
+- The existing three-check Grunt targeting, direct-damage and script-error
+  restoration regression also passed.
+- Focused lobby checks passed for leaving/rejoining, duplicate-free address
+  saving and joining a saved address directly into the connected lobby.
+- Earlier targeted canopy and join-flow checks passed; the complete campaign
+  and feature ladder have not been rerun on this final combined build.
+
+## Known limitations
+
+- These AI results cover the tested encounters, not every enemy, level or
+  navigation situation in the campaign.
+- Voice chat was tested with synthetic audio, not a physical microphone.
+- Hitmarkers and floating damage numbers have automated core coverage; a full
+  multiplayer rendering matrix has not been completed.
+- The Overhaul Games build is accepted by build detection but remains untested.
+- This is an alpha: expect rough edges. Use the diagnostics bundle when reporting
+  a problem, with the level, checkpoint and whether you hosted or joined.
+
+## Maintainer publishing
+
+The package is prepared locally. From this release branch, after reviewing the
+changes, publish its commit and create the GitHub pre-release:
+
 ```bash
-gh release create v0.3.2-alpha local/release/mdk2-coop-v0.3.2-alpha.zip local/release/mdk2-coop-v0.3.2-alpha.zip.sha256 \
+git push origin HEAD:main
+gh release create v0.3.2-alpha \
+  local/release/mdk2-coop-v0.3.2-alpha.zip \
+  local/release/mdk2-coop-v0.3.2-alpha.zip.sha256 \
+  --repo TommoDotCommo/mdk2-coop \
+  --target "$(git rev-parse HEAD)" \
   --title "mdk2-coop v0.3.2-alpha" \
   --notes-file docs/RELEASE-NOTES-v0.3.2-alpha.md \
   --prerelease

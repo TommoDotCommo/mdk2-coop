@@ -38,6 +38,9 @@ straight away.
 
 Join over UDP and Host first open a lobby: everyone who has connected is listed with
 their name, ready state and ping, and the host presses Start when the roster looks right.
+Use Save address inside a lobby to keep the host address and port for next time.
+Saved addresses preserve your names and notes; Join opens the connected lobby directly.
+Leave lobby returns to connection selection.
 
 If Windows shows "Windows protected your PC", click "More info" > "Run anyway".
 (The installer uses PowerShell scripts, readable in Notepad.)
@@ -205,7 +208,8 @@ Open a bug report (or a feature request): https://github.com/TommoDotCommo/mdk2-
 
 MIT licensed (LICENSE.txt). MDK2 HD itself is not included.
 
-Combat feedback: coloured confirmed enemy hits, floating numbers and a DPS meter.
-Ctrl+M toggles DPS, Ctrl+R resets local counters, Ctrl+PgUp/PgDn scrolls/pages,
-Ctrl+L returns to live, Ctrl+D dumps combat.txt (also saved automatically).
+Combat feedback: coloured confirmed enemy hitmarkers and floating damage numbers.
+The combat log and DPS panels are hidden for now while their presentation is revised.
+Counters and bounded history still record in the background. Ctrl+R resets local counters;
+Ctrl+D dumps combat.txt (also saved automatically).
 Recent history is bounded to 512 events. Source IDs describe projectiles or damage channels.
