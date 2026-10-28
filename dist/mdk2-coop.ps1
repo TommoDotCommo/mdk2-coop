@@ -270,7 +270,7 @@ function Do-Uninstall {
     $dll = Join-Path $game 'dinput8.dll'
     foreach ($target in @($dll, (Join-Path $game 'coop\coop.lua'), (Join-Path $game 'coop\per-user-data'))) {
         if (Remove-CoopFile $target) { Say "  restored/removed $target" }
-        elseif (Test-Path -LiteralPath $target) { Say "  no ownership receipt for $target: kept it; install this package first to establish ownership" Yellow }
+        elseif (Test-Path -LiteralPath $target) { Say "  no ownership receipt for ${target}: kept it; install this package first to establish ownership" Yellow }
     }
 
     if (-not $GameFilesOnly) { Remove-UserLoader }

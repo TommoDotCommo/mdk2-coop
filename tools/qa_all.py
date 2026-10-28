@@ -35,7 +35,8 @@ class Gate:
     shards: int = 1
 
 
-OFFLINE = [Gate("launcher-profiles", ("python3", "tools/test_launcher_profiles.py")),
+OFFLINE = [Gate("launcher-audio", ("bash", "tools/test_launcher_audio.sh")),
+           Gate("launcher-profiles", ("python3", "tools/test_launcher_profiles.py")),
            Gate("install-policy", ("python3", "tools/test_install_policy.py")),
            Gate("launcher-session", ("python3", "tools/test_launcher_session.py")),
            Gate("launcher-update", ("python3", "tools/test_launcher_update.py")),

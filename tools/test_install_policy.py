@@ -29,6 +29,7 @@ MUTANTS = {
     'unknown-action-input': ('(states & ~127u) || ', ''),
     'blocked-actions': ('return 32;', 'return 16;'),
     'update-action': ('action = 2;', 'action = 3;'),
+    'repair-priority': ('else if (states & ((1u << CI_MISSING) | (1u << CI_UNMANAGED))) action = 3;\n    else if (states & (1u << CI_OUTDATED)) action = 2;', 'else if (states & (1u << CI_OUTDATED)) action = 2;\n    else if (states & ((1u << CI_MISSING) | (1u << CI_UNMANAGED))) action = 3;'),
     'repair-action': ('action = 3;', 'action = 1;'),
     'ownership': ('(owned ? 16 : 0)', '16'),
     'loader-prefix': ("a != text && a[-1] != '\\n'", '0'),
@@ -55,6 +56,8 @@ def oracle(e, o, s, i, r, p, b, u):
 def verify(lib):
     lib.file.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int] + [ctypes.c_char_p]*4 + [ctypes.c_int]
     lib.loader.argtypes = [ctypes.c_char_p]
+    # A missing managed payload requires Repair even when another payload is outdated.
+    assert lib.actions((1 << 1) | (1 << 2), 1) == 19, 'partial update must offer Repair'
     checks = 0
     for e,o,s,i,r,p,b,u in itertools.product([b'',b'new'], [b'',b'new',b'old',b'orig',b'pending',b'foreign'], [0,1,2], [b'',b'old'], [b'',b'orig'], [b'',b'pending'], [b'',b'orig',b'bad'], [0,1]):
         assert lib.file(e,o,s,i,r,p,b,u) == oracle(e,o,s,i,r,p,b,u), (e,o,s,i,r,p,b,u)
@@ -64,8 +67,8 @@ def verify(lib):
         action = 0
         if not blocked:
             if not owned and mask & ((1<<1)|(1<<6)): action = 1
-            elif mask & (1<<2): action = 2
             elif mask & ((1<<1)|(1<<6)): action = 3
+            elif mask & (1<<2): action = 2
         expected = 32 if blocked else action | (16 if owned else 0)
         assert lib.actions(mask, owned) == expected, (mask,owned)
         checks += 1

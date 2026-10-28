@@ -32,8 +32,8 @@ static int ci_actions(unsigned states, int owned)
     int action = 0;
     if (!states || (states & ~127u) || (states & ((1u << CI_MODIFIED) | (1u << CI_CONFLICT) | (1u << CI_UNKNOWN)))) return 32;
     if (!owned && (states & ((1u << CI_MISSING) | (1u << CI_UNMANAGED)))) action = 1;
-    else if (states & (1u << CI_OUTDATED)) action = 2;
     else if (states & ((1u << CI_MISSING) | (1u << CI_UNMANAGED))) action = 3;
+    else if (states & (1u << CI_OUTDATED)) action = 2;
     return action | (owned ? 16 : 0);
 }
 static int ci_loader(const char *text)

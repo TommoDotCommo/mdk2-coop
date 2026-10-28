@@ -123,8 +123,10 @@ per-thread DPI awareness context (`SetThreadDpiAwarenessContext`).
 - 150% (1920x1080)
 - 200% (2560x1440)
 - 300% (3840x2160)
-All control bounds, hit boxes (`hits[128]`), text containers, and dialog panels are mathematically
-proven to remain within visible bounds without overlap.
+These checks cover the geometry encoded in the test. They do not establish text
+legibility or actual monitor DPI behavior. The Windows window test below exercises
+the real installer controls and captures them without activating the window; inspect
+its PNGs as well. Its doubled geometry case is not an actual monitor DPI change.
 
 ## 7. Ordered verification commands
 
@@ -180,3 +182,33 @@ bash tools/qa_lobby.sh
 # 5. Lobby start-protection mutant check (host countdown withheld)
 MUTANT=nostart bash tools/qa_lobby.sh
 ```
+
+### Additional native Windows verification from WSL
+
+`tools/test_launcher_audio.sh` enumerates input/output devices through the production
+WinMM adapter without opening them, then checks the synthetic source's amplitude,
+40 ms pacing and expiry. Real microphone capture, permission prompts, acoustics,
+physical push-to-talk, and audible playback still need a hardware check.
+
+The following commands use disposable scratch folders on a Windows filesystem:
+
+```sh
+# Real installer button states plus PrintWindow captures, without taking focus.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/test_installer_window.ps1 \
+  -PackageDir '<unpacked release>' -TestRoot '<Windows scratch folder>'
+
+# Build two local packages; publishing is a separate operation.
+bash tools/release.sh v0.3.2-test
+bash tools/release.sh v0.4.0-test
+python3 tools/test_launcher_update_win.py --test-root '<WSL path to Windows scratch folder>' \
+  --old-package local/release/mdk2-coop-v0.3.2-test.zip \
+  --new-package local/release/mdk2-coop-v0.4.0-test.zip
+```
+
+The updater fixture includes the production WinINet adapter and loads the real
+bridge DLL in a harmless executable. It uses an explicit non-elevating manifest.
+It checks a local release server and attempts to replace the mapped DLL, reload
+its replacement and restore verified originals. It does not launch MDK2 or prove
+that a restarted game's launcher displays the new version. `--try-real-api` adds
+one unauthenticated read-only request and prints the HTTP result, including 404
+when no latest release exists.

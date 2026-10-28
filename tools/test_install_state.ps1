@@ -2,6 +2,12 @@
 # Windows PowerShell 5.1: powershell -NoProfile -File tools/test_install_state.ps1 -Mutants
 param([switch]$Mutants)
 $ErrorActionPreference = 'Stop'
+# Parse every shipped script with the actual Windows PowerShell grammar.
+foreach ($scriptFile in Get-ChildItem (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist') -Filter '*.ps1') {
+    $tokens = $null; $parseErrors = $null
+    [void][Management.Automation.Language.Parser]::ParseFile($scriptFile.FullName, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count) { throw "PowerShell parse error in $($scriptFile.Name): $($parseErrors[0].Message)" }
+}
 $module = Join-Path (Split-Path -Parent $PSScriptRoot) 'dist/install-state.ps1'
 $source = [IO.File]::ReadAllText($module)
 # scriptblock mutants have no module PSScriptRoot; pin only the helper location.
@@ -84,6 +90,18 @@ function Run-Checks($code) {
         Require ([IO.File]::ReadAllText($target) -eq 'unmanaged') 'unmanaged bytes preserved'
         [IO.File]::WriteAllText("$target.coop-receipt.json", '{}')
         Reject { Install-CoopFile $target ([byte[]]@(1)) } 'corrupt receipt refused'
+        # A schema mutant can still reject '{}' because its hash is also invalid.
+        # Isolate receipt fields so every format guard must reject on its own.
+        $validHash = 'a' * 64
+        foreach ($invalid in @(
+            @{ schema=2; installed=$validHash; original=$null; pending=$null },
+            @{ schema=1; installed='invalid'; original=$null; pending=$null },
+            @{ schema=1; installed=$validHash; original='invalid'; pending=$null },
+            @{ schema=1; installed=$validHash; original=$null; pending='invalid' }
+        )) {
+            [IO.File]::WriteAllText("$target.coop-receipt.json", ($invalid | ConvertTo-Json -Compress))
+            Reject { Read-CoopReceipt $target } 'invalid receipt field refused independently'
+        }
         # Sibling saves must be byte-identical across every install/uninstall operation.
         $save = Join-Path $root 'save.dat'; [IO.File]::WriteAllBytes($save, ([byte[]]@(0,255,12,34)))
         $saved = Get-CoopHash $save

@@ -26,6 +26,7 @@ function Install($dir, [string[]]$extra, [int]$expected=0) {
         -GameDir $dir -SettingsPath $settings -Yes @extra 2>&1
     if ($LASTEXITCODE -ne $expected) { throw "Installer exit $LASTEXITCODE, expected ${expected}: $output" }
 }
+. (Join-Path $PackageDir 'install-state.ps1')
 $hostDir = Fixture 'host'
 foreach ($mode in 'install', 'uninstall') {
     $completion = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDir 'installer-gui.ps1') -TestCompletion $mode
@@ -170,6 +171,32 @@ Check ([IO.File]::ReadAllText((Join-Path $restoreDir 'dinput8.dll')) -eq 'foreig
 Check ([IO.File]::ReadAllText((Join-Path $restoreDir 'coop\coop.lua')) -eq 'foreign script') 'Lua original restored exactly'
 Check ([IO.File]::ReadAllText((Join-Path $restoreDir 'coop\save.dat')) -eq 'save sentinel') 'save unchanged'
 Check ([IO.File]::ReadAllText((Join-Path $restoreDir 'settings.lua')).Contains('new_option = 7')) 'new player options survive uninstall'
+# Exercise CLI Update/Repair decisions against actual receipts and payload bytes.
+$maintDir = Fixture 'maintenance'
+Install $maintDir @()
+$dll = Join-Path $maintDir 'dinput8.dll'; $lua = Join-Path $maintDir 'coop\coop.lua'
+function Status($dir) {
+    $json = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDir 'mdk2-coop.ps1') -GameDir $dir -SettingsPath (Join-Path $dir 'settings.lua') -StatusOnly -Yes
+    if ($LASTEXITCODE -ne 0) { throw 'Status command failed' }
+    return ($json | ConvertFrom-Json)
+}
+Install-CoopFile $dll ([Text.Encoding]::ASCII.GetBytes('previous release fixture'))
+Check ((Status $maintDir).actions.install -eq 'Update') 'CLI detects older owned payload'
+Install $maintDir @()
+Check ((Get-CoopHash $dll) -eq (Get-CoopHash (Join-Path $PackageDir 'dinput8.dll'))) 'CLI update deploys current payload'
+Remove-Item $lua
+Check ((Status $maintDir).actions.install -eq 'Repair') 'CLI detects missing managed payload'
+Install $maintDir @()
+Check ((Get-CoopHash $lua) -eq (Get-CoopHash (Join-Path $PackageDir 'coop\coop.lua'))) 'CLI repair restores missing payload'
+[IO.File]::WriteAllText($dll, 'user modification')
+Check ((Status $maintDir).actions.blocked) 'CLI status blocks modified payload'
+Install $maintDir @() 1
+Check ([IO.File]::ReadAllText($dll) -eq 'user modification') 'CLI refuses modified replacement'
+# An unowned payload is never removed by uninstall.
+$unownedDir = Fixture 'unowned'
+[IO.File]::WriteAllText((Join-Path $unownedDir 'dinput8.dll'), 'unowned proxy')
+Install $unownedDir @('-Uninstall')
+Check ([IO.File]::ReadAllText((Join-Path $unownedDir 'dinput8.dll')) -eq 'unowned proxy') 'CLI uninstall preserves unowned payload'
 $completion = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDir 'installer-gui.ps1') -TestLayout
 Check ($LASTEXITCODE -eq 0) 'setup layout geometry'
 Write-Output "PASS: $script:checks installer checks (including original restoration and layout)"
