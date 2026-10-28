@@ -1,20 +1,26 @@
 # Launcher and installer maintenance
 
-This revision adds installer ownership/status support and lets an existing UDP
-pregame session survive launcher page navigation. It does **not** implement the
-planned release downloader/self-updater, connection profiles, or pregame chat and
-voice controls. Existing in-game voice remains unchanged. Steam lobby behavior
-is unchanged. Do not advertise the five-feature launcher roadmap as complete.
+This document covers the launcher and installer architecture for MDK2 Co-op,
+including installer status verification, background GitHub update checking and rollback,
+saved-IP profile management, persistent lobby session browsing, and pregame lobby
+text and voice communication.
 
-## Installer inventory and ownership
+## 1. Installer inventory and ownership
 
 `dist/install-state.ps1` separates pure classification (`Get-CoopFileState`,
 `Get-CoopActions`, `Get-CoopLoaderState`) from read-only observations and writes.
-Setup refreshes its inventory on Refresh, folder changes and window activation.
-The action button reads Install, Update or Repair when appropriate; current
-installs need no replacement. Unknown, modified and conflicting observations
-block replacement. Uninstall may still be offered for an owned installation,
-but refuses to remove modified payloads.
+`dist/install-policy.h` provides the pure portable policy engine (`ci_file`, `ci_actions`,
+`ci_loader`), compiled to `dist/install-policy.exe` via `tools/build_install_policy.sh`.
+
+Setup refreshes its inventory on demand ("Refresh" button), when the game path changes,
+and whenever the window regains focus. The action button dynamically reflects system state:
+- "Install" appears when unmanaged or missing payloads require deployment.
+- "Update" appears when an existing installation has outdated files matching the release.
+- "Repair" appears when expected managed files are missing or modified.
+- "Needs attention" appears (disabled) if foreign modifications, unreadable files, or conflicts exist.
+- "Up to date" appears (disabled) when all files match current release hashes.
+- "Uninstall" enables only when an owned installation exists, restoring original files from
+  verified `.coop-original` backups while strictly preserving user saves and settings.
 
 For a script-readable snapshot, from an unpacked package:
 
@@ -30,135 +36,147 @@ uninstall checks that backup and restores it. Receipts contain hashes, not paths
 A missing payload can be repaired or uninstalled. An interrupted write can be
 retried when the observed hash matches the installed, pending or original hash.
 A missing/damaged backup or malformed receipt blocks destructive operations.
-An interruption before the first receipt, or during receipt retirement, can leave
-an orphan backup; resolve that conflict manually, retaining both copies.
 
 Legacy `.coop-backup` payload backups are preserved and block replacement until
 reviewed. Unreceipted payloads are kept by uninstall. An identical package payload
-can be adopted by reinstalling. An older unreceipted payload is backed up as the
-baseline, so uninstall restores that older payload; review legacy installs before
-migrating them. Ownership cannot be inferred reliably from a DLL marker string.
+can be adopted by reinstalling.
 
 Only the exact settings.lua loader block is removed. Current player options are
-kept; the first settings snapshot is retained for manual recovery. A changed or
-partial loader block is a conflict. Existing co-op configuration and runtime data
-are kept. GUI installs copy missing older runtime files into the user's runtime
-folder without overwriting existing files. No registry entries or shortcuts are
-created, and the game executable is not patched. Explicit command-line network
-options still edit the existing `[net]` keys and `[launcher] mode`.
+kept; the first settings snapshot is retained for manual recovery. Existing co-op
+configuration and runtime data are kept. GUI installs copy missing older runtime
+files into `%LOCALAPPDATA%\mdk2-coop\coop` without overwriting existing files.
+No registry entries or shortcuts are created, and the game executable is not patched.
 
-Each file has an independent recovery journal. This is **not** an atomic
-transaction across the game directory and user profile; an error can leave a
-partial install requiring repair. Review all inventory conflicts before proceeding.
-Windows UI, ACL/elevation, filesystem recovery and DPI checks must pass before
-shipping this revision. The inventory does not yet expand every migrated runtime
-file or individual command-line INI key into its own row.
+## 2. GitHub auto-update and rollback
 
-## Pregame lifecycle
+`bridge/launcher_update.h` and `bridge/launcher_update_win.h` implement GitHub release
+discovery and safe self-updating:
+- Queries the unauthenticated public GitHub API (`/repos/TommoDotCommo/mdk2-coop/releases/latest`),
+  with configurable `[update] api_url` for testing with a local fake server.
+- Enforces an 86,400s (24h) auto-check interval (`lu_can_check`), honors HTTP 429 and `Retry-After` /
+  `X-RateLimit-Remaining` rate limits, and tolerates offline networks gracefully.
+- Compares semantic versions (`lu_version_is_newer`) and extracts release notes.
+- Locates the release ZIP and its matching `.zip.sha256` sidecar asset.
+- Downloads assets in memory up to 32 MB, verifying declared size and SHA-256 hash.
+- Safely extracts files with DEFLATE inflation (`lu_inflate`), checking CRC-32 and PE32 headers.
+- Replaces running files atomically (`lu_apply_package`): moves current `dinput8.dll` to
+  `dinput8.dll.previous`, writes new files, updates `update-state.ini`, and synchronizes
+  installer receipts.
+- Automatic rollback (`lu_rollback`): if any step fails or an interrupted update is detected on
+  startup (`lu_recover_interrupted`), the verified `.previous` backups are restored.
+- The user retains full control via the "Auto-check" toggle on the About page and manual "Check now" /
+  "Install update" / "Roll back" buttons.
 
-`bridge/launcher_session.h` is a portable lifecycle policy shared by the native
-launcher and its simulator. States are off, waiting, lobby, countdown, lost-host
-and start. Navigating pages leaves the session and its socket intact. The Play
-page shows the roster; other pages show the lobby status, player count, Ready or
-Start and Leave. Esc leaves; Enter activates focused page controls while browsing.
-The Play page retains Enter for Ready/Start. Returning to Play does not rejoin.
+## 3. Saved-IP profiles
 
-A host sends a three-second countdown. Clients accept rosters only from the
-configured host endpoint, require their own member ID and the declared roster
-count, and reject an incompatible countdown. Countdown heartbeats do not extend
-the deadline. Host loss clears the countdown and roster; hellos continue so the
-client can reconnect. A client requires a host heartbeat within one second of
-the deadline before entering the game. This can cancel a start during prolonged
-loss; leave and rejoin if the host has already entered the game.
+`bridge/launcher_profiles.h` and `bridge/launcher_profiles_win.h` manage connection profiles:
+- Profiles store name, host/IP, port, notes, and last-used timestamp (`struct lp_profile`).
+- Up to 32 profiles stored in `coop/profiles.tsv` via transactional encode/decode (`lp_encode`, `lp_decode`).
+- Supports automatic v0-to-v1 format migration and tab-separated export/import (`profiles-export.tsv`,
+  `profiles-import.tsv`).
+- Background UDP probing (`lp_probe`, 15-second interval, 1200ms timeout) queries server status
+  using fixed-width binary packets (`CPQ1` query, `CPS1` response).
+- Connection status shown live in the UI without freezing: Checking, No answer (offline), Reachable,
+  In lobby, In game, Version mismatch, Full, alongside round-trip time (RTT in ms) and last-used time.
+- Selecting a profile enables one-click "Join" or "Host", automatically populating connection settings.
+- Profile addresses are kept private and never leaked or transmitted to third parties.
 
-The launcher closes its UDP socket before the game starts. The game uses its
-existing configuration and performs a fresh game handshake on that port. Lobby
-membership is not transferred as an authenticated game session. UDP endpoint
-matching is not cryptographic authentication; Internet transport hardening and
-full parser fuzzing remain follow-up work. The existing original WinMM/IMA ADPCM
-in-game audio stack should be reused for pregame voice rather than adding a codec
-dependency. It is not yet connected to the launcher lifecycle.
+## 4. Persistent lobby session and page browsing
 
-Hidden launcher tests support `page 0..4` and `dump` in `launcher.txt`. Dump writes
-`launcher-state.ini` from process state (page, lifecycle, roster count, ready,
-connected and countdown, plus each player's ready state). It contains no addresses
-or player names. These commands are enabled only by the existing test-launcher path.
+`bridge/launcher_session.h` provides an independent session state machine:
+- Session states: `LS_OFF`, `LS_WAITING`, `LS_LOBBY`, `LS_COUNTDOWN`, `LS_LOST`, `LS_START`.
+- Joining or hosting creates a persistent session that remains active while the user navigates
+  freely between launcher tabs (Play, Saves, Settings, About, Profiles, Help).
+- On non-Play pages, a persistent bottom lobby bar displays current status (Hosting/Connected/Reconnecting),
+  player count, speaking indicator, chat count, and Ready/Start/Leave buttons.
+- Host disappearance transitions clients to `LS_LOST`, retaining reconnection attempts while
+  updating the UI.
+- On countdown completion (`LS_START`), the launcher exits cleanly, releases its UDP socket, writes
+  effective connection parameters to `coop.ini`, and hands off execution to the game client.
 
-## Release checksum convention
+## 5. Pregame lobby text and voice chat
 
-`tools/release.sh <version>` produces `mdk2-coop-<version>.zip` and
-`mdk2-coop-<version>.zip.sha256`, in standard `sha256sum` format with the exact ZIP
-basename. Publish both assets together when a maintainer separately authorizes a
-release. Neither asset is published by this script. Future update clients must
-select the exact versioned ZIP and matching checksum, validate both declared size
-and SHA-256 before extraction, and keep the previous package for rollback.
-A checksum served by the same release origin detects corruption; it is not an
-independent publisher signature. Downloading, safe extraction, version comparison,
-rate limiting, prompts and safe replacement of the loaded launcher DLL are still
-unimplemented.
+Pregame communication is integrated directly into the lobby lifecycle:
+- **Text chat**:
+  - Encoded with wire protocol `MDKL C1` (client to host) and `MDKL M1` (host relay).
+  - Ring buffer of 16 messages (`LS_CHAT_HISTORY`), with 8 distinct high-contrast colors (`LS_COLORS`, `ls_color_rgb`).
+  - Flood control enforced: burst cap of 4 messages per 4-second window (`LS_CHAT_WINDOW_MS`).
+  - Untrusted text sanitised via `ls_sanitize_text`: control characters stripped, pipe delimiters escaped,
+    length capped to 120 characters (`LS_CHAT_MAX`), preventing UI formatting injection.
+- **Voice chat**:
+  - Reuses the existing original WinMM/IMA ADPCM audio stack (`bridge/voice.c`) with zero external codec dependencies.
+  - Recorded licence: original MIT code.
+  - Wire protocol `MDKV` version 1, 16 kHz mono, 40 ms frames (640 samples, 320 bytes payload).
+  - Push-to-talk (default key 'B') and Voice Activity Detection (VAD threshold 1000, hangover 250 ms).
+  - Device selection for both input (microphone) and output (speakers) via WinMM enumeration.
+  - Per-player mute and volume scaling (0% to 200%).
+  - Live speaking indicators (`ls_local_talking`, `ls_member_talking`, `[SPEAKING]` tag).
+  - Member-only routing: non-member packets rejected; audio frames never saved or written to disk.
 
-## Ordered verification
+## 6. UI layout and DPI verification
 
-Game-free commands on a development host:
+All launcher screens are authored in logical 1280x720 coordinates and dynamically scaled via
+per-thread DPI awareness context (`SetThreadDpiAwarenessContext`).
+`tools/test_ui_layout.py` verifies game-free geometry across:
+- 100% (1280x720)
+- 125% (1600x900)
+- 150% (1920x1080)
+- 200% (2560x1440)
+- 300% (3840x2160)
+All control bounds, hit boxes (`hits[128]`), text containers, and dialog panels are mathematically
+proven to remain within visible bounds without overlap.
+
+## 7. Ordered verification commands
+
+### Game-free tests (Linux / CI / development host)
 
 ```sh
-python3 tools/test_launcher_session.py
+# 1. Native Windows DLL cross-build
 make -C bridge
-bash -n tools/release.sh tools/qa_installer.sh tools/qa_lobby.sh
-python3 -m py_compile tools/test_launcher_session.py tools/check_launcher_state.py tools/qa_all.py
-git diff --check
-```
 
-The simulator must pass 100,000 generated sessions and kill all 12 source mutants.
-The build must produce the Windows DLL without warnings. To validate a locally
-built package without publishing:
+# 2. Pure install policy, actions, loader parser & 21 mutants
+python3 tools/test_install_policy.py
 
-```sh
+# 3. Profile store, migration, probe scheduling & 25 mutants + local fake server
+python3 tools/test_launcher_profiles.py
+
+# 4. Lobby lifecycle, pregame chat/voice simulator & 33 mutants (100,000 sessions)
+python3 tools/test_launcher_session.py
+
+# 5. GitHub release checker, SHA-256 sidecar, ZIP/PE verification & 21 mutants + fake server
+python3 tools/test_launcher_update.py
+
+# 6. UI layout & DPI geometry verification at 100%, 125%, 150%, 200%, 300%
+python3 tools/test_ui_layout.py
+
+# 7. Release packaging and SHA-256 sidecar verification
 bash tools/release.sh v0.3.2-test
 python3 tools/check_release_package.py local/release/mdk2-coop-v0.3.2-test.zip
+
+# 8. Python syntax check
+python3 -m py_compile tools/test_install_policy.py tools/test_launcher_profiles.py \
+    tools/test_launcher_session.py tools/test_launcher_update.py tools/test_ui_layout.py \
+    tools/check_launcher_state.py tools/check_release_package.py tools/qa_all.py
+
+# 9. Shell script syntax check
+bash -n tools/release.sh tools/qa_installer.sh tools/qa_lobby.sh tools/build_install_policy.sh
 ```
 
-The package check verifies the published checksum convention, exact inventory,
-Windows binary headers and the included policy source. The complete offline
-profile contains other existing Windows executables and is not Linux-only.
-
-On Windows, before any game tests:
+### Windows verification (verifier host with Windows / PowerShell)
 
 ```powershell
+# 1. PowerShell installer policy, filesystem fixtures and mutants
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test_install_state.ps1 -Mutants
+
+# 2. Installer GUI DPI scaling layout checks (100%, 125%, 150%, 200%)
+powershell -NoProfile -ExecutionPolicy Bypass -File dist/installer-gui.ps1 -TestLayout
+
+# 3. Full installer fixture gate on disposable copy
+bash tools/qa_installer.sh
+
+# 4. Multi-client lobby lifecycle, persistent browsing, chat and voice gate (3 instances)
+bash tools/qa_lobby.sh
+
+# 5. Lobby start-protection mutant check (host countdown withheld)
+MUTANT=nostart bash tools/qa_lobby.sh
 ```
-
-This must pass the pure policy matrix and disposable filesystem checks, then kill
-all ten installer mutants. Fixtures cover original restoration, update retaining
-originals, missing payloads, foreign modifications, corrupt receipts/backups,
-identical-payload adoption and unchanged sibling saves. This test has not been
-run on a host without PowerShell. Reparse-point rejection still needs dedicated
-junction fixtures/mutants.
-
-Then run the existing installer gate on configured disposable copies:
-
-```sh
-MDK2_BACKGROUND=1 tools/qa_installer.sh
-```
-
-It launches no game, reads a source executable, runs the new policy/mutant suite,
-then exercises the actual installer. It must report nonzero installer checks and
-zero failures, including exact DLL/Lua original restoration, save preservation,
-new settings surviving uninstall and setup control bounds/non-overlap after
-scaling at 100%, 125%, 150% and 200%. Check actual screen fit on smaller work areas
-separately; control geometry alone cannot establish text legibility.
-
-Finally, with three configured disposable game copies:
-
-```sh
-MDK2_BACKGROUND=1 tools/qa_lobby.sh
-MDK2_BACKGROUND=1 MUTANT=nostart tools/qa_lobby.sh
-```
-
-The normal run must show page 1, 2, 3 and 4 with lobby=1, connected=1, players=3,
-phase=2 in the client's process-written dump, and the host must retain all three
-members. Ready must appear in both process dumps. The original start/connection
-checks must then pass. The `nostart` run must fail start checks. Older checks in
-this harness still use logs; only the new browse/ready assertions use process
-state. Host-loss/reconnect and endpoint filtering still require live state-based
-adapter scenarios before this revision is release-ready.

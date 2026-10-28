@@ -69,6 +69,7 @@ static void ls_tick(struct launcher_session *s, uint32_t now)
 #define LS_VOICE_FLAG_VAD   2u
 #define LS_VOICE_TALK_MS    250u
 #define LS_VOICE_HANG_MS    250u
+#define LS_VOICE_VAD_DEFAULT 1000
 
 struct ls_chat_msg {
     uint32_t sender_id;
@@ -493,6 +494,26 @@ static inline int ls_voice_accept(const struct launcher_session *s, struct ls_co
 static inline int ls_member_talking(const struct ls_member_comm *m, uint32_t now)
 {
     return m && m->talking_until && (int32_t)(m->talking_until - now) > 0;
+}
+
+static inline int ls_local_talking(const struct ls_comm_state *c, uint32_t now)
+{
+    return c && c->local_talking_until && (int32_t)(c->local_talking_until - now) > 0;
+}
+
+static inline uint32_t ls_color_rgb(uint8_t color_idx)
+{
+    static const uint32_t palette[LS_COLORS] = {
+        0x45c9ff, /* cyan/blue */
+        0xff8f1f, /* orange */
+        0x5ae085, /* green */
+        0xffd34d, /* yellow */
+        0xd178ff, /* purple/magenta */
+        0xff5a4a, /* coral red */
+        0x5ee3d1, /* teal */
+        0xe9f0f2, /* silver/white */
+    };
+    return palette[color_idx % LS_COLORS];
 }
 
 #endif

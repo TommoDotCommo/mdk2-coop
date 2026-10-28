@@ -57,13 +57,30 @@ check "host: Alice joined"                     wait_log 1 "^lobby: Alice joined 
 check "host: Bob joined"                       wait_log 1 "^lobby: Bob joined from 127.0.0.1" 10
 sleep 1; shot 1 host_waiting; shot 2 client_waiting
 # Browse every other page while the session remains connected. Read process state.
-for p in 1 2 3 4; do
+for p in 1 2 3 4 5; do
     lcmd 2 "page $p"
     sleep 1
     check "client 2: page $p preserves session" state_is 2 "launcher.page=$p" launcher.lobby=1 launcher.connected=1 launcher.players=3 launcher.phase=2
     check "host: client remains in roster while browsing $p" state_is 1 launcher.players=3 launcher.phase=2
 done
 lcmd 2 "page 0"
+
+# Pregame text chat: Alice sends message, host and Bob receive it
+lcmd 2 "say Hello lobby"
+sleep 1
+check "host: received Alice's chat" state_is 1 launcher.chat_total=1 chat0.name=Alice "chat0.text=Hello lobby"
+check "client 3: received Alice's chat" state_is 3 launcher.chat_total=1 chat0.name=Alice "chat0.text=Hello lobby"
+
+# Pregame voice: Alice sends simulated tone, host receives frames, mutes and adjusts volume
+lcmd 2 "voice 400"
+sleep 1
+check "host: received Alice voice frames" state_is 1 "player1.voice_frames>=5"
+lcmd 1 "mute 1"
+sleep 0.5
+check "host: muted Alice" state_is 1 player1.muted=1
+lcmd 1 "vol 1 150"
+sleep 0.5
+check "host: scaled Alice volume" state_is 1 player1.volume=150
 # Alice is ready: the host's roster shows it
 lcmd 2 "key 13"; sleep 2; shot 1 host_alice_ready
 check "client 2 process ready" state_is 2 launcher.ready=1

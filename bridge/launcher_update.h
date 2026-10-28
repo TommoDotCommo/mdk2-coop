@@ -522,7 +522,7 @@ static inline int lu_inflate(const unsigned char *src, size_t src_len, unsigned 
             len = (uint16_t)(b.src[b.pos] | (b.src[b.pos+1] << 8));
             nlen = (uint16_t)(b.src[b.pos+2] | (b.src[b.pos+3] << 8));
             b.pos += 4;
-            if ((uint16_t)~nlen != len || b.pos + len > b.size || out + len > dst_cap) return 0;
+            if ((uint32_t)nlen + (uint32_t)len != 0xffffu || b.pos + len > b.size || out + len > dst_cap) return 0;
             memcpy(dst + out, b.src + b.pos, len);
             b.pos += len; out += len;
         } else if (btype == 1 || btype == 2) {

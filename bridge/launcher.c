@@ -972,6 +972,7 @@ static char typed[64];                      /* characters for the focused field 
 static int ntyped;
 static int field_focused;       /* the last render drew the focused control as a text field: Space types */
 static int changed, done, quit, caret_on = 1;
+static int headless;
 static int lob_wants(void);
 static void lob_open(void);
 static int profile_session_active(void);
@@ -1701,13 +1702,13 @@ static int profile_session_active(void) { return lob.on; }
 static void lob_sync_comm(void)
 {
     uint32_t ids[LOB_MAX];
-    const char *names[LOB_MAX];
+    char names[LOB_MAX][LS_NAME_MAX];
     int i;
     for (i = 0; i < lob.n && i < LOB_MAX; i++) {
         ids[i] = lob.m[i].id;
-        names[i] = lob.m[i].name;
+        snprintf(names[i], sizeof(names[i]), "%s", lob.m[i].name);
     }
-    ls_comm_sync_roster(&lob.comm, ids, names, lob.n);
+    ls_comm_sync_roster(&lob.comm, lob.n, ids, (const char (*)[LS_NAME_MAX])names);
 }
 
 static uint8_t lob_color_of(uint32_t id)
@@ -2477,7 +2478,6 @@ static void pass(void)
 /* ---- window ---- */
 
 static HWND wnd;
-static int headless;
 
 static void present(void)
 {
