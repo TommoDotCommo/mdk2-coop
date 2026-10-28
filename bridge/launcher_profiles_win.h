@@ -187,16 +187,25 @@ static void page_profiles(void)
         }
     } else {
         static const char *status[] = { "Checking...", "No answer", "Reachable", "In lobby", "In game", "Version mismatch", "Full" };
-        for (i = profile_top; i < profiles.n && i < profile_top+5; i++) {
+        for (i = profile_top; i < profiles.n && i < profile_top+4; i++) {
             struct lp_probe probe;
+            char when[32];
             EnterCriticalSection(&profile_lock); probe = profile_probes[i]; LeaveCriticalSection(&profile_lock);
-            snprintf(line, sizeof(line), "%s%s%s  %d ms", status[probe.status], probe.version[0] ? " / " : "", probe.version, probe.rtt);
-            if (tile(ID+7000+i, PX, y, PW, 55, profiles.p[i].name, line, profile_selected == i)) { profile_selected = i; changed = 1; }
-            y += 61;
+            ago((long)profiles.p[i].used, when, sizeof(when));
+            if (probe.status >= LP_REACHABLE) {
+                snprintf(line, sizeof(line), "%s:%u  -  %s (%s, %d ms)  -  %s%s%s", profiles.p[i].host, profiles.p[i].port,
+                         status[probe.status], probe.version, probe.rtt, when, profiles.p[i].notes[0] ? "  -  " : "", profiles.p[i].notes);
+            } else {
+                snprintf(line, sizeof(line), "%s:%u  -  %s  -  %s%s%s", profiles.p[i].host, profiles.p[i].port,
+                         status[probe.status], when, profiles.p[i].notes[0] ? "  -  " : "", profiles.p[i].notes);
+            }
+            clip_text(line, PW - 36);
+            if (tile(ID+7000+i, PX, y, PW, 66, profiles.p[i].name, line, profile_selected == i)) { profile_selected = i; changed = 1; }
+            y += 72;
         }
-        y = 466;
-        if (link(ID, PX, y, "Previous") && profile_top > 0) { profile_top -= 5; changed = 1; }
-        if (link(ID, PX+110, y, "Next") && profile_top+5 < profiles.n) { profile_top += 5; changed = 1; }
+        y = 446;
+        if (link(ID, PX, y, "Previous") && profile_top > 0) { profile_top -= 4; changed = 1; }
+        if (link(ID, PX+110, y, "Next") && profile_top+4 < profiles.n) { profile_top += 4; changed = 1; }
         if (link(ID, PX+210, y, "Add") && profiles.n < LP_MAX && !profile_bad) {
             memset(&profile_draft, 0, sizeof(profile_draft)); strcpy(profile_port, "27900"); profile_selected = profiles.n; profile_edit = 1; changed = 1;
         }
@@ -217,5 +226,5 @@ static void page_profiles(void)
             changed = 1;
         }
     }
-    gdi_para(f_small, PX, 550, PW, profile_bad ? C_BAD : C_DIM, profile_message);
+    gdi_para(f_small, PX, 526, PW, profile_bad ? C_BAD : C_DIM, profile_message);
 }

@@ -115,19 +115,19 @@ static inline int lp_reply(struct lp_probe *p, uint32_t now, const unsigned char
     if (n < 13 || n > 59 || memcmp(b, "CPS1", 4)) return 0;
     nonce = (uint32_t)b[4] | (uint32_t)b[5]<<8 | (uint32_t)b[6]<<16 | (uint32_t)b[7]<<24;
     if (!endpoint || !p->pending || nonce != p->nonce || (uint32_t)(now - p->sent) >= 1200) return 0;
-    if (!b[9] || b[9] > 16 || b[8] > b[9] || b[10] > 1 || !b[11] || b[11] > 47 || n != 12u + b[11]) return 0;
+    if (!b[9] || b[9] > 16 || b[8] > b[9] || b[10] > 2 || !b[11] || b[11] > 47 || n != 12u + b[11]) return 0;
     for (i = 12; i < n; i++) if (b[i] < 33 || b[i] > 126) return 0;
     memcpy(p->version, b+12, b[11]); p->version[b[11]] = 0;
     p->rtt = (int)(now - p->sent); p->pending = 0;
-    p->status = strcmp(p->version, version) ? LP_MISMATCH : b[8] == b[9] ? LP_FULL : b[10] ? LP_GAME : LP_LOBBY;
+    p->status = strcmp(p->version, version) ? LP_MISMATCH : b[8] == b[9] ? LP_FULL : b[10] == 2 ? LP_REACHABLE : b[10] ? LP_GAME : LP_LOBBY;
     return 1;
 }
 static inline int lp_answer(const unsigned char *query, size_t size, unsigned count, int in_game, const char *version, unsigned char *reply)
 {
     size_t n = strlen(version);
-    if (size != 8 || memcmp(query, "CPQ1", 4) || count > 16 || !n || n > 47) return 0;
+    if (size != 8 || memcmp(query, "CPQ1", 4) || count > 16 || in_game < 0 || in_game > 2 || !n || n > 47) return 0;
     memcpy(reply, "CPS1", 4); memcpy(reply+4, query+4, 4);
-    reply[8] = (unsigned char)count; reply[9] = 16; reply[10] = (unsigned char)(in_game != 0); reply[11] = (unsigned char)n;
+    reply[8] = (unsigned char)count; reply[9] = 16; reply[10] = (unsigned char)in_game; reply[11] = (unsigned char)n;
     memcpy(reply+12, version, n); return (int)(12+n);
 }
 #endif

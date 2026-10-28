@@ -58,13 +58,14 @@ int main(void)
     memcpy(copy,reply,n);copy[0]='X';assert(!lp_reply(&p,110,copy,n,1,"v1"));
     memcpy(copy,reply,n);copy[8]=17;assert(!lp_reply(&p,110,copy,n,1,"v1"));
     memcpy(copy,reply,n);copy[9]=0;assert(!lp_reply(&p,110,copy,n,1,"v1"));
-    memcpy(copy,reply,n);copy[10]=2;assert(!lp_reply(&p,110,copy,n,1,"v1"));
+    memcpy(copy,reply,n);copy[10]=3;assert(!lp_reply(&p,110,copy,n,1,"v1"));
     memcpy(copy,reply,n);copy[12]=0;assert(!lp_reply(&p,110,copy,n,1,"v1"));
     assert(lp_reply(&p,110,reply,n,1,"v1") && p.status==LP_LOBBY && p.rtt==10 && !strcmp(p.version,"v1"));
     assert(!lp_reply(&p,111,reply,n,1,"v1"));
     lp_sent(&p,100,0x12345678);assert(lp_reply(&p,110,reply,n,1,"v2") && p.status==LP_MISMATCH);
     reply[8]=16;lp_sent(&p,100,0x12345678);assert(lp_reply(&p,110,reply,n,1,"v1") && p.status==LP_FULL);
     reply[8]=3;reply[10]=1;lp_sent(&p,100,0x12345678);assert(lp_reply(&p,110,reply,n,1,"v1") && p.status==LP_GAME);
+    reply[8]=1;reply[10]=2;lp_sent(&p,100,0x12345678);assert(lp_reply(&p,110,reply,n,1,"v1") && p.status==LP_REACHABLE);
     puts("PASS: store roundtrip, transactional corruption rejection, v0 migration, probe scheduling and validation");
     return 0;
 }

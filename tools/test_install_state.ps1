@@ -91,6 +91,27 @@ function Run-Checks($code) {
         Install-CoopFile $target ([byte[]]@(8,7,6))
         Require (Remove-CoopFile $target) 'sibling fixture uninstall'
         Require ((Get-CoopHash $save) -eq $saved) 'save unchanged'
+        # End-to-end Get-CoopInstallStatus inventory and dynamic button transitions.
+        $pkg = Join-Path $root 'pkg'; $game = Join-Path $root 'game'; $data = Join-Path $root 'data'; $settings = Join-Path $root 'settings.lua'
+        New-Item -ItemType Directory (Join-Path $pkg 'coop'), (Join-Path $game 'coop'), $data | Out-Null
+        [IO.File]::WriteAllText((Join-Path $pkg 'dinput8.dll'), 'dll-v1')
+        [IO.File]::WriteAllText((Join-Path $pkg 'coop\coop.lua'), 'lua-v1')
+        $st = Get-CoopInstallStatus $game $pkg $settings $data $false
+        Require ($st.actions.install -eq 'Install' -and -not $st.actions.uninstall -and -not $st.actions.blocked) 'fresh install status'
+        Install-CoopFile (Join-Path $game 'dinput8.dll') ([Text.Encoding]::ASCII.GetBytes('dll-v1'))
+        Install-CoopFile (Join-Path $game 'coop\coop.lua') ([Text.Encoding]::ASCII.GetBytes('lua-v1'))
+        [IO.File]::WriteAllText($settings, $loader, (New-Object Text.ASCIIEncoding))
+        $st = Get-CoopInstallStatus $game $pkg $settings $data $false
+        Require ($st.actions.install -eq '' -and $st.actions.uninstall -and -not $st.actions.blocked) 'current status'
+        [IO.File]::WriteAllText((Join-Path $pkg 'dinput8.dll'), 'dll-v2')
+        $st = Get-CoopInstallStatus $game $pkg $settings $data $false
+        Require ($st.actions.install -eq 'Update' -and $st.actions.uninstall) 'outdated status'
+        Remove-Item (Join-Path $game 'coop\coop.lua')
+        $st = Get-CoopInstallStatus $game $pkg $settings $data $false
+        Require ($st.actions.install -eq 'Repair' -and $st.actions.uninstall) 'partial repair status'
+        [IO.File]::WriteAllText((Join-Path $game 'dinput8.dll'), 'foreign-dll')
+        $st = Get-CoopInstallStatus $game $pkg $settings $data $false
+        Require ($st.actions.install -eq '' -and -not $st.actions.uninstall -and $st.actions.blocked) 'modified blocked status'
     } finally { Remove-Item -LiteralPath $root -Recurse -Force }
 }
 Run-Checks $source

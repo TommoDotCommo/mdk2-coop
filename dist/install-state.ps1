@@ -189,6 +189,8 @@ function Get-CoopInstallStatus($game, $package, $settings, $data, $perUser = $tr
         } catch { $rows += [pscustomobject]@{ item='User data migration'; status='unknown'; detail='Could not inspect all runtime files; no action is safe' } }
     }
     $actions = Get-CoopActions @($rows | ForEach-Object { $_.status }) $owned
+    $iniPath = if ($perUser) { Join-Path $data 'coop.ini' } else { Join-Path $game 'coop\coop.ini' }
+    $rows += [pscustomobject]@{ item='coop.ini'; status=$(if (Test-Path -LiteralPath $iniPath) { 'present' } else { 'default on launch' }); detail='Existing co-op settings preserved; only explicit CLI flags edit [net] and [launcher] mode' }
     $rows += [pscustomobject]@{ item='settings.lua.coop-backup'; status=$(if (Test-Path -LiteralPath "$settings.coop-backup") { 'present' } else { 'will create' }); detail='First settings snapshot, retained for manual recovery' }
     $rows += [pscustomobject]@{ item='Registry, shortcuts, game executable, existing saves'; status='untouched'; detail='No registry, shortcut or executable changes; original saves never overwritten or removed' }
     return [pscustomobject]@{ schema=1; items=$rows; actions=$actions }

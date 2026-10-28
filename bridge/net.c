@@ -1689,7 +1689,7 @@ void net_poll(void)
                 static double next_probe;
                 unsigned char reply[64];
                 if (now >= next_probe) {
-                    int bytes = lp_answer(buf, n, players_connected(), 1, MOD_VERSION, reply);
+                    int bytes = lp_answer(buf, n, 1 + players_connected(), 1, MOD_VERSION, reply);
                     next_probe = now + 100;
                     if (bytes) sendto(sock, (char *)reply, bytes, 0, (struct sockaddr *)&from, fromlen);
                 }

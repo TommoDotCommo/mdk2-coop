@@ -21,14 +21,15 @@ MUTANTS = {
     'endpoint': ('!endpoint || ', ''),
     'pending': ('!p->pending || ', ''),
     'nonce': ('nonce != p->nonce || ', ''),
-    'stale-reply': ('(uint32_t)(now - p->sent) >= 1200', '0'),
+    'stale-reply': ('|| (uint32_t)(now - p->sent) >= 1200) return 0;', ') return 0;'),
     'wire-magic': ('memcmp(b, "CPS1", 4)', '0'),
     'wire-size': ('n != 12u + b[11]', '0'),
     'count': ('b[8] > b[9] || ', ''),
-    'in-game': ('b[10] > 1 || ', ''),
+    'in-game': ('b[10] > 2 || ', ''),
     'version-text': ('if (b[i] < 33 || b[i] > 126)', 'if (0)'),
     'version-match': ('strcmp(p->version, version)', '0'),
     'full': ('b[8] == b[9]', '0'),
+    'reachable': ('b[10] == 2 ? LP_REACHABLE : ', ''),
     'query-size': ('size != 8 || ', ''),
     'query-magic': ('memcmp(query, "CPQ1", 4)', '0'),
 }
@@ -50,7 +51,7 @@ import threading
 with tempfile.TemporaryDirectory() as temp:
     binary=Path(temp)/'probe'
     subprocess.run(['cc','-std=c99','-Wall','-Wextra','-Werror','-I',str(ROOT/'bridge'),str(ROOT/'bridge/tests/launcher_probe_client.c'),'-o',str(binary)],check=True)
-    for name,count,game,version,expected in [('lobby',3,0,b'v1',3),('game',3,1,b'v1',4),('mismatch',3,0,b'v2',5),('full',16,0,b'v1',6),('offline',0,0,b'',1),('bad-nonce',3,0,b'v1',1),('rogue-source',3,0,b'v1',1),('truncated',3,0,b'v1',1)]:
+    for name,count,game,version,expected in [('reachable',1,2,b'v1',2),('lobby',3,0,b'v1',3),('game',3,1,b'v1',4),('mismatch',3,0,b'v2',5),('full',16,0,b'v1',6),('offline',0,0,b'',1),('bad-nonce',3,0,b'v1',1),('rogue-source',3,0,b'v1',1),('truncated',3,0,b'v1',1)]:
         with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as server:
             server.bind(('127.0.0.1',0));server.settimeout(2)
             errors=[]

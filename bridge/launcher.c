@@ -231,7 +231,7 @@ static const char *mode_names[] = { "host", "join", "solo" };
 static struct {
     int mode, steam, friendly_fire, difficulty, save_interval, controls, hud, show, show_lobby;
     int section, char_follow, devkeys, outline, movietimer, ghosts, emotes, charwheel, chat, pings, pad;
-    int voice, voice_volume, voice_range;
+    int voice, voice_volume, voice_range, voice_mode, voice_in_dev, voice_out_dev;
     char name[PLAYER_NAME], lobby[24], host[64], port[8], listen[8];
 } cfg;
 
@@ -248,6 +248,9 @@ static const struct { const char *section, *key; int dflt; int *v; } switches[] 
 static const int voice_volumes[] = { 50, 100, 150, 200 };
 static const char *voice_volume_names[] = { "Quiet", "Normal", "Loud", "Louder" };
 static const int voice_ranges[] = { 25, 50, 100, 0 };
+static const char *voice_mode_names[] = { "Push to talk (B)", "Voice activity" };
+
+#include "launcher_voice_win.h"
 static const char *voice_range_names[] = { "Short", "Medium", "Long", "Everywhere" };
 
 /* the game's sound levels, lines of settings.lua (0..1; the game's own options write them the same way) */
@@ -684,6 +687,12 @@ static void settings_read(void)
         *switches[i].v = GetPrivateProfileIntA(switches[i].section, switches[i].key, switches[i].dflt, ini) != 0;
     cfg.voice_volume = index_of(voice_volumes, 4, GetPrivateProfileIntA("voice", "volume", 100, ini), 1);
     cfg.voice_range = index_of(voice_ranges, 4, GetPrivateProfileIntA("voice", "range", 50, ini), 1);
+    lv_enum_devices();
+    cfg.voice_mode = GetPrivateProfileIntA("voice", "mode", 0, ini) != 0;
+    cfg.voice_in_dev = GetPrivateProfileIntA("voice", "in_dev", -1, ini) + 1;
+    if (cfg.voice_in_dev < 0 || cfg.voice_in_dev >= lv_in_count) cfg.voice_in_dev = 0;
+    cfg.voice_out_dev = GetPrivateProfileIntA("voice", "out_dev", -1, ini) + 1;
+    if (cfg.voice_out_dev < 0 || cfg.voice_out_dev >= lv_out_count) cfg.voice_out_dev = 0;
     cfg.show = GetPrivateProfileIntA("launcher", "show", 1, ini) != 0;
     cfg.show_lobby = GetPrivateProfileIntA("launcher", "lobby", 1, ini) != 0;
     GetPrivateProfileStringA("player", "id", "", s, sizeof(s), player_ini);
@@ -956,13 +965,16 @@ static int page;
 static int mouse_x = -1, mouse_y = -1;      /* logical */
 static int clicked, activate, adjust;       /* this pass: mouse released, Enter, Left/Right */
 static int focus = -1, kb_focus = 1;     /* rings only while the keyboard is in use */
-static int ids[64], nids;                   /* focusable widgets of the last pass, in order */
-static struct { float x, y, w, h; } hits[64];
+static int ids[128], nids;                  /* focusable widgets of the last pass, in order */
+static struct { float x, y, w, h; } hits[128];
 static int nhits;
 static char typed[64];                      /* characters for the focused field ('\b' backspace) */
 static int ntyped;
 static int field_focused;       /* the last render drew the focused control as a text field: Space types */
 static int changed, done, quit, caret_on = 1;
+static int lob_wants(void);
+static void lob_open(void);
+static int profile_session_active(void);
 
 #define ID __LINE__
 
@@ -975,9 +987,9 @@ static int over(float x, float y, float w, float h)
 static int control(int id, float x, float y, float w, float h)
 {
     int hit = over(x, y, w, h);
-    if (nids < 64)
+    if (nids < 128)
         ids[nids++] = id;
-    if (nhits < 64) {
+    if (nhits < 128) {
         hits[nhits].x = x; hits[nhits].y = y; hits[nhits].w = w; hits[nhits].h = h;
         nhits++;
     }
@@ -1093,8 +1105,10 @@ static int field(int id, float x, float y, float w, const char *label, char *buf
     int edited = 0, i;
     if (focus == id)
         field_focused = 1;
-    if (control(id, x, y + 24, w, 40) && !clicked)
-        done = 1;                   /* Enter in a field starts the game */
+    if (control(id, x, y + 24, w, 40) && !clicked && !profile_session_active() && page == PAGE_PLAY) {
+        if (lob_wants()) lob_open();
+        else done = 1;               /* Enter in a Play field starts the game or lobby */
+    }
     gdi_text(f_small, x, y, C_DIM, label, DT_LEFT);
     if (focus == id) {
         for (i = 0; i < ntyped; i++) {
@@ -1209,6 +1223,7 @@ static void page_play(void)
         snprintf(line, sizeof(line), "This PC on your network: %s\nOver the internet, forward UDP %s "
                  "to it and give friends your public IP.", lan, cfg.listen[0] ? cfg.listen : "27900");
         gdi_para(f_small, PX + 160, y + 4, PW - 160, C_DIM, line);
+        if (link(ID, PX, y+66, "Saved addresses")) { page = PAGE_PROFILES; changed = 1; }
     } else if (cfg.mode == MODE_JOIN && cfg.steam) {
         field(ID, PX, y, PW, "Host's lobby ID (optional)", cfg.lobby, sizeof(cfg.lobby), 1,
               "Or accept a Steam invite in the game");
@@ -1222,15 +1237,13 @@ static void page_play(void)
     }
 }
 
-#include "launcher_profiles_win.h"
-
 /* "3 days ago" */
 static void ago(long t, char *out, int size)
 {
     long d = (long)time(NULL) - t;
 
     if (t <= 0)
-        snprintf(out, size, "some time ago");
+        snprintf(out, size, "never used");
     else if (d < 90)
         snprintf(out, size, "just now");
     else if (d < 3600)
@@ -1257,6 +1270,9 @@ static void clip_text(char *out, float w)
             strcpy(out + n - 3, "...");
     }
 }
+
+#include "launcher_profiles_win.h"
+#include "launcher_update_win.h"
 
 static void who_text(const struct coop_session *s, float w, char *out, int size)
 {
@@ -1510,6 +1526,12 @@ static void page_settings(void)
         choice(ID, PX, y, PW, "Music", NULL, levels, 11, &sound[1]);
         y += ROW + 2;
         choice(ID, PX, y, PW, "Speech", NULL, levels, 11, &sound[2]);
+        y += ROW + 2;
+        choice(ID, PX, y, PW, "Lobby voice mode", "In game is push to talk", voice_mode_names, 2, &cfg.voice_mode);
+        y += ROW + 2;
+        choice(ID, PX, y, PW, "Microphone", NULL, lv_in_names, lv_in_count, &cfg.voice_in_dev);
+        y += ROW + 2;
+        choice(ID, PX, y, PW, "Voice output", NULL, lv_out_names, lv_out_count, &cfg.voice_out_dev);
     } else {
         if (choice(ID, PX, y, PW, "Screen", NULL, window, 2, &video.fullscreen))
             video_dirty = 1;
@@ -1529,30 +1551,69 @@ static void page_settings(void)
 
 static void page_about(void)
 {
-    float y = 100;
-    char line[200];
+    float y = 92;
+    char line[240], notes[180];
+    int st, rb, auto_en;
 
-    heading(PX, y, 30, "MDK2 HD Co-op", C_TEXT, DT_LEFT);
-    snprintf(line, sizeof(line), "Version %s  -  alpha", MOD_VERSION);
-    gdi_text(f_small, PX, y + 40, C_ORANGE, line, DT_LEFT);
-    y += 76;
-    y += gdi_para(f_body, PX, y, PW, C_TEXT,
+    update_init();
+    EnterCriticalSection(&update_lock);
+    st = update_state;
+    rb = update_rollback_ready;
+    auto_en = update_sched.auto_enabled;
+    snprintf(line, sizeof(line), "%s", update_msg[0] ? update_msg :
+             (auto_en ? "Auto-check enabled (checks GitHub at most once per 24h)." : "Automatic update checks are off."));
+    snprintf(notes, sizeof(notes), "%.160s", update_rel.notes);
+    LeaveCriticalSection(&update_lock);
+
+    heading(PX, y, 28, "MDK2 HD Co-op", C_TEXT, DT_LEFT);
+    snprintf( notes[0] ? notes : line, 1, "%s", ""); /* keep compiler happy before reuse */
+    {
+        char vline[96];
+        snprintf(vline, sizeof(vline), "Version %s  -  alpha", MOD_VERSION);
+        gdi_text(f_small, PX + PW, y + 6, C_ORANGE, vline, DT_RIGHT);
+    }
+    y += 38;
+    y += gdi_para(f_small, PX, y, PW, C_TEXT,
                   "Play the whole MDK2 campaign together. The host runs the world; everyone else "
-                  "follows them from level to level as Kurt, Max or Doc.") + 14;
-    y += gdi_para(f_small, PX, y, PW, C_DIM,
-                  "-  Up to 16 players, over Steam lobbies or direct UDP\n"
-                  "-  Enemies, shots, doors, pickups and bosses stay in sync\n"
-                  "-  Downed players can be revived by a teammate\n"
-                  "-  Text chat, pings and proximity voice chat\n"
-                  "-  Difficulty presets, and couch co-op (Couch.cmd)\n"
-                  "-  Co-op saves: drop out and rejoin where you left off\n"
-                  "-  Hold F1 (here or in game) for the full Mod Quick Guide\n"
-                  "-  In-game settings: Options > Co-op") + 18;
+                  "follows them from level to level as Kurt, Max or Doc.") + 8;
+    y += gdi_para(f_tiny, PX, y, PW, C_DIM,
+                  "-  Up to 16 players over Steam lobbies or direct UDP; co-op saves & drop-in rejoin\n"
+                  "-  Synced enemies, bosses, doors & pickups; downed revives, pings, text & voice chat\n"
+                  "-  Difficulty presets, Couch.cmd split-screen, and F1 Mod Quick Guide") + 12;
+
+    heading(PX, y, 18, "Updates", C_BLUE, DT_LEFT);
+    if (link(ID, PX + PW - 130, y - 2, auto_en ? "Auto-check: On" : "Auto-check: Off")) {
+        EnterCriticalSection(&update_lock);
+        update_sched.auto_enabled = !update_sched.auto_enabled;
+        update_save_schedule();
+        LeaveCriticalSection(&update_lock);
+        changed = 1;
+    }
+    y += 24;
+    y += gdi_para(f_small, PX, y, PW, st == UP_ERROR ? C_BAD : (st == UP_AVAILABLE || st == UP_APPLIED) ? C_ORANGE : C_DIM, line) + 4;
+    if (st == UP_AVAILABLE) {
+        EnterCriticalSection(&update_lock);
+        snprintf(notes, sizeof(notes), "Notes: %.140s", update_rel.notes[0] ? update_rel.notes : "Release package verified via .sha256 sidecar.");
+        LeaveCriticalSection(&update_lock);
+        y += gdi_para(f_tiny, PX, y, PW, C_TEXT, notes) + 6;
+    }
+    if (button(ID, PX, y, 144, 36, st == UP_CHECKING ? "Checking..." : "Check now", 0) && st != UP_CHECKING && st != UP_DOWNLOADING)
+        update_start_check(1);
+    if (st == UP_AVAILABLE) {
+        if (button(ID, PX + 154, y, 160, 36, "Install update", 1))
+            update_start_apply();
+    }
+    if (rb) {
+        if (button(ID, PX + (st == UP_AVAILABLE ? 324 : 154), y, 152, 36, "Roll back", 0))
+            update_do_rollback();
+    }
+    y += 46;
+
     heading(PX, y, 18, "Credits", C_BLUE, DT_LEFT);
-    y += 26;
-    y += gdi_para(f_small, PX, y, PW, C_DIM,
-                  "By TommoDotCommo, built with the Co-op Anything playbook. MIT licence. "
-                  "MDK2 HD belongs to its owners; this is an unofficial fan mod and needs your own copy.") + 18;
+    y += 24;
+    y += gdi_para(f_tiny, PX, y, PW, C_DIM,
+                  "By TommoDotCommo, built with the Co-op Anything playbook. MIT licence (IMA ADPCM voice codec: original MIT code). "
+                  "MDK2 HD belongs to its owners; this is an unofficial fan mod.") + 10;
     if (link(ID, PX, y, "Project page"))
         open_url(PROJECT_URL);
     if (link(ID, PX + 150, y, "Report a bug"))
@@ -1624,16 +1685,39 @@ struct lob_member { char name[PLAYER_NAME + 1], ver[48]; unsigned id; int ready,
 static struct {
     int on, host, ready, n, rtt, connected, wsa;
     struct launcher_session session;
+    struct ls_comm_state comm;
     SOCKET s;
     unsigned id;
     DWORD start_at, next_send, last_host, opened;
     struct lob_member m[LOB_MAX];
     struct sockaddr_in hostaddr;
     char status[96];
+    char chat_in[LS_CHAT_MAX + 1];
 } lob;
 
 /* our name as it goes on the wire: '|' and line ends separate fields */
 static int profile_session_active(void) { return lob.on; }
+
+static void lob_sync_comm(void)
+{
+    uint32_t ids[LOB_MAX];
+    const char *names[LOB_MAX];
+    int i;
+    for (i = 0; i < lob.n && i < LOB_MAX; i++) {
+        ids[i] = lob.m[i].id;
+        names[i] = lob.m[i].name;
+    }
+    ls_comm_sync_roster(&lob.comm, ids, names, lob.n);
+}
+
+static uint8_t lob_color_of(uint32_t id)
+{
+    int i;
+    for (i = 0; i < lob.n; i++)
+        if (lob.m[i].id == id)
+            return (uint8_t)(i % LS_COLORS);
+    return (uint8_t)(id % LS_COLORS);
+}
 
 static const char *lob_name(void)
 {
@@ -1647,6 +1731,27 @@ static const char *lob_name(void)
     return name;
 }
 
+static void lob_send_chat(const char *raw_text)
+{
+    char c1[256], m1[320];
+    int clen, mlen, i;
+    DWORD now = GetTickCount();
+
+    if (!lob.on || (!lob.host && !lob.connected)) return;
+    clen = ls_chat_encode_c1(lob.id, lob.comm.next_chat_seq++, lob_color_of(lob.id), raw_text, c1, sizeof(c1));
+    if (clen <= 0) return;
+    if (lob.host) {
+        mlen = ls_chat_host_recv_c1(&lob.session, &lob.comm, now, c1, (size_t)clen, 1, m1, sizeof(m1));
+        if (mlen > 0) {
+            for (i = 1; i < lob.n; i++)
+                sendto(lob.s, m1, mlen, 0, (struct sockaddr *)&lob.m[i].addr, sizeof(lob.m[i].addr));
+            changed = 1;
+        }
+    } else {
+        sendto(lob.s, c1, clen, 0, (struct sockaddr *)&lob.hostaddr, sizeof(lob.hostaddr));
+    }
+}
+
 static int lob_wants(void)
 {
     return cfg.mode != MODE_SOLO && !cfg.steam && cfg.show_lobby;
@@ -1654,6 +1759,7 @@ static int lob_wants(void)
 
 static void lob_leave(void)
 {
+    lv_close();
     if (lob.s != INVALID_SOCKET && lob.on)
         closesocket(lob.s);
     if (lob.wsa)
@@ -1699,6 +1805,7 @@ static void lob_open(void)
     lob.opened = GetTickCount();
     lob.host = cfg.mode == MODE_HOST;
     ls_open(&lob.session, lob.host, lob.opened);
+    ls_comm_init(&lob.comm);
     lob.id = GetTickCount() ^ ((unsigned)GetCurrentProcessId() << 16) ^ 0x5bd1e995u;
     if (!lob.host) {
         memset(&lob.hostaddr, 0, sizeof(lob.hostaddr));
@@ -1719,6 +1826,7 @@ static void lob_open(void)
         m->id = lob.id;
         m->ready = 1;
     }
+    lob_sync_comm();
     logmsg("lobby: open as %s on UDP %d", lob.host ? "host" : "client", port);
     changed = 1;
 }
@@ -1769,9 +1877,66 @@ static void lob_poll(void)
             }
             continue;
         }
+        if (n == (int)sizeof(struct ls_voice_pkt) && !memcmp(buf, "MDKV", 4)) {
+            struct ls_voice_pkt vchk;
+            int16_t pcm_out[LS_VOICE_FRAME];
+            uint32_t relay_ids[LOB_MAX];
+            int played = 0, rcount = 0, ep_ok = 0, r;
+            if (ls_voice_validate(buf, (size_t)n, &vchk)) {
+                if (lob.host) {
+                    for (i = 1; i < lob.n; i++)
+                        if (lob.m[i].id == vchk.sender_id &&
+                            lob.m[i].addr.sin_addr.s_addr == from.sin_addr.s_addr &&
+                            lob.m[i].addr.sin_port == from.sin_port)
+                            ep_ok = 1;
+                } else {
+                    ep_ok = (from.sin_addr.s_addr == lob.hostaddr.sin_addr.s_addr &&
+                             from.sin_port == lob.hostaddr.sin_port);
+                }
+                if (ls_voice_accept(&lob.session, &lob.comm, now, buf, (size_t)n, ep_ok,
+                                    lob.id, pcm_out, &played, relay_ids, &rcount)) {
+                    if (lob.host && rcount > 0) {
+                        for (r = 0; r < rcount; r++)
+                            for (i = 1; i < lob.n; i++)
+                                if (lob.m[i].id == relay_ids[r])
+                                    sendto(lob.s, buf, n, 0, (struct sockaddr *)&lob.m[i].addr, sizeof(lob.m[i].addr));
+                    }
+                    if (played && cfg.voice)
+                        lv_play_frame(cfg.voice_out_dev, pcm_out);
+                    changed = 1;
+                }
+            }
+            continue;
+        }
         buf[n] = 0;
         if (n < 7 || memchr(buf, 0, n) || strncmp(buf, "MDKL ", 5))
             continue;
+        if (lob.host && buf[5] == 'C' && buf[6] == '1') {
+            char m1[320];
+            unsigned sender_id = 0;
+            int ep_ok = 0, mlen;
+            if (sscanf(buf + 7, "%x", &sender_id) == 1) {
+                for (i = 1; i < lob.n; i++)
+                    if (lob.m[i].id == sender_id &&
+                        lob.m[i].addr.sin_addr.s_addr == from.sin_addr.s_addr &&
+                        lob.m[i].addr.sin_port == from.sin_port)
+                        ep_ok = 1;
+            }
+            mlen = ls_chat_host_recv_c1(&lob.session, &lob.comm, now, buf, (size_t)n, ep_ok, m1, sizeof(m1));
+            if (mlen > 0) {
+                for (i = 1; i < lob.n; i++)
+                    sendto(lob.s, m1, mlen, 0, (struct sockaddr *)&lob.m[i].addr, sizeof(lob.m[i].addr));
+                changed = 1;
+            }
+            continue;
+        }
+        if (!lob.host && buf[5] == 'M' && buf[6] == '1') {
+            int ep_ok = (from.sin_addr.s_addr == lob.hostaddr.sin_addr.s_addr &&
+                         from.sin_port == lob.hostaddr.sin_port);
+            if (ls_chat_client_recv_m1(&lob.session, &lob.comm, now, buf, (size_t)n, ep_ok))
+                changed = 1;
+            continue;
+        }
         if (lob.host && buf[5] == 'H') {
             unsigned id;
             int ready, rtt, k = -1;
@@ -1800,6 +1965,7 @@ static void lob_poll(void)
             lob.m[k].got = now;
             snprintf(lob.m[k].ver, sizeof(lob.m[k].ver), "%s", ver);
             snprintf(lob.m[k].name, sizeof(lob.m[k].name), "%s", who + 1);
+            lob_sync_comm();
             changed = 1;
         } else if (!lob.host && buf[5] == 'R' && from.sin_addr.s_addr == lob.hostaddr.sin_addr.s_addr &&
                    from.sin_port == lob.hostaddr.sin_port) {
@@ -1840,6 +2006,7 @@ static void lob_poll(void)
             }
             lob.n = count;
             memcpy(lob.m, roster, lob.n * sizeof(roster[0]));
+            lob_sync_comm();
             if (!lob.connected)
                 logmsg("lobby: connected to the host (%d players)", lob.n);
             lob.connected = 1;
@@ -1855,6 +2022,7 @@ static void lob_poll(void)
                 memmove(&lob.m[i], &lob.m[i + 1], (lob.n - i - 1) * sizeof(lob.m[0]));
                 lob.n--;
                 i--;
+                lob_sync_comm();
                 changed = 1;
             }
         if (now >= lob.next_send) {
@@ -1878,6 +2046,25 @@ static void lob_poll(void)
             snprintf(lob.status, sizeof(lob.status), now - lob.opened > 5000 ?
                      "No answer from the host yet. Is it in its lobby, and is UDP %d open?" : "Looking for the host...",
                      ntohs(lob.hostaddr.sin_port));
+        }
+    }
+    if (cfg.voice && (lob.host || lob.connected) && (lob.session.phase == LS_LOBBY || lob.session.phase == LS_COUNTDOWN)) {
+        int16_t pcm_in[LS_VOICE_FRAME];
+        int ptt_down = !headless && !field_focused && (GetAsyncKeyState('B') < 0);
+        int frame_ptt = 0;
+        while (lv_capture_frame(cfg.voice_in_dev, cfg.voice_mode, ptt_down, lob.comm.local_was_sending, now, pcm_in, &frame_ptt)) {
+            uint8_t vflags = 0;
+            if (ls_voice_should_send(&lob.comm, cfg.voice_mode, frame_ptt, pcm_in, LS_VOICE_VAD_DEFAULT, now, &vflags)) {
+                struct ls_voice_pkt vpkt;
+                ls_voice_pack(&lob.comm, lob.id, vflags, pcm_in, &vpkt);
+                if (lob.host) {
+                    for (i = 1; i < lob.n; i++)
+                        sendto(lob.s, (const char *)&vpkt, sizeof(vpkt), 0, (struct sockaddr *)&lob.m[i].addr, sizeof(lob.m[i].addr));
+                } else {
+                    sendto(lob.s, (const char *)&vpkt, sizeof(vpkt), 0, (struct sockaddr *)&lob.hostaddr, sizeof(lob.hostaddr));
+                }
+                changed = 1;
+            }
         }
     }
     {
@@ -1918,45 +2105,96 @@ static void lob_primary(void)
 
 static void lobby_page(void)
 {
-    float y = 112;
+    float y = 88, row_h;
     char line[160];
     DWORD now = GetTickCount();
-    int i, others_unready = 0, mismatch = 0;
+    int i, others_unready = 0, mismatch = 0, chat_id, total_msg, start_msg;
 
-    heading(PX, y - 4, 26, lob.host ? "Lobby: you are hosting" : "Lobby", C_TEXT, DT_LEFT);
-    y += 44;
+    heading(PX, y, 24, lob.host ? "Lobby: you are hosting" : "Lobby", C_TEXT, DT_LEFT);
+    if (button(ID, PX + PW - 168, y - 2, 168, 28, cfg.voice_mode ? "Voice: Activity" : "Voice: PTT (B)", 0)) {
+        cfg.voice_mode = !cfg.voice_mode;
+        changed = 1;
+    }
+    y = 120;
+    row_h = lob.n > 8 ? 11.0f : 21.0f;
     for (i = 0; i < lob.n; i++) {
         const struct lob_member *m = &lob.m[i];
+        struct ls_member_comm *cm = ls_comm_find(&lob.comm, m->id);
         int me = lob.host ? i == 0 : m->id == lob.id, same = !strcmp(m->ver, MOD_VERSION);
+        int talking = me ? ls_local_talking(&lob.comm, now) : ls_member_talking(cm, now);
+        DWORD col = ls_color_rgb((uint8_t)(i % LS_COLORS));
         char pill[48];
 
-        fill(PX, y, PW, 19, me ? 0x2a2014 : C_TILE, 235);
-        fill(PX, y, 5, 19, i == 0 ? C_ORANGE : m->ready ? C_BLUE : C_FAINT, 255);
-        snprintf(line, sizeof(line), "%s%s", m->name, me ? " (you)" : "");
-        gdi_text(f_body, PX + 18, y + 1, C_TEXT, line, DT_LEFT);
+        fill(PX, y, PW, row_h - 1, me ? 0x2a2014 : C_TILE, 235);
+        fill(PX, y, 5, row_h - 1, col, 255);
+        snprintf(line, sizeof(line), "%s%s%s", m->name, me ? " (you)" : "", talking ? "  [SPEAKING]" : "");
+        gdi_text(lob.n > 8 ? f_tiny : f_small, PX + 14, y + (lob.n > 8 ? -1 : 1), talking ? 0x5ae085 : C_TEXT, line, DT_LEFT);
+        if (!me && cm && lob.n <= 8) {
+            char vtxt[16];
+            snprintf(vtxt, sizeof(vtxt), "%d%%", cm->volume);
+            if (button(ID + 4100 + i * 2, PX + 214, y + 1, 52, row_h - 3, cm->muted ? "Muted" : "Mute", 0)) {
+                cm->muted = !cm->muted;
+                changed = 1;
+            }
+            if (button(ID + 4101 + i * 2, PX + 270, y + 1, 50, row_h - 3, vtxt, 0)) {
+                cm->volume = (cm->volume + 50) % 250;
+                changed = 1;
+            }
+        }
         if (i == 0)
             snprintf(pill, sizeof(pill), "host");
         else if (!same)
             snprintf(pill, sizeof(pill), "version %.16s", m->ver);
         else
             snprintf(pill, sizeof(pill), "%s  %d ms", m->ready ? "ready" : "not ready", m->rtt);
-        gdi_text(f_small, PX + PW - 14, y + 2, !same ? C_BAD : m->ready || i == 0 ? C_BLUE : C_DIM, pill, DT_RIGHT);
+        gdi_text(lob.n > 8 ? f_tiny : f_small, PX + PW - 10, y + (lob.n > 8 ? -1 : 1),
+                 !same ? C_BAD : m->ready || i == 0 ? C_BLUE : C_DIM, pill, DT_RIGHT);
         if (i > 0 && !m->ready)
             others_unready++;
         if (!same)
             mismatch++;
-        y += 20;
+        y += row_h;
     }
     if (!lob.host && !lob.connected) {
-        gdi_para(f_small, PX, y + 8, PW, lob.status[0] && strstr(lob.status, "Lost") ? C_BAD : C_DIM,
+        gdi_para(f_small, PX, y + 4, PW, lob.status[0] && strstr(lob.status, "Lost") ? C_BAD : C_DIM,
                  lob.status);
-        y += 40;
     }
-    y = LH - 220;
+
+    /* Pregame text chat history + input */
+    fill(PX, 302, PW, 114, 0x0d1a20, 235);
+    frame_rect(PX, 302, PW, 114, 1, 0x22343c, 255);
+    total_msg = (int)lob.comm.history_total;
+    start_msg = total_msg > 5 ? total_msg - 5 : 0;
+    if (total_msg == 0) {
+        gdi_text(f_small, PX + 12, 348, C_FAINT, "No messages yet. Type below to chat with the lobby.", DT_LEFT);
+    } else {
+        float cy = 307;
+        for (i = start_msg; i < total_msg; i++) {
+            const struct ls_chat_msg *msg = &lob.comm.history[(unsigned)i % LS_CHAT_HISTORY];
+            char prefix[40];
+            float pw;
+            snprintf(prefix, sizeof(prefix), "%s: ", msg->name);
+            pw = gdi_width(f_small, prefix);
+            gdi_text(f_small, PX + 10, cy, ls_color_rgb(msg->color), prefix, DT_LEFT);
+            snprintf(line, sizeof(line), "%s", msg->text);
+            clip_text(line, PW - 20 - pw);
+            gdi_text(f_small, PX + 10 + pw, cy, C_TEXT, line, DT_LEFT);
+            cy += 21;
+        }
+    }
+    chat_id = ID;
+    field(chat_id, PX, 420, PW - 88, "Lobby chat", lob.chat_in, sizeof(lob.chat_in), 0, "Say something...");
+    if ((button(ID, PX + PW - 80, 444, 80, 40, "Send", 0) || (activate && focus == chat_id)) && lob.chat_in[0]) {
+        lob_send_chat(lob.chat_in);
+        lob.chat_in[0] = 0;
+        changed = 1;
+    }
+
+    y = LH - 224;
     if (lob.start_at) {
         int left = (int)(lob.start_at - now);
         snprintf(line, sizeof(line), "Starting in %d...", left > 0 ? (left + 999) / 1000 : 0);
-        heading(PX, y, 26, line, C_ORANGE, DT_LEFT);
+        heading(PX, y, 24, line, C_ORANGE, DT_LEFT);
     } else if (lob.host) {
         snprintf(line, sizeof(line), "Everyone is ready.");
         if (lob.n < 2) {
@@ -1973,7 +2211,7 @@ static void lobby_page(void)
         gdi_para(f_small, PX, y, PW, C_DIM, "Connected. Press Ready, then wait for the host to start.");
     }
     if (mismatch)
-        gdi_para(f_small, PX, y + 34, PW, C_BAD, "A different mod version is in the lobby: everyone should update.");
+        gdi_para(f_small, PX, y + 32, PW, C_BAD, "A different mod version is in the lobby: everyone should update.");
     if (lob.host) {
         if (button(ID, PX, LH - 160, PW, 64, lob.start_at ? "Starting..." : "Start game", 1))
             lob_primary();
@@ -2189,8 +2427,15 @@ static void render(void)
 
     if (lob.on) {
         if (page != PAGE_PLAY) {
-            snprintf(line, sizeof(line), "%s | %d players%s", lob.host ? "Hosting" : lob.connected ? "Connected" : "Reconnecting", lob.n,
-                     lob.start_at ? " | starting..." : lob.ready ? " | ready" : "");
+            DWORD now_bar = GetTickCount();
+            int someone_talking = ls_local_talking(&lob.comm, now_bar), k;
+            for (k = 0; k < lob.comm.nmembers && !someone_talking; k++)
+                if (ls_member_talking(&lob.comm.members[k], now_bar)) someone_talking = 1;
+            snprintf(line, sizeof(line), "%s | %d players%s%s | %u msg",
+                     lob.host ? "Hosting" : lob.connected ? "Connected" : "Reconnecting", lob.n,
+                     lob.start_at ? " | starting..." : lob.ready ? " | ready" : "",
+                     someone_talking ? " | speaking" : "",
+                     (unsigned)lob.comm.history_total);
             gdi_text(f_small, PX, LH - 118, C_BLUE, line, DT_LEFT);
             if (button(ID, PX, LH - 92, PW / 2 - 5, 52, lob.host ? "Start game" : lob.ready ? "Not ready" : "Ready", 1))
                 lob_primary();
@@ -2283,7 +2528,7 @@ static void key(int vk)
         present();
         return;
     }
-    if (lob.on && ((page == PAGE_PLAY && vk == VK_RETURN) || vk == VK_ESCAPE)) {
+    if (lob.on && ((page == PAGE_PLAY && vk == VK_RETURN && !field_focused) || vk == VK_ESCAPE)) {
         if (vk == VK_RETURN)
             lob_primary();
         else
@@ -2308,10 +2553,13 @@ static void key(int vk)
         }
         if (vk == VK_SPACE && !focus_valid())
             break;                      /* Space only presses the focused button; Enter starts the game */
-        if (!focus_valid())
-            done = 1;
-        else
+        if (!focus_valid()) {
+            if (lob.on) lob_primary();
+            else if (lob_wants()) lob_open();
+            else done = 1;
+        } else {
             activate = 1;
+        }
         break;
     case VK_BACK:
         if (ntyped < (int)sizeof(typed))
@@ -2409,7 +2657,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == 3) {
             diag_poll();
             lob_poll();
-            if (changed || page == PAGE_PROFILES || (lob.on && lob.start_at)) {   /* a roster change or the countdown redraws */
+            if (changed || page == PAGE_PROFILES || page == PAGE_ABOUT || (lob.on && lob.start_at)) {   /* a roster change or the countdown redraws */
                 pass();
                 present();
             }
@@ -2482,16 +2730,61 @@ static void test_commands(void)
         } else if (sscanf(line, "page %d", &a) == 1 && a >= PAGE_PLAY && a <= PAGE_PROFILES) {
             page = a;
             pass();
+        } else if (!strncmp(line, "say ", 4)) {
+            lob_send_chat(line + 4);
+            pass();
+        } else if (sscanf(line, "voice %d", &a) == 1 && a > 0) {
+            lv_tone_until = GetTickCount() + (DWORD)a;
+            lv_next_tone_ms = 0;
+            lob_poll();
+            pass();
+        } else if (sscanf(line, "mute %d", &a) == 1 && a >= 0 && a < lob.comm.nmembers) {
+            lob.comm.members[a].muted = !lob.comm.members[a].muted;
+            pass();
+        } else if (sscanf(line, "vol %d %d", &a, &b) == 2 && a >= 0 && a < lob.comm.nmembers) {
+            lob.comm.members[a].volume = b < 0 ? 0 : b > 200 ? 200 : b;
+            pass();
+        } else if (sscanf(line, "vmode %d", &a) == 1) {
+            cfg.voice_mode = a != 0;
+            pass();
+        } else if (!strcmp(line, "update check")) {
+            update_init();
+            update_start_check(1);
+        } else if (!strcmp(line, "update apply")) {
+            update_init();
+            update_start_apply();
+        } else if (!strcmp(line, "update rollback")) {
+            update_init();
+            update_do_rollback();
         } else if (!strcmp(line, "dump")) {
             char state_path[MAX_PATH];
             FILE *state;
+            DWORD now_dump = GetTickCount();
             snprintf(state_path, sizeof(state_path), "%s\\launcher-state.ini", coop_dir);
             state = fopen(state_path, "w");
             if (state) {
-                int i;
-                fprintf(state, "[launcher]\npage=%d\nlobby=%d\nphase=%d\nplayers=%d\nready=%d\nconnected=%d\ncountdown=%d\n",
-                        page, lob.on, lob.session.phase, lob.n, lob.ready, lob.connected, lob.start_at != 0);
-                for (i = 0; i < lob.n; i++) fprintf(state, "[player%d]\nready=%d\n", i, lob.m[i].ready);
+                int i, total_c = (int)lob.comm.history_total, start_c = total_c > LS_CHAT_HISTORY ? total_c - LS_CHAT_HISTORY : 0;
+                update_init();
+                EnterCriticalSection(&update_lock);
+                fprintf(state, "[launcher]\npage=%d\nlobby=%d\nphase=%d\nplayers=%d\nready=%d\nconnected=%d\ncountdown=%d\n"
+                               "chat_total=%u\nlocal_talking=%d\nvoice_mode=%d\nvoice_in_dev=%d\nvoice_out_dev=%d\n"
+                               "update_state=%d\nupdate_err=%d\nupdate_rollback=%d\nupdate_tag=%s\n",
+                        page, lob.on, lob.session.phase, lob.n, lob.ready, lob.connected, lob.start_at != 0,
+                        (unsigned)lob.comm.history_total, ls_local_talking(&lob.comm, now_dump),
+                        cfg.voice_mode, cfg.voice_in_dev - 1, cfg.voice_out_dev - 1,
+                        update_state, update_last_err, update_rollback_ready, update_rel.tag);
+                LeaveCriticalSection(&update_lock);
+                for (i = 0; i < lob.n; i++) {
+                    struct ls_member_comm *cm = ls_comm_find(&lob.comm, lob.m[i].id);
+                    fprintf(state, "[player%d]\nready=%d\nmuted=%d\nvolume=%d\nvoice_frames=%u\ntalking=%d\n",
+                            i, lob.m[i].ready, cm ? cm->muted : 0, cm ? cm->volume : 100,
+                            cm ? cm->voice_frames : 0u, ls_member_talking(cm, now_dump));
+                }
+                for (i = start_c; i < total_c; i++) {
+                    const struct ls_chat_msg *msg = &lob.comm.history[(unsigned)i % LS_CHAT_HISTORY];
+                    fprintf(state, "[chat%d]\nname=%s\ntext=%s\ncolor=%u\nseq=%u\n",
+                            i - start_c, msg->name, msg->text, (unsigned)msg->color, (unsigned)msg->seq);
+                }
                 fclose(state);
             }
         } else if (!strncmp(line, "shot ", 5)) {
@@ -2689,6 +2982,9 @@ void launcher_run(void)
     }
     put_int("voice", "volume", voice_volumes[cfg.voice_volume]);
     put_int("voice", "range", voice_ranges[cfg.voice_range]);
+    put_int("voice", "mode", cfg.voice_mode);
+    put_int("voice", "in_dev", cfg.voice_in_dev - 1);
+    put_int("voice", "out_dev", cfg.voice_out_dev - 1);
     if (video_dirty)
         video_save();
     sound_save();

@@ -57,6 +57,8 @@ struct voice_packet {
 static int cfg_enabled = 1;
 static int cfg_volume = 100;
 static int cfg_range = 50;
+static int cfg_in_dev = -1;
+static int cfg_out_dev = -1;
 
 static CRITICAL_SECTION lock;
 static int started;
@@ -181,11 +183,12 @@ static void wave_format(WAVEFORMATEX *f)
 static void mic_open(void)
 {
     WAVEFORMATEX f;
+    UINT dev = (cfg_in_dev >= 0 && (UINT)cfg_in_dev < waveInGetNumDevs()) ? (UINT)cfg_in_dev : WAVE_MAPPER;
     int i;
     MMRESULT r;
 
     wave_format(&f);
-    if ((r = waveInOpen(&hin, WAVE_MAPPER, &f, (DWORD_PTR)in_ev, 0, CALLBACK_EVENT)) != MMSYSERR_NOERROR) {
+    if ((r = waveInOpen(&hin, dev, &f, (DWORD_PTR)in_ev, 0, CALLBACK_EVENT)) != MMSYSERR_NOERROR) {
         logmsg("voice: no microphone (waveInOpen %d)", (int)r);
         in_failed = 1;
         return;
@@ -205,11 +208,12 @@ static void mic_open(void)
 static void speakers_open(void)
 {
     WAVEFORMATEX f;
+    UINT dev = (cfg_out_dev >= 0 && (UINT)cfg_out_dev < waveOutGetNumDevs()) ? (UINT)cfg_out_dev : WAVE_MAPPER;
     int i;
     MMRESULT r;
 
     wave_format(&f);
-    if ((r = waveOutOpen(&hout, WAVE_MAPPER, &f, (DWORD_PTR)out_ev, 0, CALLBACK_EVENT)) != MMSYSERR_NOERROR) {
+    if ((r = waveOutOpen(&hout, dev, &f, (DWORD_PTR)out_ev, 0, CALLBACK_EVENT)) != MMSYSERR_NOERROR) {
         logmsg("voice: no speakers (waveOutOpen %d)", (int)r);
         out_failed = 1;
         return;
@@ -366,6 +370,8 @@ void voice_reload(const char *ini)
     cfg_range = GetPrivateProfileIntA("voice", "range", 50, ini);
     if (cfg_range < 0) cfg_range = 0;
     if (cfg_range > 60000) cfg_range = 60000;
+    cfg_in_dev = GetPrivateProfileIntA("voice", "in_dev", -1, ini);
+    cfg_out_dev = GetPrivateProfileIntA("voice", "out_dev", -1, ini);
 }
 
 void voice_init(const char *ini)
