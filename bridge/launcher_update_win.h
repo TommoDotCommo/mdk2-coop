@@ -3,14 +3,14 @@
 #include <wininet.h>
 #include "launcher_update.h"
 
-#define DEFAULT_RELEASE_API "https://api.github.com/repos/TommoDotCommo/mdk2-coop/releases/latest"
+#define DEFAULT_RELEASE_API "https://api.github.com/repos/TommoDotCommo/mdk2-coop/releases?per_page=10"
 
 enum { UP_IDLE, UP_CHECKING, UP_CURRENT, UP_AVAILABLE, UP_DOWNLOADING, UP_APPLIED, UP_ROLLED_BACK, UP_ERROR };
 
 static CRITICAL_SECTION update_lock;
 static int update_inited;
 static volatile LONG update_busy;
-static struct lu_schedule update_sched = { 1, 0, 0 };
+static struct lu_schedule update_sched = { 1, 0, 0, 1 };
 static struct lu_release update_rel;
 static int update_state = UP_IDLE;
 static int update_last_err = LU_OK;
@@ -33,6 +33,7 @@ static void update_save_schedule(void)
 {
     char num[32];
     put_int("update", "auto_check", update_sched.auto_enabled);
+    put_int("update", "include_prereleases", update_sched.include_prereleases);
     snprintf(num, sizeof(num), "%llu", (unsigned long long)update_sched.last_check);
     put("update", "last_check", num);
     snprintf(num, sizeof(num), "%llu", (unsigned long long)update_sched.retry_after);
@@ -131,7 +132,7 @@ static DWORD WINAPI update_check_worker(LPVOID arg)
     update_wininet_get(url, &status, &rl_rem, &retry_after, &body, &body_len, LU_MAX_JSON_BYTES);
     r = lu_http_classify(status, rl_rem, retry_after, now, &sched);
     if (r == LU_OK)
-        r = lu_parse_release((const char *)body, body_len, "mdk2-coop", &rel);
+        r = lu_parse_release((const char *)body, body_len, "mdk2-coop", sched.include_prereleases, &rel);
     free(body);
 
     EnterCriticalSection(&update_lock);
@@ -152,6 +153,9 @@ static DWORD WINAPI update_check_worker(LPVOID arg)
             update_last_err = LU_ERR_VERSION;
             snprintf(update_msg, sizeof(update_msg), "Release tag format unrecognized.");
         }
+    } else if (r == LU_UP_TO_DATE) {
+        update_state = UP_CURRENT;
+        snprintf(update_msg, sizeof(update_msg), "Up to date (%s).", MOD_VERSION);
     } else if (r == LU_ERR_RATELIMIT) {
         update_state = UP_ERROR;
         snprintf(update_msg, sizeof(update_msg), "GitHub API rate limit reached; try again later.");
@@ -277,10 +281,17 @@ static void update_do_rollback(void)
 static void update_init(void)
 {
     char num[32];
-    int recovered;
+    int recovered, default_pre = 0;
     if (update_inited) return;
     InitializeCriticalSection(&update_lock);
     update_inited = 1;
+#if defined(MOD_VERSION)
+    if (strstr(MOD_VERSION, "-alpha") != NULL || !strcmp(MOD_VERSION, "dev"))
+        default_pre = 1;
+#else
+    default_pre = 1;
+#endif
+    update_sched.include_prereleases = GetPrivateProfileIntA("update", "include_prereleases", default_pre, ini) != 0;
     update_sched.auto_enabled = GetPrivateProfileIntA("update", "auto_check", 1, ini) != 0;
     GetPrivateProfileStringA("update", "last_check", "0", num, sizeof(num), ini);
     lp_number(num, &update_sched.last_check);

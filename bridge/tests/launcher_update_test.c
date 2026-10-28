@@ -67,7 +67,7 @@ static size_t make_stored_zip(unsigned char *out, const char *name1, const unsig
 int main(int argc, char **argv)
 {
     char hash[65], zip_hash[65], sidecar[256], json[2048];
-    struct lu_schedule sched = { 1, 0, 0 };
+    struct lu_schedule sched = { 1, 0, 0, 1 };
     struct lu_release rel;
     unsigned char dll1[320], dll2[320], zip_buf[4096], *ext = NULL;
     const unsigned char *lua1 = (const unsigned char *)"-- lua v1\n", *lua2 = (const unsigned char *)"-- lua v2\n";
@@ -88,6 +88,17 @@ int main(int argc, char **argv)
     assert(lu_version_is_newer("v0.3.2-alpha.1", "v0.3.2") == 1);
     assert(lu_version_is_newer("v0.3.2", "v0.3.2-alpha.1") == 0);
     assert(lu_version_is_newer("v0.3.2-alpha.1", "v0.3.2-alpha.2") == 1);
+    assert(lu_version_is_newer("0.3.1-alpha", "0.3.2-alpha") == 1);
+    assert(lu_version_is_newer("v0.3.1-alpha", "0.3.2-alpha") == 1);
+    assert(lu_version_is_newer("0.3.1-alpha", "v0.3.2-alpha") == 1);
+    assert(lu_version_is_newer("0.3.2-alpha", "0.3.1-alpha") == 0);
+    assert(lu_version_is_newer("0.3.2-alpha", "0.3.2") == 1);
+    assert(lu_version_is_newer("v0.3.2-alpha", "0.3.2") == 1);
+    assert(lu_version_is_newer("0.3.2-alpha", "v0.3.2") == 1);
+    assert(lu_version_is_newer("0.3.2", "0.3.2-alpha") == 0);
+    assert(lu_version_is_newer("v0.3.2", "v0.3.2-alpha") == 0);
+    assert(lu_version_is_newer("0.3.2-alpha", "v0.3.2-alpha") == 0);
+    assert(lu_version_is_newer("v0.3.2-alpha", "0.3.2-alpha") == 0);
     assert(lu_version_is_newer("dev", "v0.1.0") == 1);
     assert(lu_version_is_newer("v0.3.2", "not-a-version") == -1);
     assert(lu_version_is_newer("v0.3.2", "v1.2") == -1);
@@ -119,24 +130,80 @@ int main(int argc, char **argv)
              "{\"name\":\"mdk2-coop-v0.4.0.zip\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.4.0.zip\",\"size\":512},"
              "{\"name\":\"mdk2-coop-v0.4.0.zip.sha256\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.4.0.zip.sha256\",\"size\":90}"
              "]}");
-    assert(lu_parse_release(json, strlen(json), "mdk2-coop", &rel) == LU_OK);
+    assert(lu_parse_release(json, strlen(json), "mdk2-coop", 1, &rel) == LU_OK);
     assert(!strcmp(rel.tag, "v0.4.0") && rel.zip_size == 512 && rel.sha_size == 90);
     assert(strstr(rel.notes, "Fix 1\nFix 2") != NULL);
     {
         char bad_json[2048];
         strcpy(bad_json, json);
         strstr(bad_json, "Fix 2")[2] = 0;
-        assert(lu_parse_release(bad_json, strlen(json), "mdk2-coop", &rel) == LU_ERR_JSON);
+        assert(lu_parse_release(bad_json, strlen(json), "mdk2-coop", 1, &rel) == LU_ERR_JSON);
     }
-    assert(lu_parse_release("{\"tag_name\":\"bad_tag\",\"assets\":[]}", 34, "mdk2-coop", &rel) == LU_ERR_VERSION);
-    assert(lu_parse_release("{\"tag_name\":\"v0.4.0\",\"assets\":[]}", 33, "mdk2-coop", &rel) == LU_ERR_ASSET);
+    assert(lu_parse_release("{\"tag_name\":\"bad_tag\",\"assets\":[]}", 34, "mdk2-coop", 1, &rel) == LU_ERR_VERSION);
+    assert(lu_parse_release("{\"tag_name\":\"v0.4.0\",\"assets\":[]}", 33, "mdk2-coop", 1, &rel) == LU_ERR_ASSET);
     {
         const char *no_sidecar = "{\"tag_name\":\"v0.4.0\",\"assets\":[{\"name\":\"mdk2-coop-v0.4.0.zip\",\"browser_download_url\":\"https://github.com/a.zip\",\"size\":10}]}";
-        assert(lu_parse_release(no_sidecar, strlen(no_sidecar), "mdk2-coop", &rel) == LU_ERR_ASSET);
+        assert(lu_parse_release(no_sidecar, strlen(no_sidecar), "mdk2-coop", 1, &rel) == LU_ERR_ASSET);
     }
     {
         const char *bad_url = "{\"tag_name\":\"v0.4.0\",\"assets\":[{\"name\":\"mdk2-coop-v0.4.0.zip\",\"browser_download_url\":\"http://evil.example.com/a.zip\",\"size\":10},{\"name\":\"mdk2-coop-v0.4.0.zip.sha256\",\"browser_download_url\":\"https://github.com/a.sha256\",\"size\":90}]}";
-        assert(lu_parse_release(bad_url, strlen(bad_url), "mdk2-coop", &rel) == LU_ERR_ASSET);
+        assert(lu_parse_release(bad_url, strlen(bad_url), "mdk2-coop", 1, &rel) == LU_ERR_ASSET);
+    }
+
+    /* List containing only pre-releases */
+    {
+        const char *pre_list = "["
+            "{\"tag_name\":\"v0.3.1-alpha\",\"prerelease\":true,\"draft\":false,\"published_at\":\"2026-10-27T12:00:00Z\","
+            "\"assets\":[{\"name\":\"mdk2-coop-v0.3.1-alpha.zip\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.3.1-alpha.zip\",\"size\":100},"
+            "{\"name\":\"mdk2-coop-v0.3.1-alpha.zip.sha256\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.3.1-alpha.zip.sha256\",\"size\":90}]}"
+            "]";
+        /* With include_prereleases = 1, it must be selected */
+        assert(lu_parse_release(pre_list, strlen(pre_list), "mdk2-coop", 1, &rel) == LU_OK);
+        assert(!strcmp(rel.tag, "v0.3.1-alpha"));
+        /* With include_prereleases = 0, pre-releases are excluded -> returns LU_UP_TO_DATE */
+        assert(lu_parse_release(pre_list, strlen(pre_list), "mdk2-coop", 0, &rel) == LU_UP_TO_DATE);
+    }
+
+    /* Draft release must be ignored even if newer */
+    {
+        const char *draft_list = "["
+            "{\"tag_name\":\"v0.5.0-alpha\",\"draft\":true,\"prerelease\":true,\"published_at\":\"2026-10-28T12:00:00Z\","
+            "\"assets\":[{\"name\":\"mdk2-coop-v0.5.0-alpha.zip\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.5.0-alpha.zip\",\"size\":100},"
+            "{\"name\":\"mdk2-coop-v0.5.0-alpha.zip.sha256\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.5.0-alpha.zip.sha256\",\"size\":90}]},"
+            "{\"tag_name\":\"v0.4.0\",\"draft\":false,\"prerelease\":false,\"published_at\":\"2026-10-20T12:00:00Z\","
+            "\"assets\":[{\"name\":\"mdk2-coop-v0.4.0.zip\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.4.0.zip\",\"size\":100},"
+            "{\"name\":\"mdk2-coop-v0.4.0.zip.sha256\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.4.0.zip.sha256\",\"size\":90}]}"
+            "]";
+        assert(lu_parse_release(draft_list, strlen(draft_list), "mdk2-coop", 1, &rel) == LU_OK);
+        assert(!strcmp(rel.tag, "v0.4.0"));
+    }
+
+    /* Older release listed first: newest by version must be selected */
+    {
+        const char *older_first = "["
+            "{\"tag_name\":\"v0.3.0\",\"draft\":false,\"prerelease\":false,\"published_at\":\"2026-10-01T12:00:00Z\","
+            "\"assets\":[{\"name\":\"mdk2-coop-v0.3.0.zip\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.3.0.zip\",\"size\":100},"
+            "{\"name\":\"mdk2-coop-v0.3.0.zip.sha256\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.3.0.zip.sha256\",\"size\":90}]},"
+            "{\"tag_name\":\"v0.4.0\",\"draft\":false,\"prerelease\":false,\"published_at\":\"2026-10-20T12:00:00Z\","
+            "\"assets\":[{\"name\":\"mdk2-coop-v0.4.0.zip\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.4.0.zip\",\"size\":100},"
+            "{\"name\":\"mdk2-coop-v0.4.0.zip.sha256\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.4.0.zip.sha256\",\"size\":90}]}"
+            "]";
+        assert(lu_parse_release(older_first, strlen(older_first), "mdk2-coop", 1, &rel) == LU_OK);
+        assert(!strcmp(rel.tag, "v0.4.0"));
+    }
+
+    /* Version tie broken by published_at */
+    {
+        const char *tie_list = "["
+            "{\"tag_name\":\"v0.4.0\",\"draft\":false,\"prerelease\":false,\"published_at\":\"2026-10-01T12:00:00Z\","
+            "\"assets\":[{\"name\":\"mdk2-coop-v0.4.0.zip\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.4.0.zip\",\"size\":100},"
+            "{\"name\":\"mdk2-coop-v0.4.0.zip.sha256\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.4.0.zip.sha256\",\"size\":90}]},"
+            "{\"tag_name\":\"v0.4.0\",\"draft\":false,\"prerelease\":false,\"published_at\":\"2026-10-25T12:00:00Z\",\"body\":\"newer build\","
+            "\"assets\":[{\"name\":\"mdk2-coop-v0.4.0.zip\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.4.0.zip\",\"size\":100},"
+            "{\"name\":\"mdk2-coop-v0.4.0.zip.sha256\",\"browser_download_url\":\"https://github.com/x/mdk2-coop-v0.4.0.zip.sha256\",\"size\":90}]}"
+            "]";
+        assert(lu_parse_release(tie_list, strlen(tie_list), "mdk2-coop", 1, &rel) == LU_OK);
+        assert(!strcmp(rel.tag, "v0.4.0") && !strcmp(rel.notes, "newer build"));
     }
 
     /* Sidecar & download verification */

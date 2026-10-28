@@ -2,7 +2,7 @@
 
 Online co-op for **MDK2 HD**: one player hosts, the others join, and you play the campaign together.
 These are real screenshots from v0.2.1-alpha, taken from the host's game during automated test runs
-(the player names are the test harness's). [Download](https://github.com/TommoDotCommo/mdk2-coop/releases/latest)
+(the player names are the test harness's). [Download](https://github.com/TommoDotCommo/mdk2-coop/releases)
 · [Player guide](../README.md)
 
 ![Three players in the first level: the players panel at the top left, name tags over the others](showcase/players.jpg)

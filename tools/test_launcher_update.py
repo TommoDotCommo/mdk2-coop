@@ -35,6 +35,7 @@ MUTANTS = {
     'pe-arch-check': ('if (lu_u16(bytes + pe_off + 4) != 0x014cu) return 0;', ''),
     'rollback-backup-verify': ('if (!lu_file_sha256(dll_prev, check_dll) || strcmp(check_dll, prev_dll_hash) != 0) return LU_ERR_ROLLBACK;', ''),
     'apply-rollback-on-fail': ('if (fail_after_dll || !lu_rename_replace(lua_stage, lua_path)', 'if (0'),
+    'prerelease-flag': ('if (!include_prereleases) return LU_UP_TO_DATE;', ''),
 }
 
 # Adjust url-scheme-check mutant to match exact substring in launcher_update.h
@@ -87,6 +88,22 @@ zip_bytes = zip_buffer.getvalue()
 zip_sha = hashlib.sha256(zip_bytes).hexdigest()
 sidecar_bytes = f'{zip_sha}  mdk2-coop-v0.4.0.zip\n'.encode()
 
+zip_buffer_alpha = io.BytesIO()
+with zipfile.ZipFile(zip_buffer_alpha, 'w', zipfile.ZIP_DEFLATED) as zf:
+    zf.writestr('mdk2-coop-v0.4.0-alpha/dinput8.dll', dll_v2)
+    zf.writestr('mdk2-coop-v0.4.0-alpha/coop/coop.lua', lua_v2)
+zip_bytes_alpha = zip_buffer_alpha.getvalue()
+zip_sha_alpha = hashlib.sha256(zip_bytes_alpha).hexdigest()
+sidecar_bytes_alpha = f'{zip_sha_alpha}  mdk2-coop-v0.4.0-alpha.zip\n'.encode()
+
+zip_buffer_v3 = io.BytesIO()
+with zipfile.ZipFile(zip_buffer_v3, 'w', zipfile.ZIP_DEFLATED) as zf:
+    zf.writestr('mdk2-coop-v0.3.0/dinput8.dll', dll_v1)
+    zf.writestr('mdk2-coop-v0.3.0/coop/coop.lua', lua_v1)
+zip_bytes_v3 = zip_buffer_v3.getvalue()
+zip_sha_v3 = hashlib.sha256(zip_bytes_v3).hexdigest()
+sidecar_bytes_v3 = f'{zip_sha_v3}  mdk2-coop-v0.3.0.zip\n'.encode()
+
 with tempfile.TemporaryDirectory() as temp:
     directory = Path(temp)
     client_bin = directory / 'client'
@@ -95,16 +112,20 @@ with tempfile.TemporaryDirectory() as temp:
                     '-o', str(client_bin)], check=True)
 
     scenarios = [
-        ('up-to-date', 'v0.4.0', 1, 0),
-        ('update-success', 'v0.3.1', 0, 0),
-        ('checksum-mismatch', 'v0.3.1', 12, 0),
-        ('interrupted-download', 'v0.3.1', 11, 0),
-        ('missing-sidecar', 'v0.3.1', 9, 0),
-        ('rate-limited', 'v0.3.1', 5, 0),
-        ('rollback-on-failure', 'v0.3.1', 15, 1),
+        ('up-to-date', 'v0.4.0', 1, 0, 1),
+        ('update-success', 'v0.3.1', 0, 0, 1),
+        ('checksum-mismatch', 'v0.3.1', 12, 0, 1),
+        ('interrupted-download', 'v0.3.1', 11, 0, 1),
+        ('missing-sidecar', 'v0.3.1', 9, 0, 1),
+        ('rate-limited', 'v0.3.1', 5, 0, 1),
+        ('rollback-on-failure', 'v0.3.1', 15, 1, 1),
+        ('only-prereleases-on', 'v0.3.1-alpha', 0, 0, 1),
+        ('only-prereleases-off', 'v0.3.1-alpha', 1, 0, 0),
+        ('draft-ignored', 'v0.4.0', 1, 0, 1),
+        ('older-listed-first', 'v0.3.1', 0, 0, 1),
     ]
 
-    for mode, cur_ver, expected_code, fail_step in scenarios:
+    for mode, cur_ver, expected_code, fail_step, include_pre in scenarios:
         game_dir = directory / f'game-{mode}'
         (game_dir / 'coop').mkdir(parents=True, exist_ok=True)
         (game_dir / 'dinput8.dll').write_bytes(dll_v1)
@@ -122,36 +143,113 @@ with tempfile.TemporaryDirectory() as temp:
 
             def serve():
                 try:
-                    reqs = 1 if mode in ('up-to-date', 'missing-sidecar', 'rate-limited') else 3
+                    reqs = 1 if mode in ('up-to-date', 'missing-sidecar', 'rate-limited', 'only-prereleases-off', 'draft-ignored') else 3
                     for _ in range(reqs):
                         conn, _ = srv.accept()
                         with conn:
                             req = conn.recv(4096).decode(errors='replace')
                             path = req.split(' ')[1]
                             if path == '/releases/latest':
+                                conn.sendall(b'HTTP/1.0 404 Not Found\r\n\r\n{"message":"Not Found"}')
+                                continue
+                            if path.startswith('/releases?per_page=10') or path.startswith('/releases'):
                                 if mode == 'rate-limited':
                                     resp = (b'HTTP/1.0 403 Forbidden\r\n'
                                             b'X-RateLimit-Remaining: 0\r\n'
                                             b'Retry-After: 900\r\n\r\n{}')
                                     conn.sendall(resp)
                                     continue
-                                assets = [{
-                                    'name': 'mdk2-coop-v0.4.0.zip',
-                                    'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.4.0.zip',
-                                    'size': len(zip_bytes),
-                                }]
-                                if mode != 'missing-sidecar':
-                                    assets.append({
-                                        'name': 'mdk2-coop-v0.4.0.zip.sha256',
-                                        'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.4.0.zip.sha256',
-                                        'size': len(sidecar_bytes),
-                                    })
-                                payload = json.dumps({
-                                    'tag_name': 'v0.4.0',
-                                    'body': 'Release notes for v0.4.0',
-                                    'assets': assets,
-                                }).encode()
+                                if mode in ('only-prereleases-on', 'only-prereleases-off'):
+                                    payload = json.dumps([{
+                                        'tag_name': 'v0.4.0-alpha',
+                                        'draft': False,
+                                        'prerelease': True,
+                                        'published_at': '2026-10-27T18:00:00Z',
+                                        'body': 'Prerelease v0.4.0-alpha',
+                                        'assets': [
+                                            {'name': 'mdk2-coop-v0.4.0-alpha.zip', 'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.4.0-alpha.zip', 'size': len(zip_bytes_alpha)},
+                                            {'name': 'mdk2-coop-v0.4.0-alpha.zip.sha256', 'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.4.0-alpha.zip.sha256', 'size': len(sidecar_bytes_alpha)},
+                                        ]
+                                    }]).encode()
+                                elif mode == 'draft-ignored':
+                                    payload = json.dumps([
+                                        {
+                                            'tag_name': 'v0.5.0',
+                                            'draft': True,
+                                            'prerelease': False,
+                                            'published_at': '2026-10-28T18:00:00Z',
+                                            'body': 'Draft v0.5.0',
+                                            'assets': [
+                                                {'name': 'mdk2-coop-v0.5.0.zip', 'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.5.0.zip', 'size': len(zip_bytes)},
+                                                {'name': 'mdk2-coop-v0.5.0.zip.sha256', 'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.5.0.zip.sha256', 'size': len(sidecar_bytes)},
+                                            ]
+                                        },
+                                        {
+                                            'tag_name': 'v0.4.0',
+                                            'draft': False,
+                                            'prerelease': False,
+                                            'published_at': '2026-10-20T18:00:00Z',
+                                            'body': 'Release notes for v0.4.0',
+                                            'assets': [
+                                                {'name': 'mdk2-coop-v0.4.0.zip', 'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.4.0.zip', 'size': len(zip_bytes)},
+                                                {'name': 'mdk2-coop-v0.4.0.zip.sha256', 'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.4.0.zip.sha256', 'size': len(sidecar_bytes)},
+                                            ]
+                                        }
+                                    ]).encode()
+                                elif mode == 'older-listed-first':
+                                    payload = json.dumps([
+                                        {
+                                            'tag_name': 'v0.3.0',
+                                            'draft': False,
+                                            'prerelease': False,
+                                            'published_at': '2026-10-01T18:00:00Z',
+                                            'body': 'Old v0.3.0',
+                                            'assets': [
+                                                {'name': 'mdk2-coop-v0.3.0.zip', 'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.3.0.zip', 'size': len(zip_bytes_v3)},
+                                                {'name': 'mdk2-coop-v0.3.0.zip.sha256', 'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.3.0.zip.sha256', 'size': len(sidecar_bytes_v3)},
+                                            ]
+                                        },
+                                        {
+                                            'tag_name': 'v0.4.0',
+                                            'draft': False,
+                                            'prerelease': False,
+                                            'published_at': '2026-10-20T18:00:00Z',
+                                            'body': 'Release notes for v0.4.0',
+                                            'assets': [
+                                                {'name': 'mdk2-coop-v0.4.0.zip', 'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.4.0.zip', 'size': len(zip_bytes)},
+                                                {'name': 'mdk2-coop-v0.4.0.zip.sha256', 'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.4.0.zip.sha256', 'size': len(sidecar_bytes)},
+                                            ]
+                                        }
+                                    ]).encode()
+                                else:
+                                    assets = [{
+                                        'name': 'mdk2-coop-v0.4.0.zip',
+                                        'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.4.0.zip',
+                                        'size': len(zip_bytes),
+                                    }]
+                                    if mode != 'missing-sidecar':
+                                        assets.append({
+                                            'name': 'mdk2-coop-v0.4.0.zip.sha256',
+                                            'browser_download_url': f'http://127.0.0.1:{port}/download/mdk2-coop-v0.4.0.zip.sha256',
+                                            'size': len(sidecar_bytes),
+                                        })
+                                    payload = json.dumps([{
+                                        'tag_name': 'v0.4.0',
+                                        'draft': False,
+                                        'prerelease': False,
+                                        'published_at': '2026-10-20T18:00:00Z',
+                                        'body': 'Release notes for v0.4.0',
+                                        'assets': assets,
+                                    }]).encode()
                                 conn.sendall(b'HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n' + payload)
+                            elif 'alpha.zip.sha256' in path:
+                                conn.sendall(b'HTTP/1.0 200 OK\r\n\r\n' + sidecar_bytes_alpha)
+                            elif 'alpha.zip' in path:
+                                conn.sendall(b'HTTP/1.0 200 OK\r\n\r\n' + zip_bytes_alpha)
+                            elif 'v0.3.0.zip.sha256' in path:
+                                conn.sendall(b'HTTP/1.0 200 OK\r\n\r\n' + sidecar_bytes_v3)
+                            elif 'v0.3.0.zip' in path:
+                                conn.sendall(b'HTTP/1.0 200 OK\r\n\r\n' + zip_bytes_v3)
                             elif path.endswith('.sha256'):
                                 body = sidecar_bytes if mode != 'checksum-mismatch' else (b'0' * 64 + b'  mdk2-coop-v0.4.0.zip\n')
                                 conn.sendall(b'HTTP/1.0 200 OK\r\n\r\n' + body)
@@ -163,13 +261,13 @@ with tempfile.TemporaryDirectory() as temp:
 
             t = threading.Thread(target=serve)
             t.start()
-            res = subprocess.run([str(client_bin), f'http://127.0.0.1:{port}/releases/latest',
-                                  str(game_dir), cur_ver, str(expected_code), str(fail_step)],
+            res = subprocess.run([str(client_bin), f'http://127.0.0.1:{port}/releases?per_page=10',
+                                  str(game_dir), cur_ver, str(expected_code), str(fail_step), str(include_pre)],
                                  capture_output=True, timeout=5)
             t.join(3)
             assert not errors, (mode, errors)
             assert res.returncode == 0, (mode, res.stderr.decode())
-            if mode == 'update-success':
+            if mode in ('update-success', 'only-prereleases-on', 'older-listed-first'):
                 assert (game_dir / 'dinput8.dll').read_bytes() == dll_v2
                 assert (game_dir / 'coop/coop.lua').read_bytes() == lua_v2
                 updated_receipt = json.loads((game_dir / 'dinput8.dll.coop-receipt.json').read_text())
@@ -180,11 +278,31 @@ with tempfile.TemporaryDirectory() as temp:
                 assert (game_dir / 'coop/coop.lua').read_bytes() == lua_v1
             print('PASS: local fake release server', mode)
 
+    # Mutant test: requesting /releases/latest against server returns 404 and fails
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(('127.0.0.1', 0))
+        srv.listen(1)
+        srv.settimeout(3)
+        port = srv.getsockname()[1]
+        def serve_latest():
+            conn, _ = srv.accept()
+            with conn:
+                conn.sendall(b'HTTP/1.0 404 Not Found\r\n\r\n{"message":"Not Found"}')
+        t = threading.Thread(target=serve_latest)
+        t.start()
+        res = subprocess.run([str(client_bin), f'http://127.0.0.1:{port}/releases/latest',
+                              str(directory), 'v0.3.1', '0', '0', '1'],
+                             capture_output=True, timeout=5)
+        t.join(3)
+        assert res.returncode != 0, "Using /releases/latest must fail because endpoint returns 404"
+        print('PASS: mutant caught: /releases/latest returns 404')
+
     # Also test offline (closed port)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(('127.0.0.1', 0))
         closed_port = s.getsockname()[1]
-    res = subprocess.run([str(client_bin), f'http://127.0.0.1:{closed_port}/releases/latest',
-                          str(directory), 'v0.3.1', '4', '0'], capture_output=True, timeout=5)
+    res = subprocess.run([str(client_bin), f'http://127.0.0.1:{closed_port}/releases?per_page=10',
+                          str(directory), 'v0.3.1', '4', '0', '1'], capture_output=True, timeout=5)
     assert res.returncode == 0, res.stderr.decode()
     print('PASS: local fake release server offline')
