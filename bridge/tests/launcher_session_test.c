@@ -126,6 +126,36 @@ int main(void)
     assert(client_comm.history_total == 1 + LS_CHAT_HISTORY + 5);
     assert(client_comm.history[(client_comm.history_total - 1) % LS_CHAT_HISTORY].seq == (uint16_t)(10 + LS_CHAT_HISTORY + 4));
 
+    /* Regression: local host sends must not enter the client-only C1 receiver.
+     * Both recipients and host history see identical sanitized messages. */
+    {
+        struct ls_comm_state hc, cc;
+        struct launcher_session hs, js;
+        ls_open(&hs, 1, 1000); ls_open(&js, 0, 1000);
+        assert(ls_roster(&js, 1000, -1, 1));
+        ls_comm_init(&hc); ls_comm_init(&cc);
+        ls_comm_sync_roster(&hc, 3, ids, names); ls_comm_sync_roster(&cc, 3, ids, names);
+        assert(!ls_chat_host_send(&js, &hc, 1000, ids[0], 1, 0, "client", m1, sizeof(m1)));
+        assert(!ls_chat_host_send(&hs, &hc, 1000, ids[1], 1, 0, "wrong identity", m1, sizeof(m1)));
+        hs.phase = LS_OFF;
+        assert(!ls_chat_host_send(&hs, &hc, 1000, ids[0], 1, 0, "closed", m1, sizeof(m1)));
+        hs.phase = LS_LOBBY;
+        assert(!ls_chat_host_send(&hs, &hc, 1000, ids[0], 1, 0, "\t\r\n", m1, sizeof(m1)));
+        assert(!ls_chat_host_send(&hs, &hc, 1000, ids[0], 1, 0, "small buffer", m1, 4));
+        n = ls_chat_host_send(&hs, &hc, 1000, ids[0], 1, 0, "Host|hello\x01", m1, sizeof(m1));
+        assert(n > 0 && hc.history_total == 1 && !strcmp(hc.history[0].text, "Host_hello"));
+        assert(ls_chat_client_recv_m1(&js, &cc, 1000, m1, n, 1));
+        assert(cc.history_total == 1 && !strcmp(cc.history[0].text, hc.history[0].text));
+        assert(!strcmp(cc.history[0].name, names[0]));
+        assert(!ls_chat_host_send(&hs, &hc, 1001, ids[0], 1, 0, "duplicate", m1, sizeof(m1)));
+        for (i = 2; i <= LS_CHAT_BURST_MAX; i++)
+            assert(ls_chat_host_send(&hs, &hc, 1010, ids[0], (uint16_t)i, 0, "burst", m1, sizeof(m1)));
+        assert(!ls_chat_host_send(&hs, &hc, 1020, ids[0], 5, 0, "flood", m1, sizeof(m1)));
+        assert(ls_chat_host_send(&hs, &hc, 5001, ids[0], 5, 0, "after window", m1, sizeof(m1)));
+        n = ls_chat_encode_c1(ids[0], 6, 0, "spoof host", c1, sizeof(c1));
+        assert(n > 0 && !ls_chat_host_recv_c1(&hs, &hc, 5002, c1, n, 1, m1, sizeof(m1)));
+    }
+
     /* ---- Pregame voice chat: IMA ADPCM, VAD/PTT, member-only routing, mute, volume, speaking indicator ---- */
     for (i = 0; i < LS_VOICE_FRAME; i++) pcm_in[i] = (int16_t)((i % 32 < 16) ? 3000 : -3000);
     assert(ls_pcm_level(pcm_in, LS_VOICE_FRAME) == 3000);

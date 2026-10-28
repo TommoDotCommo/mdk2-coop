@@ -277,6 +277,24 @@ static inline int ls_chat_host_recv_c1(const struct launcher_session *s, struct 
     return ls_chat_encode_m1(id, (uint16_t)seq, (uint8_t)color, m->name, clean, m1_out, m1_cap);
 }
 
+/* The local host is not a remote C1 sender. Keep its send path separate so
+ * network clients can never submit a message using the host's identity. */
+static inline int ls_chat_host_send(const struct launcher_session *s, struct ls_comm_state *c,
+                                   uint32_t now, uint32_t self_id, uint16_t seq, uint8_t color,
+                                   const char *raw_text, char *out, size_t cap)
+{
+    char clean[LS_CHAT_MAX + 1];
+    struct ls_member_comm *host = &c->members[0];
+    int n;
+    if (!s->host || (s->phase != LS_LOBBY && s->phase != LS_COUNTDOWN) ||
+        !c->nmembers || host->id != self_id) return 0;
+    if (!ls_sanitize_text(raw_text, clean, sizeof(clean), 1)) return 0;
+    n = ls_chat_encode_m1(self_id, seq, color, host->name, clean, out, cap);
+    if (!n || !ls_chat_check_flood_and_seq(host, now, seq)) return 0;
+    ls_chat_append(c, self_id, seq, color, host->name, clean);
+    return n;
+}
+
 /* Client receives M1 from the configured host endpoint. */
 static inline int ls_chat_client_recv_m1(const struct launcher_session *s, struct ls_comm_state *c,
                                          uint32_t now, const char *pkt, size_t len, int endpoint_ok)

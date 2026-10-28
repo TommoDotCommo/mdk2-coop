@@ -1739,16 +1739,17 @@ static void lob_send_chat(const char *raw_text)
     DWORD now = GetTickCount();
 
     if (!lob.on || (!lob.host && !lob.connected)) return;
-    clen = ls_chat_encode_c1(lob.id, lob.comm.next_chat_seq++, lob_color_of(lob.id), raw_text, c1, sizeof(c1));
-    if (clen <= 0) return;
     if (lob.host) {
-        mlen = ls_chat_host_recv_c1(&lob.session, &lob.comm, now, c1, (size_t)clen, 1, m1, sizeof(m1));
+        mlen = ls_chat_host_send(&lob.session, &lob.comm, now, lob.id, lob.comm.next_chat_seq++,
+                                lob_color_of(lob.id), raw_text, m1, sizeof(m1));
         if (mlen > 0) {
             for (i = 1; i < lob.n; i++)
                 sendto(lob.s, m1, mlen, 0, (struct sockaddr *)&lob.m[i].addr, sizeof(lob.m[i].addr));
             changed = 1;
         }
     } else {
+        clen = ls_chat_encode_c1(lob.id, lob.comm.next_chat_seq++, lob_color_of(lob.id), raw_text, c1, sizeof(c1));
+        if (clen <= 0) return;
         sendto(lob.s, c1, clen, 0, (struct sockaddr *)&lob.hostaddr, sizeof(lob.hostaddr));
     }
 }
@@ -2768,17 +2769,28 @@ static void test_commands(void)
                 EnterCriticalSection(&update_lock);
                 fprintf(state, "[launcher]\npage=%d\nlobby=%d\nphase=%d\nplayers=%d\nready=%d\nconnected=%d\ncountdown=%d\n"
                                "chat_total=%u\nlocal_talking=%d\nvoice_mode=%d\nvoice_in_dev=%d\nvoice_out_dev=%d\n"
-                               "update_state=%d\nupdate_err=%d\nupdate_rollback=%d\nupdate_tag=%s\n",
+                               "update_state=%d\nupdate_err=%d\nupdate_rollback=%d\nupdate_tag=%s\nversion=%s\nrtt=%d\n",
                         page, lob.on, lob.session.phase, lob.n, lob.ready, lob.connected, lob.start_at != 0,
                         (unsigned)lob.comm.history_total, ls_local_talking(&lob.comm, now_dump),
                         cfg.voice_mode, cfg.voice_in_dev - 1, cfg.voice_out_dev - 1,
-                        update_state, update_last_err, update_rollback_ready, update_rel.tag);
+                        update_state, update_last_err, update_rollback_ready, update_rel.tag, MOD_VERSION, lob.rtt);
                 LeaveCriticalSection(&update_lock);
                 for (i = 0; i < lob.n; i++) {
                     struct ls_member_comm *cm = ls_comm_find(&lob.comm, lob.m[i].id);
-                    fprintf(state, "[player%d]\nready=%d\nmuted=%d\nvolume=%d\nvoice_frames=%u\ntalking=%d\n",
+                    fprintf(state, "[player%d]\nready=%d\nmuted=%d\nvolume=%d\nvoice_frames=%u\ntalking=%d\nversion=%s\nrtt=%d\n",
                             i, lob.m[i].ready, cm ? cm->muted : 0, cm ? cm->volume : 100,
-                            cm ? cm->voice_frames : 0u, ls_member_talking(cm, now_dump));
+                            cm ? cm->voice_frames : 0u, ls_member_talking(cm, now_dump), lob.m[i].ver, lob.m[i].rtt);
+                }
+                if (profile_loaded) {
+                    EnterCriticalSection(&profile_lock);
+                    fprintf(state, "[profiles]\ncount=%d\nselected=%d\nediting=%d\nmessage=%s\n",
+                            profiles.n, profile_selected, profile_edit, profile_message);
+                    for (i = 0; i < profiles.n; i++)
+                        fprintf(state, "[profile%d]\nname=%s\nhost=%s\nport=%u\nnotes=%s\nused=%llu\nstatus=%d\nversion=%s\nrtt=%d\n",
+                                i, profiles.p[i].name, profiles.p[i].host, profiles.p[i].port,
+                                profiles.p[i].notes, (unsigned long long)profiles.p[i].used,
+                                profile_probes[i].status, profile_probes[i].version, profile_probes[i].rtt);
+                    LeaveCriticalSection(&profile_lock);
                 }
                 for (i = start_c; i < total_c; i++) {
                     const struct ls_chat_msg *msg = &lob.comm.history[(unsigned)i % LS_CHAT_HISTORY];

@@ -8,6 +8,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'bridge/tests/launcher_session_test.c'
 HEADER = (ROOT / 'bridge/launcher_session.h').read_text()
 MUTANTS = {
+    'host-chat-identity': ('host->id != self_id', '0'),
+    'host-chat-history': ('ls_chat_append(c, self_id, seq, color, host->name, clean);', ''),
+    'host-chat-flood': ('!ls_chat_check_flood_and_seq(host, now, seq)', '0'),
+    'host-chat-phase': ('if (!s->host || (s->phase != LS_LOBBY && s->phase != LS_COUNTDOWN) ||\n        !c->nmembers',
+                        'if (0 || !c->nmembers'),
     'unvalidated-roster': (' || !valid ||', ' || 0 ||'),
     'oversized-countdown': (' || left > 3000', ''),
     'negative-countdown': (' || left < -1', ''),

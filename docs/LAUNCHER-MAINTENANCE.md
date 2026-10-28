@@ -142,7 +142,7 @@ python3 tools/test_install_policy.py
 # 3. Profile store, migration, probe scheduling & 25 mutants + local fake server
 python3 tools/test_launcher_profiles.py
 
-# 4. Lobby lifecycle, pregame chat/voice simulator & 33 mutants (100,000 sessions)
+# 4. Lobby lifecycle, pregame chat/voice simulator & 38 mutants (100,000 sessions)
 python3 tools/test_launcher_session.py
 
 # 5. GitHub release checker, SHA-256 sidecar, ZIP/PE verification & 21 mutants + fake server
@@ -179,9 +179,27 @@ bash tools/qa_installer.sh
 # 4. Multi-client lobby lifecycle, persistent browsing, chat and voice gate (3 instances)
 bash tools/qa_lobby.sh
 
+# Optional extended checks: profile UI and real-host probes, full lobby with
+# synthetic protocol members, loss/reconnect, bidirectional hostile/flood chat,
+# synthetic speaking indicators and a process status probe after game handoff.
+MDK2_EXTENDED=1 bash tools/qa_lobby.sh
+
 # 5. Lobby start-protection mutant check (host countdown withheld)
 MUTANT=nostart bash tools/qa_lobby.sh
 ```
+
+The `nostart` variant withholds the host countdown and succeeds only when the
+game-start oracle rejects the resulting lobby state. It also requires both
+launchers to remain in the lobby without a countdown.
+
+Extended checks archive and replace profile fixtures in the configured disposable
+copies. `tools/check_lobby_live.py` can also drive individual checks against three
+already running background test launchers. Its `mismatch` mode requires an existing
+imported profile and a real host built with a different version; it verifies both
+the profile warning and refusal to start. Dumps and captures are saved alongside
+the suite output. The profile probe's successful live-lobby state is **In lobby**
+with version and RTT. The separate **Reachable** label is reserved by the probe
+format; current production responders report either In lobby or In game.
 
 ### Additional native Windows verification from WSL
 
@@ -212,3 +230,12 @@ its replacement and restore verified originals. It does not launch MDK2 or prove
 that a restarted game's launcher displays the new version. `--try-real-api` adds
 one unauthenticated read-only request and prints the HTTP result, including 404
 when no latest release exists.
+
+`tools/check_launcher_update_live.py` covers the actual game restart. Supply a
+stopped disposable game directory configured for background launcher testing, old
+and new local packages with their version strings, an evidence output directory,
+and `--start-command` / `--stop-command` argument lists. The caller's commands must
+register the launched game and stop only that process under its resource lease.
+The test hosts a local release server, updates the running game DLL, verifies its
+bytes, restarts through those commands, checks the process's new version and
+captures the About page. It never requests the public GitHub API.
