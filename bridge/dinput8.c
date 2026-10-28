@@ -9,6 +9,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include "bridge.h"
+#include "crash_context.h"
 
 void l_coop_init(void);
 void loader_ensure(void);      /* loader.c */
@@ -63,6 +64,7 @@ static LONG CALLBACK crash_logger(EXCEPTION_POINTERS *e)
            (unsigned long)((char *)r->ExceptionAddress - (char *)mod), r->ExceptionAddress,
            r->NumberParameters >= 2 && r->ExceptionInformation[0] ? "writing" : "reading",
            r->NumberParameters >= 2 ? (void *)r->ExceptionInformation[1] : NULL);
+    crash_log_context(e->ContextRecord);
     diag_crash();               /* marks the session as crashed and writes the flight recorder */
     return EXCEPTION_CONTINUE_SEARCH;
 }

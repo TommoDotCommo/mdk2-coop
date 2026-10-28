@@ -51,7 +51,8 @@ OFFLINE = [Gate("rear-gate-routing", ("bash", "tools/test_rear_gate.sh")),
            Gate("revive-core", ("make", "-C", "bridge", "test-revive")),
            Gate("network-core", ("bash", "tools/test_network.sh")),
            Gate("pickups-core", ("bash", "tools/test_pickups.sh")),
-           Gate("diagnostics-core", ("bash", "tools/test_diag.sh"))]
+           Gate("diagnostics-core", ("bash", "tools/test_diag.sh")),
+           Gate("crash-context", ("bash", "tools/test_crash_context.sh"))]
 SMOKE = [Gate("two-player", ("bash", "tools/qa.sh"), 2, result="counts"),
          Gate("checkpoint-smoke", ("bash", "tools/sweep.sh", "1-1", "1-3"), 2, result="sweep"),
          Gate("level-smoke", ("bash", "tools/sweep.sh", "--levels"), 2, result="sweep")]
