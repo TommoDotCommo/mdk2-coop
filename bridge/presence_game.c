@@ -82,9 +82,8 @@ static char local_direct_source[EV_NAME];
 
 #define AI_STACK_MAX 16
 static struct {
-    BYTE *actor, *actor_cur;
+    BYTE *actor;
     DWORD player_handle, target_handle, ret;
-    int queried;
 } ai_stack[AI_STACK_MAX];
 static int ai_depth;
 
@@ -99,7 +98,7 @@ static BYTE *ai_select(const float *pos, BYTE *actor)
     struct presence_player candidates[MAX_PLAYERS] = {0};
     BYTE *bodies[MAX_PLAYERS] = {0};
     BYTE *fallback = base_target();
-    int s, best, index;
+    int s, best;
     /* Scripted targets (boss objects, movie gobs, decoys) retain their authority. */
     if (!role_host || no_targeting || !have_remote || (actor ? !gob_alive(actor) : !pos) ||
         (fallback && fallback != local_player && puppet_slot(fallback) < 0)) return fallback;
@@ -111,21 +110,21 @@ static BYTE *ai_select(const float *pos, BYTE *actor)
         memcpy(candidates[s].pos, bodies[s] + GOB_POSITION, sizeof(candidates[s].pos));
     }
     best = presence_nearest(pos, candidates, MAX_PLAYERS);
-    index = actor ? gob_slot(actor) : -1;
-    if (index >= 0 && best >= 0) {
-        int in_scope = ai_depth > 0 && ai_stack[ai_depth - 1].actor_cur == actor;
-        if (ai_evidence[index].actor != gob_handle(index)) memset(&ai_evidence[index], 0, sizeof(ai_evidence[index]));
-        ai_evidence[index].actor = gob_handle(index);
-        ai_evidence[index].victim = gob_handle(gob_slot(bodies[best]));
-        if (!in_scope || !ai_stack[ai_depth - 1].queried) ai_evidence[index].queries++;
-        if (in_scope) ai_stack[ai_depth - 1].queried = 1;
-    }
     return best >= 0 ? bodies[best] : NULL;
 }
 
 static BYTE *ai_target(void)
 {
-    return ai_select(ai_actor ? (const float *)(ai_actor + GOB_POSITION) : NULL, ai_actor);
+    BYTE *target = ai_select(ai_actor ? (const float *)(ai_actor + GOB_POSITION) : NULL, ai_actor);
+    int index = ai_actor ? gob_slot(ai_actor) : -1;
+    if (index >= 0 && role_host && have_remote) {
+        int victim = target ? gob_slot(target) : -1;
+        if (ai_evidence[index].actor != gob_handle(index)) memset(&ai_evidence[index], 0, sizeof(ai_evidence[index]));
+        ai_evidence[index].actor = gob_handle(index);
+        ai_evidence[index].victim = victim >= 0 ? gob_handle(victim) : 0;
+        ai_evidence[index].queries++;
+    }
+    return target;
 }
 
 static void ai_store_target(BYTE *gob, BYTE *target)
@@ -151,15 +150,13 @@ static void ai_scope_enter(BYTE *gob, DWORD ret)
     if (role_host && gob_is_actor(gob)) ai_actor = gob;
     if (ai_depth < AI_STACK_MAX) {
         ai_stack[ai_depth].actor = saved;
-        ai_stack[ai_depth].actor_cur = ai_actor;
         ai_stack[ai_depth].player_handle = saved_player;
         ai_stack[ai_depth].target_handle = saved_target;
         ai_stack[ai_depth].ret = ret;
-        ai_stack[ai_depth].queried = 0;
         ai_depth++;
     }
     if (role_host && gob_is_actor(gob)) {
-        BYTE *target = ai_target();
+        BYTE *target = ai_select((const float *)(gob + GOB_POSITION), gob);
         ai_store_target(gob, target);
         ai_scope_handles(target);
     }
@@ -199,20 +196,29 @@ __asm__(
 
 void ai_hook_return(BYTE *gob, DWORD *ret_slot)
 {
-    static int dumped;
-    if (!dumped && gob && strcmp(gob_name(gob), "qa_melee") == 0) {
-        FILE *f = fopen("coop/ai_code.bin", "wb");
-        dumped = 1;
-        if (f) {
-            fwrite((void *)0x42ac00, 1, 0xa00, f);
-            fclose(f);
-        }
-    }
     ai_scope_enter(gob, ret_slot ? *ret_slot : 0);
 #if defined(__i386__) && defined(_WIN32)
     if (ret_slot) *ret_slot = (DWORD)ai_return_thunk;
 #endif
 }
+
+/* The game's ScriptUpdate executes native attack tasks after class think has
+ * returned. Scope that path too; the Lua wrapper uses protected call so errors
+ * cannot leave the engine's player handles pointing at a puppet. */
+static int ai_script_begin(BYTE *gob)
+{
+    if (!role_host || !have_remote || no_targeting || !gob_alive(gob) || !gob_is_actor(gob) || ai_depth >= AI_STACK_MAX)
+        return 0;
+    ai_scope_enter(gob, 0);
+    return 1;
+}
+
+static void l_ai_begin(void)
+{
+    lua_pushnumber(ai_script_begin(tolua_getusertype(1, NULL)));
+}
+
+static void l_ai_end(void) { ai_leave(); }
 
 /* Call a slot callback and verify/restore the stack pointer afterwards so both
  * caller-pop (__cdecl) and callee-pop (__stdcall / ret N) callbacks stay balanced. */
@@ -277,11 +283,9 @@ void ai_create_enter(const float *pos)
 {
     if (ai_depth < AI_STACK_MAX) {
         ai_stack[ai_depth].actor = ai_actor;
-        ai_stack[ai_depth].actor_cur = NULL;
         ai_stack[ai_depth].player_handle = PLAYER_HANDLE;
         ai_stack[ai_depth].target_handle = AI_TARGET_HANDLE;
         ai_stack[ai_depth].ret = 0;
-        ai_stack[ai_depth].queried = 0;
         ai_depth++;
     }
     if (role_host && !no_targeting && have_remote && pos)
@@ -384,6 +388,8 @@ static void l_canopy(void)
 void presence_lua_init(void)
 {
     joining.since = now_ms() / 1000;
+    tolua_function(NULL, "coop_ai_begin", l_ai_begin);
+    tolua_function(NULL, "coop_ai_end", l_ai_end);
     tolua_function(NULL, "coop_canopy", l_canopy);
     tolua_function(NULL, "coop_join_cancelled", l_join_cancelled);
     tolua_function(NULL, "coop_join_screen", l_join_screen);
@@ -395,6 +401,9 @@ void presence_lua_init(void)
 void presence_dump(FILE *f)
 {
     int s;
+    char engine_player[EV_NAME];
+    gob_peername(gob_by_handle(PLAYER_HANDLE), engine_player, sizeof(engine_player));
+    fprintf(f, "ai_scope_depth %d\nengine_player %s\n", ai_depth, engine_player);
     fprintf(f, "direct_source %s\n", local_direct_source[0] ? local_direct_source : "none");
     fprintf(f, "ai_hook %d\njoin_screen %d\n", target_original != NULL, join_screen);
     fprintf(f, "join %d\ndirect_receipts %u\nmelee_only %d\n", joining.phase, local_direct_hits, melee_only);

@@ -22,6 +22,18 @@ function coop.OnLuaError(msg)
 end
 coop.olderror = seterrormethod(coop.OnLuaError)
 
+-- Walker attack tasks run through ScriptUpdate, outside their native class think.
+-- Restore the host's handles even when a task raises a Lua error (3.1 protected call).
+coop.scriptupdate_orig = ScriptUpdate
+function ScriptUpdate(gob)
+    if (coop_ai_begin(gob) == 0) then return coop.scriptupdate_orig(gob) end
+    local args = { gob }
+    args.n = 1
+    local r = call(coop.scriptupdate_orig, args, "x")
+    coop_ai_end()
+    return r
+end
+
 -- the client switches its spawners off (the host's make the real enemies), but some make
 -- items (health, ammo respawns: mdk2.lua's item spawners), which the client needs too --
 coop.setspawned_orig = mdkSpawnerSetSpawnedObject

@@ -6,6 +6,30 @@ import os
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+game = (ROOT/'bridge/game.c').read_text()
+slots = game[game.index('#define FILTER_SLOTS'):game.index('/* Redirect fn to hook')]
+header = (ROOT/'bridge/bridge.h').read_text()
+constants = '\n'.join(line for line in header.splitlines()
+                      if line.startswith(('#define CLASS_ANIMEVENT ', '#define CLASS_COLLISION ')))
+with tempfile.TemporaryDirectory(dir=ROOT/'local', prefix='ai-slots-') as folder:
+    folder = Path(folder)
+    (folder/'ai_slot_constants.h').write_text(constants)
+    for name, variant in [('baseline', slots),
+                          ('wrong-strike-slot', slots.replace('CLASS_ANIMEVENT }', 'CLASS_COLLISION }')),
+                          ('unscoped-strike', slots.replace('(f == 0 || f == 3)', '(f == 0)'))]:
+        (folder/'ai_slots_source.h').write_text(variant)
+        binary = folder/name
+        subprocess.run(['gcc','-std=c99','-O1','-fno-pie','-no-pie',
+                        '-Wno-pointer-to-int-cast','-Wno-int-to-pointer-cast','-I',str(folder),
+                        str(ROOT/'bridge/tests/ai_slots_test.c'),'-o',str(binary)],check=True)
+        result = subprocess.run([str(binary)],capture_output=True,text=True)
+        if name == 'baseline':
+            assert result.returncode == 0, result.stderr
+            print(result.stdout,end='')
+        else:
+            assert result.returncode != 0 and 'Assertion' in result.stderr, name
+            print(f'PASS native slot mutant caught: {name}')
+
 source = (ROOT / 'bridge/presence.c').read_text()
 mutants = {
     'truncated-canopy': ('if (size < n) return 0;', 'if (0) return 0;'),
@@ -52,6 +76,9 @@ print(f'PASS: {len(mutants)} presence mutation twins rejected')
 # The Win32 adapter runs against fake engine calls; no game or Windows process.
 adapter = (ROOT/'bridge/presence_game.c').read_text()
 adapter_mutants = {
+    'seed-as-native-query': ('ai_store_target(g, ai_select((const float *)(g + GOB_POSITION), g));',
+                             'ai_store_target(g, ai_select((const float *)(g + GOB_POSITION), g)); ai_evidence[i].queries++;'),
+    'omit-script-scope': ('ai_scope_enter(gob, 0);\n    return 1;', 'return 1;'),
     'omit-canopy-apply': ('if (no_canopy || !child', 'if (1 || !child'),
     'omit-target-context': ('ai_actor = gob;', 'ai_actor = NULL;'),
     'forget-target-restore': ('ai_actor = saved;', 'ai_actor = gob;'),

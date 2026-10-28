@@ -377,8 +377,8 @@ void gob_set_foreign(BYTE *gob, int on)
  * results. think (+0x4): AI, shot flight. anim loop (+0x2c, called when an animation
  * loops, with the Lua OnAnimLoop): Max's deletes the gob an arm holds by handle, and the
  * puppet Max holds nothing, so copying the partner's animations crashed level 2. */
-#define FILTER_SLOTS 3
-static const int filter_slot[FILTER_SLOTS] = { CLASS_THINK, CLASS_ANIMLOOP, CLASS_ANIMEVENT };
+#define FILTER_SLOTS 4
+static const int filter_slot[FILTER_SLOTS] = { CLASS_THINK, CLASS_ANIMLOOP, CLASS_COLLISION, CLASS_ANIMEVENT };
 static DWORD slot_orig[FILTER_SLOTS][64];
 
 /* Called by a slot thunk with the caller's stack pointer (frame[0] = return address,
@@ -394,7 +394,7 @@ static DWORD slot_filter(int f, DWORD *frame)
     if (gob_is_mirrored(gob))
         return 0;
     orig = slot_orig[f][gob_class(gob)];
-    if ((f == 0 || f == 2) && orig && role_host && gob_is_actor(gob))
+    if ((f == 0 || f == 3) && orig && role_host && gob_is_actor(gob))
         ai_hook_return(gob, &frame[0]);
     return orig;
 }
@@ -402,7 +402,8 @@ static DWORD slot_filter(int f, DWORD *frame)
 static DWORD __cdecl slot_filter0(DWORD *frame) { return slot_filter(0, frame); }
 static DWORD __cdecl slot_filter1(DWORD *frame) { return slot_filter(1, frame); }
 static DWORD __cdecl slot_filter2(DWORD *frame) { return slot_filter(2, frame); }
-static void *const slot_filters[FILTER_SLOTS] = { (void *)slot_filter0, (void *)slot_filter1, (void *)slot_filter2 };
+static DWORD __cdecl slot_filter3(DWORD *frame) { return slot_filter(3, frame); }
+static void *const slot_filters[FILTER_SLOTS] = { (void *)slot_filter0, (void *)slot_filter1, (void *)slot_filter2, (void *)slot_filter3 };
 
 /* Thunk: push esp; call filter; add esp,4; test eax,eax; jz +2; jmp eax; xor eax,eax; ret
  * (the slot's own arguments stay on the stack for the jmp) */

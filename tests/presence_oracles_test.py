@@ -12,13 +12,14 @@ def sample(role, slot):
     return {'role': [[role]], 'me': [[str(slot)]], 'level': [['1']], 'life': [['0']],
             'ai_hook': [['1']], 'join': [['3']], 'join_screen': [['0']],
             'melee_only': [['1']], 'direct_receipts': [['0']], 'direct_source': [['none']],
-            'player': [['100','100','0' if slot == 1 else '50','0','0']]}
+            'player': [['100','100','-200' if slot == 1 else '50','0','0']]}
 
 
 class PresenceOracles(unittest.TestCase):
     def fixture(self):
         bh, bc = sample('host', 1), sample('client', 2)
         host, client = copy.deepcopy(bh), copy.deepcopy(bc)
+        bh['ent'] = [['123','202','100','114','0','0','qa_melee']]
         host['ai'] = [['qa_melee','@p2','10','1']]
         host['ent'] = [['123','202','100','51','0','0','qa_melee']]
         client['direct_receipts'] = [['1']]
@@ -46,6 +47,22 @@ class PresenceOracles(unittest.TestCase):
             mutation(h,c)
             with self.assertRaises((AssertionError, KeyError)):
                 oracle.ai(bh,bc,h,c)
+
+    def test_direct_damage_without_approach_fails(self):
+        bh,bc,h,c = self.fixture()
+        bh['ent'][0][3] = '54'
+        h['ent'][0][3] = '54'
+        with self.assertRaises(AssertionError): oracle.ai(bh,bc,h,c)
+
+    def test_host_near_control(self):
+        bh,bc,h,c = self.fixture()
+        for a,b in ((bh,bc),(h,c)):
+            for key in ('player','direct_receipts','direct_source'):
+                a[key],b[key] = b[key],a[key]
+        h['ai'][0][1] = '@p1'
+        oracle.ai(bh,bc,h,c,host_near=True)
+        h['ai'][0][1] = '@p2'
+        with self.assertRaises(AssertionError): oracle.ai(bh,bc,h,c,host_near=True)
 
     def test_canopy_process_memory_not_just_body_pose(self):
         host, client = sample('host',1), sample('client',2)

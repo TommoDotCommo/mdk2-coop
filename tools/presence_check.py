@@ -35,7 +35,7 @@ def player(rows):
     return int(row[1]), tuple(map(float, row[2:]))
 
 
-def ai(before_host, before_client, host, client):
+def ai(before_host, before_client, host, client, host_near=False):
     assert host['role'] == [['host']] and client['role'] == [['client']]
     slot = number(client, 'me')
     assert slot > 1 and number(host, 'me') == 1
@@ -44,20 +44,33 @@ def ai(before_host, before_client, host, client):
     assert number(before_client, 'me') == slot and number(before_client, 'level') == number(client, 'level')
     assert number(host, 'ai_hook') == 1 and number(host, 'melee_only') == 1
     assert number(host, 'life') == number(client, 'life') == 0
-    assert math.dist(player(host)[1], player(client)[1]) > 25, 'host must be far away'
-    assert player(client)[0] < player(before_client)[0], 'client did not lose hp'
-    assert player(host)[0] == player(before_host)[0], 'host was damaged'
-    assert client.get('direct_source') == [['qa_melee']], 'HURT came from another actor'
-    assert number(client, 'direct_receipts') > number(before_client, 'direct_receipts'), 'no applied direct HURT'
+    target, before_target = (host, before_host) if host_near else (client, before_client)
+    other, before_other = (client, before_client) if host_near else (host, before_host)
+    target_slot = 1 if host_near else slot
+    assert math.dist(player(host)[1], player(client)[1]) > 100, 'other player must be out of strike range'
+    assert player(target)[0] < player(before_target)[0], 'selected player did not lose hp'
+    assert player(other)[0] == player(before_other)[0], 'distant player was damaged'
+    assert target.get('direct_source') == [['qa_melee']], 'HURT came from another actor'
+    assert number(target, 'direct_receipts') > number(before_target, 'direct_receipts'), 'no applied direct HURT'
     matches = [r for r in host.get('ai', []) if r[0] == 'qa_melee']
     assert len(matches) == 1 and len(matches[0]) == 4, 'missing target memory'
     row = matches[0]
-    assert row[1] == f'@p{slot}' and int(row[2]) > 0 and int(row[3]) > 0, 'enemy did not target and strike client'
     old = [r for r in before_host.get('ai', []) if r[0] == 'qa_melee']
-    assert int(row[3]) > (int(old[0][3]) if old else 0), 'stale hit evidence'
+    assert row[1] == f'@p{target_slot}' and int(row[2]) > (int(old[0][2]) if old else 0), 'no native target query'
+    assert int(row[3]) > (int(old[0][3]) if old else 0), 'no new direct strike'
     enemies = [r for r in host.get('ent', []) if r[-1] == 'qa_melee']
-    assert len(enemies) == 1 and int(enemies[0][1]) == 202 and int(enemies[0][2]) > 0
-    assert math.dist(tuple(map(float, enemies[0][3:6])), player(client)[1]) < 5, 'enemy did not chase into melee range'
+    initial = [r for r in before_host.get('ent', []) if r[-1] == 'qa_melee']
+    assert len(enemies) == len(initial) == 1
+    assert enemies[0][0] == initial[0][0], 'enemy was replaced'
+    assert int(enemies[0][1]) == 202 and int(enemies[0][2]) > 0
+    start = tuple(map(float, initial[0][3:6]))
+    end = tuple(map(float, enemies[0][3:6]))
+    before_distance = math.dist(start, player(before_target)[1])
+    after_distance = math.dist(end, player(target)[1])
+    # Native Grunt strike checks 50 units and pi/4 at 0x434e25..0x434e3d.
+    assert before_distance > 50 and after_distance < 50, 'enemy did not enter native strike range'
+    assert after_distance < before_distance - 8 and math.dist(start, end) > 8, 'enemy did not approach'
+    assert math.dist(player(before_target)[1], player(target)[1]) < 3, 'player moved toward enemy'
 
 
 def canopy(dumps, owner, expected):
@@ -91,16 +104,16 @@ def join(dump, phase):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('kind', choices=('ai', 'canopy', 'join'))
+    parser.add_argument('kind', choices=('ai', 'ai-host', 'canopy', 'join'))
     parser.add_argument('files', nargs='+')
     parser.add_argument('--owner', type=int)
     parser.add_argument('--expect', type=int)
     args = parser.parse_args()
     try:
         rows = [load(p) for p in args.files]
-        if args.kind == 'ai':
+        if args.kind in ('ai', 'ai-host'):
             assert len(rows) == 4
-            ai(*rows)
+            ai(*rows, host_near=args.kind == 'ai-host')
         elif args.kind == 'canopy': canopy(rows, args.owner, args.expect)
         else:
             assert len(rows) == 1

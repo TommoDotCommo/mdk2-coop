@@ -73,7 +73,8 @@ typedef void (*lua_CFunction)(void);
 #define CLASS_SLOTS         14
 #define CLASS_THINK         1       /* slot +0x4: per-frame AI/update, think(gob); +0x0 is used instead
                                        for the player-controlled gob (caller around 0x42b3f0) */
-#define CLASS_ANIMEVENT     7       /* slot +0x1c: native animation events (including attacks) */
+#define CLASS_ANIMEVENT     3       /* slot +0x0c: native animation keys (including strikes) */
+#define CLASS_COLLISION     7       /* slot +0x1c: native gob collision callback */
 #define CLASS_ANIMLOOP      11      /* slot +0x2c: animation looped, (gob, ?, ?) (caller 0x42b51e) */
 
 /* Engine object table: GOB_SLOTS entries of { gob *, u16 generation, u16 pad };

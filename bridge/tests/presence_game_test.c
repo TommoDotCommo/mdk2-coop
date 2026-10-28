@@ -34,7 +34,7 @@ static DWORD gob_handle(int i) { return 0x10000u + i; }
 static BYTE *gob_by_handle(DWORD h) { int i; for(i=0;i<6;i++) if(h==gob_handle(i) && alive[i]) return bodies[i]; return NULL; }
 static int gob_alive(BYTE *g) { int i=gob_slot(g); return i>=0 && alive[i]; }
 static int gob_type(BYTE *g) { return types[gob_slot(g)]; }
-static int gob_is_actor(BYTE *g) { return g && gob_type(g)>=200 && gob_type(g)<260; }
+static int gob_is_actor(BYTE *g) { assert(g); return gob_type(g)>=200 && gob_type(g)<260; }
 static int gob_class(BYTE *g) { return gob_is_actor(g) ? 3 : 1; }
 static void class_filter_think(int cls) { if (cls > 0) filtered_classes++; }
 static void gob_set_position(void *g, float x, float y, float z) {
@@ -167,6 +167,18 @@ int main(void)
     ai_hook_return(bodies[3], &ret_slot);
     assert(ai_target()==bodies[1] && PLAYER_HANDLE==gob_handle(1) && AI_TARGET_HANDLE==gob_handle(1));
     assert(ai_leave()==0xdeadbeefu && ai_target()==local_player && PLAYER_HANDLE==gob_handle(0));
+    /* ScriptUpdate runs the native attack task outside the class think callback. */
+    assert(ai_script_begin(bodies[3]) == 1);
+    assert(ai_target() == bodies[1] && PLAYER_HANDLE == gob_handle(1));
+    assert(ai_script_begin(bodies[5]) == 1); /* nested script */
+    ai_leave();
+    assert(ai_target() == bodies[1]);
+    ai_leave();
+    assert(ai_target() == local_player && PLAYER_HANDLE == gob_handle(0));
+    assert(ai_script_begin(local_player) == 0 && ai_depth == 0);
+    no_targeting = 1;
+    assert(ai_script_begin(bodies[3]) == 0 && ai_depth == 0);
+    no_targeting = 0;
     ai_create_enter(spawn_pos);
     assert(PLAYER_HANDLE==gob_handle(1) && AI_TARGET_HANDLE==gob_handle(1));
     *(BYTE **)(bodies[3]+GOB_TARGET)=NULL;
@@ -176,6 +188,17 @@ int main(void)
     *(BYTE **)(bodies[3]+GOB_TARGET)=local_player;
     ai_before_scene();
     assert(*(BYTE **)(bodies[3]+GOB_TARGET)==bodies[1]);
+    {
+        DWORD victim = ai_evidence[3].victim;
+        unsigned int queries = ai_evidence[3].queries;
+        *(float *)(bodies[1]+GOB_POSITION)=100;
+        ai_before_scene();
+        /* Candidate seeding is not evidence of a native target lookup. */
+        assert(ai_evidence[3].victim==victim && ai_evidence[3].queries==queries);
+        *(float *)(bodies[1]+GOB_POSITION)=2;
+        ai_before_scene();
+    }
+    assert(ai_script_begin(NULL) == 0 && ai_depth == 0);
     assert(presence_hit(bodies[3],bodies[1],0)==0 && ai_evidence[3].hits==1);
     no_direct_hurt=1; assert(presence_hit(bodies[3],bodies[1],0)==1); no_direct_hurt=0;
     life[1]=1; expected=bodies[2]; ai_run(bodies[3],(DWORD)(uintptr_t)fake_think,11,22,33); life[1]=0;
