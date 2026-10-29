@@ -1052,6 +1052,23 @@ function coop.NavFloor(x, y, top, bottom)
     end
     return hi
 end
+-- The first of the places pts ({x, y, z, ...}) from which a point of the target at one of the heights
+-- dzs is in sight (an eye 3 above the place); coop_note("view", "<place index> <height>") or "none".
+function coop.NavView(tx, ty, tz, pts, dzs)
+    local i = 1
+    while (pts[i]) do
+        local k = 1
+        while (dzs[k]) do
+            if (coop.NavClear(pts[i], pts[i + 1], pts[i + 2] + 3, tx, ty, tz + dzs[k])) then
+                coop_note("view", format("%d %.2f", (i + 2) / 3, dzs[k]))
+                return
+            end
+            k = k + 1
+        end
+        i = i + 3
+    end
+    coop_note("view", "none")
+end
 function coop.NavStart(x, y, z, cell, maxcells, up, down)
     local n = { cell = cell or 2, max = maxcells or 20000, up = up or 2.5, down = down or 6, head = 1, tail = 1,
                 q = {}, seen = {}, out = {}, batch = 0, count = 0, edges = 0 }

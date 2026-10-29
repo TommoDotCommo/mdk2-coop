@@ -336,15 +336,11 @@ def kill_objective(game, nav, obj, log, seconds=25):
     # the line of sight ends inside the object's own body at its centre: look for a height on it that
     # a reachable place sees (the arena generators show from +4 up) --
     spot = aim = None
-    for k in cells:
-        cx, cy, cz = nav.cells[k][:3]
-        for dz in (2, 4, 6, 8):
-            seen = game.note('sees', f'coop_note("sees", coop.NavClear({cx},{cy},{cz + 3},{x},{y},{z + dz}) and "1" or "0")')
-            if seen.strip() == '1':
-                spot, aim = (cx, cy, cz), z + dz
-                break
-        if spot:
-            break
+    pts = ','.join(f'{v:.2f}' for k in cells for v in nav.cells[k][:3])
+    view = game.note('view', f'coop.NavView({x},{y},{z},{{{pts}}},{{2,4,6,8}})').split()
+    if view and view[0] != 'none':
+        spot = tuple(nav.cells[cells[int(view[0]) - 1]][:3])
+        aim = z + float(view[1])
     if not spot:
         log(f'    {obj["name"]}: no reachable place sees it')
         return False
@@ -385,12 +381,24 @@ def advance(game, level, goal, out, log, max_rounds=40):
     game.lua('coop.GunnerOn(60)')
     here = game.pos()
     _, portals = level.path(list(here), list(goal))
-    targets = [st['to'] for st in portals]
-    stats = {'scans': 0, 'walks': 0, 'destroyed': [], 'rounds': 0}
-    for target in targets:
+    stats = {'scans': 0, 'walks': 0, 'destroyed': [], 'rounds': 0, 'skipped': 0}
+    index = 0
+    while index < len(portals):
+        target = portals[index]['to']
         stalls = 0
         best = math.dist(game.pos()[:2], target[:2])
         while math.dist(game.pos()[:2], target[:2]) > 4:
+            # already further along (carried, or walked through): go on from the latest portal whose
+            # room the hero is in, instead of walking back --
+            room = level.room_of(list(game.pos()))
+            later = [i for i in range(index + 1, len(portals)) if portals[i]['room'] == room]
+            if later:
+                stats['skipped'] += later[-1] - index
+                log(f'  already in {room}: on from portal {later[-1]}')
+                index = later[-1]
+                target = portals[index]['to']
+                best = math.dist(game.pos()[:2], target[:2])
+                continue
             stats['rounds'] += 1
             if stats['rounds'] > max_rounds:
                 return False, stats
@@ -451,6 +459,7 @@ def advance(game, level, goal, out, log, max_rounds=40):
             if stalls >= 3:
                 log(f'  stalled toward {target}')
                 return False, stats
+        index += 1
     stats['telemetry'] = game.telemetry()
     return True, stats
 

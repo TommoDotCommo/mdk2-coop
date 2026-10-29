@@ -57,7 +57,8 @@ static void run_command_file(void)
     FILE *f;
     long len;
 
-    if (++frames % 10)
+    /* background test games (the campaign bot drives them through this file) look every other frame */
+    if (++frames % (test_background ? 2 : 10))
         return;
     snprintf(path, MAX_PATH, "%s\\command.lua", coop_dir);
     if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES || !(f = fopen(path, "rb")))
