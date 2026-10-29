@@ -625,7 +625,7 @@ follows, puppets for all in every game, enemies and hp everywhere, a client's sh
 seen by the other clients, damage reaching the right client, a client leaving and joining again
 mid-level, checkpoint keys, level 2. `MDK2_N=3 tools/qa_save.sh` checks dropping out: co-op saves in every game, a client crash
 (back with its saved hp, position and number), a 15 s network cut (`coop_netblock`), a host crash
-and resume, and a level change after it. `tools/copies.sh` makes the extra game copies (mdk2.tar
+and resume (the host's level 1 dogans must keep their saved height and hp), and a level change after it. `tools/copies.sh` makes the extra game copies (mdk2.tar
 hard-linked, ~2 MB each). Folders and ports are set by `MDK2_DIR_BASE` / `MDK2_DIR<i>` and
 `MDK2_PORT` (see `tools/mdk.sh`), so two sets of copies can run side by side; `mdk_kill` only stops
 games running from its own copies. 2026-10-21: qa.sh 30/30, qa_n.sh 38/38 with 3 players and 53/53

@@ -187,7 +187,11 @@ int main(void)
     assert(PLAYER_HANDLE==gob_handle(0) && AI_TARGET_HANDLE==gob_handle(0));
     assert(gob_by_handle(*(DWORD *)(bodies[3]+GOB_TARGET))==bodies[1] && filtered_classes>0 && repositioned==1);
     *(DWORD *)(bodies[3]+GOB_TARGET)=gob_handle(0);
+    /* A held or idle actor must not be handed a target every frame: that released the level 1
+     * dogans from their hold after a resumed co-op save. */
     ai_before_scene();
+    assert(*(DWORD *)(bodies[3]+GOB_TARGET)==gob_handle(0));
+    store_idle=1; ai_before_scene(); store_idle=0; /* the old behaviour is the QA mutant */
     assert(gob_by_handle(*(DWORD *)(bodies[3]+GOB_TARGET))==bodies[1]);
     assert(ai_projectile_target(bodies[3], local_player)==bodies[1]);
     assert(ai_projectile_target(bodies[3], bodies[5])==bodies[5]); /* script target */

@@ -78,6 +78,7 @@ adapter = (ROOT/'bridge/presence_game.c').read_text()
 adapter_mutants = {
     'seed-as-native-query': ('ai_store_target(g, ai_select((const float *)(g + GOB_POSITION), g));',
                              'ai_store_target(g, ai_select((const float *)(g + GOB_POSITION), g)); ai_evidence[i].queries++;'),
+    'store-idle-actors': ('if (store_idle && !no_targeting', 'if (!no_targeting'),
     'omit-script-scope': ('ai_scope_enter(gob, 0);\n    return 1;', 'return 1;'),
     'omit-canopy-apply': ('if (no_canopy || !child', 'if (1 || !child'),
     'omit-target-context': ('ai_actor = gob;', 'ai_actor = NULL;'),
