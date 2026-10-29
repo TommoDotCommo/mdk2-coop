@@ -986,7 +986,7 @@ static void draw_numbers(int w, int h, uint64_t now)
         if (!cbh_pop_style(p, now, &st))
             continue;
         memcpy(pos, p->pos, sizeof(pos));
-        pos[2] += 1.0f;
+        pos[2] += 1.6f;
         if (!project(pos, w, h, &sx, &sy))
             continue;
         slot_colour(p->attacker, c);
@@ -1002,6 +1002,12 @@ static void draw_numbers(int w, int h, uint64_t now)
         sy -= st.rise * px * 1.1f + (p->attacker & 1) * px * 0.9f;
         if (sx < 8) sx = 8;
         if (sx + tw > w - 8) sx = w - 8 - tw;
+        /* rise above any name tag the number would sit on (tags were placed this frame) */
+        {
+            float below = st.size == 2 ? font_h * 1.25f + 6 : 4, side = px * 0.5f + o;   /* kills carry a caption */
+            float cw = st.size == 2 ? 11 * px * 0.5f : 0, x1 = sx + (tw > cw ? tw : cw);
+            sy += cbh_avoid_up(sx - side, sy - px - o, x1 + side, sy + below + o, (const float (*)[4])placed, nplaced, 4.0f);
+        }
         if (sy < px + 8) sy = px + 8;
         if (sy > h - 8) sy = (float)(h - 8);
         outlined(sx, sy, h, num, c, st.alpha, o);
@@ -1061,7 +1067,7 @@ static void draw_combat(int w, int h)
     if (pa > 0) {
         float px = (float)l.panel.x, py = (float)l.panel.y;
         box(px, py, (float)l.panel.w, (float)l.panel.h, h, 0.02f, 0.03f, 0.06f, 0.6f * pa);
-        box(px + l.panel.w - 2.0f, py, 2.0f, (float)l.panel.h, h, 1.0f, 0.85f, 0.3f, 0.8f * pa);
+        box(px, py, 2.0f, (float)l.panel.h, h, 1.0f, 0.85f, 0.3f, 0.8f * pa);
         fsel = 1;
         if (!combat_meter()) {
             /* collapsed: one thin line, own DPS and the team's */
@@ -1087,6 +1093,9 @@ static void draw_combat(int w, int h)
             text(px + l.pad, y, h, "Damage", gold[0], gold[1], gold[2]);
             cbh_fmt_time(b, sizeof(b), cbh_fight_ms(s, now));
             text_right(px, l.panel.w - l.pad, y, h, b, dim, pa);
+            fsel = 1;
+            text_right(px + l.total_x, l.total_w, py + l.pad + l.cols_y + font_h, h, "Total", dim, pa);
+            text_right(px + l.dps_x, l.dps_w, py + l.pad + l.cols_y + font_h, h, "DPS", gold, pa);
             if (!n) {
                 fsel = 1;
                 text_alpha = pa;

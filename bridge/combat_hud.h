@@ -36,7 +36,7 @@ struct cbh_style { float alpha, rise, scale; int size; };   /* size: 0 normal, 1
 struct cbh_rect { int x, y, w, h; };
 struct cbh_layout {
     struct cbh_rect panel, panel_max, ticker, ticker_max, hit, kill_hit;
-    int pad, row_h, line_h, header_h, rows;
+    int pad, cols_y, row_h, line_h, header_h, rows;
     int name_x, name_w, total_x, total_w, dps_x, dps_w;   /* row columns, relative to the panel */
 };
 void cbh_reset(struct cbh_state *s);
@@ -56,5 +56,7 @@ void cbh_fmt_count(char *out, unsigned size, uint64_t v);   /* 987, 1.2k, 12k, 1
 void cbh_fmt_time(char *out, unsigned size, uint64_t ms);   /* m:ss */
 /* Conservative upper bound for a glyph run, used by the layout and its tests. */
 int cbh_text_w(int chars, int px);
+/* How far (<= 0, up) a number's box must move so it clears the name tags {x0,y0,x1,y1} (y down). */
+float cbh_avoid_up(float x0, float y0, float x1, float y1, const float (*tags)[4], int n, float gap);
 struct cbh_layout cbh_layout(int w, int h, int px_small, int px_big, int expanded, int rows, int ticks);
 #endif

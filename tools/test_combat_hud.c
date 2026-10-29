@@ -204,7 +204,8 @@ static void layouts(void)
      * mic and cutscene boxes (bottom strip), the centred status and banner lines, and the screen centre. */
     static const struct zone zones[] = {
         {"team panel", 0, 0, 50, 60}, {"chat", 0, 70, 45, 100}, {"bottom strip", 0, 86, 100, 100},
-        {"status and banner", 30, 55, 70, 90}, {"centre", 35, 25, 65, 75}};
+        {"status and banner", 30, 55, 70, 90}, {"centre", 35, 25, 65, 75},
+        {"tutorial and dialog boxes", 40, 0, 100, 35}};
     unsigned i, z;
     int rows, expanded, ticks;
     for (i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
@@ -220,6 +221,10 @@ static void layouts(void)
             CHECK(inside(l.panel_max, w, h) && inside(l.panel, w, h) && inside(l.ticker_max, w, h));
             CHECK(inside(l.ticker, w, h) && inside(l.hit, w, h) && inside(l.kill_hit, w, h));
             CHECK(l.panel.x >= w / 2);                                /* a screen-edge panel */
+            /* a safe margin: never flush with the edge, at least 12 px and 2 percent of the width */
+            CHECK(w - (l.panel.x + l.panel.w) >= 12 && w - (l.panel.x + l.panel.w) >= w * 2 / 100);
+            CHECK(w - (l.panel_max.x + l.panel_max.w) >= 12 && w - (l.ticker_max.x + l.ticker_max.w) >= 12);
+            CHECK(l.panel.y >= h * 35 / 100);                         /* below the dialog zone */
             for (z = 0; z < sizeof(zones) / sizeof(zones[0]); z++) {
                 CHECK(!overlaps(l.panel_max, w, h, zones[z]));
                 CHECK(!overlaps(l.ticker_max, w, h, zones[z]));
@@ -237,6 +242,10 @@ static void layouts(void)
             CHECK(l.rows <= 8 && l.rows <= rows && l.rows >= 0);
             if (expanded) CHECK(l.header_h + (l.rows ? l.rows : 1) * l.row_h + l.pad <= l.panel.h);
             CHECK(l.row_h >= big && l.line_h >= small && l.header_h > small);
+            /* a title line and a column-label line ("Total", "DPS") fit the header above the rows */
+            CHECK(l.cols_y >= l.line_h && l.cols_y + l.line_h <= l.header_h);
+            if (expanded) CHECK(l.panel.h >= l.header_h + l.row_h);
+            CHECK(cbh_text_w((int)strlen("Total"), small) <= l.total_w && cbh_text_w((int)strlen("DPS"), small) <= l.dps_w);
             CHECK(l.name_x >= 0 && l.name_x + l.name_w <= l.total_x);
             CHECK(l.total_x + l.total_w <= l.dps_x && l.dps_x + l.dps_w <= l.panel.w - l.pad + 1);
             CHECK(l.name_w >= cbh_text_w(CBH_PLAYER_CHARS, small));
@@ -251,4 +260,27 @@ static void layouts(void)
     }
     puts("PASS layout at 1280x720, 1920x1080, 2560x1440, 3840x2160 and 21:9: sizes, reserved zones, overlaps, text fit");
 }
-int main(void) { merging(); styles(); ticker(); names_and_format(); panel(); layouts(); return 0; }
+static void avoidance(void)
+{
+    /* two name tags, one above the other; a number box overlapping them is lifted clear of both */
+    float tags[2][4] = {{100, 200, 160, 220}, {100, 170, 160, 190}};
+    float dy;
+    dy = cbh_avoid_up(110, 195, 150, 215, tags, 2, 4); CHECK(dy < 0);
+    CHECK(195 + dy < 170 - 4 + 1 - (215 - 195) + 20 && 215 + dy <= 170 - 4);   /* above the upper tag */
+    dy = cbh_avoid_up(110, 205, 150, 225, tags, 1, 4); CHECK(dy < 0 && 225 + dy <= 200 - 4);
+    /* clear of every tag: left alone; beside a tag: left alone; below it: left alone */
+    CHECK(cbh_avoid_up(10, 195, 50, 215, tags, 2, 4) == 0);
+    CHECK(cbh_avoid_up(110, 230, 150, 250, tags, 2, 4) == 0);
+    CHECK(cbh_avoid_up(110, 100, 150, 120, tags, 2, 4) == 0);
+    CHECK(cbh_avoid_up(110, 195, 150, 215, tags, 0, 4) == 0);
+    /* the result never overlaps any tag */
+    dy = cbh_avoid_up(110, 175, 150, 195, tags, 2, 4);
+    CHECK(!(175 + dy < 190 && 195 + dy > 170) && !(175 + dy < 220 && 195 + dy > 200));
+    {   /* stacked tags listed upper first: clearing the lower one lands on the upper one */
+        float stack[2][4] = {{100, 170, 160, 190}, {100, 194, 160, 214}};
+        dy = cbh_avoid_up(110, 200, 150, 220, stack, 2, 4);
+        CHECK(220 + dy <= 170 - 4 + 0.001f);
+    }
+    puts("PASS floating numbers rise clear of name tags");
+}
+int main(void) { merging(); styles(); ticker(); names_and_format(); panel(); layouts(); avoidance(); return 0; }

@@ -170,12 +170,13 @@ int cbh_text_w(int chars, int px) { return chars * px * 62 / 100; }
 struct cbh_layout cbh_layout(int w, int h, int px_small, int px_big, int expanded, int rows, int ticks)
 {
     struct cbh_layout l;
-    int margin = w / 200 < 6 ? 6 : w / 200, maxh = h * 20 / 100, fit, top = h * 22 / 100;
+    int margin = w * 25 / 1000 < 12 ? 12 : w * 25 / 1000, maxh = h * 20 / 100, fit, top = h * 36 / 100;
     memset(&l, 0, sizeof(l));
     l.pad = px_small / 3 < 2 ? 2 : px_small / 3;
     l.line_h = px_small * 13 / 10;
     l.row_h = px_big * 12 / 10;
-    l.header_h = l.line_h + l.pad;
+    l.cols_y = l.line_h;                    /* the column labels sit under the title line */
+    l.header_h = 2 * l.line_h + l.pad;
     fit = (maxh - l.header_h - 2 * l.pad) / l.row_h;
     if (fit < 1) fit = 1;
     if (fit > 8) fit = 8;
@@ -204,4 +205,20 @@ struct cbh_layout cbh_layout(int w, int h, int px_small, int px_big, int expande
     l.hit.x = (w - l.hit.w) / 2; l.hit.y = (h - l.hit.h) / 2;
     l.kill_hit.x = (w - l.kill_hit.w) / 2; l.kill_hit.y = (h - l.kill_hit.h) / 2;
     return l;
+}
+
+float cbh_avoid_up(float x0, float y0, float x1, float y1, const float (*tags)[4], int n, float gap)
+{
+    float dy = 0;
+    int pass, i;
+    for (pass = 0; pass <= n; pass++) {
+        int moved = 0;
+        for (i = 0; i < n; i++)
+            if (x0 < tags[i][2] && x1 > tags[i][0] && y0 + dy < tags[i][3] && y1 + dy > tags[i][1]) {
+                dy = tags[i][1] - gap - y1;
+                moved = 1;
+            }
+        if (!moved) break;
+    }
+    return dy;
 }

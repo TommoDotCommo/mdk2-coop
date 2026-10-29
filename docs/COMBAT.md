@@ -8,7 +8,8 @@ What you see, all drawn from the same confirmed events and the same counters:
   under a second. Rapid hits by one player on one enemy (within 0.7 s of each other, for at most
   2.5 s) merge into a single growing number rather than a spray of small ones. The colour is the
   attacking player's slot colour (the same as the team panel, chat and pings); players on one
-  enemy are offset side by side so their numbers do not overprint. Numbers of 25 or more use the
+  enemy are offset side by side so their numbers do not overprint. A number is lifted above any
+  player name tag it would sit on (kill captions included), so names stay readable. Numbers of 25 or more use the
   larger font. A killing blow joins the number it finishes, which turns whiter with a thicker
   outline, a `!` and the enemy's name underneath.
 - **Hitmarker**: a small cross of four diagonal strokes at the screen centre when the local
@@ -16,19 +17,21 @@ What you see, all drawn from the same confirmed events and the same counters:
 - **Kill ticker**: at most three short lines under the damage panel, newest first, such as
   `Hank > Doganboy x3`. Kills of one enemy kind by one player in a row merge into `xN`; a line
   fades after six seconds. No ids appear anywhere.
-- **Damage panel**: a compact corner panel on the right screen edge, at most 15 percent of the
+- **Damage panel**: a compact corner panel at the right of the screen, set in from the edge by 2.5 percent of the width (at least 12 pixels) and below the top 36 percent where the game's tutorial and dialog boxes appear, at most 15 percent of the
   screen width and 20 percent of its height (positions are fractions of the window, text sizes
   follow the window height, so it scales with resolution; the mod has no separate UI scale).
   It is *collapsed by default* to one thin line, `DPS  You 30  Team 108`. Ctrl+M expands it:
-  a `Damage` header with the fight timer, then one bar per player, longest first, with the
-  player's name in their colour, a small damage total and a large DPS number. The bar is the
+  a `Damage` title with the fight timer, a column-label line (`Total` over the small damage
+  number, `DPS` over the large one), then one bar per player, longest first, with the
+  player's name in their colour. The bar is the
   player's share of the top player's fight damage. DPS is the fight average, which holds still
   after the last hit instead of falling to zero five seconds later; the five-second rolling
   figure stays in the dump. The panel shows from the first hit until the fight ends (eight
   seconds idle) and then fades out over two seconds; toggling it also shows it for three seconds
   between fights. Players beyond the rows that fit are not drawn (the dump has them all).
 
-The positions of the panel and ticker avoid the team panel (top left), chat (bottom left), the
+The positions of the panel and ticker avoid the team panel (top left), the tutorial and dialog
+zone (top, down to 35 percent of the height), chat (bottom left), the
 game's own health and ammo readouts and the mic and cutscene boxes (bottom strip), the centred
 status line and the screen centre. The game's own HUD position is an assumption confirmed by
 one screenshot of level 1, not read from the engine. Below about 1280x720 the panel's fixed 15
@@ -150,7 +153,7 @@ layout of the panel, ticker and hitmarker at 1280x720, 1920x1080, 2560x1440, 384
 2560x1080 (21:9), collapsed and expanded, with every row and ticker count. The layout assertions
 are the size limits (15 percent wide, 20 percent tall), containment, no overlap between the
 panel, the ticker and the hitmarker, no overlap with the reserved zones above, disjoint columns,
-and the worst-case strings fitting their boxes under a deliberately wide glyph model. 32 mutation
+and the worst-case strings, including the `Total` and `DPS` labels, fitting their boxes under a deliberately wide glyph model, a 12 pixel safe margin to the screen edge, and the number-above-name-tag lift. 38 mutation
 twins (no merge, merge across players or enemies, wrong colour, no cap, overlap, too wide,
 too tall, wrong zone, overlapping columns, ...) must each fail an assertion, and the adapter
 twins check that confirmations feed the numbers, that only the local hit raises the hitmarker,
