@@ -32,9 +32,15 @@ done
 # player controller must deploy/close it in response to input and ground contact.
 for owner in 1 2 3; do
     lua "$owner" 'local p=mdkGetPlayerGob() mdkGobSetPosition(p,"l1_r8doganland1") mdkGobSetPositionXYZ(p,p.position.x,p.position.y,p.position.z+40) coop_press(57,12000)'
-    sleep 1
+    # The player has to fall and the game to read the held key before it opens the canopy; a game that runs slowly
+    # (the Steam build in the background) needs more than a second. Wait for the owner's own canopy to reach the
+    # state the real input produces, as that process reports it, then let all peers be judged on that same state.
     tag="input_open_$owner"
-    capture "$tag"
+    for _ in $(seq 1 20); do
+        sleep .5
+        capture "$tag"
+        python3 "$here/presence_check.py" canopy --owner "$owner" --expect 66 "$out/${tag}_1.txt" "$out/${tag}_2.txt" "$out/${tag}_3.txt" >/dev/null 2>&1 && break
+    done
     check "native Space deploy of player $owner reaches all peers" python3 "$here/presence_check.py" canopy --owner "$owner" --expect 66 "$out/${tag}_1.txt" "$out/${tag}_2.txt" "$out/${tag}_3.txt"
     lua "$owner" 'coop_press(30,1500)'
     sleep .5

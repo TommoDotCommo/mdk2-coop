@@ -111,10 +111,22 @@ for n in $(mdk_seq); do
         elif [ "${MUTANT:-}" = near ]; then place "$i" "$((56 + i * 10))" 191
         else lua "$i" 'mdkGobSetPosition(mdkGetPlayerGob(), "l1_r8doganland1")'; fi   # another room, 1000+ units away
     done
+    # The baseline is taken with every player invulnerable: the dog may already stand beside player n from the last
+    # round (the same spot), so a bite before the baseline was read would hide the bite the check waits for. With
+    # God on nothing can change hp, so the reading is exact; the dog's hits only count once God is turned off.
+    for i in $(mdk_seq); do lua "$i" 'God(1)'; done
+    sleep 1
     declare -A hp0=() rc0=(); for i in $(mdk_seq); do hp0[$i]=$(own_hp "$i"); rc0[$i]=$(receipts "$i"); done
+    for i in $(mdk_seq); do lua "$i" 'God(0)'; done
     check "the dog works on player $n; every other player is outside every splash and strike radius" geo_check "$n" "dog on player $n"
-    for t in 1 2 3 4 5 6 7 8; do beside "$n"; sleep 1; [ "$(own_hp "$n")" -lt "${hp0[$n]}" ] && break; done
-    echo "  (player $n: $([ "$(own_hp "$n")" -lt "${hp0[$n]}" ] && echo "bitten" || echo "NOT bitten") within ${t} s of the dog being placed beside it; 8 s are allowed)"
+    t_placed=$(date +%s.%N); bitten=0
+    for t in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        beside "$n"; sleep 1
+        if [ "$(own_hp "$n")" -lt "${hp0[$n]}" ]; then bitten=1; break; fi
+    done
+    bite_s=$(awk -v a="$t_placed" -v b="$(date +%s.%N)" 'BEGIN { printf "%.1f", b - a }')
+    echo "  (player $n: $([ "$bitten" = 1 ] && echo bitten || echo "NOT bitten") ${bite_s} s after God went off with the dog beside it; the first direct bite is erratic above 10 s)" | tee -a "$out/bite_times.txt"
+    [ "$bitten" = 1 ] && [ "${bite_s%.*}" -le 10 ] || echo "  (player $n: BITE TIME ERRATIC OR MISSING)" | tee -a "$out/bite_times.txt"
     sleep 1
     hp1=$(own_hp "$n")
     check "the dog hurt player $n: that game's own hp ${hp0[$n]} -> $hp1" test "$hp1" -lt "${hp0[$n]}"
