@@ -1070,8 +1070,8 @@ function coop.NavView(tx, ty, tz, pts, dzs)
     end
     coop_note("view", "none")
 end
-function coop.NavStart(x, y, z, cell, maxcells, up, down)
-    local n = { cell = cell or 2, max = maxcells or 20000, up = up or 2.5, down = down or 6, head = 1, tail = 1,
+function coop.NavStart(x, y, z, cell, maxcells, up, down, fly)
+    local n = { cell = cell or 2, max = maxcells or 20000, up = up or 2.5, down = down or 6, head = 1, tail = 1, fly = fly,
                 q = {}, seen = {}, out = {}, batch = 0, count = 0, edges = 0 }
     local i, j = floor(x / n.cell + 0.5), floor(y / n.cell + 0.5)
     local f = coop.NavFloor(i * n.cell, j * n.cell, z + 3, z - 3)
@@ -1126,6 +1126,45 @@ function coop.NavTick()
                 end
             end
             d = d + 1
+        end
+        -- flying (n.fly): from under the ceiling of the open column above this cell, a landing 3.5 or more
+        -- higher within 8 units sideways is a fly link (the plain floor search from high up starts inside
+        -- ceilings) --
+        if (n.fly and n.fly > 0) then
+            local lo, hi = z + 2, z + n.fly
+            if (not coop.NavClear(x, y, lo, x, y, hi)) then
+                while (hi - lo > 0.5) do
+                    local mid = (lo + hi) / 2
+                    if (coop.NavClear(x, y, z + 2, x, y, mid)) then lo = mid else hi = mid end
+                end
+                hi = lo
+            end
+            local top = hi - 1
+            if (top > z + 5) then
+                local a = 0
+                while (a < 8) do
+                    local r = 4
+                    while (r <= 8) do
+                        local ni = c[1] + floor(r / n.cell * cos(a * 45) + 0.5)
+                        local nj = c[2] + floor(r / n.cell * sin(a * 45) + 0.5)
+                        local nx, ny = ni * n.cell, nj * n.cell
+                        if (coop.NavClear(x, y, top, nx, ny, top)) then
+                            local f = coop.NavFloor(nx, ny, top, z + 3.5)
+                            if (f and f > z + 3.5) then
+                                line = line .. format(" %d %d %.2f", ni, nj, f)
+                                local key = format("%d_%d_%d", ni, nj, floor(f / 4))
+                                if (not n.seen[key]) then
+                                    n.seen[key] = 1
+                                    n.q[n.tail] = { ni, nj, f }
+                                    n.tail = n.tail + 1
+                                end
+                            end
+                        end
+                        r = r + 4
+                    end
+                    a = a + 1
+                end
+            end
         end
         n.nout = (n.nout or 0) + 1
         n.out[n.nout] = line
@@ -1223,6 +1262,11 @@ function coop.PilotTick()
     dx, dy = tx - p.position.x, ty - p.position.y
     if (dx * dx + dy * dy > 0.01) then mdkGobPointToXYZ(p, dx, dy, 0) end
     coop_press(coop.pilot_keys.forward, 120)
+    -- flying (Max with a fuelled jetpack): hold jump while the waypoint is above the hero --
+    if (pl.fly == 1 and pl.z > p.position.z + 0.8) then
+        coop_press(coop.pilot_keys.jump, 200)
+        pl.best_ms = now
+    end
     -- a waypoint above a step: jump on the way to it, once, when close --
     if (pl.jump == 1 and d < 3.5 and not pl.jumped) then
         coop_press(coop.pilot_keys.jump, 250)

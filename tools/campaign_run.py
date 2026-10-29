@@ -69,6 +69,10 @@ def segment(level, seg, players, owner, hook, out, god):
             cmd = 'advance' if players == 1 else 'squad'
             args = [sys.executable, '-u', str(ROOT / 'tools/campaign_bot.py'), cmd, '--dirs', *wsl,
                     '--level', str(ROOT / f'local/campaign/level{level}.json'), '--to', *map(str, goal)]
+            # Max's levels: from the jetpack's checkpoint on, the bot refuels and flies
+            if (level, start) >= (2, 5) and level in (2, 5, 8, 11) and not (level == 5 and start < 9) \
+                    and not (level == 8 and start < 5):
+                args.append('--fly')
             if cmd == 'squad':
                 args += ['--evidence', str(folder)]
             else:
