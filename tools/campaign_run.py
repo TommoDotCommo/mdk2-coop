@@ -4,6 +4,8 @@ played by the bot to the next checkpoint, on its own pair of game copies from th
 same protocol as qa_all.py: `hook acquire N ttl` prints the copies' environment as JSON).
 
     campaign_run.py --level 2 --segments 3-5 5-6 6-7 [--shards 4] [--players 2]
+    campaign_run.py --segments 1:1-2 2:3-4 4:1-2 ...       segments of several levels (level:start-end)
+    campaign_run.py --campaign [--from 1] [--to 9]          every launcher checkpoint to the next
 
 A segment "A-B" starts at checkpoint A and must reach checkpoint B's position (from the mined model,
 local/campaign/levelN.json). Results and evidence go under local/campaign/runs/<time>/: one folder per
@@ -31,10 +33,13 @@ def hook_path(arg):
 
 
 def segment(level, seg, players, owner, hook, out, god):
+    if ':' in seg:
+        level, seg = int(seg.split(':')[0]), seg.split(':')[1]
     start, end = (int(v) for v in seg.split('-'))
     model = json.loads((ROOT / f'local/campaign/level{level}.json').read_text())
     goal = model['checkpoints'][str(end)]['pos']
     folder = out / f'{level}-{seg}'
+    seg = f'{level}:{seg}'
     folder.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, MDK2_QA_OWNER=owner, LAB_OWNER=owner)
     r = subprocess.run([sys.executable, hook, 'acquire', str(players), '5400'], env=env, capture_output=True, text=True)
@@ -62,7 +67,7 @@ def segment(level, seg, players, owner, hook, out, god):
                 args += ['--evidence', str(folder)]
             else:
                 args += ['--scratch', str(folder / 'nav.json')]
-            run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=3600)
+            run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=1500)
         tail = (folder / 'bot.log').read_text().strip().splitlines()[-1:]
         result = {'segment': seg, 'result': 'PASS' if run.returncode == 0 else 'FAIL',
                   'seconds': round(time.monotonic() - t0), 'last': tail[0] if tail else ''}
@@ -81,13 +86,23 @@ def segment(level, seg, players, owner, hook, out, god):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--level', type=int, required=True)
-    ap.add_argument('--segments', nargs='+', required=True, help='start-end checkpoint pairs')
+    ap.add_argument('--level', type=int, default=0)
+    ap.add_argument('--segments', nargs='+', default=[], help='start-end checkpoint pairs, or level:start-end')
+    ap.add_argument('--campaign', action='store_true', help='every launcher checkpoint to the next one')
+    ap.add_argument('--from', dest='first', type=int, default=1)
+    ap.add_argument('--to', dest='last', type=int, default=12)
     ap.add_argument('--shards', type=int, default=2)
     ap.add_argument('--players', type=int, default=2)
     ap.add_argument('--resources')
     ap.add_argument('--no-god', action='store_true', help='play without invulnerability')
     a = ap.parse_args(argv)
+    if a.campaign:
+        # tools/checkpoints.txt: the launcher's checkpoints in play order
+        order = [tuple(int(v) for v in t.split('-')) for t in (ROOT / 'tools/checkpoints.txt').read_text().split()]
+        a.segments = [f'{l}:{c}-{n}' for (l, c), (l2, n) in zip(order, order[1:])
+                      if l == l2 and a.first <= l <= a.last]
+    if not a.segments or (not a.level and any(':' not in s for s in a.segments)):
+        ap.error('give --segments with --level, level:start-end segments, or --campaign')
     hook = hook_path(a.resources)
     base = os.environ.get('LAB_OWNER') or os.environ.get('MDK2_QA_OWNER')
     if not base:
@@ -101,7 +116,7 @@ def main(argv=None):
         for job in concurrent.futures.as_completed(jobs):
             r = job.result()
             results.append(r)
-            print(f"{r['result']:<7} level {a.level} segment {r['segment']:<6} {r.get('seconds', '-')}s  {r.get('last', r.get('detail', ''))}", flush=True)
+            print(f"{r['result']:<7} segment {r['segment']:<8} {r.get('seconds', '-')}s  {r.get('last', r.get('detail', ''))[:160]}", flush=True)
     (out / 'summary.json').write_text(json.dumps(results, indent=1))
     passed = sum(r['result'] == 'PASS' for r in results)
     print(f'RESULT: {passed}/{len(results)} segments passed; evidence {out}')

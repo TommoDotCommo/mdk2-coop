@@ -432,7 +432,7 @@ def destroy(game, objs, toward, log, seconds=20):
     return None
 
 
-def advance(game, level, goal, out, log, max_rounds=40):
+def advance(game, level, goal, out, log, max_rounds=25):
     """Get the hero to goal: portal by portal, scanning, walking, and breaking scripted walls."""
     game.lua('coop.GunnerOn(60)')
     here = game.pos()
