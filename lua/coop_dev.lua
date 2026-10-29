@@ -1570,7 +1570,8 @@ function level(l, cp, sec)
     coop.rear_gate_result = nil
     coop.level = l
     coop.cp = cp
-    if (fresh) then coop.CheckpointItems(l, cp) end
+    -- [test] cpitems=0 turns the grant off (to tell its effects apart in a test) --
+    if (fresh and coop_get("test", "cpitems", "1") ~= "0") then coop.CheckpointItems(l, cp) end
     coop_level(l, cp, announce, save)
     coop.level_ready = 1
     coop.HookMovies()

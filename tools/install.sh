@@ -65,6 +65,8 @@ for i in $(mdk_seq); do
     sd=""; if mdk_isolated; then sd=$'save_dir=profile\r\n'; fi
     # MDK2_TIMESCALE=k: background games run their clock k times as fast (bridge/input.c)
     if [ -n "${MDK2_TIMESCALE:-}" ]; then sd="${sd}timescale=${MDK2_TIMESCALE}"$'\r\n'; fi
+    # MDK2_CPITEMS=0: no checkpoint item grants (lua/coop_dev.lua coop.CheckpointItems)
+    if [ -n "${MDK2_CPITEMS:-}" ]; then sd="${sd}cpitems=${MDK2_CPITEMS}"$'\r\n'; fi
     if [ "$i" = 1 ]; then net="role=host\r\nlisten_port=$MDK2_PORT"
     else net="role=client\r\nlisten_port=$((MDK2_PORT + i - 1))\r\npeer_host=127.0.0.1\r\npeer_port=$MDK2_PORT"; fi
     printf "[net]\r\ntransport=udp\r\n$net\r\n[controls]\r\ndevkeys=1\r\n[launcher]\r\nlobby=%s\r\n[test]\r\nbackground=%s\r\nx=%d\r\ny=%d\r\n%s" "${MDK2_LOBBY:-0}" "${MDK2_BACKGROUND:-0}" "$x" "$y" "$sd" \
