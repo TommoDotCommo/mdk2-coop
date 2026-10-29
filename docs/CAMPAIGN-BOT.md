@@ -108,8 +108,8 @@ later):
   generator); the same load gave the checkpoint's atomic jetpack. Not reproduced in four 5 minute
   reruns, two with the grant and two without (`MDK2_CPITEMS=0`); the original came 9 minutes in, so it
   is intermittent or needs longer play.
-- **A one-way face in level 2's arena** lets a hero cross north (walking, or blown by grenades) and
-  not come back.
+- **A one-sided face in level 2's arena** blocks the engine's line of sight going south (not north);
+  heroes walk across it both ways, so this is only a quirk for line-of-sight users (enemy AI included).
 
 ## Status
 
