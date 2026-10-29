@@ -279,4 +279,3 @@ A repeated hunt of the crash-prone suites (`qa_rear_gate` with `SAVE_RELOAD=1` a
 `qa_triggers`, `qa_animguard`, `qa_save`) on the Overhaul build under the crash guard is
 the way to look for more of them. A hunt is only meaningful on an otherwise idle set of game copies:
 two runs sharing copies stop each other's games and produce failures that are not crashes.
-
