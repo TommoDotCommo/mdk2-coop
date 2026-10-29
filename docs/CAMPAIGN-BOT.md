@@ -1,0 +1,64 @@
+# Campaign bot
+
+A bot that plays the campaign with ordinary controls in N co-op game copies, so a full playthrough,
+and the co-op behaviour along it, can be tested without a person. Work in progress: what exists and
+what has been shown live is listed under [Status](#status).
+
+## Where the knowledge of "how to play" comes from
+
+Web walkthroughs for MDK2 are incomplete (single levels) or refuse automated reading, so the
+authoritative source is the installed game itself:
+
+- **Level scripts** (`levelN.lua`, `lN.lua` in the game archive): rooms with bounding boxes, doors,
+  checkpoints with positions, pickups, enemy spawners, scripted blockers (`OBJ_DESTRUCTABLE` with
+  `OnDie` handlers that break a wall or a lock), Doc's item combinations, boss state machines and the
+  level exits. `tools/campaign_mine.py` turns them into a model per level under `local/campaign/`
+  (nothing from the game is stored in the repository).
+- **The engine's own collision**, asked through line of sight between two invisible probes
+  (`coop.NavStart` in `lua/coop_dev.lua`): a flood fill from the hero finds each cell's floor by a
+  vertical search and links cells whose way is clear at chest height. A room is mapped in seconds
+  (level 2 room 3: 6,700 cells in 4 s), and multi-level floors come out right because the fill
+  follows the floor it stands on.
+- **A human walkthrough**, when available, only to cross-check the order of objectives.
+
+## How it plays
+
+- **Pilot** (`coop.PilotGo`): the hero faces its next point (an aim, like a mouse turn) and the
+  forward key is held; the game's physics does the walking. A point above a step gets a jump.
+- **Planner** (`tools/campaign_bot.py`): A* over the scanned cells. A rise of up to 0.7 per 2-unit
+  cell is walkable (about 20 degrees: Max slid back down a 33 degree gutter wall); steeper rises are
+  jumps, allowed only onto a cell flat enough to stand on.
+- **Advance** (`campaign_bot.py advance`): the coarse route is the level model's room portals; each
+  portal is reached by scanning, walking to the reachable cell nearest it and scanning again. With no
+  progress the bot pushes on toward the target (doors open as the hero comes near), then fires along
+  its way until a nearby scripted destructible is gone (a wall's registered position is its pivot,
+  not its face), and scans again.
+- **Gunner** (`coop.GunnerOn`): the nearest enemy the hero can see is faced (with pitch) and shot;
+  a target that loses no health in 3 s is left alone (out of reach, or line of sight through a gap the
+  bullets do not pass).
+
+## Speed
+
+- Navigation is scanned, not explored by walking, and scans are cached per checkpoint.
+- Segments (checkpoint to checkpoint) are independent and run in parallel on the lab's slots.
+- A segment the bot has solved can be kept as a recorded route (`tools/replay.sh`) for fast
+  deterministic regression runs; the bot is only needed again when a route stops passing.
+- `tools/test_lua31.sh` checks `coop_dev.lua` with the real Lua 3.1 compiler, so a Lua 4 construct
+  fails in a second instead of as a silently unloaded `coop.lua` after a game boot.
+- Ideas not yet built: run the engine clock faster than real time from the bridge; record a person's
+  playthrough with the route recorder and follow its positions closed-loop (robust to drift, unlike
+  timed replay); decode the room meshes (`.mod`) for an offline navigation mesh.
+
+## Co-op
+
+The goal is N copies where every player is a bot: a leader advances and the others follow, split
+up, take turns at objectives, revive each other, and each step ends with the worlds compared
+(`statecheck.py`, the desync check). Not built yet.
+
+## Status
+
+Shown live on the Overhaul build, level 2, God mode on (combat damage to the hero is not yet
+managed): from checkpoint 3 the bot crossed the Gutter of Death on its own, breaking the four
+scripted walls and the door lock, killing the enemies their deaths released, and walked the tunnels
+to the Arena of Death entrance. Not yet: the remaining levels, pickups as objectives, Doc's items,
+sniper locks, bosses, minigames, movies, co-op roles, data reports.

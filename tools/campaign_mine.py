@@ -87,13 +87,33 @@ def mine_level(geo, logic):
         'points': points,
         'checkpoints': {str(k): v for k, v in sorted(checkpoints.items())},
         'events': events,
-        'exits': sorted({(int(a), int(b)) for a, b in EXIT.findall(logic)}),
+        'exits': exits(logic),
         'combos': sorted(set(COMBO.findall(logic))),
         'pickups': [o for o in objects if PICKUP.match(o['type'])],
         'spawners': [o for o in objects if ENEMY_SPAWN.match(o['type'])],
         'checkpoint_objects': [o for o in objects if o['type'] == 'OBJ_CHECKPOINT'],
         'doors': [o for o in objects if 'DOOR' in o['type']],
     }
+
+
+FUNC = re.compile(r'^(?:function\s+([A-Za-z0-9_.:]+)|([A-Za-z0-9_.]+)\s*=\s*function)', re.M)
+
+
+def exits(logic):
+    """Each mdkNewGame(level, cp) call with the script function it is in (what ends a level)."""
+    heads = [(m.start(), m.group(1) or m.group(2)) for m in FUNC.finditer(logic)]
+    out = []
+    for m in EXIT.finditer(logic):
+        owner = None
+        for start, name in heads:
+            if start > m.start():
+                break
+            owner = name
+        line = logic.count('\n', 0, m.start()) + 1
+        commented = logic.rfind('--', logic.rfind('\n', 0, m.start()), m.start()) >= 0
+        if not commented:
+            out.append({'to': [int(m.group(1)), int(m.group(2))], 'in': owner, 'line': line})
+    return out
 
 
 def overlap(a, b, slack=1.0):
@@ -153,7 +173,9 @@ def main(argv=None):
         print(f'level {n}: {len(model["rooms"])} rooms, {len(model["portals"])} portals, '
               f'{len(model["pickups"])} pickups, {len(model["checkpoints"])} checkpoints, '
               f'{len(model["checkpoint_objects"])} checkpoint objects, {len(model["doors"])} doors, '
-              f'{len(model["events"])} scripted objects, exits {model["exits"]}, combos {len(model["combos"])}')
+              f'{len(model["events"])} scripted objects, combos {len(model["combos"])}')
+        for e in model['exits']:
+            print(f'    exit to {e["to"]} from {e["in"]}')
     return 0
 
 

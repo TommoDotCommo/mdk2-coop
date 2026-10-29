@@ -21,11 +21,18 @@ class Game:
     """One running copy, driven through its coop folder (command.lua in, files out)."""
 
     def __init__(self, folder, slot):
+        import threading
         self.coop = Path(folder) / 'coop'
         self.slot = slot
         self.serial = 0
+        # one command.lua per game: threads (a squad's leader and its followers) take turns
+        self.lock = threading.RLock()
 
     def lua(self, code, timeout=12):
+        with self.lock:
+            self._lua(code, timeout)
+
+    def _lua(self, code, timeout):
         target = self.coop / 'command.lua'
         stage = target.with_suffix('.tmp')
         stage.write_text(code + '\n')
@@ -38,15 +45,16 @@ class Game:
 
     def note(self, key, code, timeout=5):
         """Run code that ends in coop_note(key, text); return the text."""
-        path = self.coop / f'note_{key}.txt'
-        path.unlink(missing_ok=True)
-        self.lua(code)
-        deadline = time.monotonic() + timeout
-        while not path.exists():
-            if time.monotonic() > deadline:
-                raise TimeoutError(f'game {self.slot}: no note {key} (Lua error? see bridge.log)')
-            time.sleep(.03)
-        return path.read_text()
+        with self.lock:
+            path = self.coop / f'note_{key}.txt'
+            path.unlink(missing_ok=True)
+            self._lua(code, 12)
+            deadline = time.monotonic() + timeout
+            while not path.exists():
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f'game {self.slot}: no note {key} (Lua error? see bridge.log)')
+                time.sleep(.03)
+            return path.read_text()
 
     def state(self):
         self.serial += 1
@@ -72,6 +80,21 @@ class Game:
             return None
         return {'state': f[0], 'd': float(f[1]), 'stuck': int(f[2]), 'ms': int(f[3]),
                 'pos': tuple(float(v) for v in f[4:7])}
+
+    def pos(self):
+        t = self.note('pos', 'local p=coop.real_player() if (p) then coop_note("pos", format("%.2f %.2f %.2f", '
+                      'p.position.x, p.position.y, p.position.z)) else coop_note("pos", "none") end')
+        if t.startswith('none'):
+            return None
+        return tuple(float(v) for v in t.split())
+
+    def telemetry(self):
+        """What the bot did and how the hero is, from this game's own state."""
+        t = self.note('tele', 'local p=coop.real_player() local gn=coop.gunner or {} '
+                      'coop_note("tele", format("%d %d %d %d %d %d", coop.level or -1, coop.cp or -1, '
+                      'p and (coop_hp(p) or -1) or -1, gn.shots or 0, gn.engaged or 0, coop_life(coop_slot())))')
+        f = [int(v) for v in t.split()]
+        return dict(zip(('level', 'cp', 'hp', 'shots', 'targets', 'life'), f))
 
     def goto(self, x, y, z, radius=2.5, timeout=60, trail=None, explore=1, jump=0):
         self.lua(f'coop.PilotGo({x},{y},{z},{radius},1,{explore}) coop.pilot.max_stuck=40 coop.pilot.jump={jump}')
@@ -244,11 +267,7 @@ def scan(game, out, timeout=900):
     """Scan the hero's surroundings (coop.NavStart) and save the cells."""
     for old in game.coop.glob('note_nav_*.txt'):
         old.unlink()
-    p = game.pilot()
-    if not p:
-        game.lua('coop.PilotGo(0,0,0,1000000)')
-        p = game.pilot()
-    x, y, z = p['pos']
+    x, y, z = game.pos()
     game.lua(f'coop.NavStart({x},{y},{z},2,40000,4)')
     deadline = time.monotonic() + timeout
     state = game.coop / 'note_nav_state.txt'
@@ -262,6 +281,239 @@ def scan(game, out, timeout=900):
         nav.add_lines(f.read_text())
     nav.save(out)
     return nav, (state.read_text() if state.exists() else 'timeout')
+
+
+def walk(game, nav, goal, log, timeout=90):
+    """Follow the A* path over nav to goal's nearest reachable cell; (reached point, state)."""
+    here = game.pos()
+    pts = nav.path(list(here), list(goal))
+    if not pts:
+        return here, 'nopath'
+    for i, pt in enumerate(pts[1:], 1):
+        climb = pt[2] - pts[i - 1][2] > Nav.WALK_RISE
+        r = game.goto(*pt, radius=1.5 if i < len(pts) - 1 else 2.5, timeout=timeout, explore=0, jump=int(climb))
+        if r.get('state') != 'arrived':
+            log(f'    waypoint {i}/{len(pts) - 1} {pt}: {r.get("state")} at {r.get("pos")}')
+            return r.get('pos', here), r.get('state')
+    return game.pos(), 'arrived'
+
+
+def reachable(nav, start):
+    """The cells the hero can walk to from start (by the walking rules)."""
+    s = nav.nearest(start)
+    seen, todo = {s}, [s]
+    while todo:
+        k = todo.pop()
+        for n in nav.cells[k][3]:
+            if n in nav.cells and n not in seen and nav.step_cost(k, n) is not None:
+                seen.add(n)
+                todo.append(n)
+    return seen
+
+
+def reachable_toward(nav, start, goal):
+    """The reachable cell nearest the goal."""
+    best = min(reachable(nav, start), key=lambda k: nav.cells[k][:3] and math.dist(nav.cells[k][:3], goal))
+    return nav.cells[best][:3]
+
+
+def objectives(level, pos, radius=320):
+    """Scripted things whose death the level waits for (an OnDie handler: generators, locks, alarms,
+    walls), nearest first."""
+    kinds = ('OBJ_DESTRUCTABLE', 'OBJ_DOGANBOYGENERATOR', 'OBJ_SAMSMITEGENERATOR')
+    out = [o for o in level.m['objects']
+           if (o['type'] in kinds or 'OnDie' in level.m['events'].get(o['name'], []))
+           and math.dist(o['pos'][:2], pos[:2]) < radius]
+    return sorted(out, key=lambda o: math.dist(o['pos'], pos))
+
+
+def kill_objective(game, nav, obj, log, seconds=25):
+    """Walk to a reachable cell that sees obj (engine line of sight), then shoot it, with pitch, until
+    the game says it is gone."""
+    x, y, z = obj['pos']
+    cells = sorted(reachable(nav, game.pos()), key=lambda k: math.dist(nav.cells[k][:3], obj['pos']))[:40]
+    spot = None
+    for k in cells:
+        cx, cy, cz = nav.cells[k][:3]
+        seen = game.note('sees', f'coop_note("sees", coop.NavClear({cx},{cy},{cz + 3},{x},{y},{z + 2}) and "1" or "0")')
+        if seen.strip() == '1':
+            spot = (cx, cy, cz)
+            break
+    if not spot:
+        log(f'    {obj["name"]}: no reachable place sees it')
+        return False
+    walk(game, nav, spot, log)
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < seconds:
+        if not alive(game, obj['name']):
+            log(f'    killed {obj["name"]} ({obj["type"]}) in {time.monotonic() - t0:.1f}s')
+            return True
+        game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {x}-p.position.x, {y}-p.position.y, {z + 2}-p.position.z-3) '
+                 f'coop_press(256, 600)')
+        time.sleep(.5)
+    log(f'    {obj["name"]}: still alive after {seconds}s of fire')
+    return False
+
+
+def alive(game, name):
+    return game.note('alive', f'local g=getglobal("{name}") coop_note("alive", (g and coop_alive(g)==1) and "1" or "0")').strip() == '1'
+
+
+def destroy(game, objs, toward, log, seconds=20):
+    """Fire along the way the hero wants to go (a blocker is what is in the way; a scripted wall's
+    registered position is its pivot, not its face) until one of the nearby destructibles is gone."""
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < seconds:
+        gone = [o for o in objs if not alive(game, o['name'])]
+        if gone:
+            log(f'    destroyed {gone[0]["name"]} in {time.monotonic() - t0:.1f}s')
+            return gone[0]
+        game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {toward[0]}-p.position.x, {toward[1]}-p.position.y, 0) '
+                 f'coop_press(256, 600)')
+        time.sleep(.5)
+    return None
+
+
+def advance(game, level, goal, out, log, max_rounds=40):
+    """Get the hero to goal: portal by portal, scanning, walking, and breaking scripted walls."""
+    game.lua('coop.GunnerOn(60)')
+    here = game.pos()
+    _, portals = level.path(list(here), list(goal))
+    targets = [st['to'] for st in portals]
+    stats = {'scans': 0, 'walks': 0, 'destroyed': [], 'rounds': 0}
+    for target in targets:
+        stalls = 0
+        while math.dist(game.pos()[:2], target[:2]) > 4:
+            stats['rounds'] += 1
+            if stats['rounds'] > max_rounds:
+                return False, stats
+            for attempt in range(5):
+                nav, state = scan(game, out)
+                stats['scans'] += 1
+                if nav.cells:
+                    break
+                log(f'    scan found no floor under the hero ({state.strip()}): waiting')
+                time.sleep(2)
+            else:
+                return False, stats
+            before = game.pos()
+            spot = reachable_toward(nav, before, target)
+            pos, state = walk(game, nav, spot, log)
+            stats['walks'] += 1
+            gained = math.dist(before[:2], target[:2]) - math.dist(pos[:2], target[:2])
+            log(f'  toward {[round(v) for v in target]}: {state}, {gained:+.1f} closer, now {[round(v, 1) for v in pos]}')
+            if gained > 2:
+                stalls = 0
+                continue
+            stalls += 1
+            # a door opens as the hero comes near, after the scan saw it shut: push on straight toward
+            # the target for a few seconds, then look again --
+            if stalls == 1:
+                r = game.goto(*target, radius=4, timeout=6, explore=0)
+                moved = math.dist(before[:2], target[:2]) - math.dist(game.pos()[:2], target[:2])
+                log(f'    pushed toward the target: {moved:+.1f}')
+                if moved > 2:
+                    stalls = 0
+                    continue
+            walls = [o for o in level.m['objects'] if o['type'] == 'OBJ_DESTRUCTABLE'
+                     and math.dist(o['pos'][:2], pos[:2]) < 150 and alive(game, o['name'])]
+            broken = walls and destroy(game, walls, target, log)
+            if broken:
+                stats['destroyed'].append(broken['name'])
+                time.sleep(1.5)
+                continue
+            # what the level is waiting for: the nearest living scripted objective the hero can reach
+            # a view of (the arena's exit opens when its three generators are gone) --
+            done = False
+            for obj in objectives(level, pos):
+                if obj['name'] in stats['destroyed'] or obj['name'] in stats.setdefault('gave_up', []):
+                    continue
+                if not alive(game, obj['name']):
+                    continue
+                if kill_objective(game, nav, obj, log):
+                    stats['destroyed'].append(obj['name'])
+                    done = True
+                    break
+                stats['gave_up'].append(obj['name'])
+            if done:
+                stalls = 0
+                continue
+            if stalls >= 3:
+                log(f'  stalled toward {target}')
+                return False, stats
+    stats['telemetry'] = game.telemetry()
+    return True, stats
+
+
+def dump_state(game, folder, tag):
+    """A coop_state dump kept in the run's evidence."""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    game.serial += 1
+    name = f'{tag}_{game.slot}'
+    path = game.coop / f'state_{name}.txt'
+    path.unlink(missing_ok=True)
+    game.lua(f'coop_state("{name}")')
+    deadline = time.monotonic() + 5
+    while not path.exists():
+        if time.monotonic() > deadline:
+            raise TimeoutError(f'game {game.slot}: no state dump')
+        time.sleep(.05)
+    out = folder / f'{name}.txt'
+    out.write_text(path.read_text(encoding='latin-1'), encoding='latin-1')
+    path.unlink(missing_ok=True)
+    return out
+
+
+def compare_worlds(games, folder, tag, log):
+    """statecheck.py over every game's dump: the host's world against each client's."""
+    import subprocess
+    dumps = [str(dump_state(g, folder, tag)) for g in games]
+    r = subprocess.run([sys.executable, str(Path(__file__).with_name('statecheck.py')), *dumps],
+                       capture_output=True, text=True)
+    last = (r.stdout.strip().splitlines() or ['no output'])[-1]
+    log(f'  worlds at {tag}: {last}')
+    return r.returncode == 0, r.stdout
+
+
+def squad(games, level, goal, folder, log):
+    """Every game is a bot: player 1 leads to the goal; each other player follows the leader with its
+    own pilot and gunner. Worlds are compared at the end."""
+    import threading
+    leader, followers = games[0], games[1:]
+    result = {}
+    stop = threading.Event()
+
+    def lead():
+        result['leader'] = advance(leader, level, goal, str(Path(folder) / 'nav_1.json'),
+                                   lambda m: log('[1] ' + m))
+        stop.set()
+
+    def follow(g):
+        g.lua('coop.GunnerOn(60)')
+        far = 0
+        while not stop.is_set():
+            target = leader.pos()
+            here = g.pos()
+            if not target or not here:
+                time.sleep(1)
+                continue
+            if math.dist(here, target) > 10:
+                r = g.goto(*target, radius=6, timeout=8, explore=1)
+                far = far + 1 if r.get('state') != 'arrived' else 0
+            else:
+                time.sleep(.5)
+        result[g.slot] = far
+
+    threads = [threading.Thread(target=lead)] + [threading.Thread(target=follow, args=(g,)) for g in followers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    ok_world, _ = compare_worlds(games, folder, 'end', log)
+    gaps = {g.slot: round(math.dist(g.pos(), leader.pos()), 1) for g in followers}
+    log(f'  followers\' distance from the leader at the end: {gaps}')
+    return result['leader'][0] and ok_world, {'leader': result['leader'][1], 'world_ok': ok_world, 'gaps': gaps}
 
 
 def main(argv=None):
@@ -286,6 +538,17 @@ def main(argv=None):
     w.add_argument('--player', type=int, default=1)
     w.add_argument('--nav', required=True)
     w.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
+    ad = sub.add_parser('advance')
+    ad.add_argument('--dirs', nargs='+', required=True)
+    ad.add_argument('--player', type=int, default=1)
+    ad.add_argument('--level', required=True)
+    ad.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
+    ad.add_argument('--scratch', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/nav/scratch.json'))
+    sq = sub.add_parser('squad')
+    sq.add_argument('--dirs', nargs='+', required=True)
+    sq.add_argument('--level', required=True)
+    sq.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
+    sq.add_argument('--evidence', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/runs'))
     a = ap.parse_args(argv)
     games = [Game(d, i + 1) for i, d in enumerate(a.dirs)]
     if a.cmd == 'goto':
@@ -318,8 +581,20 @@ def main(argv=None):
             if r.get('state') != 'arrived':
                 print(f'  waypoint {i} {pt}: {r.get("state")} at {r.get("pos")}')
                 return 1
-        print(f'arrived in {time.monotonic() - t0:.1f}s at {game.pilot()["pos"]}')
+        print(f'arrived in {time.monotonic() - t0:.1f}s at {game.pos()}')
         return 0
+    if a.cmd == 'squad':
+        t0 = time.monotonic()
+        folder = Path(a.evidence) / time.strftime('%Y%m%d-%H%M%S')
+        ok, stats = squad(games, Level(a.level), a.to, folder, lambda m: print(m, flush=True))
+        print(f'{"RESULT: PASS" if ok else "RESULT: FAIL"} in {time.monotonic() - t0:.0f}s: {stats}; evidence {folder}')
+        return 0 if ok else 1
+    if a.cmd == 'advance':
+        t0 = time.monotonic()
+        ok, stats = advance(games[a.player - 1], Level(a.level), a.to, a.scratch, lambda m: print(m, flush=True))
+        stats.setdefault('telemetry', games[a.player - 1].telemetry())
+        print(f'{"ARRIVED" if ok else "FAILED"} in {time.monotonic() - t0:.0f}s: {stats}')
+        return 0 if ok else 1
     if a.cmd == 'travel':
         game = games[a.player - 1]
         here = game.pilot()

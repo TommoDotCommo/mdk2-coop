@@ -1113,6 +1113,51 @@ function coop.NavTick()
         coop_note("nav_state", format("done %d %d", n.count, n.batch))
     end
 end
+-- The gunner: while on, the nearest living enemy the hero can see (engine line of sight) within
+-- range is faced and shot with the fire button; the pilot waits meanwhile. Counts shots and targets.
+coop.gunner = nil
+function coop.GunnerOn(range) coop.gunner = { range = range or 60, shots = 0, engaged = 0, next_ms = 0, skip = {}, kills = 0 } end
+function coop.GunnerTick()
+    local gn = coop.gunner
+    if (not gn) then return end
+    local p = coop.real_player()
+    local now = coop_ms()
+    if (not p or now < gn.next_ms) then return end
+    gn.next_ms = now + 100
+    local e, k = nil, 1
+    while (k <= 8 and not e) do
+        local c = coop_nearest_enemy(p.position.x, p.position.y, p.position.z, gn.range, k)
+        if (not c) then
+            k = 9
+        else
+            if (not gn.skip[c] and mdkAILineOfSight(p, c, 6.3, gn.range) == 1) then e = c end
+            k = k + 1
+        end
+    end
+    if (e) then
+        if (gn.target ~= e) then
+            gn.engaged = gn.engaged + 1
+            gn.target = e
+            gn.hp = coop_hp(e)
+            gn.since = now
+        end
+        -- no damage done in 3 s (out of reach, behind cover the line of sight misses): leave it --
+        local hp = coop_hp(e)
+        if (hp and gn.hp and hp < gn.hp) then gn.hp = hp gn.since = now end
+        if (not gn.hp) then gn.hp = hp end
+        if (now - gn.since > 3000) then
+            gn.skip[e] = 1
+            gn.target = nil
+            return
+        end
+        mdkGobPointToXYZ(p, e.position.x - p.position.x, e.position.y - p.position.y, e.position.z - p.position.z)
+        coop_press(256, 150)
+        gn.shots = gn.shots + 1
+        gn.busy = now + 300
+    else
+        gn.target = nil
+    end
+end
 function coop.PilotStop()
     if (coop.pilot and coop.pilot.state == "go") then coop.pilot.state = "stopped" end
 end
@@ -1124,6 +1169,8 @@ function coop.PilotTick()
     local now = coop_ms()
     if (now < pl.next_ms) then return end
     pl.next_ms = now + 50
+    -- the gunner has the hero's aim: wait, and do not count it as stuck --
+    if (coop.gunner and (coop.gunner.busy or 0) > now) then pl.best_ms = now return end
     local dx = pl.x - p.position.x
     local dy = pl.y - p.position.y
     local dz = pl.z - p.position.z
@@ -1205,6 +1252,7 @@ function coop.Tick()
     coop.HandlerTick()
     if (coop.pilot) then coop.PilotTick() end
     if (coop.nav) then coop.NavTick() end
+    if (coop.gunner) then coop.GunnerTick() end
     coop.ReviveTick(p)
     coop.UnstickTick(p)
     coop.CharTick(p)

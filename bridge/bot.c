@@ -211,8 +211,39 @@ static void note(void)
     MoveFileExA(path, final, MOVEFILE_REPLACE_EXISTING);
 }
 
+/* coop_nearest_enemy(x, y, z, range [, k]): the k-th nearest (default 1) living actor that is not a
+ * player, within range, or nil. For the campaign bot's gunner, which skips the ones it gave up on. */
+#define NEAREST_MAX 8
+static void nearest_enemy(void)
+{
+    float at[3] = { (float)number(1), (float)number(2), (float)number(3) };
+    double range = number(4), dist[NEAREST_MAX];
+    int k = (int)number(5), i, n = 0, j;
+    BYTE *list[NEAREST_MAX];
+    if (k < 1) k = 1;
+    if (k > NEAREST_MAX) k = NEAREST_MAX;
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *g = (BYTE *)GOB_TABLE[i * 2];
+        float *p;
+        double d;
+        if (!g || g == local_player || puppet_slot(g) >= 0 || !gob_alive(g) || !gob_is_actor(g) || gob_hp(g) <= 0)
+            continue;
+        p = (float *)(g + GOB_POSITION);
+        d = (p[0] - at[0]) * (p[0] - at[0]) + (p[1] - at[1]) * (p[1] - at[1]) + (p[2] - at[2]) * (p[2] - at[2]);
+        if (d > range * range) continue;
+        /* keep the k nearest, sorted */
+        if (n < k) n++;
+        else if (d >= dist[n - 1]) continue;
+        for (j = n - 1; j > 0 && dist[j - 1] > d; j--) { dist[j] = dist[j - 1]; list[j] = list[j - 1]; }
+        dist[j] = d;
+        list[j] = g;
+    }
+    push_gob(n >= k ? list[k - 1] : NULL);
+}
+
 void bot_lua_init(void)
 {
+    tolua_function(NULL, "coop_nearest_enemy", nearest_enemy);
     tolua_function(NULL, "coop_note", note);
     tolua_function(NULL, "coop_route", command);
     tolua_function(NULL, "coop_route_tick", tick);
