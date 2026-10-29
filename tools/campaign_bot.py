@@ -96,9 +96,9 @@ class Game:
         f = [int(v) for v in t.split()]
         return dict(zip(('level', 'cp', 'hp', 'shots', 'targets', 'life'), f))
 
-    def goto(self, x, y, z, radius=2.5, timeout=60, trail=None, explore=1, jump=0, fly=0):
+    def goto(self, x, y, z, radius=2.5, timeout=60, trail=None, explore=1, jump=0, fly=0, chute=0):
         self.lua(f'coop.PilotGo({x},{y},{z},{radius},1,{explore}) coop.pilot.max_stuck=40 coop.pilot.jump={jump} '
-                 f'coop.pilot.fly={fly}')
+                 f'coop.pilot.fly={fly} coop.pilot.chute={chute}')
         deadline = time.monotonic() + timeout
         while True:
             p = self.pilot()
@@ -205,6 +205,7 @@ class Nav:
     # Max's jetpack, fuelled at a refueller: holding jump lifted him 38 units in 3 s
     FLY_RISE = 34.0
     fly = False
+    chute = False      # Kurt: long drops with the chute
 
     def flat(self, k):
         cell = self.cells[k]
@@ -220,13 +221,15 @@ class Nav:
         a, b = self.cells[k], self.cells[n]
         rise = b[2] - a[2]
         base = math.dist(a[:3], b[:3])
-        if rise <= self.WALK_RISE:
+        if -6 <= rise <= self.WALK_RISE:
             return base
-        if rise <= self.JUMP_RISE and self.flat(n):
+        if rise < -6 and self.chute:
+            return base * 2
+        if 0 < rise <= self.JUMP_RISE and self.flat(n):
             return base * 4
         if self.fly and rise <= self.FLY_RISE and self.flat(n):
             return base * 6
-        return None
+        return None          # too steep, or a long fall without Kurt's chute
 
     def nearest(self, p):
         return min(self.cells, key=lambda k: math.dist(self.cells[k][:3], p))
@@ -270,12 +273,12 @@ class Nav:
         return out
 
 
-def scan(game, out, timeout=900, fly=False):
+def scan(game, out, timeout=900, fly=False, chute=False):
     """Scan the hero's surroundings (coop.NavStart) and save the cells."""
     for old in game.coop.glob('note_nav_*.txt'):
         old.unlink()
     x, y, z = game.pos()
-    game.lua(f'coop.NavStart({x},{y},{z},2,40000,4,6,{36 if fly else 0})')
+    game.lua(f'coop.NavStart({x},{y},{z},2,40000,4,6,{36 if fly else 0},{300 if chute else 0})')
     deadline = time.monotonic() + timeout
     state = game.coop / 'note_nav_state.txt'
     while time.monotonic() < deadline:
@@ -286,7 +289,7 @@ def scan(game, out, timeout=900, fly=False):
     nav = Nav()
     for f in sorted(game.coop.glob('note_nav_[0-9]*.txt'), key=lambda f: int(f.stem.split('_')[-1])):
         nav.add_lines(f.read_text())
-    nav.fly = fly
+    nav.fly, nav.chute = fly, chute
     nav.save(out)
     return nav, (state.read_text() if state.exists() else 'timeout')
 
@@ -302,7 +305,7 @@ def walk(game, nav, goal, log, timeout=90):
         climb = rise > Nav.WALK_RISE
         flying = nav.fly and rise > Nav.JUMP_RISE
         r = game.goto(*pt, radius=1.5 if i < len(pts) - 1 else 2.5, timeout=timeout, explore=0,
-                      jump=int(climb and not flying), fly=int(flying))
+                      jump=int(climb and not flying), fly=int(flying), chute=int(nav.chute and rise < -6))
         if r.get('state') != 'arrived':
             log(f'    waypoint {i}/{len(pts) - 1} {pt}: {r.get("state")} at {r.get("pos")}')
             return r.get('pos', here), r.get('state')
@@ -473,7 +476,7 @@ def prepare_flight(game, level, nav, log):
     return True
 
 
-def advance(game, level, goal, out, log, max_rounds=25, fly=False):
+def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
     """Get the hero to goal: portal by portal, scanning, walking, and breaking scripted walls."""
     game.lua('coop.GunnerOn(60)')
     here = game.pos()
@@ -502,7 +505,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False):
             if stats['rounds'] > max_rounds:
                 return False, stats
             for attempt in range(5):
-                nav, state = scan(game, out, fly=fly)
+                nav, state = scan(game, out, fly=fly, chute=chute)
                 stats['scans'] += 1
                 if nav.cells:
                     break
@@ -621,7 +624,7 @@ def compare_worlds(games, folder, tag, log):
     return r.returncode == 0, r.stdout
 
 
-def squad(games, level, goal, folder, log, fly=False, route=None, record=None):
+def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, record=None):
     """Every game is a bot: player 1 leads to the goal; each other player follows the leader with its
     own pilot and gunner. Worlds are compared at the end."""
     import threading
@@ -636,7 +639,7 @@ def squad(games, level, goal, folder, log, fly=False, route=None, record=None):
             result['leader'] = follow(leader, route, lambda m: log('[1] ' + m))
         else:
             result['leader'] = advance(leader, level, goal, str(Path(folder) / 'nav_1.json'),
-                                       lambda m: log('[1] ' + m), fly=fly)
+                                       lambda m: log('[1] ' + m), fly=fly, chute=chute)
         if record:
             leader.lua(f'coop_route("stop", "{record}")')
         stop.set()
@@ -772,12 +775,14 @@ def main(argv=None):
     ad.add_argument('--level', required=True)
     ad.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
     ad.add_argument('--fly', action='store_true', help="Max's jetpack: refuel and fly")
+    ad.add_argument('--chute', action='store_true', help="Kurt's chute: long drops")
     ad.add_argument('--scratch', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/nav/scratch.json'))
     sq = sub.add_parser('squad')
     sq.add_argument('--dirs', nargs='+', required=True)
     sq.add_argument('--level', required=True)
     sq.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
     sq.add_argument('--fly', action='store_true', help="Max's jetpack: refuel and fly")
+    sq.add_argument('--chute', action='store_true', help="Kurt's chute: long drops")
     sq.add_argument('--route', help='follow this recording instead of exploring')
     sq.add_argument('--record', help="record the leader's play under this name (kept by the game in coop/)")
     sq.add_argument('--evidence', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/runs'))
@@ -828,12 +833,13 @@ def main(argv=None):
         t0 = time.monotonic()
         folder = Path(a.evidence) / time.strftime('%Y%m%d-%H%M%S')
         ok, stats = squad(games, Level(a.level), a.to, folder, lambda m: print(m, flush=True), fly=a.fly,
-                          route=a.route, record=a.record)
+                          chute=a.chute, route=a.route, record=a.record)
         print(f'{"RESULT: PASS" if ok else "RESULT: FAIL"} in {time.monotonic() - t0:.0f}s: {stats}; evidence {folder}')
         return 0 if ok else 1
     if a.cmd == 'advance':
         t0 = time.monotonic()
-        ok, stats = advance(games[a.player - 1], Level(a.level), a.to, a.scratch, lambda m: print(m, flush=True), fly=a.fly)
+        ok, stats = advance(games[a.player - 1], Level(a.level), a.to, a.scratch, lambda m: print(m, flush=True), fly=a.fly,
+                            chute=a.chute)
         stats.setdefault('telemetry', games[a.player - 1].telemetry())
         print(f'{"ARRIVED" if ok else "FAILED"} in {time.monotonic() - t0:.0f}s: {stats}')
         return 0 if ok else 1

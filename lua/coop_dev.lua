@@ -1070,8 +1070,9 @@ function coop.NavView(tx, ty, tz, pts, dzs)
     end
     coop_note("view", "none")
 end
-function coop.NavStart(x, y, z, cell, maxcells, up, down, fly)
+function coop.NavStart(x, y, z, cell, maxcells, up, down, fly, drop)
     local n = { cell = cell or 2, max = maxcells or 20000, up = up or 2.5, down = down or 6, head = 1, tail = 1, fly = fly,
+                drop = drop,
                 q = {}, seen = {}, out = {}, batch = 0, count = 0, edges = 0 }
     local i, j = floor(x / n.cell + 0.5), floor(y / n.cell + 0.5)
     local f = coop.NavFloor(i * n.cell, j * n.cell, z + 3, z - 3)
@@ -1111,6 +1112,10 @@ function coop.NavTick()
             local ni, nj = c[1] + dirs[d][1], c[2] + dirs[d][2]
             local nx, ny = ni * n.cell, nj * n.cell
             local f = coop.NavFloor(nx, ny, z + n.up + 2, z - n.down)
+            -- a drop (Kurt's chute): no floor within reach below, but a landing further down --
+            if (not f and n.drop and n.drop > 0 and coop.NavClear(x, y, z + 2, nx, ny, z + 2)) then
+                f = coop.NavFloor(nx, ny, z + 2, z - n.drop)
+            end
             local mx, my = (x + nx) / 2 - n.hx, (y + ny) / 2 - n.hy
             local byhero = mx * mx + my * my < 9 and abs(z - n.hz) < 4
             -- links are one way: level 2's arena has a one-sided face the hero walks (or is blown)
@@ -1262,6 +1267,10 @@ function coop.PilotTick()
     dx, dy = tx - p.position.x, ty - p.position.y
     if (dx * dx + dy * dy > 0.01) then mdkGobPointToXYZ(p, dx, dy, 0) end
     coop_press(coop.pilot_keys.forward, 120)
+    -- Kurt dropping to a landing far below: hold jump in the air, which opens the chute --
+    if (pl.chute == 1 and p.position.z > pl.z + 4) then
+        coop_press(coop.pilot_keys.jump, 200)
+    end
     -- flying (Max with a fuelled jetpack): hold jump while the waypoint is above the hero --
     if (pl.fly == 1 and pl.z > p.position.z + 0.8) then
         coop_press(coop.pilot_keys.jump, 200)

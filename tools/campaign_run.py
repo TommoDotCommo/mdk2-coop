@@ -73,6 +73,8 @@ def segment(level, seg, players, owner, hook, out, god):
             if (level, start) >= (2, 5) and level in (2, 5, 8, 11) and not (level == 5 and start < 9) \
                     and not (level == 8 and start < 5):
                 args.append('--fly')
+            if level in (1, 4, 7, 10):
+                args.append('--chute')      # Kurt
             if cmd == 'squad':
                 args += ['--evidence', str(folder)]
                 # a segment solved before is followed from its recording; otherwise the bot explores and
