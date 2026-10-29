@@ -7,6 +7,8 @@
 # MDK2_BACKGROUND=1 installs background test mode for all: the games ignore the real keyboard
 # and mouse, never take focus and are muted; scripts drive them through coop\command.lua.
 # Their windows go side by side on the second monitor (the primary one if there is no other).
+# MDK2_BUILD=overhaul|steam (or MDK2_BUILD<i> per copy) puts that build's mdk2hd.exe into the copies first;
+# overhaul needs MDK2_OVERHAUL_EXE, steam uses MDK2_SRC.
 # Game copies: MDK2_N of them, instance 1 the host (see tools/mdk.sh).
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,6 +23,7 @@ for i in $(mdk_seq); do
     d="$(mdk_wsl "$(mdk_dir $i)")"
     [ -f "$d/mdk2hd.exe" ] || { echo "no game in $d (tools/copies.sh makes more copies)"; exit 1; }
     mkdir -p "$d/coop"
+    mdk_place_build "$i" || exit 1
     # A previous run may have stopped before consuming its last background
     # command. Never execute that command against a fresh game at the title.
     rm -f "$d/coop/command.lua" "$d/coop/command.tmp"

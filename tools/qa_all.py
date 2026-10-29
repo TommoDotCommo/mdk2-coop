@@ -20,7 +20,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 CANCEL = threading.Event()
 EXCLUSIVE = {"launcher", "installer", "campaign", "character-motion"}
-TEST_KNOBS = ("MDK2_NO_BUILD", "MDK2_SIM", "MDK2_SHARDS", "MDK2_SWEEP_CHILD",
+TEST_KNOBS = ("MDK2_CRASH_GUARD", "MDK2_CRASH_STATE", "MDK2_NO_BUILD", "MDK2_SIM", "MDK2_SHARDS", "MDK2_SWEEP_CHILD",
               "MDK2_SWEEP_LEVELS", "MDK2_START", "MDK2_MOTION_MUTANT", "MUTANT")
 
 
@@ -52,7 +52,8 @@ OFFLINE = [Gate("rear-gate-routing", ("bash", "tools/test_rear_gate.sh")),
            Gate("network-core", ("bash", "tools/test_network.sh")),
            Gate("pickups-core", ("bash", "tools/test_pickups.sh")),
            Gate("diagnostics-core", ("bash", "tools/test_diag.sh")),
-           Gate("crash-context", ("bash", "tools/test_crash_context.sh"))]
+           Gate("crash-context", ("bash", "tools/test_crash_context.sh")),
+           Gate("crash-watch", ("python3", "-B", "-m", "unittest", "tests/minidump_test.py", "tests/crashwatch_test.py"))]
 SMOKE = [Gate("two-player", ("bash", "tools/qa.sh"), 2, result="counts"),
          Gate("checkpoint-smoke", ("bash", "tools/sweep.sh", "1-1", "1-3"), 2, result="sweep"),
          Gate("level-smoke", ("bash", "tools/sweep.sh", "--levels"), 2, result="sweep")]
@@ -90,6 +91,8 @@ def score(gate, code, output, timed_out=False):
     if timed_out:
         return "TIMEOUT"
     if code != 0:
+        return "FAIL"
+    if re.search(r"^CRASH ", output, re.M):      # a game copy crashed, whatever the suite's own counts say
         return "FAIL"
     if gate.result == "exit":
         return "PASS"
@@ -318,6 +321,9 @@ def main():
     parser.add_argument("--gate", action="append", help="run only named gates from the profile (repeatable)")
     parser.add_argument("--campaign-shards", type=int, choices=range(1, 9), default=1,
                         help="parallel two-game sets for the campaign gate; requires 2 slots per shard")
+    parser.add_argument("--build", choices=("steam", "overhaul"),
+                        help="executable the game copies run (default: whatever the copies hold); overhaul needs "
+                             "MDK2_OVERHAUL_EXE, see docs/TESTING.md")
     parser.add_argument("--route", action="append", type=Path,
                         help="append a recorded two-player progression route (repeatable)")
     args = parser.parse_args()
@@ -344,6 +350,11 @@ def main():
     for key in TEST_KNOBS:
         env.pop(key, None)
     env["MDK2_BACKGROUND"] = "1"
+    env.pop("MDK2_BUILD", None)      # only --build chooses; an inherited value would silently change every gate
+    if args.build:
+        env["MDK2_BUILD"] = args.build
+        if args.build == "overhaul" and not env.get("MDK2_OVERHAUL_EXE"):
+            parser.error("--build overhaul needs MDK2_OVERHAUL_EXE (Windows path of that build's mdk2hd.exe)")
     hook = args.resources or os.environ.get("MDK2_QA_RESOURCES")
     if hook is None and (ROOT / "local/qa_resources.py").is_file():
         hook = ROOT / "local/qa_resources.py"
