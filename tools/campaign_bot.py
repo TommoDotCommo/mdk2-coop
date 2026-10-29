@@ -449,8 +449,13 @@ def chain_step(game, level, nav, pos, target, log, chute=False):
     opener with the damage it checks for. True if something was done."""
     deps = level.m.get('deps', {})
     where = {o['name']: o['pos'] for o in level.m['objects']}
+    rooms = set(level.rooms)
     for opener, events in deps.items():
+        if opener in rooms or opener == 'Level':
+            continue
         for event, info in events.items():
+            if event in ('OnCreate', 'OnUpdate', 'OnTimer', 'OnAnimLoop'):
+                continue     # not something a player sets off
             if not any(t in where and min(math.dist(where[t], pos), math.dist(where[t], target)) < 80
                        for t in info['opens']):
                 continue
@@ -612,6 +617,19 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 time.sleep(2)
             else:
                 return False, stats
+            # generators keep spawning enemies (level 2's arena shoved the hero 60 units at a time):
+            # any live one the hero can get near is killed first
+            for gen in [o for o in level.m['objects'] if 'GENERATOR' in o['type']
+                        and math.dist(o['pos'][:2], game.pos()[:2]) < 250 and o['name'] not in stats['destroyed']]:
+                if not alive(game, gen['name']):
+                    continue
+                gspot = reachable_toward(nav, game.pos(), gen['pos'])
+                if math.dist(gspot, gen['pos']) > 25:
+                    continue
+                log(f'    generator {gen["name"]} first')
+                walk(game, nav, gspot, log, timeout=60)
+                if aimed_kill(game, gen['name'], log):
+                    stats['destroyed'].append(gen['name'])
             before = game.pos()
             spot = reachable_toward(nav, before, target)
             pos, state = walk(game, nav, spot, log)
