@@ -454,6 +454,12 @@ def prepare_flight(game, level, nav, log):
             if math.dist(nav.cells[k][:3], o['pos']) < 3:
                 walk(game, nav, o['pos'], log, timeout=40)
                 game.goto(*o['pos'], radius=0.6, timeout=10, explore=0)   # a pickup needs the hero on it
+                # standing on the spot is not always inside the pickup's volume (l2_r5jetpack): jump there
+                for _ in range(3):
+                    if not alive(game, o['name']):
+                        break
+                    game.lua('coop_press(57, 200)')
+                    time.sleep(1.2)
                 log(f'    picked up {o["name"]}: {"yes" if not alive(game, o["name"]) else "no"}')
     fuel = [o for o in level.m['objects'] if o['type'] == 'OBJ_REFUELLER']
     fuel = [o for o in fuel if math.dist(nav.cells[near(o['pos'])][:3], o['pos']) < 4]
