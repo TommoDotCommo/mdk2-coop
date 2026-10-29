@@ -387,6 +387,25 @@ def fire_sweep(game, wanted, log, pitches=(0, 70, -70), steps=16, sniper=False):
     return name
 
 
+def snipe(game, name, log):
+    """A sniper shot at name: the game's own sniper round, launched along Kurt's aim at the target (with
+    a few heights on it). Known shortcut: sniper mode's camera is not steered by the bot yet (its rounds
+    follow the camera, not the hero's facing), so the round is launched by coop_test_sniper; the hit, the
+    script's reaction and its replication to the other games are the game's own."""
+    off = hits_since(game, 0)[1]
+    for dz in (0, 1, -1, 2, -2, 3):
+        game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then mdkGobPointToXYZ(p, '
+                 f't.position.x-p.position.x, t.position.y-p.position.y, t.position.z+{dz}-p.position.z-1) '
+                 f'coop_test_sniper() end')
+        time.sleep(1)
+        names, off = hits_since(game, off)
+        if name in names:
+            log(f'    sniped {name} (aim {dz:+d})')
+            return True
+    log(f'    sniper rounds missed {name}')
+    return False
+
+
 def live_pos(game, name):
     t = game.note('lp', f'local g=getglobal("{name}") if (g and coop_alive(g)==1) then coop_note("lp", '
                         f'format("%.2f %.2f %.2f", g.position.x, g.position.y, g.position.z)) else coop_note("lp", "none") end')
@@ -424,7 +443,10 @@ def chain_step(game, level, nav, pos, target, log, chute=False):
                     log(f'    {o}: {"killed" if gone else "still alive"}')
             sniper = 'DAMAGE_SNIPER' in info['damage']
             log(f'    trigger {opener}.{event} ({"sniper" if sniper else "shots"}) to open {info["opens"]}')
-            hit = fire_sweep(game, {opener}, log, pitches=(0, -35, 35, -70), sniper=sniper)
+            if sniper:
+                snipe(game, opener, log)
+            else:
+                fire_sweep(game, {opener}, log, pitches=(0, -35, 35, -70))
             return True
     return False
 

@@ -39,6 +39,15 @@ authoritative source is the installed game itself:
   tried). Portals the hero is already past are skipped.
 - **Scan artefact**: the hero's own body blocks the probes, so links next to where it stands are not
   tested (a scan in level 2's arena had seen a cage around the hero).
+- **Script chains** (`campaign_mine.py` `deps`): for each scripted object, what its handlers open
+  (door animations, door locks released, stasis left, deletions), what they enable (`ANIM_ENABLED`) and
+  which damage types they check. When stuck, the bot kills the live prerequisites of an opener near it
+  (level 1 room 4: three enemies enable the lock) and triggers the opener with its damage type
+  (`DAMAGE_SNIPER`: a sniper round; known shortcut: launched along Kurt's aim by `coop_test_sniper`,
+  as sniper mode's camera is not steered yet).
+- **Kurt's chute and Max's jetpack**: drop links to landings far below (jump held in the air opens the
+  chute); a fuelled jetpack lifts Max 38 units in 3 s of held jump, so fly links reach up to 34 units
+  from under the open column's ceiling, and the bot picks up the jetpack and refuels first.
 - **Gunner** (`coop.GunnerOn`): the nearest enemy the hero can see is faced (with pitch) and shot;
   a target that loses no health in 3 s is left alone (out of reach, or line of sight through a gap the
   bullets do not pass).
