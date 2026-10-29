@@ -338,6 +338,15 @@ def reachable(nav, start, safe=True):
     return seen & home
 
 
+def rim_toward(nav, start, target, above=4.0):
+    """The reachable cell nearest target among those standing at least `above` higher than it (shoot a
+    generator from its pit's rim: the pit cannot be climbed out of)."""
+    cells = [k for k in reachable(nav, start) if nav.cells[k][2] >= target[2] + above]
+    if not cells:
+        return reachable_toward(nav, start, target)
+    return nav.cells[min(cells, key=lambda k: math.dist(nav.cells[k][:3], target))][:3]
+
+
 def reachable_toward(nav, start, goal):
     """The reachable cell nearest the goal."""
     best = min(reachable(nav, start), key=lambda k: nav.cells[k][:3] and math.dist(nav.cells[k][:3], goal))
@@ -430,7 +439,7 @@ def aimed_kill(game, name, log, seconds=60):
             # along the scanned floor (the pilot's own stepping trips on the arena's one-sided face)
             nav, _ = scan(game, str(Path(__file__).resolve().parents[1] / 'local/campaign/nav/aim.json'))
             if nav.cells:
-                walk(game, nav, reachable_toward(nav, game.pos(), at), log, timeout=40)
+                walk(game, nav, rim_toward(nav, game.pos(), at), log, timeout=40)
         for dz in (2, 0, 4):
             game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then mdkGobPointToXYZ(p, '
                      f't.position.x-p.position.x, t.position.y-p.position.y, t.position.z+{dz}-p.position.z-3) '
@@ -642,7 +651,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                         and math.dist(o['pos'][:2], game.pos()[:2]) < 250 and o['name'] not in stats['destroyed']]:
                 if not alive(game, gen['name']):
                     continue
-                gspot = reachable_toward(nav, game.pos(), gen['pos'])
+                gspot = rim_toward(nav, game.pos(), gen['pos'])
                 if math.dist(gspot, gen['pos']) > 25:
                     continue
                 log(f'    generator {gen["name"]} first')
