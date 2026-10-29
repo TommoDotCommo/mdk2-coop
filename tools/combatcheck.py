@@ -93,6 +93,14 @@ def verify(before, after, attacker=None, target=None, expected=None, tol=1, idle
         matching = [v for v in new.values() if v[2] == attacker and v[3] == target_id]
         if not matching or abs(sum(v[5] for v in matching) - loss) > tol:
             raise ValueError('confirmed damage does not match measured target HP loss')
+        # The DPS meter itself: a hit inside the last five seconds reads amount / 5 on every
+        # process, and the time-dependent fight figure is positive and about equal everywhere.
+        rolling = [s['players'][attacker][2] for s in after]
+        fight = [s['players'][attacker][3] for s in after]
+        if any(abs(r - loss / 5.0) > 0.6 for r in rolling):
+            raise ValueError('rolling DPS differs from the confirmed hit')
+        if min(fight) <= 0 or max(fight) - min(fight) > 0.25 * max(fight):
+            raise ValueError('fight DPS missing or differs across processes')
         for b, a in zip(before, after):
             for p in range(1, 17):
                 delta = a['players'][p][0] - b['players'][p][0]

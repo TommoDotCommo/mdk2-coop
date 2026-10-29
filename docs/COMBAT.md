@@ -127,7 +127,7 @@ python3 tools/qa_all.py features --gate hud --gate native-projectiles --gate lev
 
 The T1 `combat-startup` gate checks Lua registration, dump and reset state in one process.
 The combat suite asserts a host hit of 20 HP and a client hit of 30 HP against the level-1
-`r2_dog01` fixture (default 100% dealt damage), comparing actual host enemy HP differences,
+`doganboys07` fixture (default 100% dealt damage; level 1's `r2_dog01` is immune until its glass sequence), comparing actual host enemy HP differences,
 per-player totals and complete event ledgers across all three processes, within one HP.
 It then asserts five-second DPS expiry, unchanged idle totals, keyboard toggle edges and reset.
 `coop_combat_test(1)` is a background-test-only deaf receiver mutant, inert in player mode.

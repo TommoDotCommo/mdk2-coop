@@ -93,6 +93,7 @@ adapter_mutants = {
     'ignore-scripted-target': ('(fallback && fallback != local_player && puppet_slot(fallback) < 0)', '0'),
     'aoe-evidence': ('caller == (void *)0x434dfb', '1'),
     'drop-client-receipt': ('local_direct_hits++;', 'local_direct_hits += 0;'),
+    'nil-attacker-reaches-actor-check': ('if (!from || !target) return 0;', ''),
 }
 with tempfile.TemporaryDirectory(prefix='mdk-presence-engine-') as folder:
     folder = Path(folder)

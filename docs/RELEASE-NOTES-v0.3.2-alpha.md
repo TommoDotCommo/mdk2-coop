@@ -27,10 +27,31 @@
 
 ## Known Issues
 
-- **Combat feedback not live-verified**: The combat feed, DPS meter, hitmarkers, and floating damage numbers have been verified in native core tests, sync simulation, and mutation suites, but have not undergone live in-game multiplayer playtesting.
-- **Voice chat hardware**: Voice chat codecs and networking have been tested with synthetic audio loopbacks and protocol simulations, but have not been tested with a physical microphone.
-- **Base playtest synchronization**: Features from earlier playtest work (mortar progression, shared pickups, and enemy health displays) are included in the build but are not live-verified.
-- **Pre-release status**: This is an alpha release candidate; live multiplayer verification may follow.
+### Verified live (MDK2 HD Steam build 3902, disposable game copies, background mode)
+
+Each baseline passed and each deliberately broken variant failed as required.
+
+- **Lobby** (`tools/qa_lobby.sh`): 33 of 33 checks with a host and two clients, including chat, voice frames, Ready, countdown and start. The `MUTANT=nostart` variant was not run.
+- **Enemy targeting** (`tools/qa_ai.sh`): client-near and host-near cases pass; `MUTANT=targeting` and `MUTANT=hostaoe` fail.
+- **Remote Kurt canopy, three peers** (`tools/qa_presence.sh`): 27 of 27 including client-to-client relay; `MUTANT=canopy` fails all 27.
+- **Client join flow** (`tools/qa_join.sh`): 7 of 7 (waiting screen, automatic pull, host leaving, cancel, retry, 65-second outage, and a packet from a previous protocol giving the update message); `MUTANT=join` fails 5 of 7. Version mismatch is detected by protocol magic only; there is no exact mod-version string check and no separate old release was installed.
+- **Combat feed ledger and DPS meter** (`tools/qa_combat.sh`, three processes, state read from the processes): a host hit of 20 and a client hit of 30 produce identical event ledgers, per-player totals and 5-second DPS on all three, matching the measured enemy HP loss; idle expiry, the Ctrl+M toggle edges and reset also pass (7 of 7). `MUTANT=deaf` fails on the ledger comparison. `tools/qa_combat_startup.sh` passes.
+- **Playtest sync** (`tools/qa_playtest.sh`, 40 of 40): mortar progression through the dome callbacks, shared pickups, scaled enemy health bars on both games; `MUTANT=pickups` and `MUTANT=dome` fail.
+
+### Not verified live
+
+- **Rendering of hitmarkers, coloured damage numbers and the feed text** is not covered: the live check reads the ledger that feeds them (attacker, amount, target, position), not drawn pixels. Layout is checked by rectangle tests only.
+- **Lossy-link combat** (`lossy-combat` gate), projectile source attribution, reconnect and host migration during combat were not run live.
+- **Dome mortar puzzle** is exercised through collision and explosion callbacks, not projectile flight.
+- **Voice chat hardware**: tested with synthetic audio and protocol simulations only, not a physical microphone.
+- **Full regression ladder** (`qa_all.py full`) was not run for this build; only the suites above were run live.
+- **`tools/qa_sign.sh`** (level 1 sign, glass and dog) passed 37 of 38 in both runs, with a different "the dog hurt player N" check missing each time, and the same happened before the fixes below. Treat the dog's bite as an intermittent test miss, not yet explained.
+- **Pre-release status**: this is an alpha release candidate.
+
+### Fixed while verifying live
+
+- The host crashed when a hit with no attacking object (environmental damage) reached the player-presence check. Covered by `tests/presence_game_test.c` (mutant in `tools/test_presence.py`) and by `tools/qa_playtest.sh`.
+- The combat and playtest suites aimed at `r2_dog01`, which is immune until its glass sequence, so no damage landed; they now use `doganboys07`, and the combat oracle also checks the DPS values.
 
 ## Maintainer Release Instructions
 

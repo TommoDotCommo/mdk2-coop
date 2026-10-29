@@ -29,7 +29,8 @@ static int role_host = 1, have_remote = 1, my_slot, test_background = 1;
 static int filtered_classes, repositioned;
 static BYTE *local_player = bodies[0], *puppets[3] = {NULL,bodies[1],bodies[2]};
 static struct { DWORD player_handle; } ADDR = {0x5494c8};
-static int gob_slot(BYTE *g) { int i; for(i=0;i<6;i++) if(g==bodies[i]) return i; return -1; }
+/* Like the engine table, NULL matches an empty entry (index 6) instead of being rejected. */
+static int gob_slot(BYTE *g) { int i; if(!g) return 6; for(i=0;i<6;i++) if(g==bodies[i]) return i; return -1; }
 static DWORD gob_handle(int i) { return 0x10000u + i; }
 static BYTE *gob_by_handle(DWORD h) { int i; for(i=0;i<6;i++) if(h==gob_handle(i) && alive[i]) return bodies[i]; return NULL; }
 static int gob_alive(BYTE *g) { int i=gob_slot(g); return i>=0 && alive[i]; }
@@ -201,6 +202,8 @@ int main(void)
     assert(ai_script_begin(NULL) == 0 && ai_depth == 0);
     assert(presence_hit(bodies[3],bodies[1],0)==0 && ai_evidence[3].hits==1);
     no_direct_hurt=1; assert(presence_hit(bodies[3],bodies[1],0)==1); no_direct_hurt=0;
+    /* Environmental damage (nil attacker) crashed the host on the empty-entry match above. */
+    assert(presence_hit(NULL,bodies[1],0)==0 && presence_hit(NULL,local_player,1)==0 && presence_hit(bodies[3],NULL,0)==0);
     life[1]=1; expected=bodies[2]; ai_run(bodies[3],(DWORD)(uintptr_t)fake_think,11,22,33); life[1]=0;
     in_level[1]=0; expected=bodies[2]; ai_run(bodies[3],(DWORD)(uintptr_t)fake_think,11,22,33); in_level[1]=1;
     fallback=bodies[5]; expected=fallback; ai_run(bodies[3],(DWORD)(uintptr_t)fake_think,11,22,33); /* scripted target */

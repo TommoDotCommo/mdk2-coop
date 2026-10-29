@@ -44,7 +44,7 @@ int gob_is_actor(BYTE *gob)
 {
     int t;
 
-    if (!*(BYTE **)(gob + GOB_INFO))
+    if (!gob || !*(BYTE **)(gob + GOB_INFO))
         return 0;
     t = gob_type(gob);
     return t >= ACTOR_TYPE_MIN && t <= ACTOR_TYPE_MAX;
@@ -64,6 +64,8 @@ int gob_slot(BYTE *gob)
 {
     int i;
 
+    if (!gob)
+        return -1;
     for (i = 0; i < GOB_SLOTS; i++)
         if ((BYTE *)GOB_TABLE[i * 2] == gob)
             return i;

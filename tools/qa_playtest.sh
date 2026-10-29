@@ -52,11 +52,14 @@ for i in 1 2; do
 done
 lua 1 'local p=mdkGetPlayerGob() mdkCreateObjectLua("", OBJ_GRENADEITEM, mdkGetScene(), nil, nil, p.position.x,p.position.y,p.position.z, 1,0,0,0, nil,0,0,0,0)'
 for i in 1 2; do check "unnamed pickup grants player $i five grenades" waitq "$i" 'coop_item_count(mdkGetPlayerGob(), OBJ_GRENADEITEM)-qa_before' 5; done
-lua 1 'mdkDealDamage(mdkGetPlayerGob(),r2_dog01,50,DAMAGE_SNIPER,-1)'
-hp=$(q 1 'coop_hp(r2_dog01)')
+# r2_dog01 is immune until its glass sequence, so use an enemy that really takes the damage
+lua 1 'mdkDealDamage(mdkGetPlayerGob(),doganboys07,50,DAMAGE_SNIPER,-1)'
+sleep 1
+hp=$(q 1 'coop_hp(doganboys07)')
+check "the host's enemy lost exactly 50 hp" test "$hp" = 100
 for i in 1 2; do
-    check "player $i sees the host's reduced enemy hp" waitq "$i" 'coop_hp(r2_dog01)' "$hp"
-    check "player $i native bar matches scaled hp" waitq "$i" 'floor(mdkGobGetHealth(r2_dog01)*150+0.5)' "$hp"
+    check "player $i sees the host's reduced enemy hp" waitq "$i" 'coop_hp(doganboys07)' "$hp"
+    check "player $i native bar matches scaled hp" waitq "$i" 'floor(mdkGobGetHealth(doganboys07)*150+0.5)' "$hp"
 done
 # The engine normally calls this pair when a mortar hits and then explodes.
 # Make the projectile far away so the peer cannot complete the puzzle by chance.

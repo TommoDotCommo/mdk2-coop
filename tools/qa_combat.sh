@@ -32,14 +32,14 @@ mdk_boot
 for i in 1 2 3; do lua "$i" 'God(1) coop_combat_reset()'; done
 if [ "${MUTANT:-}" = deaf ]; then lua 2 'coop_combat_test(1)'; fi
 snapshot before
-lua 1 'mdkDealDamage(mdkGetPlayerGob(),r2_dog01,20,DAMAGE_SNIPER,-1)'
+lua 1 'mdkDealDamage(mdkGetPlayerGob(),doganboys07,20,DAMAGE_SNIPER,-1)'
 sleep 2
 snapshot hosthit
-compare before hosthit --attacker 1 --target r2_dog01 --expected 20
-lua 2 'mdkDealDamage(mdkGetPlayerGob(),r2_dog01,30,DAMAGE_SNIPER,-1)'
+compare before hosthit --attacker 1 --target doganboys07 --expected 20
+lua 2 'mdkDealDamage(mdkGetPlayerGob(),doganboys07,30,DAMAGE_SNIPER,-1)'
 sleep 2
 snapshot clienthit
-compare hosthit clienthit --attacker 2 --target r2_dog01 --expected 30
+compare hosthit clienthit --attacker 2 --target doganboys07 --expected 30
 sleep 9
 snapshot idle
 compare clienthit idle --idle

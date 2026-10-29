@@ -328,7 +328,10 @@ void ai_init(void)
  * projectile sources. Client receipts are counted after applying that HURT. */
 int presence_hit(BYTE *from, BYTE *target, int applied)
 {
-    int index = gob_slot(from), victim = gob_slot(target);
+    int index, victim;
+    /* Environmental damage has no source gob; gob_slot(NULL) matches an empty table entry. */
+    if (!from || !target) return 0;
+    index = gob_slot(from); victim = gob_slot(target);
     if (index < 0 || victim < 0 || !gob_is_actor(from)) return 0;
     if (role_host && !applied) {
         if (no_direct_hurt) return 1;

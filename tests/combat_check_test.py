@@ -55,6 +55,19 @@ class CombatOracle(unittest.TestCase):
         with self.assertRaises(ValueError):
             combatcheck.verify(self.before, self.after, 2, 'enemy', 20, tol=0)
 
+    def test_dps_meter_values(self):
+        self.assertIn('PASS', self.check_damage())
+        self.after[2]['players'][2] = (20, 20, 0., 20.)
+        with self.assertRaises(ValueError):
+            self.check_damage()
+        self.after = [fixture(80, 20, slot=p) for p in range(1, 4)]
+        self.after[1]['players'][2] = (20, 20, 4., 0.)
+        with self.assertRaises(ValueError):
+            self.check_damage()
+        self.after[1]['players'][2] = (20, 20, 4., 9.)
+        with self.assertRaises(ValueError):
+            self.check_damage()
+
     def test_wrong_target_hp_mutant(self):
         for state in self.after:
             state['entities']['enemy'] = (42, 90)
