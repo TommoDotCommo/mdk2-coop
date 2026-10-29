@@ -4,9 +4,12 @@ import argparse
 import math
 from pathlib import Path
 
+FIGHT_LAG = 1.0   # seconds a process may hear of the first hit later than the host (localhost: ~0.1 s)
+
 
 def load(path):
-    state = {'events': {}, 'players': {}, 'entities': {}, 'meter': None, 'me': None, 'role': None}
+    state = {'events': {}, 'players': {}, 'entities': {}, 'meter': None, 'me': None, 'role': None,
+             'taken': Path(path).stat().st_mtime}
     for line in Path(path).read_text(encoding='latin-1').splitlines():
         f = line.split()
         if not f:
@@ -99,8 +102,22 @@ def verify(before, after, attacker=None, target=None, expected=None, tol=1, idle
         fight = [s['players'][attacker][3] for s in after]
         if any(abs(r - loss / 5.0) > 0.6 for r in rolling):
             raise ValueError('rolling DPS differs from the confirmed hit')
-        if min(fight) <= 0 or max(fight) - min(fight) > 0.25 * max(fight):
+        if min(fight) <= 0:
             raise ValueError('fight DPS missing or differs across processes')
+        # The fight figure is total / (time since that process saw the fight's first event), read when its dump
+        # was written, and the dumps are taken one after another. So the figures differ by the time between the
+        # dumps, not by a defect. Divide it out: the fight time each process implies (total / DPS) must differ
+        # from the host's by the gap between the dump times, less the (small) delay in hearing of the hit.
+        # Without dump times (hand-built states) fall back to the plain 25 % spread.
+        times = [s.get('taken') for s in after]
+        if any(t is None for t in times):
+            if max(fight) - min(fight) > 0.25 * max(fight):
+                raise ValueError('fight DPS missing or differs across processes')
+        else:
+            implied = [s['players'][attacker][1] / f for s, f in zip(after, fight)]
+            for e, t in zip(implied[1:], times[1:]):
+                if implied[0] > 1.05 and e > 1.05 and abs((e - implied[0]) - (t - times[0])) > FIGHT_LAG:
+                    raise ValueError('fight DPS missing or differs across processes')
         for b, a in zip(before, after):
             for p in range(1, 17):
                 delta = a['players'][p][0] - b['players'][p][0]

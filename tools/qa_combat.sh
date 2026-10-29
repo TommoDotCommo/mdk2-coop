@@ -20,7 +20,7 @@ snapshot() {
         lua "$i" "coop_state(\"$tag\")"
         for step in $(seq 1 50); do [ -f "$path" ] && break; sleep 0.1; done
         test -f "$path"
-        cp "$path" "$out/${tag}_$i.txt"
+        cp -p "$path" "$out/${tag}_$i.txt"   # -p: the dump time is part of the evidence
     done
 }
 compare() {

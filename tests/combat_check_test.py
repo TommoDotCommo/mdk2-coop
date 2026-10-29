@@ -68,6 +68,24 @@ class CombatOracle(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.check_damage()
 
+    def test_fight_dps_is_judged_at_each_dump_time(self):
+        # 20 damage, first event seen by the host at t0: the dumps are taken 0.5 s apart, so the later ones read a lower figure
+        for k, (secs, taken) in enumerate(((2.0, 100.0), (2.4, 100.5), (3.0, 101.0))):
+            self.after[k]['players'][2] = (20, 20, 4., 20 / secs)
+            self.after[k]['taken'] = taken
+        self.assertIn('PASS', self.check_damage())
+        # the same figures with no dump times are a 25 % spread apart and fail the plain rule
+        for state in self.after:
+            del state['taken']
+        with self.assertRaises(ValueError):
+            self.check_damage()
+        # a process whose meter does not follow the clock (stuck figure) fails even with dump times
+        for k, taken in enumerate((100.0, 100.5, 104.0)):
+            self.after[k]['taken'] = taken
+        self.after[2]['players'][2] = (20, 20, 4., 20 / 2.5)
+        with self.assertRaises(ValueError):
+            self.check_damage()
+
     def test_wrong_target_hp_mutant(self):
         for state in self.after:
             state['entities']['enemy'] = (42, 90)
