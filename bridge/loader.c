@@ -18,7 +18,7 @@
 void loader_ensure(void)
 {
     char path[MAX_PATH], buf[SETTINGS_MAX + 1];
-    DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", path, MAX_PATH);
+    int n = redirect_data_base(path, MAX_PATH);
     FILE *f;
     size_t len;
 

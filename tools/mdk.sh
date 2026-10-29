@@ -6,6 +6,12 @@
 #   MDK2_TOOLS              Windows folder for tools/win/*.ps1 (default: tools in copy 1)
 #   MDK2_PIDS               file with the instances' pids, in order
 #   MDK2_REGISTER_PID       optional executable called with each newly started PID
+#   MDK2_SAVE_ISOLATE      1 (default): every copy keeps its saves, crash reports and settings.lua in its own
+#                          <game dir>\profile\MDK2HD, never in the real %LOCALAPPDATA%\MDK2HD ([test] save_dir);
+#                          0: the copy uses the real folder (only for a run that must see the owner's profile)
+#   MDK2_SAVE_SEED         optional folder (Windows or WSL path) copied into each fresh profile\MDK2HD at install:
+#                          the known-good save set (save\*.sav) and a settings.lua; without it the profile starts
+#                          empty with the real settings.lua minus the mod's loader block
 #   MDK2_PROCESS_SERVICE=1  launch through Win32_Process.Create when the calling process
 #                           forces system DLLs ahead of the local dinput8.dll proxy
 # Keys are DirectInput scancodes (1 Esc, 17 W, 30 A, 31 S, 32 D, 57 Space = jump with the co-op
@@ -45,6 +51,21 @@ mdk_start() { local d p; d=$(mdk_dir "${1:-1}") || return 1
               [[ "$p" =~ ^[1-9][0-9]*$ ]] || { echo "game launch returned no valid PID" >&2; return 1; }
               if [ -n "${MDK2_REGISTER_PID:-}" ]; then "$MDK2_REGISTER_PID" "$p" >&2 || return 1; fi
               echo "$p"; }
+# ---- per-instance user data (bridge/redirect.c): <game dir>\profile\MDK2HD stands in for %LOCALAPPDATA%\MDK2HD
+mdk_isolated()    { [ "${MDK2_SAVE_ISOLATE:-1}" != 0 ]; }
+mdk_profile()     { echo "$(mdk_wsl "$(mdk_dir "${1:-1}")")/profile/MDK2HD"; }        # WSL path of instance i's folder
+mdk_real_profile() { echo "$(mdk_wsl "$(powershell.exe -NoProfile -Command '$env:LOCALAPPDATA' | tr -d '\r')")/MDK2HD"; }
+# mdk_profile_seed <i>: a clean profile for instance i (the old one, saves and all, is removed)
+mdk_profile_seed() { local p seed real; p="$(mdk_profile "$1")"
+                     rm -rf "$(dirname "$p")"; mkdir -p "$p/save" "$p/crash" || return 1
+                     seed="${MDK2_SAVE_SEED:-}"; [ -n "$seed" ] && [ ! -d "$seed" ] && seed="$(mdk_wsl "$seed")"
+                     if [ -n "$seed" ] && [ -d "$seed" ]; then cp -r "$seed"/. "$p/" || return 1; fi
+                     if [ ! -f "$p/settings.lua" ]; then real="$(mdk_real_profile)/settings.lua"
+                         if [ -f "$real" ]; then sed '/^-- >>> mdk2-coop >>>/,/^-- <<< mdk2-coop <<</d' "$real" > "$p/settings.lua"; fi; fi; }
+# mdk_crash_dumps: every crash report of our copies, one per line: the dumps beside the exe and the
+# game's own crash folder (the instance's, and the real one when this run is not isolated)
+mdk_crash_dumps() { local i d; for i in $(mdk_seq); do d="$(mdk_wsl "$(mdk_dir "$i")")"
+                        ls -1 "$d"/mdk2hd_crash_*.mdmp "$d"/profile/MDK2HD/crash/* 2>/dev/null; done; }
 mdk_pids()  { cat "$MDK2_PIDS"; }
 mdk_pid()   { local i=0 p; for p in $(mdk_pids); do i=$((i + 1)); [ "$i" = "$1" ] && { echo "$p"; return; }; done; }
 # Input: in background test mode (MDK2_BACKGROUND=1 at install) a Lua line goes to the game

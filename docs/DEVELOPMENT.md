@@ -238,6 +238,7 @@ the rest of the file and the loader block are kept. Its Settings tab has every c
 coop_init then does nothing. Drawn with GDI into a DIB: the title art (`Titlescreen_PC.dds`) and menu font
 (`font.dds`, widths from `font.lua`) are read from the player's own mdk2.tar; without them it falls back to
 plain colours and Windows fonts. Skipped for `+connect_lobby` and in background test mode, except with
+`[test] save_dir=<folder>` (`bridge/redirect.c`) moves the game's `%LOCALAPPDATA%\MDK2HD` (saves, crash reports, `settings.lua`) to `<folder>\MDK2HD` by pointing the exe's `SHGetSpecialFolderPathA` import at a wrapper; `tools/install.sh` sets it for every test copy (see [Per-instance user data](TESTING.md#per-instance-user-data)).
 `[test] launcher=1`: hidden, driven by `coop\launcher.txt` (`key <vk>`, `click <x> <y>`, `text <s>`,
 `shot <name>`). `tools/qa_launcher.sh` (two games: pages, UDP join at a typed address,
 settings, solo, quit, show=0, +connect_lobby, resolution, saves page, level picker).

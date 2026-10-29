@@ -218,6 +218,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         logmsg("mdk2-coop bridge attached");
         logmsg("files in %s", coop_dir);
         AddVectoredExceptionHandler(1, crash_logger);
+        redirect_init();
         if (install_lua_hook())
             loader_ensure();
         input_init();
