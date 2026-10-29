@@ -75,9 +75,22 @@ def segment(level, seg, players, owner, hook, out, god):
                 args.append('--fly')
             if cmd == 'squad':
                 args += ['--evidence', str(folder)]
+                # a segment solved before is followed from its recording; otherwise the bot explores and
+                # its play is recorded, kept as the segment's route if it passes
+                routes = ROOT / 'local/routes'
+                known = routes / f'seg_{level}_{start}_{end}.route'
+                if known.exists():
+                    args += ['--route', str(known)]
+                else:
+                    args += ['--record', f'seg_{level}_{start}_{end}']
             else:
                 args += ['--scratch', str(folder / 'nav.json')]
             run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=1500)
+        name = f'seg_{level}_{start}_{end}.route'
+        made = Path(wsl[0]) / 'coop' / name
+        if run.returncode == 0 and made.exists() and not (ROOT / 'local/routes' / name).exists():
+            (ROOT / 'local/routes').mkdir(parents=True, exist_ok=True)
+            (ROOT / 'local/routes' / name).write_bytes(made.read_bytes())
         tail = (folder / 'bot.log').read_text().strip().splitlines()[-1:]
         result = {'segment': seg, 'result': 'PASS' if run.returncode == 0 else 'FAIL',
                   'seconds': round(time.monotonic() - t0), 'last': tail[0] if tail else ''}

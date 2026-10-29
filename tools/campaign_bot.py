@@ -621,7 +621,7 @@ def compare_worlds(games, folder, tag, log):
     return r.returncode == 0, r.stdout
 
 
-def squad(games, level, goal, folder, log, fly=False):
+def squad(games, level, goal, folder, log, fly=False, route=None, record=None):
     """Every game is a bot: player 1 leads to the goal; each other player follows the leader with its
     own pilot and gunner. Worlds are compared at the end."""
     import threading
@@ -630,8 +630,15 @@ def squad(games, level, goal, folder, log, fly=False):
     stop = threading.Event()
 
     def lead():
-        result['leader'] = advance(leader, level, goal, str(Path(folder) / 'nav_1.json'),
-                                   lambda m: log('[1] ' + m), fly=fly)
+        if record:
+            leader.lua(f'coop_route("record", "{record}")')
+        if route:
+            result['leader'] = follow(leader, route, lambda m: log('[1] ' + m))
+        else:
+            result['leader'] = advance(leader, level, goal, str(Path(folder) / 'nav_1.json'),
+                                       lambda m: log('[1] ' + m), fly=fly)
+        if record:
+            leader.lua(f'coop_route("stop", "{record}")')
         stop.set()
 
     def follow(g):
@@ -771,6 +778,8 @@ def main(argv=None):
     sq.add_argument('--level', required=True)
     sq.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
     sq.add_argument('--fly', action='store_true', help="Max's jetpack: refuel and fly")
+    sq.add_argument('--route', help='follow this recording instead of exploring')
+    sq.add_argument('--record', help="record the leader's play under this name (kept by the game in coop/)")
     sq.add_argument('--evidence', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/runs'))
     fo = sub.add_parser('follow', help='play a recorded route closed-loop')
     fo.add_argument('--dirs', nargs='+', required=True)
@@ -818,7 +827,8 @@ def main(argv=None):
     if a.cmd == 'squad':
         t0 = time.monotonic()
         folder = Path(a.evidence) / time.strftime('%Y%m%d-%H%M%S')
-        ok, stats = squad(games, Level(a.level), a.to, folder, lambda m: print(m, flush=True), fly=a.fly)
+        ok, stats = squad(games, Level(a.level), a.to, folder, lambda m: print(m, flush=True), fly=a.fly,
+                          route=a.route, record=a.record)
         print(f'{"RESULT: PASS" if ok else "RESULT: FAIL"} in {time.monotonic() - t0:.0f}s: {stats}; evidence {folder}')
         return 0 if ok else 1
     if a.cmd == 'advance':
