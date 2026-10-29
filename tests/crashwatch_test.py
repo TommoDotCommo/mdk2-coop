@@ -126,6 +126,52 @@ class CrashWatchTest(unittest.TestCase):
             crashwatch.list_dumps = real
         self.assertFalse(crashwatch.verdict(self.state)[0])
 
+    def test_redirected_crash_folder_of_our_copy_is_watched(self):
+        inst = self.mine / 'profile' / 'MDK2HD' / 'crash'
+        inst.mkdir(parents=True)
+        crashwatch.begin(self.state, [str(self.crash), str(inst)], [str(self.mine)])
+        image = str(self.mine).replace('/', '\\') + '\\mdk2hd.exe'
+        (inst / 'dump0000.dmp').write_bytes(minidump_fixture.build([(0x400000, 0x208000, image)]))
+        ok, lines = crashwatch.verdict(self.state)
+        self.assertFalse(ok)
+        self.assertIn(str(inst), lines[0])
+
+    def test_dump_in_a_copys_own_folder_is_ours_even_with_a_foreign_image_path(self):
+        inst = self.mine / 'profile' / 'MDK2HD' / 'crash'
+        inst.mkdir(parents=True)
+        crashwatch.begin(self.state, [str(self.crash), str(inst)], [str(self.mine)])
+        (inst / 'dump0000.dmp').write_bytes(minidump_fixture.build([(0x400000, 0x208000, 'C:\\elsewhere\\mdk2hd.exe')]))
+        self.assertFalse(crashwatch.verdict(self.state)[0])
+
+    def test_real_folder_still_attributes_by_image_when_instance_folders_are_watched(self):
+        inst = self.mine / 'profile' / 'MDK2HD' / 'crash'
+        inst.mkdir(parents=True)
+        crashwatch.begin(self.state, [str(self.crash), str(inst)], [str(self.mine)])
+        self.dump('dump0001.dmp', self.other)
+        ok, lines = crashwatch.verdict(self.state)
+        self.assertTrue(ok)
+        self.assertIn('other copy', lines[0])
+        self.dump('dump0002.dmp', self.mine)
+        self.assertFalse(crashwatch.verdict(self.state)[0])
+
+    def test_dump_older_than_the_run_in_an_instance_folder_is_ignored(self):
+        inst = self.mine / 'profile' / 'MDK2HD' / 'crash'
+        inst.mkdir(parents=True)
+        (inst / 'dump0000.dmp').write_bytes(b'old')
+        crashwatch.begin(self.state, [str(self.crash), str(inst)], [str(self.mine)])
+        self.assertEqual(crashwatch.verdict(self.state), (True, []))
+
+    def test_collect_keeps_same_named_dumps_of_two_folders(self):
+        inst = self.mine / 'profile' / 'MDK2HD' / 'crash'
+        inst.mkdir(parents=True)
+        crashwatch.begin(self.state, [str(self.crash), str(inst)], [str(self.mine)])
+        image = str(self.mine).replace('/', '\\') + '\\mdk2hd.exe'
+        for folder in (self.crash, inst):
+            (folder / 'dump0000.dmp').write_bytes(minidump_fixture.build([(0x400000, 0x208000, image)]))
+        moved = crashwatch.collect(self.state, str(Path(self.tmp.name) / 'evidence'))
+        self.assertEqual(len(moved), 2)
+        self.assertEqual(len(set(moved)), 2)
+
 
 class ShellGuardTest(unittest.TestCase):
     """tools/mdk.sh: a script that sources it fails (97) when a dump of its copy appears."""
@@ -174,6 +220,22 @@ PY
         r = self.run_fake('trap "echo cleanup" EXIT\nexit 0')
         self.assertEqual(r.returncode, 97, r.stderr)
         self.assertIn('cleanup', r.stdout)
+
+    def test_dump_in_the_copys_redirected_crash_folder_fails_the_run(self):
+        body = '''mkdir -p "$FAKE/game1/profile/MDK2HD/crash"
+python3 - <<'PY'
+import os, sys
+sys.path.insert(0, os.environ['TESTS'])
+import minidump_fixture
+img = os.environ['FAKE'] + '/game1/mdk2hd.exe'
+open(os.environ['FAKE'] + '/game1/profile/MDK2HD/crash/dump0000.dmp', 'wb').write(minidump_fixture.build([(0x400000, 0x208000, img)]))
+PY
+exit 0'''
+        os.environ['TESTS'] = str(Path(__file__).resolve().parent)
+        r = self.run_script(body)
+        self.assertEqual(r.returncode, 97, r.stderr)
+        self.assertIn('profile/MDK2HD/crash/dump0000.dmp', r.stderr)
+        self.assertEqual(self.run_script(body, guard='0').returncode, 0)     # mutant: guard off lets it pass
 
     def test_mutant_guard_off_lets_the_crash_pass(self):
         self.assertEqual(self.run_fake('exit 0', guard='0').returncode, 0)

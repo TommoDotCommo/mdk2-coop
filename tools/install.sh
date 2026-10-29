@@ -9,6 +9,8 @@
 # Their windows go side by side on the second monitor (the primary one if there is no other).
 # MDK2_BUILD=overhaul|steam (or MDK2_BUILD<i> per copy) puts that build's mdk2hd.exe into the copies first;
 # overhaul needs MDK2_OVERHAUL_EXE, steam uses MDK2_SRC.
+# Every copy gets its own user data folder (MDK2_SAVE_ISOLATE, default on; see tools/mdk.sh): a clean profile
+# is seeded at each install, so a run never reads or writes the real saves.
 # Game copies: MDK2_N of them, instance 1 the host (see tools/mdk.sh).
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -36,6 +38,7 @@ for i in $(mdk_seq); do
         awk '/^\[/ { skip = ($0 ~ /^\[(steam_)?slots\]/) } !skip' "$p" > "$p.new" && rm -f "$p" && mv "$p.new" "$p"
     fi
     dirs="$dirs $d"
+    if mdk_isolated; then mdk_profile_seed "$i" || { echo "cannot seed the profile of game $i"; exit 1; }; fi
 done
 mx=0; my=0
 if [ "${MDK2_BACKGROUND:-0}" = 1 ]; then
@@ -48,9 +51,10 @@ fi
 for i in $(mdk_seq); do
     if [ "$MDK2_N" -le 2 ]; then x=$((mx + 20 + (i - 1) * 840)); y=$((my + 40))
     else x=$((mx + 10 + (i - 1) % 4 * 630)); y=$((my + 20 + (i - 1) / 4 * 650)); fi
+    sd=""; if mdk_isolated; then sd=$'save_dir=profile\r\n'; fi
     if [ "$i" = 1 ]; then net="role=host\r\nlisten_port=$MDK2_PORT"
     else net="role=client\r\nlisten_port=$((MDK2_PORT + i - 1))\r\npeer_host=127.0.0.1\r\npeer_port=$MDK2_PORT"; fi
-    printf "[net]\r\ntransport=udp\r\n$net\r\n[controls]\r\ndevkeys=1\r\n[launcher]\r\nlobby=%s\r\n[test]\r\nbackground=%s\r\nx=%d\r\ny=%d\r\n" "${MDK2_LOBBY:-0}" "${MDK2_BACKGROUND:-0}" "$x" "$y" \
+    printf "[net]\r\ntransport=udp\r\n$net\r\n[controls]\r\ndevkeys=1\r\n[launcher]\r\nlobby=%s\r\n[test]\r\nbackground=%s\r\nx=%d\r\ny=%d\r\n%s" "${MDK2_LOBBY:-0}" "${MDK2_BACKGROUND:-0}" "$x" "$y" "$sd" \
         > "$(mdk_wsl "$(mdk_dir $i)")/coop/coop.ini"
     # MDK2_SIM="<latency ms> <jitter ms> <loss %>": every game fakes a bad connection on what it receives
     if [ -n "${MDK2_SIM:-}" ]; then

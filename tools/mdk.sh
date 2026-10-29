@@ -6,6 +6,12 @@
 #   MDK2_TOOLS              Windows folder for tools/win/*.ps1 (default: tools in copy 1)
 #   MDK2_PIDS               file with the instances' pids, in order
 #   MDK2_REGISTER_PID       optional executable called with each newly started PID
+#   MDK2_SAVE_ISOLATE      1 (default): every copy keeps its saves, crash reports and settings.lua in its own
+#                          <game dir>\profile\MDK2HD, never in the real %LOCALAPPDATA%\MDK2HD ([test] save_dir);
+#                          0: the copy uses the real folder (only for a run that must see the owner's profile)
+#   MDK2_SAVE_SEED         optional folder (Windows or WSL path) copied into each fresh profile\MDK2HD at install:
+#                          the known-good save set (save\*.sav) and a settings.lua; without it the profile starts
+#                          empty with the real settings.lua minus the mod's loader block
 #   MDK2_PROCESS_SERVICE=1  launch through Win32_Process.Create when the calling process
 #                           forces system DLLs ahead of the local dinput8.dll proxy
 #   MDK2_CRASH_DIR          folder the Overhaul build writes dump%04i.dmp into (default %LOCALAPPDATA%\MDK2HD\crash)
@@ -67,9 +73,21 @@ mdk_crash_begin() {
         crash="$(powershell.exe -NoProfile -Command '$env:LOCALAPPDATA' 2>/dev/null | tr -d '\r')\\MDK2HD\\crash"
         [ "$crash" = '\MDK2HD\crash' ] && return 0
     fi
+    # the Overhaul handler writes dumps where the per-instance redirect points (bridge/redirect.c), so watch
+    # each copy's own crash folder too: the default <game dir>\profile\MDK2HD\crash (the install may come
+    # after this snapshot) and wherever its coop.ini [test] save_dir says
+    local crashes=(--crash-dir "$crash") sd sep w
+    for i in $(mdk_seq); do d="$(mdk_dir "$i" 2>/dev/null)" || return 0
+        sep='\'; case "$d" in ?:*) ;; *) sep=/;; esac          # Windows paths, or WSL ones when a test hands them in
+        crashes+=(--crash-dir "$d${sep}profile${sep}MDK2HD${sep}crash")
+        w="$(mdk_wsl "$d" 2>/dev/null)"
+        sd=$([ -n "$w" ] && tr -d '\r' < "$w/coop/coop.ini" 2>/dev/null | sed -n 's/^save_dir=//p' | head -1)
+        case "$sd" in "") ;; ?:*) crashes+=(--crash-dir "$sd${sep}MDK2HD${sep}crash");;
+                      *) [ "$sd" = profile ] || crashes+=(--crash-dir "$d${sep}$sd${sep}MDK2HD${sep}crash");; esac
+    done
     export MDK2_CRASH_STATE; MDK2_CRASH_STATE="$(mktemp /tmp/mdk2-crash-state.XXXXXX)"
     export MDK2_CRASH_OWNER=$$
-    python3 -I "$mdk_crash_tool" begin --state "$MDK2_CRASH_STATE" --crash-dir "$crash" "${args[@]}" || unset MDK2_CRASH_STATE
+    python3 -I "$mdk_crash_tool" begin --state "$MDK2_CRASH_STATE" "${crashes[@]}" "${args[@]}" || unset MDK2_CRASH_STATE
 }
 # mdk_crash_expect [n]: the script is about to crash n game(s) on purpose
 mdk_crash_expect() { mdk_crash_on && python3 -I "$mdk_crash_tool" expect --state "$MDK2_CRASH_STATE" "${1:-1}"; return 0; }
@@ -99,6 +117,21 @@ trap() {
         builtin trap "$@"
     fi
 }
+# ---- per-instance user data (bridge/redirect.c): <game dir>\profile\MDK2HD stands in for %LOCALAPPDATA%\MDK2HD
+mdk_isolated()    { [ "${MDK2_SAVE_ISOLATE:-1}" != 0 ]; }
+mdk_profile()     { echo "$(mdk_wsl "$(mdk_dir "${1:-1}")")/profile/MDK2HD"; }        # WSL path of instance i's folder
+mdk_real_profile() { echo "$(mdk_wsl "$(powershell.exe -NoProfile -Command '$env:LOCALAPPDATA' | tr -d '\r')")/MDK2HD"; }
+# mdk_profile_seed <i>: a clean profile for instance i (the old one, saves and all, is removed)
+mdk_profile_seed() { local p seed real; p="$(mdk_profile "$1")"
+                     rm -rf "$(dirname "$p")"; mkdir -p "$p/save" "$p/crash" || return 1
+                     seed="${MDK2_SAVE_SEED:-}"; [ -n "$seed" ] && [ ! -d "$seed" ] && seed="$(mdk_wsl "$seed")"
+                     if [ -n "$seed" ] && [ -d "$seed" ]; then cp -r "$seed"/. "$p/" || return 1; fi
+                     if [ ! -f "$p/settings.lua" ]; then real="$(mdk_real_profile)/settings.lua"
+                         if [ -f "$real" ]; then sed '/^-- >>> mdk2-coop >>>/,/^-- <<< mdk2-coop <<</d' "$real" > "$p/settings.lua"; fi; fi; }
+# mdk_crash_dumps: every crash report of our copies, one per line: the dumps beside the exe and the
+# game's own crash folder (the instance's, and the real one when this run is not isolated)
+mdk_crash_dumps() { local i d; for i in $(mdk_seq); do d="$(mdk_wsl "$(mdk_dir "$i")")"
+                        ls -1 "$d"/mdk2hd_crash_*.mdmp "$d"/profile/MDK2HD/crash/* 2>/dev/null; done; }
 mdk_pids()  { cat "$MDK2_PIDS"; }
 mdk_pid()   { local i=0 p; for p in $(mdk_pids); do i=$((i + 1)); [ "$i" = "$1" ] && { echo "$p"; return; }; done; }
 # Input: in background test mode (MDK2_BACKGROUND=1 at install) a Lua line goes to the game

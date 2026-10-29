@@ -654,7 +654,7 @@ static void settings_read(void)
 
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
     snprintf(player_ini, MAX_PATH, "%s\\player.ini", coop_dir);
-    GetEnvironmentVariableA("LOCALAPPDATA", settings_lua, MAX_PATH - 32);
+    redirect_data_base(settings_lua, MAX_PATH - 32);
     strcat(settings_lua, "\\MDK2HD\\settings.lua");
 
     /* host or join follows [net] role, which the installer and Options > Co-op change too */

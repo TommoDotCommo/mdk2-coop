@@ -484,6 +484,13 @@ void bot_level_loaded(int level);
  * game_dir: the game's own folder; coop.lua is always read from <game_dir>\coop. */
 extern char coop_dir[MAX_PATH], game_dir[MAX_PATH];
 
+/* ---- redirect.c: per-instance user data folder ([test] save_dir) ---- */
+
+void redirect_init(void);
+int redirect_retry(void);       /* 1: the import is not resolved yet, call again later */
+int redirect_active(void);
+int redirect_data_base(char *out, size_t n);    /* what stands in for %LOCALAPPDATA%; 0 if unknown */
+
 /* ---- launcher.c ---- */
 
 extern int coop_enabled;

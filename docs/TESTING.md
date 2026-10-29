@@ -36,6 +36,40 @@ are released. Every game gate cleans up all of its lane's copies. Final cleanup
 releases resources on success, failure, timeout or Ctrl-C. Use separate worktrees and an allocator
 for concurrent runners.
 
+## Per-instance user data
+
+The game keeps its saves, crash reports, screenshots and `settings.lua` in `%LOCALAPPDATA%\MDK2HD`,
+which it finds through `SHGetSpecialFolderPathA(CSIDL_LOCAL_APPDATA)`; the environment variable does
+not move it. Test copies that share that folder overwrite each other's saves and crash reports, and a
+run changes the owner's real saves. `bridge/redirect.c` fixes this inside the proxy: with
+`[test] save_dir=<folder>` in `coop.ini` (absolute, or relative to the game folder) the game exe's
+import of that one function is pointed at a wrapper that answers `<folder>`, so the game uses
+`<folder>\MDK2HD`. It is off when the key is absent, so players are unaffected. It needs no
+change per build: the Steam and the Overhaul executables import the function identically, and both
+passed `tools/qa_redirect.sh`. If the key is set and the import is missing the game exits (code 125)
+instead of writing into the real profile.
+
+`tools/install.sh` turns it on for every copy it installs (`MDK2_SAVE_ISOLATE`, default 1; set 0 only for
+a run that needs the real profile): it empties `<game dir>\profile`, seeds `profile\MDK2HD`, writes
+`save_dir=profile` and puts the loader line into the copy's own `settings.lua`. The seed is the folder
+`MDK2_SAVE_SEED` points to (its layout is `MDK2HD`'s: `save\*.sav`, `settings.lua`); without one the
+profile starts with no saves and the real `settings.lua` minus the mod's loader block. The seed is copied
+at install time, so a restart inside a suite (a host crash and resume) keeps the saves the suite made.
+`tools/qa_all.py` copies a copy's `profile\MDK2HD\crash` files next to its `mdk2hd_crash_*.mdmp`
+dumps, and `mdk_crash_dumps` in `tools/mdk.sh` lists both places.
+
+`tools/qa_redirect.sh` starts two copies with different redirects and a marker file in each seed, waits for
+both to make a co-op save, then asserts: both logged the redirect, each save is in its own folder,
+each folder holds its own marker and not the other's, the real `save`, `crash` and `settings.lua` hash the
+same as before (`MDK2_REAL_SHARED=1` relaxes this to "none of the files these games wrote is in the real
+folder" while other sessions without the redirect write it at the same moment), no new crash dump, all
+games alive. `MUTANT=shared` points both copies at one folder and must fail. `tests/redirect_default_test.py` checks that the redirect stays off for players: the DLL's default is
+empty, and neither the example configuration, the installers, `tools/release.sh` nor the release payload
+(checked on the built zip when `MDK2_RELEASE_ZIP` is set) names `save_dir`. Only `tools/install.sh` writes
+it, and only while isolating. A live "redirect off" mutant
+would write into the real profile, so it is not run; `make -C bridge test-redirect` covers the off state
+(nothing hooked, the environment answers) and the on state against a program's own import.
+
 ## Configuring test resources
 
 For one lane on a dedicated machine, export `MDK2_DIR1` through the number of copies
@@ -102,6 +136,7 @@ apply 80 ms latency, 30 ms jitter and 3% loss; this is one simulated condition.
 | Minigames | The torpedo runs of levels 2, 5 and 9 with two players, each won through the game's own end-of-course hook | Both games reach the minigame and each logs the other's ghost ship; both survive the end of the minigame (the client crashed at level 2 on a movie-camera emitter with a negative ring index); mutant with the bridge's emitter guard off fails; screenshots as evidence |
 | Level 8 intro | The intro movie with two players | Both see it to its end and the client survives the movie deleting the host's enemies by name; mutant without coop.lua's gone-gob check crashes the client |
 | Level epochs | Same-checkpoint reset after a spawn/pickup, then a same-epoch network outage | Actual loads, restored items/actors, world comparisons, retained world on reconnect; native spawn deferral and epoch-wrap assertions |
+| Per-instance user data | `tools/qa_redirect.sh`: two copies with different redirects, a co-op save in each | Each save and marker only in its own folder, real save/crash/settings unchanged, no crash dump; mutant with both copies on one folder fails |
 | Save/reconnect | Client/host crash, resume, network cut, subsequent level change | Saved identity, HP/position and world state |
 | Instant-save script tasks | `tools/qa_save_scripts.sh`: save and resume level 2 checkpoint 7 with two games | Native attack task functions retain a global resolver name and are functions after loading on both peers; `MUTANT=unresolved` removes that name and must fail |
 | Menus/settings | Options (Gameplay, Interface, Voice chat, Controls), bindings, presets, conflicts, persistence, launcher (its Settings sections: an Interface switch and a sound level), the emote wheel switched off and on | In-game reads, settings files (coop.ini, settings.lua), the wheel playing nothing while off (mutant ignoring the switches fails) and screenshot evidence |
@@ -237,7 +272,10 @@ now takes a snapshot when it starts and fails with status 97 and `CRASH` lines w
 
 - a new dump appears in the crash folder (`MDK2_CRASH_DIR`, default `%LOCALAPPDATA%\MDK2HD\crash`)
   whose image paths belong to one of its game copies (a dump of another session's copy is
-  reported as a note and does not fail the run; an unreadable new dump does fail it);
+  reported as a note and does not fail the run; an unreadable new dump does fail it). Isolated
+  copies ([Per-instance user data](#per-instance-user-data)) write their dumps to their own
+  `<game dir>\profile\MDK2HD\crash` (or wherever `coop.ini` `save_dir` says), so those folders are
+  watched as well; a new dump in a copy's own folder is that copy's by location;
 - a new `coop/logs/*.crash` marker appears in a copy (written by the bridge on every build);
 - a dialog box of one of its game processes is on screen. `tools/win/dialogs.ps1` records it and
   dismisses it (a Yes/No box gets No, which writes the dump) so the game cannot stall the run;

@@ -6,7 +6,7 @@ shares, and shows an error dialog ("Jinkies! There was an error...") that stalls
 The mod also leaves coop/logs/*.crash next to its session log for every crash it sees, on
 every build. This tool watches for all three:
 
-    crashwatch.py begin  --state F --crash-dir D --dir GAMEDIR...   snapshot before a run
+    crashwatch.py begin  --state F --crash-dir D... --dir GAMEDIR...   snapshot before a run
     crashwatch.py expect --state F N                                N deliberate crashes
     crashwatch.py record --state F KIND TEXT                        add a finding by hand
     crashwatch.py dialogs --state F [--close]                       record (and close) error dialogs
@@ -16,6 +16,9 @@ every build. This tool watches for all three:
 
 A dump found after `begin` is attributed to a game copy by the image paths inside it, so a
 crash of another agent's copy that shares the folder is reported but does not fail this run.
+--crash-dir may be given more than once: the real crash folder and each isolated copy's own
+(bridge/redirect.c points the Overhaul handler at <game dir>\\profile\\MDK2HD\\crash). A dump in a folder
+inside a watched game copy is that copy's by location; one in any other folder is attributed by image path.
 Game copy paths are Windows paths (as in MDK2_DIR1); the folders are given as paths this
 process can read (WSL or native) and are mapped by --map-win when the two differ.
 """
@@ -72,8 +75,29 @@ def save(state, data):
     os.replace(tmp, state)
 
 
+def as_list(crash_dirs):
+    return [crash_dirs] if isinstance(crash_dirs, str) else list(crash_dirs)
+
+
+def all_dumps(crash_dirs):
+    """{full path: size} over every watched crash folder."""
+    out = {}
+    for c in crash_dirs:
+        folder = wsl_path(c)
+        for name, size in list_dumps(folder).items():
+            out[os.path.join(folder, name)] = size
+    return out
+
+
+def inside(folder, dirs):
+    f = norm(folder)
+    return any(f.startswith(norm(wsl_path(d)) + '\\') for d in dirs)
+
+
 def begin(state, crash_dir, dirs):
-    save(state, {'crash_dir': crash_dir, 'dirs': dirs, 'dumps': list_dumps(wsl_path(crash_dir)),
+    crash_dirs = as_list(crash_dir)
+    save(state, {'crash_dir': crash_dirs[0] if crash_dirs else '', 'crash_dirs': crash_dirs, 'dirs': dirs,
+                 'dumps': all_dumps(crash_dirs),
                  'markers': {d: list_markers(d) for d in dirs}, 'expected': 0, 'manual': [],
                  'dialogs': [], 'started': time.time()})
 
@@ -107,16 +131,20 @@ def attribute(dump_path, dirs):
     return '', text
 
 
+def watched(s):
+    return s.get('crash_dirs') or [s['crash_dir']]
+
+
 def findings(state_file):
     """All crash findings since `begin`: list of dicts {kind, text, ours}."""
     s = load(state_file)
     out = []
-    crash_dir = wsl_path(s['crash_dir'])
-    for name, _ in sorted(list_dumps(crash_dir).items()):
-        if name in s['dumps']:
+    for path in sorted(all_dumps(watched(s))):
+        if path in s['dumps']:
             continue
-        path = os.path.join(crash_dir, name)
         owner, text = attribute(path, s['dirs'])
+        if owner == '' and inside(os.path.dirname(path), s['dirs']):
+            owner = os.path.dirname(path)          # in a copy's own crash folder: that copy's, by location
         if owner is None:
             out.append({'kind': 'dump', 'ours': True, 'text': '%s: %s' % (path, text)})
         elif owner == '':
@@ -163,16 +191,17 @@ def collect(state_file, target):
     """Move the dumps this run made of its own copies into target (deliberate crashes only: the
     shared crash folder belongs to the player, test dumps do not belong in it)."""
     s = load(state_file)
-    crash_dir = wsl_path(s['crash_dir'])
     os.makedirs(target, exist_ok=True)
     moved = []
-    for name in sorted(list_dumps(crash_dir)):
-        if name in s['dumps']:
+    for path in sorted(all_dumps(watched(s))):
+        if path in s['dumps']:
             continue
-        path = os.path.join(crash_dir, name)
         owner, _ = attribute(path, s['dirs'])
-        if owner:
-            dest = os.path.join(target, name)
+        if owner or (owner == '' and inside(os.path.dirname(path), s['dirs'])):
+            dest = os.path.join(target, os.path.basename(path))
+            n = 1
+            while os.path.exists(dest):          # two copies' folders both number their dumps from 0
+                dest = os.path.join(target, '%d-%s' % (n, os.path.basename(path))); n += 1
             os.replace(path, dest) if os.stat(path).st_dev == os.stat(target).st_dev else (
                 shutil.copy2(path, dest), os.remove(path))
             moved.append(dest)
@@ -205,7 +234,7 @@ def record_dialogs(state_file, close, lines=None):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     sub = ap.add_subparsers(dest='cmd', required=True)
-    p = sub.add_parser('begin'); p.add_argument('--state', required=True); p.add_argument('--crash-dir', required=True)
+    p = sub.add_parser('begin'); p.add_argument('--state', required=True); p.add_argument('--crash-dir', action='append', required=True)
     p.add_argument('--dir', action='append', default=[])
     p = sub.add_parser('expect'); p.add_argument('--state', required=True); p.add_argument('count', type=int)
     p = sub.add_parser('record'); p.add_argument('--state', required=True); p.add_argument('kind'); p.add_argument('text')

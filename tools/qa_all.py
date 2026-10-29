@@ -49,6 +49,7 @@ OFFLINE = [Gate("rear-gate-routing", ("bash", "tools/test_rear_gate.sh")),
            Gate("oracles-routes-input", ("bash", "tools/test_replay.sh")),
            Gate("projectile-core", ("make", "-C", "bridge", "test-shots")),
            Gate("controller-core", ("make", "-C", "bridge", "test-pad")),
+           Gate("redirect-core", ("make", "-C", "bridge", "test-redirect")),
            Gate("revive-core", ("make", "-C", "bridge", "test-revive")),
            Gate("network-core", ("bash", "tools/test_network.sh")),
            Gate("pickups-core", ("bash", "tools/test_pickups.sh")),
@@ -62,7 +63,7 @@ SMOKE = [Gate("two-player", ("bash", "tools/qa.sh"), 2, result="counts"),
 FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
             for name, script, players, result in [
                 ("multiplayer", "qa_n", 3, "counts"), ("save-reconnect", "qa_save", 3, "counts"),
-                ("save-script-tasks", "qa_save_scripts", 2, "counts"),
+                ("save-script-tasks", "qa_save_scripts", 2, "counts"), ("save-redirect", "qa_redirect", 2, "counts"),
                 ("level-epochs", "qa_epoch", 2, "counts"), ("enemy-targeting", "qa_ai", 2, "counts"), ("native-room-ai", "qa_room_ai", 2, "counts"),
                 ("hans-targeting", "qa_hans", 2, "counts"),
                 ("attached-canopy", "qa_presence", 3, "counts"), ("client-join", "qa_join", 2, "counts"),
@@ -308,8 +309,10 @@ def collect_games(env, slots, folder):
             source = game / "coop" / name
             if source.is_file():
                 shutil.copy2(source, folder / f"game-{i}-{name}")
-        for source in game.glob("mdk2hd_crash_*.mdmp"):
-            shutil.copy2(source, folder / f"game-{i}-{source.name}")
+        # the dumps beside the exe, and the game's crash folder in the copy's own profile
+        for source in [*game.glob("mdk2hd_crash_*.mdmp"), *(game / "profile" / "MDK2HD" / "crash").glob("*")]:
+            if source.is_file():
+                shutil.copy2(source, folder / f"game-{i}-{source.name}")
 
 
 def main():
