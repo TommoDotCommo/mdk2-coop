@@ -317,7 +317,7 @@ def reachable_toward(nav, start, goal):
     return nav.cells[best][:3]
 
 
-def objectives(level, pos, radius=320):
+def objectives(level, pos, radius=150):
     """Scripted things whose death the level waits for (an OnDie handler: generators, locks, alarms,
     walls), nearest first."""
     kinds = ('OBJ_DESTRUCTABLE', 'OBJ_DOGANBOYGENERATOR', 'OBJ_SAMSMITEGENERATOR')
@@ -332,12 +332,17 @@ def kill_objective(game, nav, obj, log, seconds=25):
     the game says it is gone."""
     x, y, z = obj['pos']
     cells = sorted(reachable(nav, game.pos()), key=lambda k: math.dist(nav.cells[k][:3], obj['pos']))[:40]
-    spot = None
+    # the line of sight ends inside the object's own body at its centre: look for a height on it that
+    # a reachable place sees (the arena generators show from +4 up) --
+    spot = aim = None
     for k in cells:
         cx, cy, cz = nav.cells[k][:3]
-        seen = game.note('sees', f'coop_note("sees", coop.NavClear({cx},{cy},{cz + 3},{x},{y},{z + 2}) and "1" or "0")')
-        if seen.strip() == '1':
-            spot = (cx, cy, cz)
+        for dz in (2, 4, 6, 8):
+            seen = game.note('sees', f'coop_note("sees", coop.NavClear({cx},{cy},{cz + 3},{x},{y},{z + dz}) and "1" or "0")')
+            if seen.strip() == '1':
+                spot, aim = (cx, cy, cz), z + dz
+                break
+        if spot:
             break
     if not spot:
         log(f'    {obj["name"]}: no reachable place sees it')
@@ -348,7 +353,7 @@ def kill_objective(game, nav, obj, log, seconds=25):
         if not alive(game, obj['name']):
             log(f'    killed {obj["name"]} ({obj["type"]}) in {time.monotonic() - t0:.1f}s')
             return True
-        game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {x}-p.position.x, {y}-p.position.y, {z + 2}-p.position.z-3) '
+        game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {x}-p.position.x, {y}-p.position.y, {aim}-p.position.z-3) '
                  f'coop_press(256, 600)')
         time.sleep(.5)
     log(f'    {obj["name"]}: still alive after {seconds}s of fire')
@@ -383,6 +388,7 @@ def advance(game, level, goal, out, log, max_rounds=40):
     stats = {'scans': 0, 'walks': 0, 'destroyed': [], 'rounds': 0}
     for target in targets:
         stalls = 0
+        best = math.dist(game.pos()[:2], target[:2])
         while math.dist(game.pos()[:2], target[:2]) > 4:
             stats['rounds'] += 1
             if stats['rounds'] > max_rounds:
@@ -400,8 +406,10 @@ def advance(game, level, goal, out, log, max_rounds=40):
             spot = reachable_toward(nav, before, target)
             pos, state = walk(game, nav, spot, log)
             stats['walks'] += 1
-            gained = math.dist(before[:2], target[:2]) - math.dist(pos[:2], target[:2])
-            log(f'  toward {[round(v) for v in target]}: {state}, {gained:+.1f} closer, now {[round(v, 1) for v in pos]}')
+            # progress is a new best distance to the target: walking back what a push lost is not
+            gained = best - math.dist(pos[:2], target[:2])
+            best = min(best, math.dist(pos[:2], target[:2]))
+            log(f'  toward {[round(v) for v in target]}: {state}, {gained:+.1f} past the best, now {[round(v, 1) for v in pos]}')
             if gained > 2:
                 stalls = 0
                 continue
@@ -410,8 +418,9 @@ def advance(game, level, goal, out, log, max_rounds=40):
             # the target for a few seconds, then look again --
             if stalls == 1:
                 r = game.goto(*target, radius=4, timeout=6, explore=0)
-                moved = math.dist(before[:2], target[:2]) - math.dist(game.pos()[:2], target[:2])
-                log(f'    pushed toward the target: {moved:+.1f}')
+                moved = best - math.dist(game.pos()[:2], target[:2])
+                best = min(best, math.dist(game.pos()[:2], target[:2]))
+                log(f'    pushed toward the target: {moved:+.1f} past the best')
                 if moved > 2:
                     stalls = 0
                     continue

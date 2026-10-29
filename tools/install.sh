@@ -63,6 +63,8 @@ for i in $(mdk_seq); do
     if [ "$MDK2_N" -le 2 ]; then x=$((mx + 20 + (i - 1) * 840)); y=$((my + 40))
     else x=$((mx + 10 + (i - 1) % 4 * 630)); y=$((my + 20 + (i - 1) / 4 * 650)); fi
     sd=""; if mdk_isolated; then sd=$'save_dir=profile\r\n'; fi
+    # MDK2_TIMESCALE=k: background games run their clock k times as fast (bridge/input.c)
+    if [ -n "${MDK2_TIMESCALE:-}" ]; then sd="${sd}timescale=${MDK2_TIMESCALE}"$'\r\n'; fi
     if [ "$i" = 1 ]; then net="role=host\r\nlisten_port=$MDK2_PORT"
     else net="role=client\r\nlisten_port=$((MDK2_PORT + i - 1))\r\npeer_host=127.0.0.1\r\npeer_port=$MDK2_PORT"; fi
     printf "[net]\r\ntransport=udp\r\n$net\r\n[controls]\r\ndevkeys=1\r\n[launcher]\r\nlobby=%s\r\n[test]\r\nbackground=%s\r\nx=%d\r\ny=%d\r\n%s" "${MDK2_LOBBY:-0}" "${MDK2_BACKGROUND:-0}" "$x" "$y" "$sd" \

@@ -772,6 +772,25 @@ static void patch_import(const char *dll, const char *name, void *fn)
     logmsg("test: no import %s", name);
 }
 
+/* [test] timescale k (background test games only, for the campaign bot): the game's clocks run k
+ * times as fast from the moment it starts, and the frame cap rises k times, so each frame advances the
+ * world by the same step and a level plays k times as fast. The bridge keeps the real clock (now_ms):
+ * only the game's own imports are repointed. */
+static double time_scale = 1;
+static LARGE_INTEGER qpc_anchor;
+static DWORD tick_anchor;
+static BOOL WINAPI hook_QueryPerformanceCounter(LARGE_INTEGER *c)
+{
+    LARGE_INTEGER real;
+    BOOL ok = QueryPerformanceCounter(&real);
+    c->QuadPart = qpc_anchor.QuadPart + (LONGLONG)((double)(real.QuadPart - qpc_anchor.QuadPart) * time_scale);
+    return ok;
+}
+static DWORD WINAPI hook_GetTickCount(void)
+{
+    return tick_anchor + (DWORD)((double)(GetTickCount() - tick_anchor) * time_scale);
+}
+
 /* DllMain: read the switches and, when on, take over the window calls before WinMain runs */
 void input_init(void)
 {
@@ -813,6 +832,21 @@ void input_init(void)
         place_x = GetPrivateProfileIntA("test", "x", 0, ini);
         place_y = GetPrivateProfileIntA("test", "y", 0, ini);
         fps_cap = GetPrivateProfileIntA("test", "fps", 60, ini);
+        {
+            char scale[32];
+            GetPrivateProfileStringA("test", "timescale", "1", scale, sizeof(scale), ini);
+            time_scale = atof(scale);
+            if (time_scale > 1 && time_scale <= 8) {
+                QueryPerformanceCounter(&qpc_anchor);
+                tick_anchor = GetTickCount();
+                patch_import("kernel32.dll", "QueryPerformanceCounter", (void *)hook_QueryPerformanceCounter);
+                patch_import("kernel32.dll", "GetTickCount", (void *)hook_GetTickCount);
+                fps_cap = (int)(fps_cap * time_scale);
+                logmsg("test: game clock x%.2f, frame cap %d", time_scale, fps_cap);
+            } else {
+                time_scale = 1;
+            }
+        }
     }
     timeBeginPeriod(1);     /* Sleep(1) granularity for the cap */
     patch_import("user32.dll", "SetWindowLongA", (void *)hook_SetWindowLongA);
