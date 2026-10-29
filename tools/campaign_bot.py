@@ -278,7 +278,8 @@ def scan(game, out, timeout=900, fly=False, chute=False):
     for old in game.coop.glob('note_nav_*.txt'):
         old.unlink()
     x, y, z = game.pos()
-    game.lua(f'coop.NavStart({x},{y},{z},2,40000,4,6,{36 if fly else 0},{300 if chute else 0})')
+    # flying opens up every floor above; a room and its shaft fit in 12000 cells
+    game.lua(f'coop.NavStart({x},{y},{z},2,{12000 if fly else 40000},4,6,{36 if fly else 0},{300 if chute else 0})')
     deadline = time.monotonic() + timeout
     state = game.coop / 'note_nav_state.txt'
     while time.monotonic() < deadline:
