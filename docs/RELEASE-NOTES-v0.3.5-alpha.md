@@ -57,6 +57,14 @@ open `MDK2-Coop-Setup.exe`. It replaces v0.3.2-alpha and v0.3.3-alpha.
 - `tools/qa.sh` with three game copies no longer fails 11 checks: the script
   sent the client's keys to the host (a test-harness fault, not a product bug).
 
+- Other players no longer appear to walk through the rooms between when someone teleports or
+  respawns far away: the puppet snaps across jumps of more than 500 units instead of being
+  blended, so each game runs the same room-entry scripts. Game-free test with a mutant;
+  qa_sign's script check passed 8 of 8 runs on the Overhaul build and 3 of 3 on Steam.
+- Test reliability: the combat DPS check waits for the last event, qa_sign takes an exact health
+  baseline and no longer starts two clients with the same player id, and the canopy check waits
+  for the native deploy.
+
 ## Verified live
 
 Summary of what was run on this exact tree. Per-copy user data was redirected
@@ -91,6 +99,9 @@ level 2 rear gate suites, `qa_hans`, `qa_ai` (mutants `targeting`, `hostaoe`),
 `qa_lobby`. They were not repeated after the dogan change on Steam.
 
 ## Not verified
+
+- The teleport-snap change and the test fixes above were added after the full live run: this exact
+  build passed the build, unit tests and every offline gate, not the live ladder.
 
 - **The animation crash seen in an internet playtest is not fixed.** It was a
   crash in the Overhaul Games build at `exe+0x672ed`. It was not reproduced, so
