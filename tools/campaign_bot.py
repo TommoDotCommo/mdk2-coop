@@ -318,6 +318,56 @@ def reachable_toward(nav, start, goal):
     return nav.cells[best][:3]
 
 
+def hits_since(game, offset):
+    """Names this game's hero hit (bridge.log 'damage bob -> <name>') after offset; and the new offset."""
+    import re
+    log = game.coop / 'bridge.log'
+    data = log.read_bytes()
+    return re.findall(r'damage bob -> (\S+)', data[offset:].decode('latin-1')), len(data)
+
+
+def fire_sweep(game, wanted, log, pitches=(0, 70, -70), steps=16):
+    """Find which of the wanted objects the hero can hit from here, without knowing where their visible
+    part is (a scripted wall's registered position is its pivot, often inside rock): turn through
+    steps directions at a few pitches, fire a short burst at each, and read what was hit. Then hold the
+    aim that hit and fire until it is gone. Returns the name destroyed, or None."""
+    game.lua('coop.gunner=nil')
+    found = None
+    pitch = 0
+    offset = hits_since(game, 0)[1]
+    for want_pitch in pitches:
+        game.lua(f'coop_mouse(0,{want_pitch - pitch})')
+        pitch = want_pitch
+        for a in range(steps):
+            ang = a * 360 / steps
+            game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {math.cos(math.radians(ang)):.4f}, '
+                     f'{math.sin(math.radians(ang)):.4f}, 0) coop_press(256, 250)')
+            time.sleep(.4)
+            names, offset = hits_since(game, offset)
+            hit = [n for n in names if n in wanted]
+            if hit:
+                found = (hit[0], ang)
+                break
+        if found:
+            break
+    if not found:
+        game.lua(f'coop_mouse(0,{-pitch}) coop.GunnerOn(60)')
+        return None
+    name, ang = found
+    log(f'    fire sweep: {name} is hit facing {ang:.0f} degrees, pitch {pitch}')
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 30 and alive(game, name):
+        game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {math.cos(math.radians(ang)):.4f}, '
+                 f'{math.sin(math.radians(ang)):.4f}, 0) coop_press(256, 600)')
+        time.sleep(.5)
+    game.lua(f'coop_mouse(0,{-pitch}) coop.GunnerOn(60)')
+    if alive(game, name):
+        log(f'    fire sweep: {name} still alive after 30 s')
+        return None
+    log(f'    fire sweep: destroyed {name} in {time.monotonic() - t0:.1f}s')
+    return name
+
+
 def objectives(level, pos, toward=None, radius=150):
     """Scripted things whose death the level waits for (an OnDie handler: generators, locks, alarms,
     walls) within radius of the hero; those nearest the way on (toward) first, and among equals the ones
@@ -459,6 +509,13 @@ def advance(game, level, goal, out, log, max_rounds=40):
                     done = True
                     break
                 stats['gave_up'].append(obj['name'])
+            if not done:
+                # nothing seen from known positions: shoot around and see what is hit
+                wanted = {o['name'] for o in objectives(level, pos, target, radius=250) if alive(game, o['name'])}
+                gone = wanted and fire_sweep(game, wanted, log)
+                if gone:
+                    stats['destroyed'].append(gone)
+                    done = True
             if done:
                 stalls = 0
                 continue
@@ -485,7 +542,11 @@ def dump_state(game, folder, tag):
             raise TimeoutError(f'game {game.slot}: no state dump')
         time.sleep(.05)
     out = folder / f'{name}.txt'
-    out.write_text(path.read_text(encoding='latin-1'), encoding='latin-1')
+    # the bot's own invisible probes (coop_nav_a/b, coop_pilot_probe) exist only in the game that
+    # made them: they are not part of the world the games share
+    rows = [l for l in path.read_text(encoding='latin-1').splitlines()
+            if not (l.startswith('item ') and l.split()[-1].startswith(('coop_nav_', 'coop_pilot_')))]
+    out.write_text('\n'.join(rows) + '\n', encoding='latin-1')
     path.unlink(missing_ok=True)
     return out
 
