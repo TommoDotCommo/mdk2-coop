@@ -117,7 +117,8 @@ for n in $(mdk_seq); do
     sleep 1
     hp1=$(own_hp "$n")
     check "the dog hurt player $n: that game's own hp ${hp0[$n]} -> $hp1" test "$hp1" -lt "${hp0[$n]}"
-    check "the hit reached player $n's game as a direct hit from the dog" bash -c "[ '$(receipts "$n")' -gt '${rc0[$n]}' ] && case '$(field "$n" direct_source 2)' in r2_dog01|n$dog_id) true ;; *) false ;; esac"
+    # The host's own player is hit natively, with no remote receipt; a client's game must have received the hit from the host.
+    [ "$n" = 1 ] || check "the hit reached player $n's game as a direct hit from the dog" bash -c "[ '$(receipts "$n")' -gt '${rc0[$n]}' ] && case '$(field "$n" direct_source 2)' in r2_dog01|n$dog_id) true ;; *) false ;; esac"
     check "the host's native target for the dog was player $n" test "$(host_target)" = "@p$n"
     for i in $(mdk_seq); do
         [ "$i" = "$n" ] && continue
