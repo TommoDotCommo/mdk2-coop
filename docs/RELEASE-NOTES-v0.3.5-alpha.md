@@ -83,13 +83,22 @@ merged tree. Every baseline passed and each mutant that exists failed as require
   damaging both players, so they contain no evidence of him ignoring one, but
   they do not establish which game build produced them. No speculative runtime
   change was made.
-- **Overhaul Games build:** accepted by build detection. The live results above
-  are from the Steam build only; none were rerun on the Overhaul build for this
-  merged tree.
+- **Overhaul Games build:** on the integrated tree, with the targeting suites
+  keeping the client at least 300 units from the host, these passed on the
+  Overhaul build: `qa_ai` (`MUTANT=hostaoe` and `MUTANT=near` fail), `qa_hans`,
+  `qa_room_ai`, `qa_sign` (three players), `qa_animguard`, `qa_presence`,
+  `qa_join`, `qa_combat`, `qa_lobby`, `qa_proximity`. The same suites were run on
+  the Steam build with two exceptions: `qa_presence` failed its native-deploy
+  canopy check on two runs (cause unknown, not seen on the Overhaul build) and
+  one `qa_combat` run missed its DPS check before passing on a rerun.
+  `qa_sign` also failed once on the Steam build (a player 2 bite baseline race)
+  before passing. The save, resume, reload and rear-gate suites were not rerun
+  on the Overhaul build.
 - The full regression ladder (`qa_all.py full`) and the campaign checkpoint
   sweep were not run on this build, nor were the other feature suites.
-- `tools/qa_sign.sh` has an intermittent miss (the dog's bite check) and was
-  not run for this release.
+- `tools/qa_sign.sh` had intermittent misses in earlier runs. It now prints how
+  long each player took to be bitten; passing runs showed 1 to 2 s for host and
+  clients with the client far away.
 - Rendering of the damage numbers, hitmarker, ticker and panel is not asserted
   by pixels; only the ledger that feeds them is checked live.
 - Voice chat was tested with synthetic audio only.
