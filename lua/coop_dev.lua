@@ -748,6 +748,36 @@ function coop.SharedPickup(name, itemtype)
     coop.rewards[key] = { source = source, label = name, itemtype = itemtype }
 end
 
+-- A game started at a checkpoint (the launcher, the developer keys, a checkpoint restart) begins
+-- with the level's bare inventory: what the rooms before it gave is missing. The items a later room
+-- cannot be passed without, by level: { item type, the checkpoints that are past its pickup... }
+-- (from the level scripts: where the pickup is registered, and the checkpoints' positions).
+-- Each game gives its own player, through native collection like a shared pickup.
+function coop.CheckpointItems(l, cp)
+    local items = {
+        [2] = { { OBJ_JETPACK, 6, 7, 8, 9, 10 } },       -- l2_r5jetpack, in room 5 (checkpoint 5)
+        [5] = { { OBJ_JETPACK, 9, 10 } },                -- l5_r9_g04, below checkpoint 8
+        [8] = { { OBJ_ATOMICJETPACK, 6, 7 } },           -- l8r5_jetpack, at checkpoint 5
+    }
+    local list = items[l]
+    if (not list) then return end
+    local k = 1
+    while (list[k]) do
+        local e = list[k]
+        local i = 2
+        while (e[1] and e[i]) do
+            if (e[i] == cp) then
+                coop.reward_serial = coop.reward_serial + 1
+                coop.rewards[format("coop_reward_%d", coop.reward_serial)] =
+                    { source = "", label = "checkpoint start", itemtype = e[1] }
+                coop_log(format("level %d checkpoint %d starts without item type %d: given", l, cp, e[1]))
+            end
+            i = i + 1
+        end
+        k = k + 1
+    end
+end
+
 function coop.SharedPickupDone(gob, itemtype)
     local key, r = next(coop.rewards, nil)
     while (key and r.gob ~= gob) do key, r = next(coop.rewards, key) end
@@ -759,6 +789,7 @@ function coop.SharedPickupComplete(key, itemtype)
     local r = coop.rewards[key]
     if (not r) then return end
     coop.rewards[key] = nil
+    if (r.label == "checkpoint start") then coop.cp_given = (coop.cp_given or 0) + 1 end
     if (r.source ~= "") then
         coop.RunHandler(r.source, "OnPickedUp", coop_slot(), itemtype)
         coop_pickup_finish(r.source)
@@ -1196,6 +1227,8 @@ function level(l, cp, sec)
             coop_log(format("new co-op session %d", coop.sid))
         end
     end
+    -- a checkpoint started afresh (not a save, not the autosave after a death) has no inventory --
+    local fresh = (cp >= 0 and save == 0)
     -- checkpoint -1 is a reload from the autosave (after a death): tell the client which
     -- checkpoint that is instead; it cannot load our save --
     if (cp < 0) then cp = mdkGetCurrentCheckPoint() end
@@ -1206,9 +1239,11 @@ function level(l, cp, sec)
     coop.parked = {}
     coop.targetable = {}
     coop.rewards = {}
+    coop.cp_given = 0
     coop.rear_gate_result = nil
     coop.level = l
     coop.cp = cp
+    if (fresh) then coop.CheckpointItems(l, cp) end
     coop_level(l, cp, announce, save)
     coop.level_ready = 1
     coop.HookMovies()

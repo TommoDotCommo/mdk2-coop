@@ -33,10 +33,11 @@ static struct { DWORD player_handle; } ADDR = {0x5494c8};
 static int gob_slot(BYTE *g) { int i; if(!g) return 6; for(i=0;i<6;i++) if(g==bodies[i]) return i; return -1; }
 static DWORD gob_handle(int i) { return 0x10000u + i; }
 static BYTE *gob_by_handle(DWORD h) { int i; for(i=0;i<6;i++) if(h==gob_handle(i) && alive[i]) return bodies[i]; return NULL; }
-static int gob_alive(BYTE *g) { int i=gob_slot(g); return i>=0 && alive[i]; }
+static int gob_alive(BYTE *g) { int i=gob_slot(g); return g && i>=0 && alive[i]; } /* NULL-safe, as in game.c */
 static int gob_type(BYTE *g) { return types[gob_slot(g)]; }
 static int gob_is_actor(BYTE *g) { assert(g); return gob_type(g)>=200 && gob_type(g)<260; }
 static int gob_class(BYTE *g) { return gob_is_actor(g) ? 3 : 1; }
+static int gob_is_projectile(BYTE *g) { return g && gob_type(g)>=400 && gob_type(g)<500; }
 static void class_filter_think(int cls) { if (cls > 0) filtered_classes++; }
 static void gob_set_position(void *g, float x, float y, float z) {
     float *p = (float *)((BYTE *)g + GOB_POSITION);
@@ -197,6 +198,13 @@ int main(void)
     assert(ai_projectile_target(bodies[3], bodies[5])==bodies[5]); /* script target */
     assert(ai_projectile_target(local_player, local_player)==local_player); /* player aim */
     no_targeting=1; assert(ai_projectile_target(bodies[3], local_player)==local_player); no_targeting=0;
+    /* Scenery guns (the level 1 ring turrets) aim at the engine's player from an animation:
+     * they get the nearest player too, but a shot fired at nothing stays aimless. */
+    assert(ai_projectile_target(bodies[4], local_player)==bodies[1]);
+    assert(ai_projectile_target(bodies[4], NULL)==NULL);
+    assert(ai_projectile_target(bodies[4], bodies[5])==bodies[5]);
+    presence_projectile(bodies[4], bodies[1]); assert(ranged_evidence[4].shots[1]==1);
+    no_direct_hurt=1; assert(presence_hit(bodies[4],bodies[1],0)==1); no_direct_hurt=0;
     {
         DWORD victim = ai_evidence[3].victim;
         unsigned int queries = ai_evidence[3].queries;

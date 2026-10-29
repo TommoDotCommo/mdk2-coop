@@ -135,14 +135,24 @@ static void ai_store_target(BYTE *gob, BYTE *target)
     if (gob && slot >= 0) *(DWORD *)(gob + GOB_TARGET) = gob_handle(slot);
 }
 
+/* A gob that fires at players and is not one: actors, and scenery guns that shoot from
+ * their animation (the level 1 boss's ring turrets, turret01_xx / turret02_xx, are
+ * OBJ_SCENERY on l1_r8outerguns and aim at the engine's player, which is the host). */
+static int world_shooter(BYTE *gob)
+{
+    return gob_alive(gob) && gob != local_player && puppet_slot(gob) < 0 && !gob_is_projectile(gob);
+}
+
 /* Some ranged tasks pass the game's cached host target directly to launch.
  * Keep the native decision to fire and native ballistics, but use the same
- * eligible player as acquisition; explicit scripted non-player targets win. */
+ * eligible player as acquisition; explicit scripted non-player targets win.
+ * A shooter that is not an actor is only retargeted when it aims at a player. */
 BYTE *ai_projectile_target(BYTE *shooter, BYTE *target)
 {
     BYTE *selected;
-    if (!role_host || !have_remote || no_targeting || !gob_alive(shooter) || !gob_is_actor(shooter)) return target;
+    if (!role_host || !have_remote || no_targeting || !world_shooter(shooter)) return target;
     if (target && target != local_player && puppet_slot(target) < 0) return target;
+    if (!target && !gob_is_actor(shooter)) return target;
     selected = ai_select((const float *)(shooter + GOB_POSITION), shooter);
     return selected ? selected : target;
 }
@@ -151,7 +161,7 @@ BYTE *ai_projectile_target(BYTE *shooter, BYTE *target)
 void presence_projectile(BYTE *shooter, BYTE *target)
 {
     int actor = gob_slot(shooter), player = target == local_player ? my_slot : puppet_slot(target);
-    if (!role_host || actor < 0 || !gob_is_actor(shooter) || player < 0 || player >= MAX_PLAYERS) return;
+    if (!role_host || actor < 0 || !world_shooter(shooter) || player < 0 || player >= MAX_PLAYERS) return;
     if (ranged_evidence[actor].actor != gob_handle(actor)) memset(&ranged_evidence[actor], 0, sizeof(ranged_evidence[actor]));
     ranged_evidence[actor].actor = gob_handle(actor);
     ranged_evidence[actor].shots[player]++;
@@ -361,7 +371,7 @@ int presence_hit(BYTE *from, BYTE *target, int applied)
     /* Environmental damage has no source gob; gob_slot(NULL) matches an empty table entry. */
     if (!from || !target) return 0;
     index = gob_slot(from); victim = gob_slot(target);
-    if (index < 0 || victim < 0 || !gob_is_actor(from)) return 0;
+    if (index < 0 || victim < 0 || !world_shooter(from)) return 0;
     if (role_host && !applied) {
         if (no_direct_hurt) return 1;
         if (ai_evidence[index].actor == gob_handle(index) &&
@@ -460,11 +470,14 @@ void presence_dump(FILE *f)
         if (!actor || !gob_alive(actor) || !gob_is_actor(actor)) continue;
         gob_peername(gob_by_handle(*(DWORD *)(actor + GOB_TARGET)), name, sizeof(name));
         fprintf(f, "ai_target %x %d %s\n", gob_handle(s), gob_type(actor), name[0] ? name : "none");
-        if (ranged_evidence[s].actor == gob_handle(s)) {
-            int p;
-            for (p = 0; p < MAX_PLAYERS; p++) if (ranged_evidence[s].shots[p])
-                fprintf(f, "ai_fire %x %d %d %u\n", gob_handle(s), gob_type(actor), p + 1, ranged_evidence[s].shots[p]);
-        }
+    }
+    for (s = 0; s < GOB_SLOTS; s++) {
+        BYTE *shooter = GOB_TABLE_AT(s);
+        int p;
+        if (!shooter || !gob_alive(shooter) || ranged_evidence[s].actor != gob_handle(s)) continue;
+        for (p = 0; p < MAX_PLAYERS; p++) if (ranged_evidence[s].shots[p])
+            fprintf(f, "ai_fire %x %d %d %u %s\n", gob_handle(s), gob_type(shooter), p + 1,
+                    ranged_evidence[s].shots[p], gob_name(shooter));
     }
     for (s = 0; s < GOB_SLOTS; s++) {
         BYTE *actor = gob_by_handle(ai_evidence[s].actor), *victim;

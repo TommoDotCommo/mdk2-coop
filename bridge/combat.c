@@ -33,7 +33,8 @@ void combat_report(BYTE *from, BYTE *target, const char *name, int damage, int t
 {
     struct event e;
     sync_epoch();
-    if (damage <= 0 || damage > 32767 || !cb_attack_valid(type, part)) return;
+    /* Zero is a real hit: the blower pushes with 0 damage (type 0x21) and the host applies the push. */
+    if (damage < 0 || damage > 32767 || !cb_attack_valid(type, part)) return;
     event_init(&e, EV_HIT);
     e.damage = (short)damage; e.type = type; e.part = (signed char)part;
     e.objtype = gob_is_projectile(from) ? gob_type(from) : (type | 2048);
@@ -63,7 +64,7 @@ int combat_allow_hit(struct event *e, int sender, BYTE *target)
     if (!role_host || sender <= 0 || sender >= MAX_PLAYERS || !gob_alive(puppets[sender])) return 0;
     if (!cb_attack_valid(e->type, e->part)) return 0;
     /* Preserve existing non-enemy interactions; only enemies enter combat telemetry. */
-    if (!gob_is_actor(target)) return e->damage > 0 && e->damage <= CB_MAX_DAMAGE;
+    if (!gob_is_actor(target)) return e->damage >= 0 && e->damage <= CB_MAX_DAMAGE;
     memset(&c, 0, sizeof(c));
     c.id = e->extra[3]; c.target = e->netid; c.epoch = e->epoch;
     c.attacker = (unsigned char)sender; c.amount = e->damage;

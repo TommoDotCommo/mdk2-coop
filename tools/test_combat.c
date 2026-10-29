@@ -26,7 +26,11 @@ static void protections(void)
     CHECK(!cb_validate(&guard,&e,1,CB_CONFIRM,7,1000));
     e=hit(1,15); CHECK(cb_validate(&guard,&e,15,CB_REPORT,7,1000));
     REJECT(bad.attacker=16); REJECT(bad.epoch=6); REJECT(bad.id=0); REJECT(bad.target=0);
-    REJECT(bad.kind=199); REJECT(bad.kind=260); REJECT(bad.amount=0); REJECT(bad.amount=32768);
+    REJECT(bad.kind=199); REJECT(bad.kind=260); REJECT(bad.amount=32768);
+    /* a zero-damage report (the blower's push) is a hit; applied or confirmed damage is never zero */
+    memset(&guard,0,sizeof(guard)); e=hit(1,1); e.amount=0; CHECK(cb_validate(&guard,&e,1,CB_REPORT,7,1000));
+    memset(&guard,0,sizeof(guard)); e=hit(1,1); e.amount=0; CHECK(!cb_validate(&guard,&e,1,CB_PUBLISH,7,1000));
+    memset(&guard,0,sizeof(guard)); e=hit(1,1); e.amount=0; CHECK(!cb_validate(&guard,&e,0,CB_CONFIRM,7,1000));
     REJECT(bad.weapon=4096); REJECT(bad.flags=4); REJECT(bad.reserved=1);
     REJECT(bad.pos[0]=NAN); REJECT(bad.pos[1]=INFINITY); REJECT(bad.pos[2]=-1000001);
     memset(&guard,0,sizeof(guard)); e=hit(1,1); e.amount=20000;

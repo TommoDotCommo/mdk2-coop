@@ -87,6 +87,8 @@ adapter_mutants = {
                            '"addq $32, %%rsp\\n\\t" /* restore caller stack for both caller-pop and callee-pop */'),
     'pointer-as-target-handle': ('*(DWORD *)(gob + GOB_TARGET) = gob_handle(slot);', '*(DWORD *)(gob + GOB_TARGET) = (DWORD)(uintptr_t)target;'),
     'cached-host-projectile': ('return selected ? selected : target;', 'return target;'),
+    'actor-only-projectile': ('no_targeting || !world_shooter(shooter)) return target;', 'no_targeting || !gob_is_actor(shooter)) return target;'),
+    'aim-aimless-scenery': ('if (!target && !gob_is_actor(shooter)) return target;', ''),
     'omit-stored-target': ('*(DWORD *)(gob + GOB_TARGET) = gob_handle(slot);', '(void)target;'),
     'omit-handle-scope': ('if (target == local_player || puppet_slot(target) >= 0) PLAYER_HANDLE = h;\n        AI_TARGET_HANDLE = h;',
                           '(void)h;'),
@@ -96,7 +98,6 @@ adapter_mutants = {
     'ignore-scripted-target': ('(fallback && fallback != local_player && puppet_slot(fallback) < 0)', '0'),
     'aoe-evidence': ('caller == (void *)0x434dfb', '1'),
     'drop-client-receipt': ('local_direct_hits++;', 'local_direct_hits += 0;'),
-    'nil-attacker-reaches-actor-check': ('if (!from || !target) return 0;', ''),
 }
 with tempfile.TemporaryDirectory(prefix='mdk-presence-engine-') as folder:
     folder = Path(folder)

@@ -12,7 +12,7 @@ int cb_validate(struct cb_guard *g, struct cb_event *e, int sender, int host,
         (host ? sender != slot : sender != 0)) return 0;
     if (e->epoch != epoch) return 0;
     if (!e->id || !e->target || e->kind < 200 || e->kind > 259 ||
-        !e->amount || e->amount > 32767 || e->weapon > 4095 ||
+        (!e->amount && host != CB_REPORT) || e->amount > 32767 || e->weapon > 4095 ||
         (e->flags & ~(CB_KILL | CB_CRIT)) || e->reserved) return 0;
     for (i = 0; i < 3; i++)
         if (!isfinite(e->pos[i]) || fabsf(e->pos[i]) > 1000000) return 0;
