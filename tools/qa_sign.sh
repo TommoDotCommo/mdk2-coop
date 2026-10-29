@@ -91,11 +91,11 @@ sleep 4
 # What counts is read from each game's own process (state dump): that player's own hp went down, the hit arrived
 # there as a direct hit from the dog, and nobody else lost hp. The host's log line "damage r2_dog01 -> ..." is
 # written even when the host does not forward the hit to the client, so it proves nothing about the client.
-beside() {   # beside <n>: the dog next to player n (on the host: its own player, or n's puppet), moved only when it is not there
-    # Putting it back every second restarts whatever it was doing, so a bite could be held off for as long as the test
-    # kept moving it; once it stands beside the player it is left alone to attack.
-    local who='mdkGetPlayerGob()'; [ "$1" = 1 ] || who="coop_gob(\"@p$1\")"
-    lua 1 "local p = $who local d = r2_dog01.position local dx = d.x - p.position.x - 1.5 local dy = d.y - p.position.y if (dx * dx + dy * dy > 16) then mdkGobSetPositionXYZ(r2_dog01, p.position.x + 1.5, p.position.y, p.position.z + 1) end"; }
+beside() {   # beside <n>: the dog next to player n (on the host: its own player, or n's puppet)
+    # Put back every round, as the first version did: left alone where it stands, the dog on the Steam build did not
+    # bite at all in 27 s, so the placement is what starts its attack.
+    if [ "$1" = 1 ]; then lua 1 'local p = mdkGetPlayerGob() mdkGobSetPositionXYZ(r2_dog01, p.position.x + 1.5, p.position.y, p.position.z + 1)'
+    else lua 1 "local p = coop_gob(\"@p$1\") mdkGobSetPositionXYZ(r2_dog01, p.position.x + 1.5, p.position.y, p.position.z + 1)"; fi; }
 geo_check() { mdk_assert_far "$@" | tee -a "$out/geometry.txt"; return "${PIPESTATUS[0]}"; }   # keep the reason: check hides output
 dump_of() {   # dump_of <game>: path of a fresh state dump written by that game's own process
     local tag="own$RANDOM" f t; f="$(mdk_wsl "$(mdk_dir "$1")")/coop/state_${tag}_$1.txt"; rm -f "$f"
