@@ -197,5 +197,60 @@ files, including unreadable pointers, both supported builds' animation dispatch
 fault sites and the `(gob, model, index)` argument layout. Two mutants must fail:
 omitting context and treating the model argument as the animation index. Stack
 words are raw evidence, not an unwound call stack. The live crash-log gate also
-requires register/stack evidence to survive a restart. These diagnostics do not
-establish the cause of an animation crash or prevent it.
+requires register/stack evidence to survive a restart. The fault context only reports; the
+animation crashes found with it are prevented by the guards described under
+[Crashes fail the run](#crashes-fail-the-run).
+
+## Crashes fail the run
+
+A crashed game used to look like a quiet test: the Overhaul build, which is the one
+players run, answers a crash with an error dialog ("Jinkies! There was an error...") and
+a `dump%04i.dmp` in one per-user crash folder shared by every copy, and a suite that
+only read its own checks could pass around it. Every script that sources `tools/mdk.sh`
+now takes a snapshot when it starts and fails with status 97 and `CRASH` lines when:
+
+- a new dump appears in the crash folder (`MDK2_CRASH_DIR`, default `%LOCALAPPDATA%\MDK2HD\crash`)
+  whose image paths belong to one of its game copies (a dump of another session's copy is
+  reported as a note and does not fail the run; an unreadable new dump does fail it);
+- a new `coop/logs/*.crash` marker appears in a copy (written by the bridge on every build);
+- a dialog box of one of its game processes is on screen. `tools/win/dialogs.ps1` records it and
+  dismisses it (a Yes/No box gets No, which writes the dump) so the game cannot stall the run;
+- a command cannot be delivered because the game has exited.
+
+The scan runs in `mdk_kill`, when a command is not picked up and at the end of the script
+(the guard chains behind the script's own `trap ... EXIT`). A script that crashes a game on
+purpose says so with `mdk_crash_expect` and may move its own dumps out of the player's folder
+with `mdk_crash_collect <dir>`. `MDK2_CRASH_GUARD=0` switches the guard off for non-test use;
+`tools/qa_all.py` also scores any `CRASH` line as a failed gate.
+
+`python3 tools/minidump.py <dump>` prints the exception, the faulting module and offset, the
+registers, readable stack words and the loaded modules of a dump without a debugger.
+`tests/minidump_test.py` and `tests/crashwatch_test.py` cover the reader, the attribution of
+dumps to copies, the shell guard, and mutants (a detector that ignores new dumps, a guard that
+is off) that must let the crash through. `MUTANT=unexpected tools/qa_crashlog.sh` leaves out
+`mdk_crash_expect`: the run must then fail with status 97 although every check passes.
+
+### Running on the player's build
+
+`MDK2_BUILD=overhaul` (or `steam`; `MDK2_BUILD<i>` for one copy) makes `tools/install.sh` put that
+build's `mdk2hd.exe` into the copies first. `overhaul` needs `MDK2_OVERHAUL_EXE`, the Windows path of
+that build's executable; `steam` uses the one in `MDK2_SRC`. `python3 tools/qa_all.py ... --build
+overhaul` does the same for a whole profile. The Steam build is the default of the copies, but the
+Overhaul build is the one with the crash dialog and dump writer, so run the crash-prone suites on it
+too: `qa_animguard`, `qa_rear_gate`, `qa_hans`, `qa_save_scripts`, `qa_epoch`, `qa_playtest`,
+`qa_cutscene`, `qa_ai`, `qa_join`.
+
+### Animation crashes
+
+`tools/qa_animguard.sh` (gate `anim-guard-live`; offline `tools/test_anim_guard.sh`, gate
+`anim-guard`) covers two game defects the bridge used to trigger, on either build:
+
+- The game's animation state lookup reads the model's animation table without checking it. Models
+  with no animations (level 2 exits, triggers) have none, so asking such a gob for any state crashed
+  the game when sync, snapshots or emotes walked every id. Every bridge lookup is now guarded.
+  `MUTANT=rawlookup` switches the guard off and the game must crash at the lookup.
+- The game's per-frame animation update keeps at most 20 flagged or weighted states of a gob in two
+  stack arrays; a 21st overwrites the first index with a state pointer and the next state is advanced
+  with that pointer as its index. The bridge stops surplus states at the update's entry.
+  `MUTANT=nofloodtrim` switches this off, floods a gob with 30 live states and requires the game itself
+  to crash inside the update.
