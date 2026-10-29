@@ -353,6 +353,47 @@ def reachable_toward(nav, start, goal):
     return nav.cells[best][:3]
 
 
+WEAPONS = ('OBJ_UZI', 'OBJ_SHOTGUN', 'OBJ_MAGNUM', 'OBJ_DOUBLEA', 'OBJ_CARBATTERY', 'OBJ_BOXINGGLOVE',
+           'OBJ_LASERCANNON', 'OBJ_SUPERCHAINGUN', 'OBJ_FIREBALLCHAINGUN', 'OBJ_GUIDEDROCKET', 'OBJ_BFB',
+           'OBJ_GRENADEITEM')
+
+
+def collect(game, level, nav, log, radius=80, kinds=WEAPONS):
+    """Pick up the weapons lying within reach (a player collects them on the way; Max then equips one in
+    each of his four hands). True if anything was picked up."""
+    here = game.pos()
+    cells = reachable(nav, here)
+    got = 0
+    for o in sorted(level.m.get('pickups', []), key=lambda o: math.dist(o['pos'], here)):
+        if o['type'] not in kinds or math.dist(o['pos'], here) > radius or not alive(game, o['name']):
+            continue
+        k = min(cells, key=lambda k: math.dist(nav.cells[k][:3], o['pos']))
+        if math.dist(nav.cells[k][:3], o['pos']) > 3:
+            continue
+        walk(game, nav, o['pos'], log, timeout=30)
+        game.goto(*o['pos'], radius=0.6, timeout=8, explore=0)
+        for _ in range(2):
+            if not alive(game, o['name']):
+                break
+            game.lua('coop_press(57, 200)')
+            time.sleep(1.0)
+        if not alive(game, o['name']):
+            got += 1
+            log(f'    picked up {o["name"]} ({o["type"]})')
+    return got > 0
+
+
+def max_arm(game, log, rounds=6):
+    """Max has four arms: equip every weapon he carries (modern controls: F equips the selected weapon,
+    E selects the next)."""
+    for _ in range(rounds):
+        game.lua('coop_press(33, 150)')
+        time.sleep(.5)
+        game.lua('coop_press(18, 150)')
+        time.sleep(.5)
+    log('    armed: equip pressed on each carried weapon')
+
+
 def hits_since(game, offset):
     """Names this game's hero hit (bridge.log 'damage bob -> <name>') after offset; and the new offset."""
     import re
@@ -381,6 +422,7 @@ def fire_sweep(game, wanted, log, pitches=(0, -20, 20, -40, 40), steps=16, snipe
             ang = k * 360 / steps
             game.lua(face(ang, elev) + (' coop_test_sniper()' if sniper else ' coop_press(256, 250)'))
             time.sleep(.4)
+            game.lua(face(ang, 0))     # upright again (pointing up or down tips Max over)
             names, offset = hits_since(game, offset)
             hit = [n for n in names if n in wanted]
             if hit:
@@ -399,6 +441,7 @@ def fire_sweep(game, wanted, log, pitches=(0, -20, 20, -40, 40), steps=16, snipe
     while time.monotonic() - t0 < 30 and alive(game, name):
         game.lua(face(ang, elev) + (' coop_test_sniper()' if sniper else ' coop_press(256, 600)'))
         time.sleep(.5)
+        game.lua(face(ang, 0))
     game.lua('coop.GunnerOn(60)')
     if alive(game, name) and not sniper:
         log(f'    fire sweep: {name} still alive after 30 s')
@@ -417,6 +460,8 @@ def snipe(game, name, log):
                  f't.position.x-p.position.x, t.position.y-p.position.y, t.position.z+{dz}-p.position.z-1) '
                  f'coop_test_sniper() end')
         time.sleep(1)
+        game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then mdkGobPointToXYZ(p, '
+                 f't.position.x-p.position.x, t.position.y-p.position.y, 0) end')
         names, off = hits_since(game, off)
         if name in names:
             log(f'    sniped {name} (aim {dz:+d})')
@@ -445,6 +490,9 @@ def aimed_kill(game, name, log, seconds=60):
                      f't.position.x-p.position.x, t.position.y-p.position.y, t.position.z+{dz}-p.position.z-3) '
                      f'coop_press(256, 300) end')
             time.sleep(.45)
+            # upright again, same bearing (pointing up or down tips Max onto his side)
+            game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then '
+                     f'mdkGobPointToXYZ(p, t.position.x-p.position.x, t.position.y-p.position.y, 0) end')
         names, off = hits_since(game, off)
         at = live_pos(game, name)
         here = game.pos()
@@ -614,6 +662,8 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
     here = game.pos()
     _, portals = level.path(list(here), list(goal))
     stats = {'scans': 0, 'walks': 0, 'destroyed': [], 'rounds': 0, 'skipped': 0}
+    if level.m.get('level') in (2, 5, 8, 11):
+        max_arm(game, log)
     if fly:
         prepare_flight(game, level, scan(game, out, fly=True)[0], log)
     index = 0
@@ -658,6 +708,8 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 walk(game, nav, gspot, log, timeout=60)
                 if aimed_kill(game, gen['name'], log):
                     stats['destroyed'].append(gen['name'])
+            if collect(game, level, nav, log) and level.m.get('level') in (2, 5, 8, 11):
+                max_arm(game, log)
             before = game.pos()
             spot = reachable_toward(nav, before, target)
             pos, state = walk(game, nav, spot, log)

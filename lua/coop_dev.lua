@@ -1221,7 +1221,8 @@ function coop.GunnerTick()
             gn.target = nil
             return
         end
-        mdkGobPointToXYZ(p, e.position.x - p.position.x, e.position.y - p.position.y, e.position.z - p.position.z)
+        -- Max tips onto his side when pointed up or down (the owner saw it): he only turns --
+        mdkGobPointToXYZ(p, e.position.x - p.position.x, e.position.y - p.position.y, 0)
         coop_press(256, 150)
         gn.shots = gn.shots + 1
         gn.busy = now + 300
