@@ -1059,7 +1059,8 @@ function coop.NavView(tx, ty, tz, pts, dzs)
     while (pts[i]) do
         local k = 1
         while (dzs[k]) do
-            if (coop.NavClear(pts[i], pts[i + 1], pts[i + 2] + 3, tx, ty, tz + dzs[k])) then
+            if (coop.NavClear(pts[i], pts[i + 1], pts[i + 2] + 3, tx, ty, tz + dzs[k]) or
+                coop.NavClear(tx, ty, tz + dzs[k], pts[i], pts[i + 1], pts[i + 2] + 3)) then
                 coop_note("view", format("%d %.2f", (i + 2) / 3, dzs[k]))
                 return
             end
@@ -1112,8 +1113,11 @@ function coop.NavTick()
             local f = coop.NavFloor(nx, ny, z + n.up + 2, z - n.down)
             local mx, my = (x + nx) / 2 - n.hx, (y + ny) / 2 - n.hy
             local byhero = mx * mx + my * my < 9 and abs(z - n.hz) < 4
-            if (f and f <= z + n.up and (byhero or (coop.NavClear(x, y, z + 2, nx, ny, f + 2) and
-                coop.NavClear(x, y, z + 4, nx, ny, f + 4)))) then
+            -- the engine's line of sight passes the back of a one-sided face: a face across level 2's
+            -- arena blocked the way south but not north, so a way clear in either direction counts --
+            if (f and f <= z + n.up and (byhero or ((coop.NavClear(x, y, z + 2, nx, ny, f + 2) or
+                coop.NavClear(nx, ny, f + 2, x, y, z + 2)) and (coop.NavClear(x, y, z + 4, nx, ny, f + 4) or
+                coop.NavClear(nx, ny, f + 4, x, y, z + 4))))) then
                 line = line .. format(" %d %d %.2f", ni, nj, f)
                 local key = format("%d_%d_%d", ni, nj, floor(f / 4))
                 if (not n.seen[key]) then
