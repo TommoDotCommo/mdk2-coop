@@ -53,8 +53,9 @@ typedef void (*lua_CFunction)(void);
 
 /* ---- engine ---- */
 
-/* om anim state for (gob, anim id): 40-byte block, NULL if the model lacks it */
-#define om_anim_state       ((DWORD *(*)(void *, int))0x44c640)
+/* the game's lookup of the anim state block for (gob, anim id): 40 bytes. It crashes for a model that has no
+ * animation table; the bridge calls anim_state() (game.c, guarded) instead, never this */
+#define om_anim_state_raw   ((DWORD *(*)(void *, int))0x44c640)
 #define ANIM_ID_MAX         160     /* exe names 146 ANIM_* constants */
 /* native behind mdkGobSetPositionXYZ (re-files the gob into the right room) */
 #define gob_set_position    ((void (*)(void *, float, float, float))0x40dda0)
@@ -91,6 +92,8 @@ typedef void (*lua_CFunction)(void);
 
 /* ---- game.c ---- */
 
+DWORD *anim_state(void *gob, int id);
+extern int anim_guard_on;       /* tests switch it off to prove the guard matters (coop_animguard) */
 const char *gob_name(BYTE *gob);
 void gob_netname(BYTE *gob, char *out, int size);
 void gob_peername(BYTE *gob, char *out, int size);

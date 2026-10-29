@@ -48,7 +48,7 @@ static int revive_life(void) { return life[0]; }
 static int player_life(int s) { return life[s]; }
 static const char *gob_name(BYTE *g) { return "enemy"; }
 static void gob_peername(BYTE *g, char *out, int size) { snprintf(out,size,"@p%d",gob_slot(g)+1); }
-static DWORD *om_anim_state(BYTE *g, int id) { return id==66 || id==67 ? animation[gob_slot(g)][id-66] : NULL; }
+static DWORD *anim_state(BYTE *g, int id) { return id==66 || id==67 ? animation[gob_slot(g)][id-66] : NULL; }
 static BYTE *fallback;
 static BYTE *original_target(void) { return fallback; }
 static void *hook_code(BYTE *fn, const BYTE *expect, int size, void *hook) {

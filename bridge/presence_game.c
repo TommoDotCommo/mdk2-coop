@@ -38,8 +38,8 @@ BYTE *canopy_gob(BYTE *gob)
 static int canopy_anim(BYTE *gob, DWORD *state)
 {
     if (!state) return NO_ANIM;
-    if (state == om_anim_state(gob, 66)) return 66;
-    if (state == om_anim_state(gob, 67)) return 67;
+    if (state == anim_state(gob, 66)) return 66;
+    if (state == anim_state(gob, 67)) return 67;
     return NO_ANIM;
 }
 
@@ -54,7 +54,7 @@ void canopy_capture(BYTE *gob, struct canopy_state *s)
     s->cur = canopy_anim(child, (DWORD *)(uintptr_t)*(DWORD *)(ctl + 0x28));
     s->prev = canopy_anim(child, (DWORD *)(uintptr_t)*(DWORD *)(ctl + 0x2c));
     for (i = 0; i < 2; i++) {
-        DWORD *state = om_anim_state(child, 66 + i);
+        DWORD *state = anim_state(child, 66 + i);
         if (state) memcpy(s->anim[i], state, sizeof(s->anim[i]));
     }
 }
@@ -66,12 +66,12 @@ void canopy_apply(BYTE *gob, const struct canopy_state *s)
     int i;
     if (no_canopy || !child || !s->present || !(ctl = *(BYTE **)(child + GOB_ANIM))) return;
     for (i = 0; i < 2; i++) {
-        DWORD *state = om_anim_state(child, 66 + i);
+        DWORD *state = anim_state(child, 66 + i);
         if (state) memcpy(state, s->anim[i], sizeof(s->anim[i]));
     }
     *(WORD *)(ctl + 0x3e) = (*(WORD *)(ctl + 0x3e) & ~0x22) | s->flags;
-    *(DWORD *)(ctl + 0x28) = s->cur == NO_ANIM ? 0 : (DWORD)(uintptr_t)om_anim_state(child, s->cur);
-    *(DWORD *)(ctl + 0x2c) = s->prev == NO_ANIM ? 0 : (DWORD)(uintptr_t)om_anim_state(child, s->prev);
+    *(DWORD *)(ctl + 0x28) = s->cur == NO_ANIM ? 0 : (DWORD)(uintptr_t)anim_state(child, s->cur);
+    *(DWORD *)(ctl + 0x2c) = s->prev == NO_ANIM ? 0 : (DWORD)(uintptr_t)anim_state(child, s->prev);
 }
 
 static BYTE *ai_actor;

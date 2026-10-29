@@ -187,7 +187,7 @@ int emote_play(int id, int looping)
     }
     if (!local_player || !gob_alive(local_player) || revive_life() != LIFE_ALIVE)
         return 0;
-    tmpl = om_anim_state(local_player, id);
+    tmpl = anim_state(local_player, id);
     if (!tmpl) {
         logmsg("emote: anim %d does not exist for this character", id);
         return 0;
@@ -336,7 +336,7 @@ static void l_coop_anim_has(void)
     unsigned int o = lua_getparam(1);
     int id = o && lua_isnumber(o) ? (int)lua_getnumber(o) : -1;
 
-    if (id >= 0 && id < ANIM_ID_MAX && local_player && gob_alive(local_player) && om_anim_state(local_player, id))
+    if (id >= 0 && id < ANIM_ID_MAX && local_player && gob_alive(local_player) && anim_state(local_player, id))
         lua_pushnumber(1);
 }
 

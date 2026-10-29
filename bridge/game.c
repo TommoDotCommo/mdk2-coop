@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "bridge.h"
+#include "anim_guard.h"
 
 const char *gob_name(BYTE *gob)
 {
@@ -126,6 +127,42 @@ void gob_kill(BYTE *gob)
     doomed[ndoomed % MAX_DOOMED].handle = gob_handle(slot);
     ndoomed++;
     gob_delete(gob);
+}
+
+/* ---- guarded animation lookup (anim_guard.h) ---- */
+
+/* om_anim_state_raw begins "push esi; mov esi,[esp+8]; test esi,esi; je; cmp [esi+0x60],0; je; push esi; call model".
+ * Read the callee from that call instead of trusting an address that may differ between builds; if the code is
+ * not the expected shape, no model check is possible and the failure is logged once. */
+static anim_model_fn anim_model_resolve(void)
+{
+    static anim_model_fn fn;
+    static int resolved;
+
+    if (!resolved) {
+        const BYTE *p = (const BYTE *)(uintptr_t)0x44c640;
+        static const BYTE shape[] = { 0x56, 0x8b, 0x74, 0x24, 0x08, 0x85, 0xf6, 0x74, 0x2e,
+                                      0x83, 0x7e, 0x60, 0x00, 0x74, 0x28, 0x56, 0xe8 };
+        resolved = 1;
+        if (!memcmp(p, shape, sizeof(shape)))
+            fn = (anim_model_fn)(uintptr_t)((DWORD)(uintptr_t)(p + sizeof(shape) + 4) + *(const DWORD *)(p + sizeof(shape)));
+        else
+            logmsg("anim guard: the game's lookup has an unexpected shape; only the controller check applies");
+    }
+    return fn;
+}
+
+int anim_guard_on = 1;
+
+/* volatile on purpose: with the lookup visible as the constant address 0x44c640, GCC 10 -O2 compiled the guarded
+ * path to "call the model accessor, then return NULL" and dropped the lookup call, silencing every animation */
+static anim_lookup_fn volatile raw_lookup = (anim_lookup_fn)(uintptr_t)0x44c640;
+
+DWORD *anim_state(void *gob, int id)
+{
+    if (!anim_guard_on)
+        return om_anim_state_raw(gob, id);
+    return anim_state_checked(gob, id, anim_model_resolve(), raw_lookup);
 }
 
 int gob_alive(BYTE *gob)
