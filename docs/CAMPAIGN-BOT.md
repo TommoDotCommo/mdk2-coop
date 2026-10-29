@@ -92,15 +92,23 @@ up, take turns at objectives, revive each other, and each step ends with the wor
 
 ## Findings so far (co-op, from the bot's world comparisons)
 
-Survey of 21 segments of levels 1 to 3, two bots each, Overhaul build, God mode, game clock x2:
-no Lua errors, no desync reports, no crashes, and ground enemies matched between host and client.
+Whole-campaign survey: 84 segments (every launcher checkpoint to the next), two bots each, 168 game
+instances, Overhaul build, God mode, game clock x2. No Lua errors and no desync reports. Mismatches
+found by comparing the host's world with the client's at the end of each segment (and again 1.5 s
+later):
 
-- **Flying enemies drift on clients.** Level 1's `flyer01`-`04` were 25 to 58 units from the host's
-  positions and level 2's arena mantas 50 to 66, still apart 1.5 s later, also at normal game speed.
-- **A puppet left behind.** On level 3 (checkpoint 2 to 3) the client showed the host's puppet 997
-  units from where the host was.
-- **A one-way face in level 2's arena** lets a hero cross north onto a strip by the north wall
-  (walking, or blown by grenades) and not come back.
+- **Flying enemies drift on clients**, on four levels: mantas up to 231 units from the host's
+  positions (levels 2, 4, 8), level 1's flyers up to 53, level 8's ship turret 50.
+- **An enemy dead only on the client**: level 4's `l4_r5grunt` with 60 hp on the host and 0 on the
+  client (two segments).
+- **Pickup counts differ** on the final levels (11 and 12): 7 against 4, 3 against 2.
+- **A puppet left behind**: on level 3 the client showed the host's puppet 997 units from the host.
+- **A client crash** on level 8 (checkpoint 6 to 7): access violation at `mdk2hd.exe+0x2a95` reading
+  address 8, while binding the host's enemies after the checkpoint load (last bound: a type 511
+  generator); the same load gave the checkpoint's atomic jetpack. Repro with and without the grant
+  (`MDK2_CPITEMS=0`) pending.
+- **A one-way face in level 2's arena** lets a hero cross north (walking, or blown by grenades) and
+  not come back.
 
 ## Status
 
