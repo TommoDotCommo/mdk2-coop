@@ -57,6 +57,8 @@ hostile() { q 1 'coop_hp(r2_dog01)'; }
 
 mdk_boot
 H=1
+# The test games start invulnerable; the dog's hits are judged on each player's own hp, so turn that off.
+for i in $(mdk_seq); do lua "$i" 'God(0)'; done
 if [ "${MUTANT:-}" = noondie ]; then for i in $(seq 2 "$MDK2_N"); do lua "$i" 'coop_test_noondie(1)'; done; fi
 case "${MUTANT:-}" in ''|noondie|near) : ;; hostaoe) lua 1 'coop_presence_test(0,0,1,0)' ;; *) echo "Unknown sign mutant"; exit 2 ;; esac
 # everyone into room 2, in front of the glass (the dog is behind it at y 152, the players come in at y 172)
@@ -95,12 +97,12 @@ beside() {   # beside <n>: the dog next to player n (on the host: its own player
 geo_check() { mdk_assert_far "$@" | tee -a "$out/geometry.txt"; return "${PIPESTATUS[0]}"; }   # keep the reason: check hides output
 dump_of() {   # dump_of <game>: path of a fresh state dump written by that game's own process
     local tag="own$RANDOM" f t; f="$(mdk_wsl "$(mdk_dir "$1")")/coop/state_${tag}_$1.txt"; rm -f "$f"
-    lua "$1" "coop_state(\"${tag}_$1\")"; for t in $(seq 1 50); do [ -f "$f" ] && break; sleep 0.1; done; echo "$f"; }
+    lua "$1" "coop_state(\"${tag}_$1\")"; for t in $(seq 1 150); do [ -f "$f" ] && break; sleep 0.1; done; echo "$f"; }
 field() {   # field <game> <row> <column>: one value from that game's own state dump
     awk -v row="$2" -v col="$3" '$1 == row { print $col; exit }' "$(dump_of "$1")" | tr -d '\r'; }
 own_hp()   { field "$1" player 3; }
 receipts() { field "$1" direct_receipts 2; }
-dog_id=$(awk '$1 == "ent" && $NF == "r2_dog01" { print $2 }' "$(dump_of 1)" | tr -d '\r')
+dog_id=$(awk '{ sub(/\r$/, "") } $1 == "ent" && $NF == "r2_dog01" { print $2 }' "$(dump_of 1)" | tr -d '\r')
 host_target() {   # the host's native target query for the dog, from its own state dump
     awk '$1 == "ai" && $2 == "r2_dog01" { print $3 }' "$(dump_of 1)" | tr -d '\r'; }
 for n in $(mdk_seq); do

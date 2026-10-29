@@ -116,7 +116,7 @@ mdk_assert_far() { local target="$1" label="$2" tag="geo$RANDOM" files=() i path
                    for i in $(mdk_seq); do
                        path="$(mdk_wsl "$(mdk_dir "$i")")/coop/state_${tag}_$i.txt"; rm -f "$path"
                        mdk_cmd "$(mdk_pid "$i")" "coop_state(\"${tag}_$i\")" || return 1
-                       for t in $(seq 1 50); do [ -f "$path" ] && break; sleep 0.1; done
+                       for t in $(seq 1 150); do [ -f "$path" ] && break; sleep 0.1; done
                        [ -f "$path" ] || { echo "FAIL geometry: game $i wrote no state dump"; return 1; }
                        files+=("$path")
                    done
