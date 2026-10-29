@@ -63,6 +63,8 @@ merged tree. Every baseline passed and each mutant that exists failed as require
   `MUTANT=deaf` fails. `tools/qa_combat_startup.sh` passes.
 - Playtest sync (`tools/qa_playtest.sh`): 40 of 40; `MUTANT=pickups` fails 6
   and `MUTANT=dome` fails 5.
+- Native attack tasks across an instant save (`tools/qa_save_scripts.sh`): 11 of
+  11; `MUTANT=unresolved` fails 7.
 - Lobby (`tools/qa_lobby.sh`): 33 of 33; `MUTANT=nostart` is detected.
 - Offline: all 18 game-free gates (`tools/qa_all.py offline`) and 70 Python
   unit tests pass.
@@ -81,7 +83,9 @@ merged tree. Every baseline passed and each mutant that exists failed as require
   damaging both players, so they contain no evidence of him ignoring one, but
   they do not establish which game build produced them. No speculative runtime
   change was made.
-- **Overhaul Games build:** accepted by build detection, never run live here.
+- **Overhaul Games build:** accepted by build detection. The live results above
+  are from the Steam build only; none were rerun on the Overhaul build for this
+  merged tree.
 - The full regression ladder (`qa_all.py full`) and the campaign checkpoint
   sweep were not run on this build, nor were the other feature suites.
 - `tools/qa_sign.sh` has an intermittent miss (the dog's bite check) and was
