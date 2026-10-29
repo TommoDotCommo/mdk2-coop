@@ -312,17 +312,30 @@ def walk(game, nav, goal, log, timeout=90):
     return game.pos(), 'arrived'
 
 
-def reachable(nav, start):
-    """The cells the hero can walk to from start (by the walking rules)."""
+def reachable(nav, start, safe=True):
+    """The cells the hero can walk to from start (by the walking rules); with safe, only those it can
+    also come back from (level 2's arena has a one-way face onto a strip with no way back)."""
     s = nav.nearest(start)
     seen, todo = {s}, [s]
+    back = {}
     while todo:
         k = todo.pop()
         for n in nav.cells[k][3]:
-            if n in nav.cells and n not in seen and nav.step_cost(k, n) is not None:
-                seen.add(n)
-                todo.append(n)
-    return seen
+            if n in nav.cells and nav.step_cost(k, n) is not None:
+                back.setdefault(n, []).append(k)
+                if n not in seen:
+                    seen.add(n)
+                    todo.append(n)
+    if not safe:
+        return seen
+    home, todo = {s}, [s]
+    while todo:
+        k = todo.pop()
+        for prev in back.get(k, []):
+            if prev not in home:
+                home.add(prev)
+                todo.append(prev)
+    return seen & home
 
 
 def reachable_toward(nav, start, goal):

@@ -84,4 +84,10 @@ check('a recording becomes points every 3 units, movement keys left to the pilot
 check('a held jump stays with the stretch it was held on', any(57 in p['keys'] for p in pts))
 check('firing while standing still adds no point but goes with the last one', 256 in pts[-1]['keys']
       and sum(1 for p in pts if p['pos'][0] == 20.0) == 1)
-print('11 passed, 0 failed')
+# A one-way step: from the corridor a cell north can be entered but not left.
+trap = bot.Nav()
+trap.add_lines('c 0.0 0.0 0.00 0 0 1 0 0.00 0 1 0.00\nc 2.0 0.0 0.00 1 0 0 0 0.00\nc 0.0 2.0 0.00 0 1')
+check('a cell with no way back is reachable but not safe',
+      trap.key(0, 1, 0) in bot.reachable(trap, [0, 0, 0], safe=False)
+      and trap.key(0, 1, 0) not in bot.reachable(trap, [0, 0, 0]))
+print('12 passed, 0 failed')
