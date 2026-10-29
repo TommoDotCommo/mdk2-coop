@@ -419,12 +419,16 @@ def snipe(game, name, log):
     return False
 
 
-def aimed_kill(game, name, log, seconds=30):
+def aimed_kill(game, name, log, seconds=60):
     """Fire straight at an object whose registered position is where it is (a generator), facing it
     with pitch, until it is gone."""
     t0 = time.monotonic()
     game.lua('coop.gunner=nil')
     while time.monotonic() - t0 < seconds and alive(game, name):
+        # shoved away (enemies, blasts): walk back in before firing
+        at = live_pos(game, name)
+        if at and math.dist(game.pos(), at) > 18:
+            game.goto(*at, radius=12, timeout=10, explore=1)
         for dz in (2, 0, 4):
             game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then mdkGobPointToXYZ(p, '
                      f't.position.x-p.position.x, t.position.y-p.position.y, t.position.z+{dz}-p.position.z-3) '
