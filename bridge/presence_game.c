@@ -59,7 +59,7 @@ void canopy_capture(BYTE *gob, struct canopy_state *s)
     }
 }
 
-static int no_canopy, no_targeting, no_direct_hurt, melee_only;
+static int no_canopy, no_targeting, no_direct_hurt, melee_only, store_idle;
 void canopy_apply(BYTE *gob, const struct canopy_state *s)
 {
     BYTE *child = canopy_gob(gob), *ctl;
@@ -335,7 +335,11 @@ void ai_before_scene(void)
         BYTE *g = GOB_TABLE_AT(i);
         if (!g || !gob_alive(g) || !gob_is_actor(g)) continue;
         class_filter_think(gob_class(g));
-        if (!no_targeting && have_remote)
+        /* Do not write a target into every actor each frame: held or idle actors (the level 1
+         * dogans wait on their platform) left their hold and fell after a resumed co-op save.
+         * The think/animation scope and the creation hook already give an actor its target.
+         * store_idle restores the old per-frame store; only the adapter unit test sets it. */
+        if (store_idle && !no_targeting && have_remote)
             ai_store_target(g, ai_select((const float *)(g + GOB_POSITION), g));
     }
 }

@@ -142,6 +142,17 @@ for i in $(seq 2 "$MDK2_N"); do
     check "client $i hp kept through the host crash ($hb -> $ha)" test "$ha" = "$hb"
 done
 check "state matches after the host resumed"            grep -q "^state: 0 fail" "$out/report_resumed.txt"
+# the host's own enemies against what was saved (clients follow the host, so agreeing with it proves
+# nothing): the level 1 dogans wait on their platform and must not have fallen or lost hp
+ent_of() { tr -d '\r' < "$1" | grep -a "^ent .* $2$" | head -1; }   # ent <handle> <type> <hp> x y z name
+for d in l1_r7dogan1 l1_r7dogan2; do
+    read -r _ _ _ hs _ _ zs _ <<< "$(ent_of "$out/state_hostsave_host.txt" $d)"
+    read -r _ _ _ hr _ _ zr _ <<< "$(ent_of "$out/state_resumed_host.txt" $d)"
+    check "host $d kept its saved height after the resume ($zs -> $zr)" \
+        python3 -c "import sys; z1, z2 = float(sys.argv[1]), float(sys.argv[2]); sys.exit(0 if abs(z1 - z2) < 2 else 1)" "${zs:-x}" "${zr:-y}"
+    check "host $d did not lose hp across the resume ($hs -> $hr)" \
+        python3 -c "import sys; sys.exit(0 if float(sys.argv[2]) >= float(sys.argv[1]) > 0 else 1)" "${hs:-0}" "${hr:-0}"
+done
 
 # 4b. resuming went on with the same session: no second one
 check "resume kept the one session"                     test "$(sessions_in 1)" = 1
