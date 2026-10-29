@@ -42,9 +42,15 @@ def segment(level, seg, players, owner, hook, out, god):
     seg = f'{level}:{seg}'
     folder.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, MDK2_QA_OWNER=owner, LAB_OWNER=owner)
-    r = subprocess.run([sys.executable, hook, 'acquire', str(players), '5400'], env=env, capture_output=True, text=True)
-    if r.returncode:
-        return {'segment': seg, 'result': 'BUSY', 'detail': r.stderr.strip()[-300:]}
+    # the lab queues fairly and answers BUSY at once while another lease is ahead: try again for a while
+    deadline = time.monotonic() + 1800
+    while True:
+        r = subprocess.run([sys.executable, hook, 'acquire', str(players), '5400'], env=env, capture_output=True, text=True)
+        if r.returncode == 0:
+            break
+        if time.monotonic() > deadline or 'BUSY' not in (r.stderr + r.stdout):
+            return {'segment': seg, 'result': 'BUSY', 'detail': r.stderr.strip()[-300:]}
+        time.sleep(20)
     env.update(json.loads(r.stdout))
     env.update(MDK2_N=str(players), MDK2_BACKGROUND='1', MDK2_START=f'{level} {start}')
     dirs = [env[f'MDK2_DIR{i}'] for i in range(1, players + 1)]
