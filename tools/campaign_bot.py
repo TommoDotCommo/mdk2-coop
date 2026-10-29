@@ -406,6 +406,23 @@ def snipe(game, name, log):
     return False
 
 
+def aimed_kill(game, name, log, seconds=30):
+    """Fire straight at an object whose registered position is where it is (a generator), facing it
+    with pitch, until it is gone."""
+    t0 = time.monotonic()
+    game.lua('coop.gunner=nil')
+    while time.monotonic() - t0 < seconds and alive(game, name):
+        for dz in (2, 0, 4):
+            game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then mdkGobPointToXYZ(p, '
+                     f't.position.x-p.position.x, t.position.y-p.position.y, t.position.z+{dz}-p.position.z-3) '
+                     f'coop_press(256, 300) end')
+            time.sleep(.45)
+    game.lua('coop.GunnerOn(60)')
+    gone = not alive(game, name)
+    log(f'    {"killed" if gone else "could not kill"} {name} by aimed fire in {time.monotonic() - t0:.0f}s')
+    return gone
+
+
 def live_pos(game, name):
     t = game.note('lp', f'local g=getglobal("{name}") if (g and coop_alive(g)==1) then coop_note("lp", '
                         f'format("%.2f %.2f %.2f", g.position.x, g.position.y, g.position.z)) else coop_note("lp", "none") end')
@@ -635,11 +652,18 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 wanted = {o['name'] for o in near}
                 # a generator is registered where it is (a wall at its pivot is not): go close first
                 gens = [o for o in near if 'GENERATOR' in o['type']]
-                if gens:
-                    spot = reachable_toward(nav, game.pos(), gens[0]['pos'])
-                    log(f'    going near {gens[0]["name"]} to {[round(v) for v in spot]}')
-                    walk(game, nav, spot, log, timeout=30)
-                gone = wanted and fire_sweep(game, wanted, log, pitches=(0, -35, 35, -70, 70, 140))
+                gone = None
+                for gen in gens:
+                    spot = reachable_toward(nav, game.pos(), gen['pos'])
+                    if math.dist(spot, gen['pos']) > 25:
+                        continue
+                    log(f'    going near {gen["name"]} to {[round(v) for v in spot]}')
+                    walk(game, nav, spot, log, timeout=60)
+                    if aimed_kill(game, gen['name'], log):
+                        gone = gen['name']
+                        break
+                if not gone:
+                    gone = wanted and fire_sweep(game, wanted, log, pitches=(0, -35, 35, -70, 70, 140))
                 if gone:
                     stats['destroyed'].append(gone)
                     done = True
