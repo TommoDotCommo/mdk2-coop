@@ -38,7 +38,7 @@ trap mdk_kill EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 mdk_boot
-read -r A B < "$MDK2_PIDS"
+read -r A B _ < "$MDK2_PIDS"   # a third copy must not end up in B
 H=1; C=2
 
 # 1. sessions and level following
@@ -58,7 +58,8 @@ echo "$stand" > "$out/stand.txt"
 check "standing together: the host is not pushed ($stand)" \
     awk -v m="$(echo "$stand" | awk '{print $4}')" 'BEGIN { exit !(m != "" && m < 0.2) }'
 check "standing together: the partner is right beside, not kept away ($stand)" \
-    awk -v d="$(echo "$stand" | awk '{print $6}')" 'BEGIN { exit !(d != "" && d >= 0.85 && d < 1.5) }'
+    awk -v d="$(echo "$stand" | awk '{print $6}')" -v n="$MDK2_N" \
+        'BEGIN { exit !(d != "" && d >= 0.85 && d < 1.5 + (n - 2)) }'   # each further player can push this one out by apart too
 
 # 2. enemies
 sleep 2
