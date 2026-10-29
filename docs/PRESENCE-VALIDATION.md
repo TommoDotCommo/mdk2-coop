@@ -4,6 +4,44 @@ Live AI validation now covers native client targeting and direct damage on Steam
 build 3902. Canopy rendering/input and join-flow checks retain the separate
 validation limits below.
 
+## Native level-one encounter regression
+
+The isolated Grunt matrix did not cover the native ranged path or the first
+scripted behind-glass enemy. A later paired playtest exposed three additional
+faults:
+
+- Enemy field `+0x88` holds a generation-checked **handle**, resolved by native
+  ranged fire at `0x42e096`; the adapter and its fake-engine test had incorrectly
+  treated it as a pointer. The test now resolves the stored handle and rejects
+  the pointer-writing mutant.
+- Some ranged tasks carry a cached host target into projectile launch. Native
+  launch now receives the same eligible player as acquisition and computes its
+  own trajectory and spread for that player. Explicit non-player scripted
+  targets and player-fired aim are preserved. `ai_fire` state rows count targets
+  read from actual launched projectile state, rather than candidate selection.
+- The first enemy's authored `OnUpdate` calls `mdkDoganboyAttack` directly,
+  outside `ScriptUpdate`. That direct Lua entry is now scoped and protected too.
+
+`tools/qa_room_ai.sh` runs the authored level-one encounters with two background
+clients. It does not create or alert enemies or reset the native AI target. Its
+eight process-state checks cover generator animation replication, native round
+enemies firing at and damaging the client with the host distant, reannounced sibling bindings, sibling
+removal, matching survivor HP after a client hit, survivor death without a
+leftover mirror, corridor turret launches at the client, and direct damage from
+the first enemy after the client snipes its actual sign. The baseline passed all
+eight. `MUTANT=targeting` failed the real round-enemy damage check as required.
+This is encounter coverage, not a completed campaign or general pathfinding proof.
+
+Generator synchronization also required stable lifetime identities: generated
+enemies can share a name, which becomes unique again when siblings die. HIT/APPLY
+now address bound entities by network ID throughout their lifetime. Reannounced
+spawns reuse their current binding and cannot bind another object's type or
+steal a sibling's binding. The visible generator (type 511) now receives host
+animation/lifetime snapshots while its client-side spawning remains disabled;
+generic item spawner policy is preserved. Generators do not count as live enemies
+for revive-zone clearance. A null object no longer matches an empty table slot,
+which prevents a late projectile from crashing after its shooter is removed.
+
 ## Implementation and evidence
 
 Kurt's constructor at `0x418240` makes a separate attached `chute` gob and
@@ -149,3 +187,15 @@ because LeakSanitizer cannot operate under the test environment's process tracin
 The engine adapter's fake-world test runs with native host pointers and explicit
 32-bit controller pointers. A 32-bit native Linux runtime was unavailable. Windows
 cross-compilation does not establish runtime ABI correctness.
+
+`qa_hans.sh` isolates level one's authored final Hans attack task. It advances
+through the pilot's final transition, downs the host, and leaves the client as
+the only living target. It checks both task getters, native target queries,
+actual movement of one native type-421 projectile toward the client, damage
+credited to Hans on the client, and restoration of the host's player handle and
+scope depth. Stasis marker gobs expose probe values through atomic process-state
+dumps; bridge log target labels alone cannot satisfy the flight assertion.
+Run `MUTANT=script-scope bash tools/qa_hans.sh` to bypass the ScriptUpdate wrapper,
+or `MUTANT=targeting bash tools/qa_hans.sh` to disable target selection. Both must
+fail. This skips the earlier ship encounter and does not cover full progression
+or establish Overhaul runtime behavior from Steam results.

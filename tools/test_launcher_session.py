@@ -70,3 +70,6 @@ with tempfile.TemporaryDirectory() as temp:
         result = run(directory, HEADER.replace(before, after, 1))
         assert result.returncode != 0, 'SURVIVED: ' + name
         print('KILLED:', name)
+
+# Exercise the real renderer dispatch as well as the session state machine.
+subprocess.run(["python3", str(ROOT / "tools/test_launcher_leave.py")], check=True)

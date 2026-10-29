@@ -14,7 +14,7 @@ diag_ps1.h: ../dist/diag.ps1
 	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r$$//' -e 's/^/"/' -e 's/$$/\\n"/' $< | \
 		{ echo 'static const char diag_script[] ='; cat; echo ';'; } > $@
 
-dinput8.dll: $(SRCS) bridge.h combat_core.h combat_hud.h presence.h snapshot.h steam_abi.h route.h pad.h launcher_session.h launcher_profiles.h launcher_profiles_win.h launcher_update.h launcher_update_win.h launcher_voice_win.h dinput8.def diag_ps1.h
+dinput8.dll: $(SRCS) bridge.h crash_context.h combat_core.h combat_hud.h presence.h snapshot.h steam_abi.h route.h pad.h launcher_session.h launcher_profiles.h launcher_profiles_win.h launcher_update.h launcher_update_win.h launcher_voice_win.h dinput8.def diag_ps1.h
 	$(CC) $(CFLAGS) -DMOD_VERSION='"$(VERSION)"' -o $@ $(SRCS) dinput8.def $(LDFLAGS)
 
 install: dinput8.dll
@@ -45,3 +45,8 @@ test-combat:
 	python3 ../tools/test_combat.py
 
 .PHONY: install clean test-shots test-pad test-revive test-combat
+
+test-crash-context:
+	../tools/test_crash_context.sh
+
+.PHONY: test-crash-context

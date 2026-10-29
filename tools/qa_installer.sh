@@ -19,9 +19,14 @@ cp "$here/dist/installer-gui.ps1" "$out/package/"
 cp "$here/dist/install-state.ps1" "$out/package/"
 "$here/tools/build_install_policy.sh"
 cp "$here/dist/install-policy.exe" "$out/package/"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_install_state.ps1")" -Mutants
+cp "$here/dist/install-policy.exe" "$fixtures/install-policy.exe"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_install_state.ps1")" -Mutants -PolicyPath "$(wslpath -w "$fixtures/install-policy.exe")"
+(cd "$here/dist" && i686-w64-mingw32-windres installer.rc -o "$out/installer-res.o")
+i686-w64-mingw32-gcc -Os -Wall -Wextra -mwindows -o "$out/package/MDK2-Coop-Setup.exe" "$here/dist/installer.c" "$out/installer-res.o"
 i686-w64-mingw32-gcc -O2 -o "$out/package/data_loader_test.exe" "$here/bridge/tests/data_loader_test.c"
+cp -a "$out/package" "$fixtures/setup-package"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_installer_startup.ps1")" -PackageDir "$(wslpath -w "$fixtures/setup-package")"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_installer.ps1")" \
-    -GameExe "$(mdk_dir 1)\\mdk2hd.exe" -PackageDir "$(wslpath -w "$out/package")" \
+    -GameExe "$(mdk_dir 1)\\mdk2hd.exe" -PackageDir "$(wslpath -w "$fixtures/setup-package")" \
     -TestRoot "$(wslpath -w "$fixtures")"
 echo "installer fixtures: $out"

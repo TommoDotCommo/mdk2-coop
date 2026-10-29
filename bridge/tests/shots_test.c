@@ -117,6 +117,10 @@ void event_init(struct event *e, int kind) { memset(e, 0, sizeof(*e)); e->kind =
 void event_send(const struct event *e, int to) { assert(to == TO_ALL); sent++; last = *e; }
 void logmsg(const char *fmt, ...) { (void)fmt; }
 void *hook_code(BYTE *fn, const BYTE *expect, int len, void *hook) { return NULL; }
+static BYTE *selected_target, *observed_target;
+static float *observed_direction;
+BYTE *ai_projectile_target(BYTE *shooter, BYTE *target) { return selected_target ? selected_target : target; }
+void presence_projectile(BYTE *shooter, BYTE *target) { }
 void ai_create_enter(const float *pos) { (void)pos; }
 void ai_create_leave(BYTE *gob, const float *pos) { (void)gob; (void)pos; }
 static void test_ignore_owner(void *list, DWORD owner) { ignored_owner = owner; }
@@ -131,6 +135,7 @@ static void fake_launch(BYTE *gob, BYTE *shooter, BYTE *target, float *direction
     struct fake_gob *g = fake(gob);
     const float velocity[] = { 3.0f, -4.0f, 12.5f };
     assert(shooter);
+    observed_target = target; observed_direction = direction;
     launches++;
     *(DWORD *)(g->state + SHOT_ACTIVE) = 1;
     *(DWORD *)(g->state + SHOT_OWNER) = fake(shooter)->handle;
@@ -305,6 +310,13 @@ int main(void)
     assert(!fake(last_created)->own);
     shots_reset();
     assert(!nown && !nforeign);
+    /* A native ranged task may supply a cached host target and pre-aimed
+     * quaternion. Selection must reach native launch, which recomputes aim. */
+    grenade = new_gob(423, SHOT_CLASS);
+    selected_target = puppets[1];
+    launch_hook(grenade, enemy, local_player, (float *)quat);
+    assert(observed_target == selected_target && observed_direction == NULL);
+    selected_target = NULL;
     puts("PASS: delayed grenades, constructor launches, replay state, ownership, duplicate suppression, legacy shots, lifecycle");
     return 0;
 }

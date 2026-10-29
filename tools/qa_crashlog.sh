@@ -29,10 +29,14 @@ check "the game ended after the crash"             wait_for dead 30
 cp "$log" "$out/crashed.log" 2>/dev/null
 check "the crash is in the log"                    grep -qiE "^crash: exception 0xc0000005 at dinput8\.dll\+0x[0-9a-f]+ .*writing 0x0*10\)" "$log"
 
+check "fault registers were captured"              grep -qE '^crash: registers .*eip=[0-9a-f]{8}' "$log"
+check "fault stack words were captured"            grep -qE '^crash: stack \+00 [0-9a-f]{8}' "$log"
+
 echo "$(mdk_start 1)" > "$MDK2_PIDS"
 check "the game started again"                     wait_for "grep -q 'bridge attached' '$log' 2>/dev/null && ! grep -q '$tag' '$log'" 30
 check "the crashed run's log is kept"              grep -q "$tag" "$previous"
 check "the kept log has the crash"                 grep -q "^crash: exception 0xc0000005" "$previous"
+check "the kept log has fault context"             grep -q '^crash: registers ' "$previous"
 check "the new log is a fresh one"                 bash -c "! grep -q '^crash:' '$log'"
 cp "$log" "$out/restarted.log"; cp "$previous" "$out/previous.log" 2>/dev/null
 # the session logs (bridge/diag.c): one file per run, never replaced, with the crashed run marked and its minute saved

@@ -14,7 +14,7 @@
 #include "bridge.h"
 
 /* create_object(name, type, scene, parent, slot, &pos, &quat, model, a8..a11), cdecl.
- * For shots, parent is the shooter's target (0x42e030 passes the gob at shooter+0x88)
+ * For shots, parent is the shooter's target (0x42e030 resolves the handle at shooter+0x88)
  * and a8 is the shooter's gob handle (damage is credited to it).
  * Starts with mov eax,[esp+4]; sub esp,0xc: 7 bytes to move. */
 #define CREATE_OBJECT_ADDR  0x42d360
@@ -177,6 +177,7 @@ static void announce_launch(BYTE *gob)
         gob_kill(gob);
         return;
     }
+    presence_projectile(owner, target);
     if (owner && owner == local_player)
         own_add(gob);
     event_init(&e, EV_FIRE);
@@ -202,6 +203,13 @@ static void launch_hook(BYTE *gob, BYTE *shooter, BYTE *target, float *direction
     if (replaying)
         return;
     shots_frame();
+    {
+        BYTE *selected = ai_projectile_target(shooter, target);
+        if (selected != target) {
+            target = selected;
+            direction = NULL; /* let native ballistics aim at the selected player */
+        }
+    }
     launch_orig(gob, shooter, target, direction);
     if (!creating && have_remote && gob_is_projectile(gob) && gob_class(gob) == SHOT_CLASS)
         announce_launch(gob);

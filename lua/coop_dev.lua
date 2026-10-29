@@ -34,6 +34,20 @@ function ScriptUpdate(gob)
     return r
 end
 
+-- The first behind-glass enemy calls the native attack directly from its
+-- authored OnUpdate, outside ScriptUpdate and outside the class callback.
+-- Instant saves resolve native task functions by global name, not through coop.
+coopNativeDoganboyAttack = mdkDoganboyAttack
+coop.doganattack_orig = coopNativeDoganboyAttack
+function mdkDoganboyAttack(gob)
+    if (coop_ai_begin(gob) == 0) then return coop.doganattack_orig(gob) end
+    local args = { gob }
+    args.n = 1
+    local r = call(coop.doganattack_orig, args, "x")
+    coop_ai_end()
+    return r
+end
+
 -- the client switches its spawners off (the host's make the real enemies), but some make
 -- items (health, ammo respawns: mdk2.lua's item spawners), which the client needs too --
 coop.setspawned_orig = mdkSpawnerSetSpawnedObject
@@ -477,7 +491,11 @@ end
 
 -- client: bind a host actor to our gob of the same name, creating it if we lack one --
 function coop.Spawn(name, netid, objtype, x, y, z, hp)
-    local gob = coop.FindGob(name)
+    local gob = coop_gob(format("n%x", netid))
+    if (not gob) then
+        gob = coop.FindGob(name)
+        if (gob and (mdkGetGobType(gob) ~= objtype or coop_netid(gob) ~= 0)) then gob = nil end
+    end
     if (not gob) then
         gob = mdkCreateObjectLua(name, objtype, mdkGetScene(), nil, nil, x,y,z, 1,0,0,0, nil,0,0,0,0)
     end
@@ -776,6 +794,8 @@ function coop.HandlerTick()
     while (name and n < 8) do
         if (kill == 3) then
             coop.dome_pending[name] = 1
+        elseif (kill == 4) then
+            coop.rear_gate_result = 1
         elseif (kill == 2) then
             coop.SharedPickup(name, arg)
         else
@@ -789,6 +809,66 @@ function coop.HandlerTick()
     coop.SharedPickupTick()
     if (coop.join) then coop.TryJoin() end
     coop.ProximityTick()
+    coop.RearGateTick()
+end
+
+-- Opening r9's entrance normally locks r8's exit behind the single player.
+-- Animation callbacks run natively on both peers, outside RunHandler's join
+-- context. Keep this one rear gate usable until everyone has crossed it; the
+-- host commits the original script result and reliably tells the clients.
+function coop.RearGatePast(player, gate, destination)
+    local dx = destination.position.x - gate.position.x
+    local dy = destination.position.y - gate.position.y
+    local dz = destination.position.z - gate.position.z
+    local length = sqrt(dx * dx + dy * dy + dz * dz)
+    if (length < 1) then return nil end
+    return (player.position.x - gate.position.x) * dx +
+           (player.position.y - gate.position.y) * dy +
+           (player.position.z - gate.position.z) * dz > length * 3
+end
+
+-- A named global callback survives the game's instant-save function lookup.
+function coopRearGateOnAnimLoop(gob, anim)
+    if (anim ~= ANIM_OPEN) then return end
+    if (coop_players() == 0) then
+        mdkProxDoorLock(l2_r8entrdoor06, 1)
+    elseif (coop_role() == "host") then
+        Save.coop_rear_gate_pending = 1
+    end
+end
+
+function coop.RearGateTick()
+    if (coop.level ~= 2) then return end
+    local trigger = getglobal("l2_r9entrdoor")
+    local gate = getglobal("l2_r8entrdoor06")
+    if (not trigger or not gate or not coop_alive(trigger) or not coop_alive(gate)) then return end
+    if (type(trigger.OnAnimLoop) == "function") then
+        trigger.OnAnimLoop = coopRearGateOnAnimLoop
+    end
+    if (coop_role() == "host" and Save.coop_rear_gate_pending) then
+        local me = coop.real_player()
+        if (not me or coop_life(coop_slot()) ~= 0 or not coop.RearGatePast(me, gate, trigger)) then return end
+        local slot = 0
+        local others, slots = coop_players()
+        while (slot < slots) do
+            -- A downed teammate must remain reachable for revival.
+            if (slot ~= coop_slot() and coop_connected(slot) == 1 and coop_life(slot) <= 1) then
+                local p = coop.puppets[slot]
+                if (not p or not coop_alive(p) or not coop.RearGatePast(p, gate, trigger)) then return end
+            end
+            slot = slot + 1
+        end
+        Save.coop_rear_gate_pending = nil
+        Save.coop_rear_gate_closed = 1
+    end
+    if (coop_role() == "host" and Save.coop_rear_gate_closed) then
+        coop_puzzle(4)
+        coop.rear_gate_result = 1
+    end
+    if (coop.rear_gate_result) then
+        mdkProxDoorLock(gate, 1)
+        coop.rear_gate_result = nil
+    end
 end
 
 -- Handlers that start something when "the player" comes near (the boss on level 7 when the player is within 40 of
@@ -1126,6 +1206,7 @@ function level(l, cp, sec)
     coop.parked = {}
     coop.targetable = {}
     coop.rewards = {}
+    coop.rear_gate_result = nil
     coop.level = l
     coop.cp = cp
     coop_level(l, cp, announce, save)

@@ -306,3 +306,85 @@ with tempfile.TemporaryDirectory() as temp:
                           str(directory), 'v0.3.1', '4', '0', '1'], capture_output=True, timeout=5)
     assert res.returncode == 0, res.stderr.decode()
     print('PASS: local fake release server offline')
+
+# Execute the shipped About-page renderer with game-free UI stubs. A successful
+# check has no release notes, which used to trigger a stray write clearing line.
+launcher = (ROOT / 'bridge/launcher.c').read_text()
+about = launcher.split('static void page_about(void)', 1)[1].split('/* Help:', 1)[0]
+shim = r"""
+#include <stdio.h>
+#include <string.h>
+#include <stddef.h>
+enum { UP_IDLE, UP_CHECKING, UP_CURRENT, UP_AVAILABLE, UP_DOWNLOADING,
+       UP_APPLIED, UP_ROLLED_BACK, UP_ERROR };
+#define MOD_VERSION "v0.3.3-alpha"
+#define PX 800
+#define PW 600
+#define ID 1
+#define C_TEXT 1
+#define C_ORANGE 2
+#define C_DIM 3
+#define C_BLUE 4
+#define C_BAD 5
+#define DT_LEFT 0
+#define DT_RIGHT 0
+#define f_small 0
+#define f_tiny 0
+#define PROJECT_URL ""
+#define ISSUES_URL ""
+#define SW_SHOWNORMAL 0
+#define EnterCriticalSection(x) ((void)0)
+#define LeaveCriticalSection(x) ((void)0)
+#define update_init() ((void)0)
+#define update_save_schedule() ((void)0)
+#define update_start_check(x) ((void)0)
+#define update_start_apply() ((void)0)
+#define update_do_rollback() ((void)0)
+#define heading(...) ((void)0)
+#define gdi_text(...) ((void)0)
+#define link(...) 0
+#define button(...) 0
+#define open_url(...) ((void)0)
+#define ShellExecuteA(...) ((void)0)
+int update_state, update_rollback_ready, changed, seen;
+struct { int auto_enabled, include_prereleases; } update_sched = {1, 1};
+struct { char notes[180]; } update_rel;
+char update_msg[220];
+int gdi_para(int font, float x, float y, float width, int color, const char *text) {
+    if (!strcmp(text, update_msg) && text[0]) seen++;
+    return 20;
+}
+static void page_about(void)
+"""
+main = r"""
+int main(void) {
+    int states[] = {UP_CURRENT, UP_CHECKING, UP_AVAILABLE, UP_ERROR};
+    const char *messages[] = {"Update check successful: up to date.",
+                             "Checking GitHub releases...",
+                             "Update available.", "Offline or GitHub unreachable."};
+    int i;
+    for (i = 0; i < 4; i++) {
+        update_state = states[i];
+        strcpy(update_msg, messages[i]);
+        seen = 0;
+        page_about();
+        if (seen != 1) return 1;
+    }
+    return 0;
+}
+"""
+with tempfile.TemporaryDirectory() as temp:
+    directory = Path(temp)
+    for mutant in (False, True):
+        body = about
+        if mutant:
+            body = body.replace('    heading(PX, y, 28,',
+                                '    snprintf(notes[0] ? notes : line, 1, "%s", "");\n'
+                                '    heading(PX, y, 28,', 1)
+        source = directory / 'about.c'
+        source.write_text(shim + body + main)
+        binary = directory / 'about'
+        subprocess.run(['cc', '-std=c99', '-w', str(source), '-o', str(binary)], check=True)
+        result = subprocess.run([str(binary)])
+        assert (result.returncode != 0) == mutant, 'About update status visibility regression'
+    print('PASS: About renders update results; status-clearing mutant caught')

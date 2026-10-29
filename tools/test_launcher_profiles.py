@@ -74,3 +74,5 @@ with tempfile.TemporaryDirectory() as temp:
             assert not thread.is_alive()
             assert result.returncode==0,(name,result.stderr.decode())
             print('PASS: local fake server',name)
+
+subprocess.run(["python3", str(ROOT / "tools/test_launcher_saved_join.py")], check=True)

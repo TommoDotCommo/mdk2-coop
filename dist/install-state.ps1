@@ -10,10 +10,34 @@ function Get-CoopHash($file) {
 # No path, address or player data is sent anywhere; this process has no networking.
 $script:CoopPolicy = Join-Path $PSScriptRoot 'install-policy.exe'
 $script:CoopStates = @('current', 'missing', 'outdated', 'modified', 'conflict', 'unknown', 'unmanaged')
+# Hidden window style alone can still create a console briefly. Suppress console
+# creation and capture both streams so callers never borrow the desktop.
+function Invoke-CoopHiddenProcess([string]$file, [string]$arguments) {
+    $info = New-Object Diagnostics.ProcessStartInfo
+    $info.FileName = $file
+    $info.Arguments = $arguments
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = $info
+    try {
+        [void]$process.Start()
+        $output = $process.StandardOutput.ReadToEndAsync()
+        $errors = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        return [pscustomobject]@{ ExitCode=$process.ExitCode; Output=$output.Result; Error=$errors.Result }
+    } finally { $process.Dispose() }
+}
 function Invoke-CoopPolicy([string[]]$values) {
-    $result = & $script:CoopPolicy @values
-    if ($LASTEXITCODE -ne 0 -or "$result" -notmatch '^\d+$') { throw 'Setup policy helper failed; unpack the whole release again.' }
-    return [int]$result
+    # The policy protocol contains only words, numbers, hashes and hex text.
+    foreach ($value in $values) {
+        if ($value -notmatch '^[a-zA-Z0-9-]+$') { throw 'Invalid setup policy argument.' }
+    }
+    $result = Invoke-CoopHiddenProcess $script:CoopPolicy ($values -join ' ')
+    if ($result.ExitCode -ne 0 -or $result.Output.Trim() -notmatch '^\d+$') { throw 'Setup policy helper failed; unpack the whole release again.' }
+    return [int]$result.Output.Trim()
 }
 function Get-CoopFileState($expected, $observed, $receipt, $backup, $unknown = $false) {
     $schema = if ($receipt) { if ($receipt.schema -eq 1) { 1 } else { -1 } } else { 0 }

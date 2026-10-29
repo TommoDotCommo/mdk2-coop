@@ -21,10 +21,11 @@ static struct pending {
     int slot, arg, kill;
 } pend[PEND];
 static unsigned int pend_head, pend_tail;
-static unsigned int dome_state;
+static unsigned int puzzle_state;
 
 /* name: the gob's Lua global; event: "OnEnterRoom"; slot: who it happened to; arg: the handler's second argument;
- * kill: 1 remove after handler, 2 grant a shared reward first, 3 apply a dome result */
+ * kill: 1 remove after handler, 2 grant a shared reward first, 3 apply a dome result,
+ * 4 apply the host's level 2 rear-gate result */
 int test_no_remote;         /* coop_test_noremote(1) (background test mode): queue nothing: the old behaviour, for tools/qa_remote.sh */
 
 void remote_queue(const char *name, const char *event, int slot, int arg, int kill)
@@ -54,7 +55,7 @@ void remote_queue(const char *name, const char *event, int slot, int arg, int ki
 void remote_reset(void)
 {
     pend_head = pend_tail = 0;
-    dome_state = 0;
+    puzzle_state = 0;
 }
 
 static double num_param_remote(int n)
@@ -63,8 +64,8 @@ static double num_param_remote(int n)
     return (o && lua_isnumber(o)) ? lua_getnumber(o) : 0.0;
 }
 
-/* The dome puzzle is driven by the shooter's OnShotExploded, not damage.
- * Replicate its completed result reliably; replays and reconnects are idempotent. */
+/* Reliable script results: level 1 dome impacts (1..3) and the host's level 2
+ * group-crossed rear gate (4). Replays and reconnects are idempotent. */
 static void puzzle_send(int index, int to)
 {
     struct event e;
@@ -76,12 +77,13 @@ static void puzzle_send(int index, int to)
 static void l_coop_puzzle(void)
 {
     int index = (int)num_param_remote(1);
-    if (cur_level != 1 || index < 1 || index > 3)
+    if (!((cur_level == 1 && index >= 1 && index <= 3) ||
+          (cur_level == 2 && index == 4 && role_host)))
         return;
     if (role_host) {
-        if (dome_state & (1u << index))
+        if (puzzle_state & (1u << index))
             return;
-        dome_state |= 1u << index;
+        puzzle_state |= 1u << index;
     }
     puzzle_send(index, role_host ? TO_ALL : 0);
 }
@@ -89,15 +91,21 @@ static void l_coop_puzzle(void)
 void puzzle_resend(int to)
 {
     int i;
-    if (role_host && cur_level == 1)
-        for (i = 1; i <= 3; i++)
-            if (dome_state & (1u << i))
+    if (role_host && (cur_level == 1 || cur_level == 2))
+        for (i = 1; i <= 4; i++)
+            if (puzzle_state & (1u << i))
                 puzzle_send(i, to);
 }
 
 void puzzle_event(const struct event *e, int from)
 {
     char name[EV_NAME];
+    /* The level 2 rear gate closes only on the host's group-crossed result.
+     * Retain it for reconnects through the same reliable puzzle history. */
+    if (cur_level == 2 && e->type == 4 && !role_host && from == 0) {
+        remote_queue("l2_r8entrdoor06", "CoopRearGate", from, 0, 4);
+        return;
+    }
     if (cur_level != 1 || e->type < 1 || e->type > 3 || (!role_host && from != 0))
         return;
     snprintf(name, sizeof(name), "platportal%d", e->type);

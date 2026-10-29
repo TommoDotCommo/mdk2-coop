@@ -1568,7 +1568,6 @@ static void page_about(void)
     LeaveCriticalSection(&update_lock);
 
     heading(PX, y, 28, "MDK2 HD Co-op", C_TEXT, DT_LEFT);
-    snprintf( notes[0] ? notes : line, 1, "%s", ""); /* keep compiler happy before reuse */
     {
         char vline[96];
         snprintf(vline, sizeof(vline), "Version %s  -  alpha", MOD_VERSION);
@@ -1599,7 +1598,7 @@ static void page_about(void)
         changed = 1;
     }
     y += 24;
-    y += gdi_para(f_small, PX, y, PW, st == UP_ERROR ? C_BAD : (st == UP_AVAILABLE || st == UP_APPLIED) ? C_ORANGE : C_DIM, line) + 4;
+    y += gdi_para(f_small, PX, y, PW, st == UP_ERROR ? C_BAD : st == UP_CURRENT ? C_BLUE : (st == UP_AVAILABLE || st == UP_APPLIED) ? C_ORANGE : C_DIM, line) + 4;
     if (st == UP_AVAILABLE) {
         EnterCriticalSection(&update_lock);
         snprintf(notes, sizeof(notes), "Notes: %.140s", update_rel.notes[0] ? update_rel.notes : "Release package verified via .sha256 sidecar.");
@@ -1702,6 +1701,7 @@ static struct {
     struct sockaddr_in hostaddr;
     char status[96];
     char chat_in[LS_CHAT_MAX + 1];
+    char address_status[180];
 } lob;
 
 /* our name as it goes on the wire: '|' and line ends separate fields */
@@ -2201,10 +2201,30 @@ static void lobby_page(void)
     }
 
     y = LH - 224;
+    if (button(ID, PX + PW - 140, y, 140, 28, "Save address", 0)) {
+        char address[32];
+        unsigned port;
+        if (lob.host) {
+            lan_address(address, sizeof(address));
+            port = (unsigned)atoi(cfg.listen);
+        } else {
+            snprintf(address, sizeof(address), "%s", inet_ntoa(lob.hostaddr.sin_addr));
+            port = ntohs(lob.hostaddr.sin_port);
+        }
+        if (!strcmp(address, "unknown")) {
+            snprintf(lob.address_status, sizeof(lob.address_status), "Could not find this lobby's IP address.");
+        } else {
+            profile_save_endpoint(address, port);
+            snprintf(lob.address_status, sizeof(lob.address_status), "%s", profile_message);
+        }
+        changed = 1;
+    }
     if (lob.start_at) {
         int left = (int)(lob.start_at - now);
         snprintf(line, sizeof(line), "Starting in %d...", left > 0 ? (left + 999) / 1000 : 0);
         heading(PX, y, 24, line, C_ORANGE, DT_LEFT);
+    } else if (lob.address_status[0]) {
+        gdi_para(f_small, PX, y, PW - 152, C_DIM, lob.address_status);
     } else if (lob.host) {
         snprintf(line, sizeof(line), "Everyone is ready.");
         if (lob.n < 2) {
@@ -2216,9 +2236,9 @@ static void lobby_page(void)
         } else if (others_unready) {
             snprintf(line, sizeof(line), "%d not ready yet (you can start anyway).", others_unready);
         }
-        gdi_para(f_small, PX, y, PW, C_DIM, line);
+        gdi_para(f_small, PX, y, PW - 152, C_DIM, line);
     } else if (lob.connected) {
-        gdi_para(f_small, PX, y, PW, C_DIM, "Connected. Press Ready, then wait for the host to start.");
+        gdi_para(f_small, PX, y, PW - 152, C_DIM, "Connected. Press Ready, then wait for the host to start.");
     }
     if (mismatch)
         gdi_para(f_small, PX, y + 32, PW, C_BAD, "A different mod version is in the lobby: everyone should update.");
@@ -2400,6 +2420,17 @@ static void render(void)
     heading(360, 548, 52, "Online Co-op", C_ORANGE, DT_CENTER);
     snprintf(line, sizeof(line), "%s  -  up to 16 players", MOD_VERSION);
     gdi_text(f_small, 360, 614, C_DIM, line, DT_CENTER);
+    update_init();
+    {
+        char message[220];
+        int state;
+        EnterCriticalSection(&update_lock);
+        state = update_state;
+        snprintf(message, sizeof(message), "%s", update_msg);
+        LeaveCriticalSection(&update_lock);
+        if (message[0])
+            gdi_para(f_tiny, 80, 642, 560, state == UP_ERROR ? C_BAD : C_BLUE, message);
+    }
     gdi_text(f_small, 24, 690, C_FAINT, lob.on ? (lob.host ? "Hold F1: quick guide   Enter: start   Esc: leave the lobby" : "Hold F1: quick guide   Enter: ready   Esc: leave the lobby") :
              "Hold F1: quick guide   Enter: play   Tab: next   Esc: quit", DT_LEFT);
 
@@ -2421,8 +2452,10 @@ static void render(void)
     fill(PX, 80, PW, 1, 0x22343c, 255);
 
     if (page == PAGE_PLAY) {
-        if (lob.on) lobby_page();
-        else page_play();
+        if (lob.on) {
+            lobby_page();
+            if (!lob.on) return; /* Leave must not activate the Play footer in this pass. */
+        } else page_play();
     }
     else if (page == PAGE_PROFILES)
         page_profiles();

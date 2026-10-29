@@ -35,7 +35,8 @@ class Gate:
     shards: int = 1
 
 
-OFFLINE = [Gate("presence-core", ("python3", "tools/test_presence.py")),
+OFFLINE = [Gate("rear-gate-routing", ("bash", "tools/test_rear_gate.sh")),
+           Gate("presence-core", ("python3", "tools/test_presence.py")),
            Gate("launcher-audio", ("bash", "tools/test_launcher_audio.sh")),
            Gate("launcher-profiles", ("python3", "tools/test_launcher_profiles.py")),
            Gate("install-policy", ("python3", "tools/test_install_policy.py")),
@@ -50,21 +51,24 @@ OFFLINE = [Gate("presence-core", ("python3", "tools/test_presence.py")),
            Gate("revive-core", ("make", "-C", "bridge", "test-revive")),
            Gate("network-core", ("bash", "tools/test_network.sh")),
            Gate("pickups-core", ("bash", "tools/test_pickups.sh")),
-           Gate("diagnostics-core", ("bash", "tools/test_diag.sh"))]
+           Gate("diagnostics-core", ("bash", "tools/test_diag.sh")),
+           Gate("crash-context", ("bash", "tools/test_crash_context.sh"))]
 SMOKE = [Gate("two-player", ("bash", "tools/qa.sh"), 2, result="counts"),
          Gate("checkpoint-smoke", ("bash", "tools/sweep.sh", "1-1", "1-3"), 2, result="sweep"),
          Gate("level-smoke", ("bash", "tools/sweep.sh", "--levels"), 2, result="sweep")]
 FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
             for name, script, players, result in [
                 ("multiplayer", "qa_n", 3, "counts"), ("save-reconnect", "qa_save", 3, "counts"),
-                ("level-epochs", "qa_epoch", 2, "counts"), ("enemy-targeting", "qa_ai", 2, "counts"),
+                ("save-script-tasks", "qa_save_scripts", 2, "counts"),
+                ("level-epochs", "qa_epoch", 2, "counts"), ("enemy-targeting", "qa_ai", 2, "counts"), ("native-room-ai", "qa_room_ai", 2, "counts"),
+                ("hans-targeting", "qa_hans", 2, "counts"),
                 ("attached-canopy", "qa_presence", 3, "counts"), ("client-join", "qa_join", 2, "counts"),
                 ("revive", "qa_revive", 3, "counts"), ("menu", "qa_menu", 3, "counts"),
                 ("cutscenes", "qa_cutscene", 2, "counts"), ("minigames", "qa_minigames", 2, "counts"),
                 ("level8-intro", "qa_level8_intro", 2, "counts"),
                 ("character-wheel", "qa_char", 1, "counts"), ("character-puppet", "qa_char2", 2, "counts"),
                 ("emotes", "qa_emote", 1, "counts"), ("crash-log", "qa_crashlog", 1, "counts"),
-                ("controls", "qa_controls", 1, "counts"), ("diagnostics", "qa_diag", 2, "counts"), ("triggers", "qa_triggers", 2, "counts"), ("remote-events", "qa_remote", 2, "counts"), ("playtest-sync", "qa_playtest", 2, "counts"), ("proximity", "qa_proximity", 2, "counts"), ("launcher", "qa_launcher", 2, "counts"),
+                ("controls", "qa_controls", 1, "counts"), ("diagnostics", "qa_diag", 2, "counts"), ("triggers", "qa_triggers", 2, "counts"), ("remote-events", "qa_remote", 2, "counts"), ("playtest-sync", "qa_playtest", 2, "counts"), ("proximity", "qa_proximity", 2, "counts"), ("level2-rear-gate", "qa_rear_gate", 2, "counts"), ("launcher", "qa_launcher", 2, "counts"),
                 ("lobby", "qa_lobby", 3, "counts"),
                 ("first-enemy", "qa_sign", 3, "counts"),
                 ("character-motion", "qa_motion", 2, "counts"),

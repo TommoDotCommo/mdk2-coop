@@ -208,8 +208,14 @@ void gob_peername(BYTE *gob, char *out, int size)
         snprintf(out, size, "@p%d", my_slot + 1);
     else if (s >= 0)
         snprintf(out, size, "@p%d", s + 1);
-    else
-        gob_netname(gob, out, size);
+    else {
+        unsigned int id = ent_netid(gob);
+        /* Entity names can become ambiguous as a generator makes more enemies,
+         * then become unique again when siblings die. Events must keep using
+         * the binding's identity throughout that lifetime. */
+        if (id) snprintf(out, size, "n%x", id);
+        else gob_netname(gob, out, size);
+    }
 }
 
 /* The reverse, on the receiving side: NULL if we have nothing by that name */

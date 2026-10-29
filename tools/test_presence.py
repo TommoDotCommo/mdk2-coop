@@ -84,7 +84,9 @@ adapter_mutants = {
     'forget-target-restore': ('ai_actor = saved;', 'ai_actor = gob;'),
     'double-stack-clean': ('"movq %1, %%rsp\\n\\t" /* restore caller stack for both caller-pop and callee-pop */',
                            '"addq $32, %%rsp\\n\\t" /* restore caller stack for both caller-pop and callee-pop */'),
-    'omit-stored-target': ('*(BYTE **)(gob + GOB_TARGET) = target;', '(void)target;'),
+    'pointer-as-target-handle': ('*(DWORD *)(gob + GOB_TARGET) = gob_handle(slot);', '*(DWORD *)(gob + GOB_TARGET) = (DWORD)(uintptr_t)target;'),
+    'cached-host-projectile': ('return selected ? selected : target;', 'return target;'),
+    'omit-stored-target': ('*(DWORD *)(gob + GOB_TARGET) = gob_handle(slot);', '(void)target;'),
     'omit-handle-scope': ('if (target == local_player || puppet_slot(target) >= 0) PLAYER_HANDLE = h;\n        AI_TARGET_HANDLE = h;',
                           '(void)h;'),
     'forget-handle-restore': ('PLAYER_HANDLE = ai_stack[ai_depth].player_handle;', '(void)0;'),
@@ -190,3 +192,5 @@ with tempfile.TemporaryDirectory(prefix='mdk-presence-packet-') as folder:
         elif result.returncode==0 or not ('Assertion' in result.stderr or 'AddressSanitizer' in result.stderr):
             raise SystemExit(f'FAIL packet mutant not caught: {name}: {result.stderr}')
         else: print(f'PASS packet mutant caught: {name}')
+
+subprocess.run(["python3", str(ROOT / "tools/test_entity_identity.py")], check=True)

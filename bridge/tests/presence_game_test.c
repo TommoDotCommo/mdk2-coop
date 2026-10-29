@@ -82,7 +82,7 @@ static DWORD fake_think(BYTE *g, DWORD a, DWORD b, DWORD c)
     assert(a==11 && b==22 && c==33);
     assert(ai_target()==expected);
     if (role_host && gob_is_actor(g)) {
-        assert(*(BYTE **)(g + GOB_TARGET) == expected);
+        assert(gob_by_handle(*(DWORD *)(g + GOB_TARGET)) == expected);
         assert(AI_TARGET_HANDLE == gob_handle(gob_slot(expected)));
         if (expected == local_player || puppet_slot(expected) >= 0)
             assert(PLAYER_HANDLE == gob_handle(gob_slot(expected)));
@@ -182,13 +182,17 @@ int main(void)
     no_targeting = 0;
     ai_create_enter(spawn_pos);
     assert(PLAYER_HANDLE==gob_handle(1) && AI_TARGET_HANDLE==gob_handle(1));
-    *(BYTE **)(bodies[3]+GOB_TARGET)=NULL;
+    *(DWORD *)(bodies[3]+GOB_TARGET)=0;
     ai_create_leave(bodies[3], spawn_pos);
     assert(PLAYER_HANDLE==gob_handle(0) && AI_TARGET_HANDLE==gob_handle(0));
-    assert(*(BYTE **)(bodies[3]+GOB_TARGET)==bodies[1] && filtered_classes>0 && repositioned==1);
-    *(BYTE **)(bodies[3]+GOB_TARGET)=local_player;
+    assert(gob_by_handle(*(DWORD *)(bodies[3]+GOB_TARGET))==bodies[1] && filtered_classes>0 && repositioned==1);
+    *(DWORD *)(bodies[3]+GOB_TARGET)=gob_handle(0);
     ai_before_scene();
-    assert(*(BYTE **)(bodies[3]+GOB_TARGET)==bodies[1]);
+    assert(gob_by_handle(*(DWORD *)(bodies[3]+GOB_TARGET))==bodies[1]);
+    assert(ai_projectile_target(bodies[3], local_player)==bodies[1]);
+    assert(ai_projectile_target(bodies[3], bodies[5])==bodies[5]); /* script target */
+    assert(ai_projectile_target(local_player, local_player)==local_player); /* player aim */
+    no_targeting=1; assert(ai_projectile_target(bodies[3], local_player)==local_player); no_targeting=0;
     {
         DWORD victim = ai_evidence[3].victim;
         unsigned int queries = ai_evidence[3].queries;

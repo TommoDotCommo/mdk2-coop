@@ -77,6 +77,7 @@ void canopy_apply(BYTE *gob, const struct canopy_state *s)
 static BYTE *ai_actor;
 static BYTE *(*target_original)(void);
 static struct { DWORD actor, victim; unsigned int queries, hits; } ai_evidence[GOB_SLOTS];
+static struct { DWORD actor; unsigned int shots[MAX_PLAYERS]; } ranged_evidence[GOB_SLOTS];
 static unsigned int local_direct_hits;
 static char local_direct_source[EV_NAME];
 
@@ -129,7 +130,31 @@ static BYTE *ai_target(void)
 
 static void ai_store_target(BYTE *gob, BYTE *target)
 {
-    if (gob && target) *(BYTE **)(gob + GOB_TARGET) = target;
+    int slot = target ? gob_slot(target) : -1;
+    /* Native ranged fire resolves gob+0x88 through the handle table. */
+    if (gob && slot >= 0) *(DWORD *)(gob + GOB_TARGET) = gob_handle(slot);
+}
+
+/* Some ranged tasks pass the game's cached host target directly to launch.
+ * Keep the native decision to fire and native ballistics, but use the same
+ * eligible player as acquisition; explicit scripted non-player targets win. */
+BYTE *ai_projectile_target(BYTE *shooter, BYTE *target)
+{
+    BYTE *selected;
+    if (!role_host || !have_remote || no_targeting || !gob_alive(shooter) || !gob_is_actor(shooter)) return target;
+    if (target && target != local_player && puppet_slot(target) < 0) return target;
+    selected = ai_select((const float *)(shooter + GOB_POSITION), shooter);
+    return selected ? selected : target;
+}
+
+/* Called from captured native launch state, not from target candidate seeding. */
+void presence_projectile(BYTE *shooter, BYTE *target)
+{
+    int actor = gob_slot(shooter), player = target == local_player ? my_slot : puppet_slot(target);
+    if (!role_host || actor < 0 || !gob_is_actor(shooter) || player < 0 || player >= MAX_PLAYERS) return;
+    if (ranged_evidence[actor].actor != gob_handle(actor)) memset(&ranged_evidence[actor], 0, sizeof(ranged_evidence[actor]));
+    ranged_evidence[actor].actor = gob_handle(actor);
+    ranged_evidence[actor].shots[player]++;
 }
 
 static void ai_scope_handles(BYTE *target)
@@ -423,6 +448,18 @@ void presence_dump(FILE *f)
                 fprintf(f, " %lu %.5f", (unsigned long)canopy.anim[j][0], phase);
             }
             fputc('\n', f);
+        }
+    }
+    for (s = 0; s < GOB_SLOTS; s++) {
+        BYTE *actor = GOB_TABLE_AT(s);
+        char name[EV_NAME];
+        if (!actor || !gob_alive(actor) || !gob_is_actor(actor)) continue;
+        gob_peername(gob_by_handle(*(DWORD *)(actor + GOB_TARGET)), name, sizeof(name));
+        fprintf(f, "ai_target %x %d %s\n", gob_handle(s), gob_type(actor), name[0] ? name : "none");
+        if (ranged_evidence[s].actor == gob_handle(s)) {
+            int p;
+            for (p = 0; p < MAX_PLAYERS; p++) if (ranged_evidence[s].shots[p])
+                fprintf(f, "ai_fire %x %d %d %u\n", gob_handle(s), gob_type(actor), p + 1, ranged_evidence[s].shots[p]);
         }
     }
     for (s = 0; s < GOB_SLOTS; s++) {

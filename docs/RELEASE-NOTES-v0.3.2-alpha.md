@@ -1,63 +1,80 @@
 # MDK2 HD Co-op v0.3.2-alpha
 
-## What's New
+This alpha includes the merged gameplay, launcher and installer work, plus fixes
+from paired multiplayer playtesting.
 
-### Direct AI Targeting & Remote Kurt Canopy
-- Enemies now target, pursue, and damage client players directly (`bridge/presence.c`, `bridge/presence_game.c`, `bridge/net.c`).
-- Client join flow rewritten with explicit version mismatch detection, cancellation handling, and clean reconnection retry.
-- Remote Kurt canopy state captured, encoded, decoded, and animated seamlessly on puppets across players.
-- Engine ABI stack balance fixes for actor callbacks.
+## Gameplay fixes
 
-### Launcher, Installer & Lobby Enhancements
-- Single graphical installer (`MDK2-Coop-Setup.exe`) with transaction-verified ownership receipts (`dinput8.dll.coop-receipt.json`), install policy engine (`install-policy.exe`), and status UI.
-- Saved-IP server profiles with live UDP status probes (`bridge/launcher_profiles.h`, `bridge/launcher_profiles_win.h`).
-- Persistent lobby sessions with pregame text chat and voice chat support (`bridge/launcher_session.h`, `bridge/launcher_voice_win.h`).
-- Automatic update discovery from GitHub releases: queries GitHub releases list endpoint (`/releases?per_page=10`), parses release arrays, ignores drafts, orders pre-releases and final releases by semver (`v0.3.2-alpha` above `v0.3.1-alpha`, final `v0.3.2` above `v0.3.2-alpha`), breaks ties by `published_at`, and adds an "include pre-releases" option (defaults to ON for alpha releases).
-- Atomic package installation with SHA-256 sidecar checksum verification, PE header validation, and verified automatic rollback on failure.
+- Enemies can acquire, pursue and damage client players. Native ranged attacks
+  now aim at the selected player, including corridor turrets and round enemies.
+  The first behind-glass enemy's scripted attack follows the same targeting rules.
+- The first visible enemy generator now mirrors its animation and lifetime on
+  clients. Stable enemy identities prevent repeated spawn messages or changes in
+  a group of same-named enemies from producing stray or apparently unkillable mirrors.
+- Fixed a crash when a projectile hits after its original shooter has disappeared.
+- Included mortar progression synchronization, shared pickup rewards and enemy
+  maximum-health display corrections.
+- Remote Kurt parachutes mirror deployment, steering, landing and cut-away.
+- Client joining handles waiting, host departures, cancellation, retry and
+  incompatible versions more clearly. Native actor callback fixes are included.
 
-### Combat Feedback
-- Glanceable feedback instead of a scrolling log (`bridge/combat.c`, `bridge/combat_hud.c`, `docs/COMBAT.md`): large outlined floating damage numbers coloured per player and lifted clear of name tags, where rapid hits by one player on one enemy merge into one growing number; kills get a bolder number with the enemy's friendly name; a hitmarker at the screen centre for your own hits (red and longer for kills); and a ticker of at most three recent kills such as `Hank > Doganboy x3`. No internal ids are shown.
-- A compact damage panel at the right of the screen (at most 15 percent of the width and 20 percent of the height), set in from the edge and below the game's tutorial and dialog boxes. It starts collapsed to one line with your DPS and the team's; `Ctrl+M` expands it to a bar per player (sorted, with name, a `Total` and a `DPS` column under labelled headers, and the fight timer), and it fades out after the fight. `Ctrl+R` resets local counters and `Ctrl+D` dumps `combat.txt`. `Ctrl+PgUp`, `Ctrl+PgDn` and `Ctrl+L` are gone with the feed.
-- Host-confirmed enemy HP loss telemetry using event `EV_COMBAT` in sync core (unchanged).
+## Launcher, installer and lobby
 
-### Sync Core & Gameplay Fixes
-- Progression synchronization for mortar weapons, shared pickup distributions, and enemy health display bars.
-- Comprehensive game-free mutation suites, sync simulator, fuzzers, and lossy link test suites.
+- Fixed Leave lobby immediately rejoining from the same click.
+- Save address adds the current lobby address and port to Saved addresses without
+  leaving the lobby. Existing names and notes are preserved when already saved.
+- Joining a saved address opens the connected lobby page directly.
+- Saved addresses include live UDP status checks. Lobby connections and pregame
+  text and voice chat remain active while browsing launcher pages.
+- The graphical installer supports Install, Update and Repair, with ownership
+  receipts and clearer installation status.
+- Automatic updates include alpha releases by default, ignore drafts, compare
+  release versions and verify package checksums. Failed installations can roll back.
 
-## Known Issues
+## Combat feedback
 
-### Verified live (MDK2 HD Steam build 3902, disposable game copies, background mode)
+- Host-confirmed hitmarkers and floating damage numbers remain enabled.
+- The combat log and DPS panels are hidden for now while their presentation is
+  revised. Bounded event history, counters and diagnostic dumps remain available.
 
-Each baseline passed and each deliberately broken variant failed as required.
+## Validation
 
-- **Lobby** (`tools/qa_lobby.sh`): 33 of 33 checks with a host and two clients, including chat, voice frames, Ready, countdown and start. The `MUTANT=nostart` variant was not run.
-- **Enemy targeting** (`tools/qa_ai.sh`): client-near and host-near cases pass; `MUTANT=targeting` and `MUTANT=hostaoe` fail.
-- **Remote Kurt canopy, three peers** (`tools/qa_presence.sh`): 27 of 27 including client-to-client relay; `MUTANT=canopy` fails all 27.
-- **Client join flow** (`tools/qa_join.sh`): 7 of 7 (waiting screen, automatic pull, host leaving, cancel, retry, 65-second outage, and a packet from a previous protocol giving the update message); `MUTANT=join` fails 5 of 7. Version mismatch is detected by protocol magic only; there is no exact mod-version string check and no separate old release was installed.
-- **Combat ledger and damage panel state** (`tools/qa_combat.sh`, three processes, state read from the processes): a host hit of 20 and a client hit of 30 produce identical event ledgers, per-player totals and 5-second DPS on all three, matching the measured enemy HP loss; idle expiry, the Ctrl+M toggle edges (the panel starts collapsed) and reset also pass (7 of 7). `MUTANT=deaf` fails on the ledger comparison. `tools/qa_combat_startup.sh` passes. Game-free tests cover the HUD layout at five resolutions, the number merging and the fade with 38 mutation twins (`tools/test_combat.py`).
-- **Playtest sync** (`tools/qa_playtest.sh`, 40 of 40): mortar progression through the dome callbacks, shared pickups, scaled enemy health bars on both games; `MUTANT=pickups` and `MUTANT=dome` fail.
+- All 16 offline regression gates and all 66 Python unit tests passed.
+- Eight native level-one encounter checks passed: generator animation, real
+  ranged client damage with the host unharmed, repeated spawn announcements,
+  sibling removal, matching survivor health, survivor death on both peers,
+  client-targeted turret launches, and the first enemy after sniping its sign.
+  Disabling targeting made the native ranged-damage check fail as required.
+- The existing three-check Grunt targeting, direct-damage and script-error
+  restoration regression also passed.
+- Focused lobby checks passed for leaving/rejoining, duplicate-free address
+  saving and joining a saved address directly into the connected lobby.
+- Earlier targeted canopy and join-flow checks passed; the complete campaign
+  and feature ladder have not been rerun on this final combined build.
 
-### Not verified live
+## Known limitations
 
-- **Rendering of the damage numbers, hitmarker, ticker and panel** is not asserted: the live check reads the ledger that feeds them, not drawn pixels. Layout is checked by rectangle tests under a wide glyph model; the real font was only looked at in in-game screenshots (`tools/combat_showcase.sh`) at one resolution on level 1, not at the other sizes. The position of the game's own HUD is an assumption; the panel avoids the bottom strip and the top-left team panel.
-- **Weapon and ability names** are not shown: the damage hook does not expose the selected weapon. Enemy kinds outside a short table of known ones display as `Enemy`.
-- **Lossy-link combat** (`lossy-combat` gate), projectile source attribution, reconnect and host migration during combat were not run live.
-- **Dome mortar puzzle** is exercised through collision and explosion callbacks, not projectile flight.
-- **Voice chat hardware**: tested with synthetic audio and protocol simulations only, not a physical microphone.
-- **Full regression ladder** (`qa_all.py full`) was not run for this build; only the suites above were run live.
-- **`tools/qa_sign.sh`** (level 1 sign, glass and dog) passed 37 of 38 in both runs, with a different "the dog hurt player N" check missing each time, and the same happened before the fixes below. Treat the dog's bite as an intermittent test miss, not yet explained.
-- **Pre-release status**: this is an alpha release candidate.
+- These AI results cover the tested encounters, not every enemy, level or
+  navigation situation in the campaign.
+- Voice chat was tested with synthetic audio, not a physical microphone.
+- Hitmarkers and floating damage numbers have automated core coverage; a full
+  multiplayer rendering matrix has not been completed.
+- The Overhaul Games build is accepted by build detection but remains untested.
+- This is an alpha: expect rough edges. Use the diagnostics bundle when reporting
+  a problem, with the level, checkpoint and whether you hosted or joined.
 
-### Fixed while verifying live
+## Maintainer publishing
 
-- The host crashed when a hit with no attacking object (environmental damage) reached the player-presence check. Covered by `tests/presence_game_test.c` (mutant in `tools/test_presence.py`) and by `tools/qa_playtest.sh`.
-- The combat and playtest suites aimed at `r2_dog01`, which is immune until its glass sequence, so no damage landed; they now use `doganboys07`, and the combat oracle also checks the DPS values.
+The package is prepared locally. From this release branch, after reviewing the
+changes, publish its commit and create the GitHub pre-release:
 
-## Maintainer Release Instructions
-
-To create the GitHub pre-release, run:
 ```bash
-gh release create v0.3.2-alpha local/release/mdk2-coop-v0.3.2-alpha.zip local/release/mdk2-coop-v0.3.2-alpha.zip.sha256 \
+git push origin HEAD:main
+gh release create v0.3.2-alpha \
+  local/release/mdk2-coop-v0.3.2-alpha.zip \
+  local/release/mdk2-coop-v0.3.2-alpha.zip.sha256 \
+  --repo TommoDotCommo/mdk2-coop \
+  --target "$(git rev-parse HEAD)" \
   --title "mdk2-coop v0.3.2-alpha" \
   --notes-file docs/RELEASE-NOTES-v0.3.2-alpha.md \
   --prerelease

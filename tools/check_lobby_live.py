@@ -88,6 +88,30 @@ class Launchers:
         self.expect(2, 'imported profile probes real host', timeout=8, **{'profile0.status': 3})
         self.shot(2, 'profiles_live')
 
+    def saved_join(self):
+        self.command(2, 'page 5')
+        state = self.state(2)
+        count = state.getint('profiles', 'count')
+        existing = any(state.get(f'profile{i}', 'host') == '127.0.0.1' and
+                       state.get(f'profile{i}', 'port') == str(self.port) for i in range(count))
+        expected = count if existing else count + 1
+        self.command(2, 'page 0', 'click 1180 510')
+        self.expect(2, 'save host address without leaving lobby',
+                    **{'launcher.lobby': 1, 'launcher.connected': 1, 'profiles.count': expected})
+        saved = (self.dirs[1] / 'profiles.tsv').read_bytes()
+        assert ('\t127.0.0.1\t' + str(self.port) + '\t').encode() in saved
+        self.command(2, 'click 1180 510')
+        self.expect(2, 'saving the same address twice does not duplicate it', **{'profiles.count': expected})
+        assert (self.dirs[1] / 'profiles.tsv').read_bytes() == saved
+        self.command(2, 'click 1000 660')
+        self.expect(2, 'leave before joining a saved address', **{'launcher.lobby': 0})
+        self.expect(1, 'host removes departed client', timeout=6, **{'launcher.players': 1})
+        self.command(2, 'page 5', 'click 800 494')
+        self.expect(2, 'saved Join opens the connected lobby on Play',
+                    **{'launcher.page': 0, 'launcher.lobby': 1, 'launcher.connected': 1, 'launcher.players': 2})
+        self.expect(1, 'saved Join reaches the real host', **{'launcher.players': 2})
+        self.shot(2, 'saved_address_joined_lobby')
+
     def full(self):
         self.expect(1, 'real lobby filled by synthetic protocol members', **{'launcher.players': 16})
         # Start a new probe only after all synthetic hellos have been consumed.
@@ -161,12 +185,15 @@ class Launchers:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('profiles', 'full', 'lifecycle', 'mismatch', 'chat'))
-    parser.add_argument('--dirs', nargs=3, required=True)
+    parser.add_argument('mode', choices=('profiles', 'full', 'lifecycle', 'mismatch', 'chat', 'saved_join'))
+    parser.add_argument('--dirs', nargs='+', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--port', required=True)
     parser.add_argument('--version', required=True)
     args = parser.parse_args()
+    required = 2 if args.mode == 'saved_join' else 3
+    if len(args.dirs) != required:
+        parser.error(f'{args.mode} requires {required} game directories')
     live = Launchers(args.dirs, Path(args.output) / args.mode)
     live.port, live.version = args.port, args.version
     getattr(live, args.mode)()

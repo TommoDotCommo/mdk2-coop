@@ -63,6 +63,8 @@ You need MDK2 HD: the **Steam** version (build 3902) or the **Overhaul Games** (
 3. Choose **Play MDK2** or **Close** when setup finishes. You can also start MDK2 HD as usual
    from Steam or the Beamdog client. The co-op launcher opens first.
 
+Already installed? Open setup and click **Play MDK2** to launch the game. Use **Create desktop shortcut** to add a shortcut that opens the game and its co-op launcher directly. Both buttons are also available after installing. Keep Steam or the Beamdog client running.
+
 If Windows shows "Windows protected your PC", choose **More info > Run anyway**. The installer uses
 PowerShell scripts (`installer-gui.ps1` and `mdk2-coop.ps1`) that you can read in Notepad first.
 
@@ -96,6 +98,8 @@ version. If the Steam overlay is off, share the lobby ID instead.
 
 The host listens on **UDP port 27900** (changeable in the launcher). On a LAN, joiners enter the host's local IP
 address. Over the internet, the host forwards that port on their router and shares their public IP address.
+
+In the lobby, **Save address** adds the host address and port to **Saved addresses** without leaving the lobby. Saving an existing address keeps its name and notes. **Join** in Saved addresses takes you straight to the connected lobby.
 Allow MDK2 HD through Windows Firewall when asked.
 
 ### While you play

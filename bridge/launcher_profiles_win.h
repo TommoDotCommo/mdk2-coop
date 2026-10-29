@@ -126,6 +126,44 @@ static void profile_load(void)
     if (thread) CloseHandle(thread);
     else strcpy(profile_message, "Background status unavailable. Profiles can still be used.");
 }
+/* Save a lobby endpoint without replacing an existing address's name or notes. */
+static int profile_save_endpoint(const char *host, unsigned port)
+{
+    struct lp_store next;
+    struct lp_profile entry = {0};
+    int i, suffix;
+    profile_load();
+    if (profile_bad) return 0;
+    next = profiles;
+    for (i = 0; i < next.n; i++) {
+        if (!_stricmp(next.p[i].host, host) && next.p[i].port == port) {
+            profile_selected = i;
+            strcpy(profile_message, "This address is already saved.");
+            return 1;
+        }
+    }
+    if (next.n == LP_MAX) {
+        strcpy(profile_message, "Saved addresses are full. Remove an address before adding another.");
+        return 0;
+    }
+    snprintf(entry.host, sizeof(entry.host), "%s", host);
+    entry.port = port;
+    for (suffix = 0; suffix <= LP_MAX; suffix++) {
+        if (suffix) snprintf(entry.name, sizeof(entry.name), "%.30s:%u (%d)", host, port, suffix);
+        else snprintf(entry.name, sizeof(entry.name), "%.40s:%u", host, port);
+        for (i = 0; i < next.n; i++) if (!strcmp(next.p[i].name, entry.name)) break;
+        if (i == next.n) break;
+    }
+    if (!lp_valid(&entry)) {
+        strcpy(profile_message, "This lobby does not have an address that can be saved.");
+        return 0;
+    }
+    next.p[next.n++] = entry;
+    if (!profile_save(&next)) return 0;
+    profile_selected = next.n - 1;
+    strcpy(profile_message, "Address saved. Find it under Saved addresses.");
+    return 1;
+}
 static int profile_session_active(void);
 static void profile_join(int host)
 {
@@ -147,7 +185,8 @@ static void profile_join(int host)
     if (host) snprintf(cfg.listen, sizeof(cfg.listen), "%u", p->port);
     a.s_addr = address;
     snprintf(cfg.host, sizeof(cfg.host), "%s", inet_ntoa(a));
-    page = PAGE_PLAY; changed = 1;
+    profile_edit = 0; page = PAGE_PLAY; changed = 1;
+    lob_open();
 }
 static void page_profiles(void)
 {

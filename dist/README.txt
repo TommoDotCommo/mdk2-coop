@@ -38,6 +38,9 @@ straight away.
 
 Join over UDP and Host first open a lobby: everyone who has connected is listed with
 their name, ready state and ping, and the host presses Start when the roster looks right.
+Use Save address inside a lobby to keep the host address and port for next time.
+Saved addresses preserve your names and notes; Join opens the connected lobby directly.
+Leave lobby returns to connection selection.
 
 If Windows shows "Windows protected your PC", click "More info" > "Run anyway".
 (The installer uses PowerShell scripts, readable in Notepad.)
@@ -209,3 +212,7 @@ Combat feedback: coloured floating damage numbers (rapid hits merge), a hitmarke
 ticker and a damage panel at the right edge. The panel starts as one line; Ctrl+M expands it to a
 bar per player. Ctrl+R resets local counters, Ctrl+D dumps combat.txt (also saved automatically).
 Recent history is bounded to 512 events.
+
+Already installed? Open setup and click Play MDK2. Create desktop shortcut adds
+a shortcut to the game and its co-op launcher. Keep Steam or the Beamdog client
+running. The launcher shows the result of a successful update check.
