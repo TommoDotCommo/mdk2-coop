@@ -1058,6 +1058,9 @@ function coop.NavStart(x, y, z, cell, maxcells, up, down)
     local i, j = floor(x / n.cell + 0.5), floor(y / n.cell + 0.5)
     local f = coop.NavFloor(i * n.cell, j * n.cell, z + 3, z - 3)
     if (not f) then coop_note("nav_state", "nofloor") return end
+    -- the hero's own body blocks the probes' line of sight: links next to where it stands are not
+    -- tested (the scan from the middle of level 2's arena saw a wall 2 units south of the hero) --
+    n.hx, n.hy, n.hz = x, y, z
     n.q[1] = { i, j, f }
     n.tail = 2
     n.seen[format("%d_%d_%d", i, j, floor(f / 4))] = 1
@@ -1090,8 +1093,10 @@ function coop.NavTick()
             local ni, nj = c[1] + dirs[d][1], c[2] + dirs[d][2]
             local nx, ny = ni * n.cell, nj * n.cell
             local f = coop.NavFloor(nx, ny, z + n.up + 2, z - n.down)
-            if (f and f <= z + n.up and coop.NavClear(x, y, z + 2, nx, ny, f + 2) and
-                coop.NavClear(x, y, z + 4, nx, ny, f + 4)) then
+            local mx, my = (x + nx) / 2 - n.hx, (y + ny) / 2 - n.hy
+            local byhero = mx * mx + my * my < 9 and abs(z - n.hz) < 4
+            if (f and f <= z + n.up and (byhero or (coop.NavClear(x, y, z + 2, nx, ny, f + 2) and
+                coop.NavClear(x, y, z + 4, nx, ny, f + 4)))) then
                 line = line .. format(" %d %d %.2f", ni, nj, f)
                 local key = format("%d_%d_%d", ni, nj, floor(f / 4))
                 if (not n.seen[key]) then

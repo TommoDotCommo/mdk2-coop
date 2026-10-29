@@ -207,8 +207,9 @@ class Nav:
         if not hasattr(self, '_flat'):
             self._flat = {}
         if k not in self._flat:
-            near = [self.cells[n][2] for n in cell[3] if n in self.cells]
-            self._flat[k] = len(near) >= 2 and max(abs(z - cell[2]) for z in near) <= 0.45
+            # a landing: at least two neighbours level with it (a ledge's edge has a drop beside it)
+            level = [n for n in cell[3] if n in self.cells and abs(self.cells[n][2] - cell[2]) <= 0.45]
+            self._flat[k] = len(level) >= 2
         return self._flat[k]
 
     def step_cost(self, k, n):
