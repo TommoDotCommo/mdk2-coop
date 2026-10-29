@@ -4,6 +4,12 @@ import argparse
 import os
 from pathlib import Path
 import time
+import targeting_geometry
+
+# Where the host waits while the client is the target: another room of the level, more than a
+# thousand units from every place used below (tools/targeting_geometry.py holds the rule).
+FAR_MARKER = 'l1_r8doganland1'
+
 
 class RoomCheck:
     def __init__(self, dirs, output):
@@ -48,6 +54,24 @@ class RoomCheck:
                 raise AssertionError(label+'; see final process snapshots')
             time.sleep(.5)
 
+    def far(self, label, target=2):
+        """Geometry rule: the target is outside every splash and strike radius from the other player,
+        measured from both games' own player positions."""
+        rows = [targeting_geometry.parse_rows(self.state(p)) for p in (1, 2)]
+        distance = targeting_geometry.assert_separation(rows, target, label=label)
+        self.passed += 1
+        (self.out/'geometry.txt').open('a').write(f'{label}: {distance:.1f}\n')
+        print(f'PASS {label}: players are {distance:.1f} units apart (rule {targeting_geometry.MIN_SEPARATION:g})', flush=True)
+
+    def host_away(self, client_at):
+        """Put the host where it cannot be the target. MUTANT=near puts it beside the client instead,
+        which the geometry assertion must reject."""
+        if os.environ.get('MUTANT') == 'near':
+            x, y, z = client_at
+            self.command(1, f'mdkGobSetPositionXYZ(mdkGetPlayerGob(),{x+2},{y},{z})')
+        else:
+            self.command(1, f'mdkGobSetPosition(mdkGetPlayerGob(),"{FAR_MARKER}")')
+
     @staticmethod
     def hp(rows):
         return next(int(r[2]) for r in rows if r[0]=='player')
@@ -66,9 +90,15 @@ class RoomCheck:
         self.command(1,'God(0) coop.save_interval=999999 mdkGobSetPosition(mdkGetPlayerGob(),"l1_r1grengen")')
         if os.environ.get('MUTANT') == 'targeting':
             self.command(1,'coop_presence_test(0,1,0,0)')
+        elif os.environ.get('MUTANT') == 'hostaoe':
+            self.command(1,'coop_presence_test(0,0,1,0)')
         self.command(2,'God(0) coop.save_interval=999999 mdkGobSetPositionXYZ(mdkGetPlayerGob(),180,65,-96)')
         h,c=self.wait('native generator exists and its visible animation is mirrored',
             lambda h,c: any(r[0]=='generator' and r in c for r in h))
+        # The host started the generator by entering its room; it now leaves for another room, so
+        # the round enemies' only possible target is the client and no splash aimed at the host can reach it.
+        self.host_away((180,65,-96))
+        self.far('round enemies: client is far from the host')
         self.wait('native round enemies fire at client and actually reduce client HP; host stays unharmed',
             lambda h,c:self.fire(h,217,2)>0 and self.hp(c)<100 and self.hp(h)==100,seconds=35)
         self.command(2,'God(1)')
@@ -106,6 +136,8 @@ class RoomCheck:
         h=self.state(1)
         before=self.fire(h,230,2)
         self.command(2,'mdkGobSetPositionXYZ(mdkGetPlayerGob(),272,-60,-137)')
+        self.host_away((272,-60,-137))
+        self.far('turrets: client is far from the host')
         self.wait('native turret launches at the nearby client',lambda h,c:self.fire(h,230,2)>before,seconds=30)
         # Sniping the actual sign enables the first behind-glass enemy through
         # its authored sequence. Its OnUpdate calls the native attack directly.
@@ -118,6 +150,8 @@ class RoomCheck:
             h=self.state(1)
             if any(r[0]=='ai' and r[1]=='r2_dog01' and int(r[3])>0 for r in h): break
         self.command(2,'mdkGobSetPositionXYZ(mdkGetPlayerGob(),78,156,-30)')
+        self.host_away((78,156,-30))
+        self.far('behind-glass enemy: client is far from the host')
         self.wait('authored behind-glass enemy directly damages client while host stays distant',
             lambda h,c: self.hp(c)<before and ['direct_source',f'n{dog:x}'] in c and self.hp(h)==100,seconds=30)
         print(f'{self.passed} passed, 0 failed',flush=True)
@@ -127,6 +161,6 @@ if __name__=='__main__':
     p.add_argument('--dirs',nargs=2,required=True)
     p.add_argument('--output',required=True)
     a=p.parse_args()
-    if os.environ.get('MUTANT', '') not in ('', 'targeting'):
-        p.error('supported MUTANT: targeting')
+    if os.environ.get('MUTANT', '') not in ('', 'targeting', 'hostaoe', 'near'):
+        p.error('supported MUTANT: targeting, hostaoe, near')
     RoomCheck(a.dirs,a.output).run()

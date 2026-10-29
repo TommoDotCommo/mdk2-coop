@@ -108,3 +108,17 @@ mdk_boot()  { mdk_kill; sleep 2; local i c pids="" ok
               for i in $(seq 1 60); do sleep 2; ok=1
                   for c in $(seq 2 "$MDK2_N"); do grep -q "^level [1-9][0-9]* checkpoint [0-9]* started" "$(mdk_log "$c")" 2>/dev/null || ok=0; done
                   [ $ok = 1 ] && break; done; sleep 6; }
+# mdk_assert_far <target player> <label>: the geometry rule for every targeting test (docs/TESTING.md).
+# Each game writes its own state dump; the target player must be at least the rule's distance from every other
+# player (tools/targeting_geometry.py), read from those dumps and cross-checked against what the games see of
+# each other. Dumps are kept in $out when set. Prints PASS/FAIL, returns nonzero on failure.
+mdk_assert_far() { local target="$1" label="$2" tag="geo$RANDOM" files=() i path t
+                   for i in $(mdk_seq); do
+                       path="$(mdk_wsl "$(mdk_dir "$i")")/coop/state_${tag}_$i.txt"; rm -f "$path"
+                       mdk_cmd "$(mdk_pid "$i")" "coop_state(\"${tag}_$i\")" || return 1
+                       for t in $(seq 1 50); do [ -f "$path" ] && break; sleep 0.1; done
+                       [ -f "$path" ] || { echo "FAIL geometry: game $i wrote no state dump"; return 1; }
+                       files+=("$path")
+                   done
+                   [ -n "${out:-}" ] && for i in $(mdk_seq); do cp "${files[$((i - 1))]}" "$out/geometry_${tag}_$i.txt" 2>/dev/null; done
+                   python3 "$(dirname "${BASH_SOURCE[0]}")/targeting_geometry.py" check --target "$target" --label "$label" "${files[@]}"; }

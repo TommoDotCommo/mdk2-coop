@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Native level-one generator, circular enemies, turret targeting and duplicate-name damage.
 # Uses two disposable background copies, with no injected AI target, alert or enemy.
+# After each stage's setup the host waits in another room and the geometry rule is asserted from process state.
+# MUTANT=targeting or hostaoe must fail; MUTANT=near (host beside the client) must be rejected by the geometry check.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=2 MDK2_BACKGROUND=1 MDK2_START='1 2'
