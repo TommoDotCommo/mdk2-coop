@@ -44,30 +44,51 @@ open `MDK2-Coop-Setup.exe`. It replaces v0.3.2-alpha and v0.3.3-alpha.
 - Crash reports now include the fault registers and the arguments of the native
   animation dispatch.
 
+## Fixed after the last playtest
+
+- Held enemies (the level 1 dogans on their platform) no longer fall after the
+  host resumes a co-op save: the bridge stopped writing a target into every actor
+  each frame. Enemies still acquire and attack client players through the
+  creation hook and the think/animation scope (`tools/qa_ai.sh`, `qa_hans.sh`,
+  `qa_room_ai.sh` and `qa_sign.sh` keep the client far from the host).
+  `tools/qa_save.sh` now compares the host's dogans with their saved height and hp.
+  **Why the old per-frame store released them is not explained**: the engine
+  behaviour behind it was not identified, only that removing the store fixes it.
+- `tools/qa.sh` with three game copies no longer fails 11 checks: the script
+  sent the client's keys to the host (a test-harness fault, not a product bug).
+
 ## Verified live
 
-MDK2 HD Steam build 3902, disposable game copies, background mode, this exact
-merged tree. Every baseline passed and each mutant that exists failed as required.
+Summary of what was run on this exact tree. Per-copy user data was redirected
+(saves, crash reports and settings of each test copy stay in its own folder). A
+second job was running other suites on the same PC at times, so run times and a
+strict hash of the real user folders are not meaningful and were not compared.
 
-- Level 2 rear gate (`tools/qa_rear_gate.sh`): 15 of 15; with `SAVE_RELOAD=1`
-  18 of 18; with `LEADER=2` 15 of 15; `MUTANT=earlylock` fails 6.
-- Level 1 final boss targeting (`tools/qa_hans.sh`): 6 of 6, including a native
-  Hans projectile travelling to the remote player; `MUTANT=script-scope` and
-  `MUTANT=targeting` fail.
-- Enemy targeting (`tools/qa_ai.sh`): 3 of 3; `MUTANT=targeting` and
-  `MUTANT=hostaoe` fail.
-- Remote canopy, three peers (`tools/qa_presence.sh`): 54 passed, 0 failed;
-  `MUTANT=canopy` fails.
-- Client join flow (`tools/qa_join.sh`): 7 of 7; `MUTANT=join` fails 10 checks.
-- Combat ledgers (`tools/qa_combat.sh`): 7 of 7 across three processes;
-  `MUTANT=deaf` fails. `tools/qa_combat_startup.sh` passes.
-- Playtest sync (`tools/qa_playtest.sh`): 40 of 40; `MUTANT=pickups` fails 6
-  and `MUTANT=dome` fails 5.
-- Native attack tasks across an instant save (`tools/qa_save_scripts.sh`): 11 of
-  11; `MUTANT=unresolved` fails 7.
-- Lobby (`tools/qa_lobby.sh`): 33 of 33; `MUTANT=nostart` is detected.
-- Offline: all 18 game-free gates (`tools/qa_all.py offline`) and 70 Python
-  unit tests pass.
+**Overhaul Games build** (the build players are expected to use), disposable
+copies, background mode, no new crash dump and no crash dialog in any run:
+
+- Game-free gates (offline ladder, 22 of 22 including targeting geometry,
+  animation guard, crash watch and redirect core).
+- Live gates of `qa_all.py full`, all passed: two-player (`qa.sh`), multiplayer,
+  save-reconnect (`qa_save.sh`, three players, host dogans compared with saved
+  values), save-script-tasks, save-redirect, level-epochs, native-room-ai,
+  attached-canopy (`qa_presence.sh`), enemy-targeting (`qa_ai.sh`),
+  hans-targeting, client-join, revive, cutscenes, level8-intro, menu,
+  character-puppet, crash-log, diagnostics.
+- `tools/qa.sh` with three copies: 52 of 52 after the harness fix (41 of 52
+  before it).
+- Crash hunt: 15 consecutive runs (about 16 minutes, two and three game copies) of
+  `qa_sign` (46 of 46), `qa_proximity` (13), level 2 rear gate with `SAVE_RELOAD=1`
+  (18, three runs) and `LEADER=2` (15), `qa_animguard` (14), `qa_combat` (7), `qa_hud`
+  (11), `qa_lobby` (33), `qa_playtest` (40), `qa_shots_native` (26), `qa_save` with
+  three players (56), `qa_epoch` (20) and `qa_join` (7). Every run passed, with
+  no crash dump and no crash dialog. This is less than the 20 minutes aimed for.
+
+**Steam build (3902) only**, from the earlier run of this release: the
+level 2 rear gate suites, `qa_hans`, `qa_ai` (mutants `targeting`, `hostaoe`),
+`qa_presence` (mutant `canopy`), `qa_join`, `qa_combat`, `qa_playtest`
+(mutants `pickups`, `dome`), `qa_save_scripts` (mutant `unresolved`) and
+`qa_lobby`. They were not repeated after the dogan change on Steam.
 
 ## Not verified
 
@@ -77,31 +98,21 @@ merged tree. Every baseline passed and each mutant that exists failed as require
   animation dispatch arguments) so the next occurrence can be analysed, and the
   save-resolver correction above, which addresses one possible way a native
   attack callback could be lost across a save; it is not shown to be the cause.
+- **A model-accessor crash at `exe+0x4da3e`** (address 0 read after a level 2
+  resume) was seen once while several runs overlapped. Three disk-save/resume runs at level 2 and one three-player
+  save run did not reproduce it, so its cause is unknown and it is not fixed.
 - **Level 1 final boss.** The playtest report that the boss ignored the remote
   player could not be reproduced on the Steam build, where he attacks the remote
-  player; the regression above guards that. Recorded playtest logs show the boss
-  damaging both players, so they contain no evidence of him ignoring one, but
-  they do not establish which game build produced them. No speculative runtime
-  change was made.
-- **Overhaul Games build:** on the integrated tree, with the targeting suites
-  keeping the client at least 300 units from the host, these passed on the
-  Overhaul build: `qa_ai` (`MUTANT=hostaoe` and `MUTANT=near` fail), `qa_hans`,
-  `qa_room_ai`, `qa_sign` (three players), `qa_animguard`, `qa_presence`,
-  `qa_join`, `qa_combat`, `qa_lobby`, `qa_proximity`. The same suites were run on
-  the Steam build with two exceptions: `qa_presence` failed its native-deploy
-  canopy check on two runs (cause unknown, not seen on the Overhaul build) and
-  one `qa_combat` run missed its DPS check before passing on a rerun.
-  `qa_sign` also failed once on the Steam build (a player 2 bite baseline race)
-  before passing. The save, resume, reload and rear-gate suites were not rerun
-  on the Overhaul build.
-- The full regression ladder (`qa_all.py full`) and the campaign checkpoint
-  sweep were not run on this build, nor were the other feature suites.
-- `tools/qa_sign.sh` had intermittent misses in earlier runs. It now prints how
-  long each player took to be bitten; passing runs showed 1 to 2 s for host and
-  clients with the client far away.
+  player; the regression above guards that. No speculative runtime change was made.
+- Not run on the Overhaul build in this verification (they passed earlier on the
+  tree before the dogan change, or only on Steam): the campaign checkpoint sweep,
+  and, in the full ladder, every gate after `crash-log` (diagnostics, triggers, remote events, motion, chat, voice, projectiles, installer, launcher, lossy-link variants and the animation-guard mutants), plus `qa_hans` and `qa_rear_gate` `MUTANT=` variants. Microphone, controller and installer gates were not repeated. The ladder was stopped early to leave time for the crash hunt.
 - Rendering of the damage numbers, hitmarker, ticker and panel is not asserted
-  by pixels; only the ledger that feeds them is checked live.
-- Voice chat was tested with synthetic audio only.
+  by pixels; only the ledger that feeds them is checked. Other resolutions than
+  the test windows were not looked at.
+- Voice chat was tested with synthetic audio only; a real microphone is unverified.
+- `tools/qa_sign.sh` had intermittent misses in earlier runs; it prints how
+  long each player took to be bitten.
 - This is an alpha: expect rough edges. Use Help > Send diagnostics when
   reporting a problem, with the level, checkpoint and whether you hosted or joined.
 
