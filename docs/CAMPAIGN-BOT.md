@@ -70,6 +70,18 @@ The goal is N copies where every player is a bot: a leader advances and the othe
 up, take turns at objectives, revive each other, and each step ends with the worlds compared
 (`statecheck.py`, the desync check). Not built yet.
 
+## Findings so far (co-op, from the bot's world comparisons)
+
+Survey of 21 segments of levels 1 to 3, two bots each, Overhaul build, God mode, game clock x2:
+no Lua errors, no desync reports, no crashes, and ground enemies matched between host and client.
+
+- **Flying enemies drift on clients.** Level 1's `flyer01`-`04` were 25 to 58 units from the host's
+  positions and level 2's arena mantas 50 to 66, still apart 1.5 s later, also at normal game speed.
+- **A puppet left behind.** On level 3 (checkpoint 2 to 3) the client showed the host's puppet 997
+  units from where the host was.
+- **A one-way face in level 2's arena** lets a hero cross north onto a strip by the north wall
+  (walking, or blown by grenades) and not come back.
+
 ## Status
 
 Shown live on the Overhaul build, level 2, God mode on (combat damage to the hero is not yet
