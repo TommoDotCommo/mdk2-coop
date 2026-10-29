@@ -80,7 +80,10 @@ check "the host's dog is loose (ai 1)"                  wait_q 1 'r2_dog01.ai' 1
 sleep 4
 
 # 2. it picks on one player at a time; place it beside that player, the others stay away
-hurts() { if [ "$1" = 1 ]; then count 1 '^damage r2_dog01 -> bob '; else count 1 "^damage r2_dog01 -> coop_p$1 "; fi; }   # host log: the dog's bites
+# host log: the dog's direct hits on a client (type 0x2; its area hits, type 0x402, land on whoever stands near and say
+# nothing about who it chose). The host's own player is only ever logged taking the area hit in most runs, so for it any
+# hit counts; who the dog chose is checked from its target in the state dump instead.
+hurts() { if [ "$1" = 1 ]; then count 1 '^damage r2_dog01 -> bob '; else count 1 "^damage r2_dog01 -> coop_p$1 [0-9]+ type 0x2 "; fi; }
 beside() {   # beside <n>: the dog next to player n (on the host: its own player, or n's puppet)
     if [ "$1" = 1 ]; then lua 1 'local p = mdkGetPlayerGob() mdkGobSetPositionXYZ(r2_dog01, p.position.x + 1.5, p.position.y, p.position.z + 1)'
     else lua 1 "local p = coop_gob(\"@p$1\") mdkGobSetPositionXYZ(r2_dog01, p.position.x + 1.5, p.position.y, p.position.z + 1)"; fi; }
@@ -88,8 +91,16 @@ for n in $(mdk_seq); do
     for i in $(mdk_seq); do [ "$i" = "$n" ] && place "$i" 78 156 || place "$i" "$((56 + i * 10))" 191; done
     sleep 2
     declare -A before=(); for i in $(mdk_seq); do before[$i]=$(hurts "$i"); done
-    for t in 1 2 3 4 5 6; do beside "$n"; sleep 1; [ "$(hurts "$n")" -gt "${before[$n]}" ] && break; done
+    # Put the dog beside player n and give it time. How long it takes to bite varies a lot from run to run (1 s to over 30 s
+    # measured), so the wait is bounded by 30 s and the verdict does not rest on it: the target is read from the dump below
+    # and only direct hits (not area splash) count as hurting. It is re-placed every 5 s rather than every second.
+    for t in $(seq 1 30); do [ $(((t - 1) % 5)) = 0 ] && beside "$n"; sleep 1; [ "$(hurts "$n")" -gt "${before[$n]}" ] && break; done
+    mdk_state dogt "$out" >/dev/null 2>&1
+    # its target, read from the host's state dump (the dog is the type 207 actor), not from who happened to be hit
+    dogt=$(awk '$1=="ai_target" && $3==207 {print $4; exit}' "$out/state_dogt_host.txt" | tr -d '\r')
+    echo "  (player $n: ${t} s tried, the dog's target at the end: $dogt)"
     sleep 1
+    check "the dog took player $n as its target"        test "$dogt" = "@p$n"
     check "the dog hurt player $n"                      test "$(hurts "$n")" -gt "${before[$n]}"
     for i in $(mdk_seq); do
         [ "$i" = "$n" ] && continue
