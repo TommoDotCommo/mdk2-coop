@@ -1,0 +1,341 @@
+#!/usr/bin/env python3
+"""Campaign bot: plays MDK2 levels with ordinary controls in N co-op game copies.
+
+Each game runs the in-game pilot (coop.PilotGo in lua/coop_dev.lua): the hero faces a point and
+walks there with the forward key; the game's physics and scripts do the rest. This driver issues
+steps from a level plan (tools/campaign_plans/, built with tools/campaign_mine.py from the game's
+own level scripts), waits for each step's result in the games' own state, and keeps evidence.
+
+    campaign_bot.py goto --dirs D1 D2 [--player 1] --to X Y Z  walk one hero to a point
+    campaign_bot.py plan --dirs D1 D2 PLAN.json                run a level plan
+"""
+import argparse
+import json
+import math
+import sys
+import time
+from pathlib import Path
+
+
+class Game:
+    """One running copy, driven through its coop folder (command.lua in, files out)."""
+
+    def __init__(self, folder, slot):
+        self.coop = Path(folder) / 'coop'
+        self.slot = slot
+        self.serial = 0
+
+    def lua(self, code, timeout=12):
+        target = self.coop / 'command.lua'
+        stage = target.with_suffix('.tmp')
+        stage.write_text(code + '\n')
+        stage.replace(target)
+        deadline = time.monotonic() + timeout
+        while target.exists():
+            if time.monotonic() > deadline:
+                raise TimeoutError(f'game {self.slot}: command not taken: {code[:80]}')
+            time.sleep(.03)
+
+    def note(self, key, code, timeout=5):
+        """Run code that ends in coop_note(key, text); return the text."""
+        path = self.coop / f'note_{key}.txt'
+        path.unlink(missing_ok=True)
+        self.lua(code)
+        deadline = time.monotonic() + timeout
+        while not path.exists():
+            if time.monotonic() > deadline:
+                raise TimeoutError(f'game {self.slot}: no note {key} (Lua error? see bridge.log)')
+            time.sleep(.03)
+        return path.read_text()
+
+    def state(self):
+        self.serial += 1
+        tag = f'bot_{self.serial}'
+        path = self.coop / f'state_{tag}.txt'
+        self.lua(f'coop_state("{tag}")')
+        deadline = time.monotonic() + 5
+        while not path.exists():
+            if time.monotonic() > deadline:
+                raise TimeoutError(f'game {self.slot}: no state dump')
+            time.sleep(.03)
+        rows = [line.split() for line in path.read_text().splitlines()]
+        path.unlink(missing_ok=True)
+        return rows
+
+    def pilot(self):
+        text = self.note('pilot', 'local pl=coop.pilot local p=coop.real_player() '
+                         'if (pl and p) then coop_note("pilot", format("%s %.2f %d %d %.2f %.2f %.2f", pl.state, pl.d or -1, '
+                         'pl.stuck, coop_ms()-pl.t0, p.position.x, p.position.y, p.position.z)) '
+                         'else coop_note("pilot", "none") end')
+        f = text.split()
+        if f[0] == 'none':
+            return None
+        return {'state': f[0], 'd': float(f[1]), 'stuck': int(f[2]), 'ms': int(f[3]),
+                'pos': tuple(float(v) for v in f[4:7])}
+
+    def goto(self, x, y, z, radius=2.5, timeout=60, trail=None, explore=1, jump=0):
+        self.lua(f'coop.PilotGo({x},{y},{z},{radius},1,{explore}) coop.pilot.max_stuck=40 coop.pilot.jump={jump}')
+        deadline = time.monotonic() + timeout
+        while True:
+            p = self.pilot()
+            if trail is not None and p:
+                trail.append((time.monotonic(), self.slot, p['pos'], p['d']))
+            if p and p['state'] != 'go':
+                return p
+            if time.monotonic() > deadline:
+                self.lua('coop.PilotStop()')
+                p = self.pilot() or {}
+                p['state'] = 'timeout'
+                return p
+            time.sleep(.25)
+
+
+class Level:
+    """A mined level model (tools/campaign_mine.py) with a room graph for paths."""
+
+    def __init__(self, path):
+        self.m = json.loads(Path(path).read_text())
+        self.rooms = self.m['rooms']
+        self.edges = {}
+        for a, b, point, how in self.m['portals']:
+            self.edges.setdefault(a, []).append((b, point, how))
+            self.edges.setdefault(b, []).append((a, point, how))
+
+    def room_of(self, p):
+        """The smallest room box holding p (rooms nest: tunnels inside sections)."""
+        best = None
+        for name, r in self.rooms.items():
+            if all(r['min'][i] - .5 <= p[i] <= r['max'][i] + .5 for i in range(3)):
+                vol = math.prod(r['max'][i] - r['min'][i] for i in range(3))
+                if best is None or vol < best[0]:
+                    best = (vol, name)
+        return best[1] if best else None
+
+    def path(self, start, goal):
+        """Portal points from start's room to goal's room (Dijkstra on distance), then the goal."""
+        a, b = self.room_of(start), self.room_of(goal)
+        if a is None or b is None:
+            raise ValueError(f'no room holds {"start" if a is None else "goal"}')
+        import heapq
+        best = {a: (0.0, start, None, None)}
+        todo = [(0.0, a)]
+        while todo:
+            cost, room = heapq.heappop(todo)
+            if room == b:
+                break
+            if cost > best[room][0]:
+                continue
+            here = best[room][1]
+            for other, point, how in self.edges.get(room, []):
+                c = cost + math.dist(here, point)
+                if other not in best or c < best[other][0]:
+                    best[other] = (c, point, room, how)
+                    heapq.heappush(todo, (c, other))
+        if b not in best:
+            raise ValueError(f'no portal path {a} -> {b}')
+        steps, room = [], b
+        while best[room][2] is not None:
+            steps.append({'to': best[room][1], 'room': room, 'via': best[room][3]})
+            room = best[room][2]
+        steps.reverse()
+        steps.append({'to': goal, 'room': b, 'via': 'goal'})
+        return a, steps
+
+
+class Nav:
+    """Where a hero can stand, as scanned in the game (coop.NavStart): cells and their links."""
+
+    def __init__(self, cells=None):
+        self.cells = cells or {}          # (i, j, zbucket) -> [x, y, z, [neighbour keys]]
+
+    @staticmethod
+    def key(i, j, z):
+        return (int(i), int(j), int(math.floor(z / 4)))
+
+    def add_lines(self, text):
+        for line in text.splitlines():
+            f = line.split()
+            if not f or f[0] != 'c':
+                continue
+            x, y, z, i, j = float(f[1]), float(f[2]), float(f[3]), int(f[4]), int(f[5])
+            k = self.key(i, j, z)
+            links = [self.key(int(f[n]), int(f[n + 1]), float(f[n + 2])) for n in range(6, len(f), 3)]
+            cell = self.cells.setdefault(k, [x, y, z, []])
+            cell[3] = sorted(set(map(tuple, cell[3])) | set(links))
+
+    def save(self, path):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(json.dumps([[list(k), v[0], v[1], v[2], [list(n) for n in v[3]]] for k, v in self.cells.items()]))
+
+    @classmethod
+    def load(cls, path):
+        nav = cls()
+        for k, x, y, z, links in json.loads(Path(path).read_text()):
+            nav.cells[tuple(k)] = [x, y, z, [tuple(n) for n in links]]
+        return nav
+
+    # Walking: a rise of up to WALK_RISE per 2-unit cell (about 20 degrees). Steeper: a jump, only onto
+    # a cell that is flat enough to land and stand on. Max slid back down a 33 degree gutter wall.
+    WALK_RISE = 0.7
+    JUMP_RISE = 3.5
+
+    def flat(self, k):
+        cell = self.cells[k]
+        if not hasattr(self, '_flat'):
+            self._flat = {}
+        if k not in self._flat:
+            near = [self.cells[n][2] for n in cell[3] if n in self.cells]
+            self._flat[k] = len(near) >= 2 and max(abs(z - cell[2]) for z in near) <= 0.45
+        return self._flat[k]
+
+    def step_cost(self, k, n):
+        a, b = self.cells[k], self.cells[n]
+        rise = b[2] - a[2]
+        base = math.dist(a[:3], b[:3])
+        if rise <= self.WALK_RISE:
+            return base
+        if rise <= self.JUMP_RISE and self.flat(n):
+            return base * 4
+        return None
+
+    def nearest(self, p):
+        return min(self.cells, key=lambda k: math.dist(self.cells[k][:3], p))
+
+    def path(self, start, goal):
+        """A* over the cells; the points of the path where it turns."""
+        import heapq
+        a, b = self.nearest(start), self.nearest(goal)
+        came, cost = {a: None}, {a: 0.0}
+        todo = [(0.0, a)]
+        while todo:
+            _, k = heapq.heappop(todo)
+            if k == b:
+                break
+            for n in self.cells[k][3]:
+                if n not in self.cells:
+                    continue
+                step = self.step_cost(k, n)
+                if step is None:
+                    continue
+                c = cost[k] + step
+                if n not in cost or c < cost[n]:
+                    cost[n], came[n] = c, k
+                    heapq.heappush(todo, (c + math.dist(self.cells[n][:3], self.cells[b][:3]), n))
+        if b not in came:
+            return None
+        keys, k = [], b
+        while k is not None:
+            keys.append(k)
+            k = came[k]
+        keys.reverse()
+        pts = [self.cells[k][:3] for k in keys]
+        out = [pts[0]]
+        for i in range(1, len(pts) - 1):
+            d0 = (pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+            d1 = (pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
+            if (d0 != d1 or abs(pts[i + 1][2] - pts[i][2]) > .5 or math.dist(out[-1], pts[i]) > 12
+                    or pts[i + 1][2] - pts[i][2] > self.WALK_RISE):
+                out.append(pts[i])
+        out.append(pts[-1])
+        return out
+
+
+def scan(game, out, timeout=900):
+    """Scan the hero's surroundings (coop.NavStart) and save the cells."""
+    for old in game.coop.glob('note_nav_*.txt'):
+        old.unlink()
+    p = game.pilot()
+    if not p:
+        game.lua('coop.PilotGo(0,0,0,1000000)')
+        p = game.pilot()
+    x, y, z = p['pos']
+    game.lua(f'coop.NavStart({x},{y},{z},2,40000,4)')
+    deadline = time.monotonic() + timeout
+    state = game.coop / 'note_nav_state.txt'
+    while time.monotonic() < deadline:
+        text = state.read_text() if state.exists() else ''
+        if text.startswith('done') or text.startswith('nofloor'):
+            break
+        time.sleep(1)
+    nav = Nav()
+    for f in sorted(game.coop.glob('note_nav_[0-9]*.txt'), key=lambda f: int(f.stem.split('_')[-1])):
+        nav.add_lines(f.read_text())
+    nav.save(out)
+    return nav, (state.read_text() if state.exists() else 'timeout')
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest='cmd', required=True)
+    g = sub.add_parser('goto')
+    g.add_argument('--dirs', nargs='+', required=True)
+    g.add_argument('--player', type=int, default=1)
+    g.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
+    g.add_argument('--radius', type=float, default=2.5)
+    t = sub.add_parser('travel')
+    t.add_argument('--dirs', nargs='+', required=True)
+    t.add_argument('--player', type=int, default=1)
+    t.add_argument('--level', required=True, help='mined model, e.g. local/campaign/level2.json')
+    t.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
+    sc = sub.add_parser('scan')
+    sc.add_argument('--dirs', nargs='+', required=True)
+    sc.add_argument('--player', type=int, default=1)
+    sc.add_argument('--out', required=True)
+    w = sub.add_parser('walk')
+    w.add_argument('--dirs', nargs='+', required=True)
+    w.add_argument('--player', type=int, default=1)
+    w.add_argument('--nav', required=True)
+    w.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
+    a = ap.parse_args(argv)
+    games = [Game(d, i + 1) for i, d in enumerate(a.dirs)]
+    if a.cmd == 'goto':
+        trail = []
+        r = games[a.player - 1].goto(*a.to, radius=a.radius, trail=trail)
+        print(json.dumps(r))
+        return 0 if r.get('state') == 'arrived' else 1
+    if a.cmd == 'scan':
+        t0 = time.monotonic()
+        nav, state = scan(games[a.player - 1], a.out)
+        links = sum(len(v[3]) for v in nav.cells.values())
+        print(f'{state.strip()}: {len(nav.cells)} cells, {links} links in {time.monotonic() - t0:.0f}s -> {a.out}')
+        return 0
+    if a.cmd == 'walk':
+        game = games[a.player - 1]
+        nav = Nav.load(a.nav)
+        here = game.pilot()
+        if not here:
+            game.lua('coop.PilotGo(0,0,0,1000000)')
+            here = game.pilot()
+        pts = nav.path(list(here['pos']), list(a.to))
+        if not pts:
+            print('no path in the scanned cells')
+            return 1
+        print(f'{len(pts)} waypoints', flush=True)
+        t0 = time.monotonic()
+        for i, pt in enumerate(pts[1:], 1):
+            climb = pt[2] - pts[i - 1][2] > Nav.WALK_RISE
+            r = game.goto(*pt, radius=1.5 if i < len(pts) - 1 else 2.5, timeout=30, explore=0, jump=int(climb))
+            if r.get('state') != 'arrived':
+                print(f'  waypoint {i} {pt}: {r.get("state")} at {r.get("pos")}')
+                return 1
+        print(f'arrived in {time.monotonic() - t0:.1f}s at {game.pilot()["pos"]}')
+        return 0
+    if a.cmd == 'travel':
+        game = games[a.player - 1]
+        here = game.pilot()
+        if not here:
+            game.lua('coop.PilotGo(0,0,0,1000000)')
+            here = game.pilot()
+        level = Level(a.level)
+        start, steps = level.path(list(here['pos']), list(a.to))
+        print(f'from {start}: ' + ' -> '.join(f"{st['room']}({st['via']})" for st in steps), flush=True)
+        for st in steps:
+            r = game.goto(*st['to'], radius=2.5 if st['via'] == 'goal' else 4, timeout=240)
+            print(f"  {st['room']:<24} {r.get('state'):<8} {r.get('ms', 0) / 1000:5.1f}s stuck {r.get('stuck')} at {r.get('pos')}", flush=True)
+            if r.get('state') != 'arrived':
+                return 1
+        return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -191,8 +191,29 @@ static void command(void)
     lua_pushnumber(1);
 }
 
+/* coop_note(name, text): the campaign bot's results, written whole to coop/note_<name>.txt for
+ * tools/campaign_bot.py (name: the same characters as a route name) */
+static void note(void)
+{
+    long len;
+    const char *key = luaL_check_lstr(1, &len), *text = luaL_check_lstr(2, &len);
+    char path[MAX_PATH], final[MAX_PATH];
+    FILE *f;
+    size_t i, n = strlen(key);
+    if (!n || n >= 64) return;
+    for (i = 0; i < n; i++)
+        if (!isalnum((unsigned char)key[i]) && key[i] != '_' && key[i] != '-') return;
+    snprintf(path, sizeof(path), "%s\\note_%s.tmp", coop_dir, key);
+    snprintf(final, sizeof(final), "%s\\note_%s.txt", coop_dir, key);
+    if (!(f = fopen(path, "w"))) return;
+    fputs(text, f);
+    fclose(f);
+    MoveFileExA(path, final, MOVEFILE_REPLACE_EXISTING);
+}
+
 void bot_lua_init(void)
 {
+    tolua_function(NULL, "coop_note", note);
     tolua_function(NULL, "coop_route", command);
     tolua_function(NULL, "coop_route_tick", tick);
 }

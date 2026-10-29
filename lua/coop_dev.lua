@@ -974,6 +974,205 @@ function coop.ProximityTick()
     end
 end
 
+-- ---------------------------------------------------------------------------------------
+-- Campaign bot pilot (tools/campaign_bot.py drives it): walks this game's own hero to a point
+-- with ordinary controls. The hero faces the point (an aim, like a mouse turn) and the forward
+-- key is held; the game's physics does the walking. No progress for a while: jump, then strafe.
+-- coop.pilot.state: "go", "arrived", "stuck"; coop.pilot.trail counts the samples written to
+-- coop/pilot.txt (time, position, distance) for the run's evidence.
+-- ---------------------------------------------------------------------------------------
+coop.pilot = nil
+coop.pilot_keys = { forward = 17, back = 31, left = 30, right = 32, jump = 57 }
+function coop.PilotGo(x, y, z, radius, flat, explore)
+    coop.pilot = { x = x, y = y, z = z, r = radius or 2.5, flat = flat or 1, state = "go", explore = explore or 0,
+                   t0 = coop_ms(), best = 1000000, best_ms = coop_ms(), stuck = 0, next_ms = 0 }
+end
+-- The pilot's eye: the engine's own line of sight (walls, floors, ceilings) from the hero to an
+-- invisible probe at a point, at body height.
+function coop.PilotSees(p, x, y, z)
+    if (not coop.pilot_probe or coop_alive(coop.pilot_probe) ~= 1) then
+        coop.pilot_probe = mdkCreateObjectLua("coop_pilot_probe", OBJ_GRENADEITEM, mdkGetScene(), nil, nil,
+                                              0, 0, 0, 1, 0, 0, 0, nil, 0, 0, 0, 0)
+        omGobEnterStasis(coop.pilot_probe)
+    end
+    mdkGobSetPositionXYZ(coop.pilot_probe, x, y, z)
+    return mdkAILineOfSight(p, coop.pilot_probe, 6.3, 100000) == 1
+end
+-- When the goal is out of sight: the visible point around the hero that brings it nearest the
+-- goal, counting how often the hero has already been near that point (so it backs out of dead ends).
+function coop.PilotChoose(p, pl)
+    local best, bx, by = nil, nil, nil
+    local z = p.position.z + 1.5
+    local r = 1
+    while (r <= 3) do
+        local reach = r * 10
+        local a = 0
+        while (a < 16) do
+            local x = p.position.x + reach * cos(a * 22.5)
+            local y = p.position.y + reach * sin(a * 22.5)
+            if (coop.PilotSees(p, x, y, z)) then
+                local gx, gy = pl.x - x, pl.y - y
+                local cell = format("%d_%d", floor(x / 6), floor(y / 6))
+                local score = sqrt(gx * gx + gy * gy) + 25 * (pl.visits[cell] or 0)
+                if (not best or score < best) then best, bx, by = score, x, y end
+            end
+            a = a + 1
+        end
+        r = r + 1
+    end
+    return bx, by
+end
+-- Navigation scan: the engine's own collision, asked through line of sight between two invisible
+-- probes, maps where a hero can stand. A flood fill from a point: each neighbouring cell's floor is
+-- found by a vertical search near the current height, and cells are joined when the step is small and
+-- the way between them is clear at chest height. Done a few cells per frame; the cells go to
+-- coop/note_nav_<n>.txt in batches ("x y z i j" per cell, neighbours as "e i j k l").
+function coop.NavProbe(name)
+    local g = getglobal(name)
+    if (not g or coop_alive(g) ~= 1) then
+        g = mdkCreateObjectLua(name, OBJ_GRENADEITEM, mdkGetScene(), nil, nil, 0, 0, 0, 1, 0, 0, 0, nil, 0, 0, 0, 0)
+        omGobEnterStasis(g)
+        setglobal(name, g)
+    end
+    return g
+end
+function coop.NavClear(ax, ay, az, bx, by, bz)
+    local a, b = coop.NavProbe("coop_nav_a"), coop.NavProbe("coop_nav_b")
+    mdkGobSetPositionXYZ(a, ax, ay, az)
+    mdkGobSetPositionXYZ(b, bx, by, bz)
+    return mdkAILineOfSight(a, b, 6.3, 100000) == 1
+end
+-- the floor under (x, y) between top and bottom: the lowest z still in sight from top, to 0.25 units --
+function coop.NavFloor(x, y, top, bottom)
+    if (coop.NavClear(x, y, top, x, y, bottom)) then return nil end
+    local lo, hi = bottom, top
+    while (hi - lo > 0.25) do
+        local mid = (lo + hi) / 2
+        if (coop.NavClear(x, y, top, x, y, mid)) then hi = mid else lo = mid end
+    end
+    return hi
+end
+function coop.NavStart(x, y, z, cell, maxcells, up, down)
+    local n = { cell = cell or 2, max = maxcells or 20000, up = up or 2.5, down = down or 6, head = 1, tail = 1,
+                q = {}, seen = {}, out = {}, batch = 0, count = 0, edges = 0 }
+    local i, j = floor(x / n.cell + 0.5), floor(y / n.cell + 0.5)
+    local f = coop.NavFloor(i * n.cell, j * n.cell, z + 3, z - 3)
+    if (not f) then coop_note("nav_state", "nofloor") return end
+    n.q[1] = { i, j, f }
+    n.tail = 2
+    n.seen[format("%d_%d_%d", i, j, floor(f / 4))] = 1
+    coop.nav = n
+    coop_note("nav_state", "running")
+end
+function coop.NavFlush(n, last)
+    if (n.out[1] or last) then
+        n.batch = n.batch + 1
+        local text, k = "", 1
+        while (n.out[k]) do text = text .. n.out[k] .. "\n" k = k + 1 end
+        coop_note(format("nav_%d", n.batch), text)
+        n.out = {}
+    end
+end
+function coop.NavTick()
+    local n = coop.nav
+    if (not n or n.done) then return end
+    local budget = 40
+    local dirs = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+    while (budget > 0 and n.head < n.tail and n.count < n.max) do
+        local c = n.q[n.head]
+        n.q[n.head] = nil
+        n.head = n.head + 1
+        local x, y, z = c[1] * n.cell, c[2] * n.cell, c[3]
+        local line = format("c %.1f %.1f %.2f %d %d", x, y, z, c[1], c[2])
+        n.count = n.count + 1
+        local d = 1
+        while (d <= 4) do
+            local ni, nj = c[1] + dirs[d][1], c[2] + dirs[d][2]
+            local nx, ny = ni * n.cell, nj * n.cell
+            local f = coop.NavFloor(nx, ny, z + n.up + 2, z - n.down)
+            if (f and f <= z + n.up and coop.NavClear(x, y, z + 2, nx, ny, f + 2) and
+                coop.NavClear(x, y, z + 4, nx, ny, f + 4)) then
+                line = line .. format(" %d %d %.2f", ni, nj, f)
+                local key = format("%d_%d_%d", ni, nj, floor(f / 4))
+                if (not n.seen[key]) then
+                    n.seen[key] = 1
+                    n.q[n.tail] = { ni, nj, f }
+                    n.tail = n.tail + 1
+                end
+            end
+            d = d + 1
+        end
+        n.nout = (n.nout or 0) + 1
+        n.out[n.nout] = line
+        if (n.nout >= 200) then coop.NavFlush(n) n.nout = 0 end
+        budget = budget - 1
+    end
+    if (n.head >= n.tail or n.count >= n.max) then
+        coop.NavFlush(n, 1)
+        n.done = 1
+        coop_note("nav_state", format("done %d %d", n.count, n.batch))
+    end
+end
+function coop.PilotStop()
+    if (coop.pilot and coop.pilot.state == "go") then coop.pilot.state = "stopped" end
+end
+function coop.PilotTick()
+    local pl = coop.pilot
+    if (not pl or pl.state ~= "go") then return end
+    local p = coop.real_player()
+    if (not p) then return end
+    local now = coop_ms()
+    if (now < pl.next_ms) then return end
+    pl.next_ms = now + 50
+    local dx = pl.x - p.position.x
+    local dy = pl.y - p.position.y
+    local dz = pl.z - p.position.z
+    local d = sqrt(dx * dx + dy * dy)
+    if (pl.flat == 0) then d = sqrt(dx * dx + dy * dy + dz * dz) end
+    pl.d = d
+    if (d <= pl.r) then
+        pl.state = "arrived"
+        pl.ms = now - pl.t0
+        return
+    end
+    -- out of sight: head for a visible stepping point instead, chosen again every 300 ms --
+    pl.visits = pl.visits or {}
+    local cell = format("%d_%d", floor(p.position.x / 6), floor(p.position.y / 6))
+    if (cell ~= pl.cell) then pl.visits[cell] = (pl.visits[cell] or 0) + 1 pl.cell = cell end
+    local tx, ty = pl.x, pl.y
+    if (pl.explore == 1 and not coop.PilotSees(p, pl.x, pl.y, pl.z + 1.5)) then
+        if (not pl.sx or now >= (pl.choose_ms or 0) or
+            (pl.sx - p.position.x) * (pl.sx - p.position.x) + (pl.sy - p.position.y) * (pl.sy - p.position.y) < 9) then
+            pl.sx, pl.sy = coop.PilotChoose(p, pl)
+            pl.choose_ms = now + 300
+        end
+        if (pl.sx) then tx, ty = pl.sx, pl.sy end
+    end
+    dx, dy = tx - p.position.x, ty - p.position.y
+    if (dx * dx + dy * dy > 0.01) then mdkGobPointToXYZ(p, dx, dy, 0) end
+    coop_press(coop.pilot_keys.forward, 120)
+    -- a waypoint above a step: jump on the way to it, once, when close --
+    if (pl.jump == 1 and d < 3.5 and not pl.jumped) then
+        coop_press(coop.pilot_keys.jump, 250)
+        pl.jumped = 1
+    end
+    if (d < pl.best - 0.75) then
+        pl.best = d
+        pl.best_ms = now
+    elseif (now - pl.best_ms > 1500) then
+        pl.stuck = pl.stuck + 1
+        pl.best_ms = now
+        if (pl.stuck - floor(pl.stuck / 2) * 2 == 1) then
+            coop_press(coop.pilot_keys.jump, 200)
+        elseif (pl.stuck - floor(pl.stuck / 4) * 4 == 2) then
+            coop_press(coop.pilot_keys.left, 600)
+        else
+            coop_press(coop.pilot_keys.right, 600)
+        end
+        if (pl.stuck >= (pl.max_stuck or 10)) then pl.state = "stuck" end
+    end
+end
+
 function coop.Tick()
     coop.ControlsCheck()
     -- host autostart (tools/play.sh <level> <cp>): once the title screen has been up a while
@@ -1004,6 +1203,8 @@ function coop.Tick()
     coop_recv()
     coop.HandleEvents()
     coop.HandlerTick()
+    if (coop.pilot) then coop.PilotTick() end
+    if (coop.nav) then coop.NavTick() end
     coop.ReviveTick(p)
     coop.UnstickTick(p)
     coop.CharTick(p)
