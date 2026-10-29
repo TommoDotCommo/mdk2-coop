@@ -511,8 +511,15 @@ def advance(game, level, goal, out, log, max_rounds=40):
                 stats['gave_up'].append(obj['name'])
             if not done:
                 # nothing seen from known positions: shoot around and see what is hit
-                wanted = {o['name'] for o in objectives(level, pos, target, radius=250) if alive(game, o['name'])}
-                gone = wanted and fire_sweep(game, wanted, log)
+                near = [o for o in objectives(level, pos, target, radius=250) if alive(game, o['name'])]
+                wanted = {o['name'] for o in near}
+                # a generator is registered where it is (a wall at its pivot is not): go close first
+                gens = [o for o in near if 'GENERATOR' in o['type']]
+                if gens:
+                    spot = reachable_toward(nav, game.pos(), gens[0]['pos'])
+                    log(f'    going near {gens[0]["name"]} to {[round(v) for v in spot]}')
+                    walk(game, nav, spot, log, timeout=30)
+                gone = wanted and fire_sweep(game, wanted, log, pitches=(0, 70, 140, -70))
                 if gone:
                     stats['destroyed'].append(gone)
                     done = True
@@ -554,11 +561,18 @@ def dump_state(game, folder, tag):
 def compare_worlds(games, folder, tag, log):
     """statecheck.py over every game's dump: the host's world against each client's."""
     import subprocess
-    dumps = [str(dump_state(g, folder, tag)) for g in games]
-    r = subprocess.run([sys.executable, str(Path(__file__).with_name('statecheck.py')), *dumps],
-                       capture_output=True, text=True)
-    last = (r.stdout.strip().splitlines() or ['no output'])[-1]
-    log(f'  worlds at {tag}: {last}')
+    # a mismatch is looked at again 1.5 s later, as tools/replay.sh does: one sample can catch a fast
+    # mover mid-interpolation; both results are kept
+    for attempt in (1, 2):
+        dumps = [str(dump_state(g, folder, f'{tag}{"" if attempt == 1 else "_again"}')) for g in games]
+        r = subprocess.run([sys.executable, str(Path(__file__).with_name('statecheck.py')), *dumps],
+                           capture_output=True, text=True)
+        last = (r.stdout.strip().splitlines() or ['no output'])[-1]
+        log(f'  worlds at {tag}{"" if attempt == 1 else " (again)"}: {last}')
+        if r.returncode == 0:
+            break
+        (Path(folder) / f'statecheck_{tag}_{attempt}.txt').write_text(r.stdout)
+        time.sleep(1.5)
     return r.returncode == 0, r.stdout
 
 
