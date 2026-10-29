@@ -165,6 +165,89 @@ DWORD *anim_state(void *gob, int id)
     return anim_state_checked(gob, id, anim_model_resolve(), raw_lookup);
 }
 
+/* ---- animation update overflow ----
+ * The game's per-frame animation update (0x44dd40) collects every state of a gob that is flagged (+0x0) or still
+ * has weight (+0x18 > 0) into two 20 entry arrays on its stack, the state pointers and their indices, side by
+ * side. Its limit check allows a 21st entry, which lands on the first slot of the index array: the next call then
+ * receives a state pointer as "index" and reads (pointer * 40) past the state array (Overhaul exe+0x672ed, access
+ * violation at an address near 0xffffffff9...). Keep every gob well below the limit before the update runs. */
+#define ANIM_LIVE_MAX   16      /* the game's arrays hold 20 */
+
+int anim_trim_on = 1;
+typedef int (__cdecl *anim_update_t)(BYTE *gob);
+static anim_update_t anim_update_orig;
+
+static int anim_state_live(const DWORD *st)
+{
+    return st[0] != 0 || *(const float *)&st[6] > 0.0f;
+}
+
+/* Stop surplus animation states of one gob, keeping the current and previous ones. Returns how many. */
+int anim_trim(BYTE *gob)
+{
+    BYTE *ctl = *(BYTE **)(gob + GOB_ANIM), *states;
+    int count, k, live = 0, stopped = 0;
+
+    if (!ctl || !(states = *(BYTE **)(ctl + 0x24)))
+        return 0;
+    count = *(short *)(ctl + 0x3c);
+    if (count <= ANIM_LIVE_MAX || count > 1000)
+        return 0;
+    for (k = 0; k < count; k++)
+        live += anim_state_live((DWORD *)(states + k * 40));
+    for (k = 0; live > ANIM_LIVE_MAX && k < count; k++) {
+        DWORD *st = (DWORD *)(states + k * 40);
+
+        if (!anim_state_live(st) || st == *(DWORD **)(ctl + 0x28) || st == *(DWORD **)(ctl + 0x2c))
+            continue;
+        st[0] = 0;
+        *(float *)&st[6] = 0.0f;
+        live--;
+        stopped++;
+    }
+    return stopped;
+}
+
+static void anim_trim_report(BYTE *gob, int n)
+{
+    static int reported;
+
+    if (n && reported++ < 5)
+        logmsg("anim guard: stopped %d surplus animation states on %s (the game's update holds 20)", n, gob_name(gob));
+}
+
+/* Fallback when the update cannot be hooked: before every scene update, trim every gob (a few thousand reads) */
+void anim_trim_all(void)
+{
+    int i;
+
+    if (!anim_trim_on || anim_update_orig)
+        return;
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *gob = (BYTE *)GOB_TABLE[i * 2];
+
+        if (gob)
+            anim_trim_report(gob, anim_trim(gob));
+    }
+}
+
+/* The update has seven callers in the game (think functions, scripts), none of them in the scene update we tick
+ * from, so trim at its entry. */
+static int __cdecl anim_update_hook(BYTE *gob)
+{
+    if (anim_trim_on && gob)
+        anim_trim_report(gob, anim_trim(gob));
+    return anim_update_orig(gob);
+}
+
+void anim_trim_init(void)
+{
+    static const BYTE prologue[6] = { 0x81, 0xec, 0xac, 0x00, 0x00, 0x00 };      /* sub esp, 0xac */
+
+    anim_update_orig = (anim_update_t)hook_code((BYTE *)0x44dd40, prologue, sizeof(prologue), anim_update_hook);
+    logmsg("animation update hook %s", anim_update_orig ? "installed" : "NOT installed (trimming before the scene update instead)");
+}
+
 int gob_alive(BYTE *gob)
 {
     return gob && gob_slot(gob) >= 0 && !gob_doomed(gob);

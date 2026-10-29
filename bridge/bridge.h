@@ -93,6 +93,10 @@ typedef void (*lua_CFunction)(void);
 /* ---- game.c ---- */
 
 DWORD *anim_state(void *gob, int id);
+int anim_trim(BYTE *gob);
+void anim_trim_all(void);
+void anim_trim_init(void);
+extern int anim_trim_on;        /* [test] anim_trim=0 or coop_animtrim(0) switch the overflow guard off */
 extern int anim_guard_on;       /* tests switch it off to prove the guard matters (coop_animguard) */
 const char *gob_name(BYTE *gob);
 void gob_netname(BYTE *gob, char *out, int size);
