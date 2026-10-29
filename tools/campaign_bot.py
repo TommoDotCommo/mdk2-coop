@@ -421,22 +421,33 @@ def snipe(game, name, log):
 
 def aimed_kill(game, name, log, seconds=60):
     """Fire straight at an object whose registered position is where it is (a generator), facing it
-    with pitch, until it is gone."""
+    with pitch, until it is gone. The hit log says whether bursts connect; while they do not (a pit's rim
+    in the way) the hero closes in further."""
     t0 = time.monotonic()
     game.lua('coop.gunner=nil')
+    close, misses = 12, 0
+    off = hits_since(game, 0)[1]
     while time.monotonic() - t0 < seconds and alive(game, name):
-        # shoved away (enemies, blasts): walk back in before firing
         at = live_pos(game, name)
-        if at and math.dist(game.pos(), at) > 18:
-            game.goto(*at, radius=12, timeout=10, explore=1)
+        if at and math.dist(game.pos(), at) > close:
+            game.goto(*at, radius=close * 0.6, timeout=10, explore=1)
         for dz in (2, 0, 4):
             game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then mdkGobPointToXYZ(p, '
                      f't.position.x-p.position.x, t.position.y-p.position.y, t.position.z+{dz}-p.position.z-3) '
                      f'coop_press(256, 300) end')
             time.sleep(.45)
+        names, off = hits_since(game, off)
+        if name in names:
+            misses = 0
+        else:
+            misses += 1
+            if misses >= 2 and close > 4:
+                close = max(4, close - 4)
+                misses = 0
     game.lua('coop.GunnerOn(60)')
     gone = not alive(game, name)
-    log(f'    {"killed" if gone else "could not kill"} {name} by aimed fire in {time.monotonic() - t0:.0f}s')
+    log(f'    {"killed" if gone else "could not kill"} {name} by aimed fire in {time.monotonic() - t0:.0f}s'
+        f' (from {close} units)')
     return gone
 
 
