@@ -697,8 +697,11 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 return False, stats
             # generators keep spawning enemies (level 2's arena shoved the hero 60 units at a time):
             # any live one the hero can get near is killed first
+            # only the ones in the hero's room or by the way on (not back down the level)
+            hero_room = level.room_of(list(game.pos()))
             for gen in [o for o in level.m['objects'] if 'GENERATOR' in o['type']
-                        and math.dist(o['pos'][:2], game.pos()[:2]) < 250 and o['name'] not in stats['destroyed']]:
+                        and o['name'] not in stats['destroyed']
+                        and (o['room'] == hero_room or math.dist(o['pos'][:2], target[:2]) < 120)]:
                 if not alive(game, gen['name']):
                     continue
                 gspot = rim_toward(nav, game.pos(), gen['pos'])
