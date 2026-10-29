@@ -254,3 +254,29 @@ too: `qa_animguard`, `qa_rear_gate`, `qa_hans`, `qa_save_scripts`, `qa_epoch`, `
   with that pointer as its index. The bridge stops surplus states at the update's entry.
   `MUTANT=nofloodtrim` switches this off, floods a gob with 30 live states and requires the game itself
   to crash inside the update.
+  The mutant's crash is in the same update function but one instruction earlier than the player's
+  dump (it indexes a table with the pointer directly; the dump faults a call deeper, in the helper
+  that receives it as an index), so the match is by mechanism, not by an identical fault address.
+
+Not every dump is a bug of the mod: a crash dump is also written by the deliberate `coop_crash()` of
+`tools/qa_crashlog.sh` and by test commands that move a player gob before it exists (the game's
+position setter and its vector helper do not check for a null gob). `python3 tools/minidump.py` shows
+the fault site; compare it with the list above before treating a dump as a new defect.
+
+### Open crash: model lookup on a gob without a controller
+
+One crash seen in a three-player `tools/qa_save.sh` run on the Overhaul build is not covered by
+either guard: an access violation reading address 0 in the game's model accessor, called from the game's
+animation code right after a resume loaded level 2 ("checkpoint -1") and its first room script update ran.
+The faulting gob has no animation controller. It was seen once, while other runs were sharing the same
+machine, and has no reproducer or regression yet; treat it as unexplained until one exists. A dump of it
+reads `mdk2hd.exe+0x4da3e` with `python3 tools/minidump.py`.
+
+### Repeated runs on the player's build
+
+A repeated hunt of the crash-prone suites (`qa_rear_gate` with `SAVE_RELOAD=1` and `LEADER=2`,
+`qa_save_scripts`, `qa_epoch`, `qa_playtest`, `qa_hans`, `qa_join`, `qa_emote`, `qa_cutscene`,
+`qa_triggers`, `qa_animguard`, `qa_save`) on the Overhaul build under the crash guard is
+the way to look for more of them. A hunt is only meaningful on an otherwise idle set of game copies:
+two runs sharing copies stop each other's games and produce failures that are not crashes.
+
