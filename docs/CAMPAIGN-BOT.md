@@ -33,6 +33,12 @@ authoritative source is the installed game itself:
   progress the bot pushes on toward the target (doors open as the hero comes near), then fires along
   its way until a nearby scripted destructible is gone (a wall's registered position is its pivot,
   not its face), and scans again.
+- **Objectives**: when stuck, the nearest living thing whose death the level waits for (an `OnDie`
+  handler: generators, locks, alarms, walls) within 150 units is shot from a reachable place that sees
+  it (`coop.NavView`; a line of sight to an object's centre ends in its own body, so heights on it are
+  tried). Portals the hero is already past are skipped.
+- **Scan artefact**: the hero's own body blocks the probes, so links next to where it stands are not
+  tested (a scan in level 2's arena had seen a cage around the hero).
 - **Gunner** (`coop.GunnerOn`): the nearest enemy the hero can see is faced (with pitch) and shot;
   a target that loses no health in 3 s is left alone (out of reach, or line of sight through a gap the
   bullets do not pass).
@@ -45,9 +51,18 @@ authoritative source is the installed game itself:
   deterministic regression runs; the bot is only needed again when a route stops passing.
 - `tools/test_lua31.sh` checks `coop_dev.lua` with the real Lua 3.1 compiler, so a Lua 4 construct
   fails in a second instead of as a silently unloaded `coop.lua` after a game boot.
-- Ideas not yet built: run the engine clock faster than real time from the bridge; record a person's
+- `[test] timescale k` (`MDK2_TIMESCALE`): a background game's clocks run k times as fast and its
+  frame cap rises k times, so each frame advances the world by the same step. Level 2 room 3 plays
+  normally at k = 2 (walls broken, enemies fought, doors opened).
+- Background test games read `command.lua` every other frame (the driver's round trip), and a
+  viewpoint search is one call in the game rather than one per candidate.
+- `tools/campaign_run.py` runs checkpoint-to-checkpoint segments in parallel, one pair of copies each.
+- `tools/test_campaign_bot.py` checks the planner without the game (walking rules, landings,
+  reachability, portal route).
+- Ideas not yet built: record a person's
   playthrough with the route recorder and follow its positions closed-loop (robust to drift, unlike
-  timed replay); decode the room meshes (`.mod`) for an offline navigation mesh.
+  timed replay); decode the room meshes (`.mod`) for an offline navigation mesh; sniper aim through
+  mouse look calibrated against the camera.
 
 ## Co-op
 

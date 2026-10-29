@@ -318,14 +318,20 @@ def reachable_toward(nav, start, goal):
     return nav.cells[best][:3]
 
 
-def objectives(level, pos, radius=150):
+def objectives(level, pos, toward=None, radius=150):
     """Scripted things whose death the level waits for (an OnDie handler: generators, locks, alarms,
-    walls), nearest first."""
+    walls) within radius of the hero; those nearest the way on (toward) first, and among equals the ones
+    the scripts react to before plain destructibles."""
     kinds = ('OBJ_DESTRUCTABLE', 'OBJ_DOGANBOYGENERATOR', 'OBJ_SAMSMITEGENERATOR')
     out = [o for o in level.m['objects']
            if (o['type'] in kinds or 'OnDie' in level.m['events'].get(o['name'], []))
            and math.dist(o['pos'][:2], pos[:2]) < radius]
-    return sorted(out, key=lambda o: math.dist(o['pos'], pos))
+    ref = toward or pos
+
+    def rank(o):
+        scripted = 'OnDie' in level.m['events'].get(o['name'], []) or 'GENERATOR' in o['type']
+        return math.dist(o['pos'][:2], ref[:2]) - (40 if scripted else 0)
+    return sorted(out, key=rank)
 
 
 def kill_objective(game, nav, obj, log, seconds=25):
@@ -443,7 +449,7 @@ def advance(game, level, goal, out, log, max_rounds=40):
             # what the level is waiting for: the nearest living scripted objective the hero can reach
             # a view of (the arena's exit opens when its three generators are gone) --
             done = False
-            for obj in objectives(level, pos):
+            for obj in objectives(level, pos, target):
                 if obj['name'] in stats['destroyed'] or obj['name'] in stats.setdefault('gave_up', []):
                     continue
                 if not alive(game, obj['name']):
