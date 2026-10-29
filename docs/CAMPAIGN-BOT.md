@@ -43,6 +43,17 @@ authoritative source is the installed game itself:
   a target that loses no health in 3 s is left alone (out of reach, or line of sight through a gap the
   bullets do not pass).
 
+## Learn once, follow fast
+
+`campaign_bot.py follow --route R` plays a recording (`tools/replay.sh record`, by a person or made
+while the bot explores) closed-loop: it walks the recording's positions with the pilot, skipping on
+when the hero is already nearer a later point, presses the action keys (jump for chute and jetpack,
+fire, use) that were held on each stretch, and fires along the way where the recording was firing
+when held up. Unlike replaying inputs by the clock it does not drift. Shown live: a 13 minute
+recording of the bot exploring level 2's gutter (walls broken, enemies fought) followed in 245 s on a
+fresh game. A recording that never reached a later checkpoint is kept by the recorder as
+`<name>.route.partial`, which the follower reads too.
+
 ## Speed
 
 - Navigation is scanned, not explored by walking, and scans are cached per checkpoint.

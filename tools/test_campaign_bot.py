@@ -62,4 +62,26 @@ start, steps = level.path([2, 5, 1], [28, 5, 1])
 check('a point belongs to the smallest box that holds it', start == 'a')
 check('the route crosses the portals in order', [s['via'] for s in steps] == ['touch', 'touch', 'goal']
       and [s['room'] for s in steps] == ['b', 'c', 'c'])
-print('8 passed, 0 failed')
+# A recording: walking east 20 units with W held, jumping midway, then standing and firing.
+import os, tempfile
+lines = ['MDKROUTE 1 3902', 'S 2 3 101 0 0 0 1 0 0 0']
+for i in range(0, 121):
+    keys = bytearray(33)
+    keys[17 // 8] |= 1 << (17 % 8)
+    if 40 <= i <= 45:
+        keys[57 // 8] |= 1 << (57 % 8)
+    if i > 100:
+        keys[256 // 8] |= 1 << (256 % 8)
+    x = min(i, 100) * 0.2
+    lines.append(f'F {i * 100} {keys.hex()} 0 0 0 2 3 101 {x:.3f} 0 0 1 0 0 0')
+fd, path = tempfile.mkstemp(suffix='.route')
+os.write(fd, ('\n'.join(lines) + '\n').encode())
+os.close(fd)
+pts = bot.route_waypoints(bot.load_route(path))
+os.unlink(path)
+check('a recording becomes points every 3 units, movement keys left to the pilot',
+      7 <= len(pts) <= 9 and all(17 not in p['keys'] for p in pts))
+check('a held jump stays with the stretch it was held on', any(57 in p['keys'] for p in pts))
+check('firing while standing still adds no point but goes with the last one', 256 in pts[-1]['keys']
+      and sum(1 for p in pts if p['pos'][0] == 20.0) == 1)
+print('11 passed, 0 failed')

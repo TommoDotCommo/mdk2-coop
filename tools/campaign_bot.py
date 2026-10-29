@@ -661,6 +661,82 @@ def squad(games, level, goal, folder, log, fly=False):
     return result['leader'][0] and ok_world, {'leader': result['leader'][1], 'world_ok': ok_world, 'gaps': gaps}
 
 
+# Keys that move or turn the hero: the pilot does that itself when following a recording.
+MOVE_KEYS = {17, 30, 31, 32, 200, 203, 205, 208}
+
+
+def load_route(path):
+    """Frames of a recorded route (tools/replay.sh record): (ms, held key codes, level, cp, position)."""
+    frames = []
+    for line in Path(path).read_text().splitlines():
+        f = line.split()
+        if not f or f[0] != 'F':
+            continue
+        bits = bytes.fromhex(f[2])
+        keys = {i * 8 + b for i, byte in enumerate(bits) for b in range(8) if byte >> b & 1}
+        frames.append((int(f[1]), keys, int(f[6]), int(f[7]), tuple(float(v) for v in f[9:12])))
+    return frames
+
+
+def route_waypoints(frames, step_ms=400, step_units=3.0):
+    """Points every step_ms or step_units along the recording, each with the action keys (not movement)
+    held on the way to it, and the checkpoint the recording was at."""
+    out, held, last = [], set(), None
+    for ms, keys, level, cp, pos in frames:
+        held |= keys - MOVE_KEYS
+        # a point per step_units moved (or a little movement over a while); standing still adds none,
+        # its held keys (firing at a wall) go with the next point
+        moved = math.dist(pos, last[1]) if last else step_units
+        if last is None or moved >= step_units or (moved >= 0.5 and ms - last[0] >= 5 * step_ms):
+            out.append({'ms': ms, 'pos': pos, 'keys': sorted(held), 'level': level, 'cp': cp})
+            held, last = set(), (ms, pos)
+    if frames and (not out or out[-1]['pos'] != frames[-1][4]):
+        out.append({'ms': frames[-1][0], 'pos': frames[-1][4], 'keys': [], 'level': frames[-1][2], 'cp': frames[-1][3]})
+    return out
+
+
+def follow(game, path, log, radius=2.5, lost_after=120):
+    """Play a recording closed-loop: walk its positions with the pilot (skipping on when nearer a later
+    point), pressing the action keys the recording held on each stretch. Robust to timing and drift,
+    unlike replaying the inputs by the clock."""
+    pts = route_waypoints(load_route(path))
+    log(f'  following {len(pts)} points of {path}')
+    game.lua('coop.GunnerOn(60)')
+    i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
+    while i < len(pts):
+        here = game.pos()
+        # skip on: the nearest of the next few points
+        ahead = range(i, min(len(pts), i + 80))
+        j = min(ahead, key=lambda k: math.dist(here, pts[k]['pos']))
+        if j > i:
+            i = j
+        p = pts[i]
+        for code in p['keys']:
+            game.lua(f'coop_press({code if code < 256 else code}, 450)')
+        rise = p['pos'][2] - here[2]
+        r = game.goto(*p['pos'], radius=radius, timeout=6, explore=0, jump=int(0.7 < rise <= 3.5),
+                      fly=int(57 in p['keys'] and rise > 3.5))
+        if r.get('state') == 'arrived':
+            i += 1
+            last_progress, best = time.monotonic(), None
+            continue
+        # nearer the point than ever before counts as progress (a fight or a wall can take a while)
+        d = math.dist(game.pos(), p['pos'])
+        if best is None or d < best - 1:
+            best, last_progress = d, time.monotonic()
+        # held up where the recording was shooting (a scripted wall in the way): fire along the way
+        if any(256 in q['keys'] for q in pts[max(0, i - 3):i + 3]):
+            for _ in range(6):
+                game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {p["pos"][0]}-p.position.x, '
+                         f'{p["pos"][1]}-p.position.y, 0) coop_press(256, 600)')
+                time.sleep(.5)
+        if time.monotonic() - last_progress > lost_after:
+            log(f'  lost at point {i}/{len(pts)} {p["pos"]}, hero at {here}')
+            return False, {'points': len(pts), 'reached': i, 'seconds': round(time.monotonic() - t0)}
+    log(f'  followed all {len(pts)} points in {time.monotonic() - t0:.0f}s')
+    return True, {'points': len(pts), 'reached': len(pts), 'seconds': round(time.monotonic() - t0)}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -696,6 +772,10 @@ def main(argv=None):
     sq.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
     sq.add_argument('--fly', action='store_true', help="Max's jetpack: refuel and fly")
     sq.add_argument('--evidence', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/runs'))
+    fo = sub.add_parser('follow', help='play a recorded route closed-loop')
+    fo.add_argument('--dirs', nargs='+', required=True)
+    fo.add_argument('--player', type=int, default=1)
+    fo.add_argument('--route', required=True)
     a = ap.parse_args(argv)
     games = [Game(d, i + 1) for i, d in enumerate(a.dirs)]
     if a.cmd == 'goto':
@@ -730,6 +810,11 @@ def main(argv=None):
                 return 1
         print(f'arrived in {time.monotonic() - t0:.1f}s at {game.pos()}')
         return 0
+    if a.cmd == 'follow':
+        ok, stats = follow(games[a.player - 1], a.route, lambda m: print(m, flush=True))
+        stats['telemetry'] = games[a.player - 1].telemetry()
+        print(f'{"ARRIVED" if ok else "FAILED"}: {stats}')
+        return 0 if ok else 1
     if a.cmd == 'squad':
         t0 = time.monotonic()
         folder = Path(a.evidence) / time.strftime('%Y%m%d-%H%M%S')
