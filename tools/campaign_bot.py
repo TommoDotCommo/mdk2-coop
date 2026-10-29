@@ -352,53 +352,50 @@ def hits_since(game, offset):
     return re.findall(r'damage bob -> (\S+)', data[offset:].decode('latin-1')), len(data)
 
 
-def fire_sweep(game, wanted, log, pitches=(0, 70, -70), steps=16, sniper=False):
+def fire_sweep(game, wanted, log, pitches=(0, -20, 20, -40, 40), steps=16, sniper=False):
     """Find which of the wanted objects the hero can hit from here, without knowing where their visible
-    part is (a scripted wall's registered position is its pivot, often inside rock): turn through
-    steps directions at a few pitches, fire a short burst at each, and read what was hit. Then hold the
-    aim that hit and fire until it is gone. Returns the name destroyed, or None."""
+    part is (a scripted wall's registered position is its pivot, often inside rock): face steps
+    directions at a few elevations (degrees), fire a short burst at each, and read what was hit. Then
+    hold the aim that hit and fire until it is gone. Aim is set on the hero (mdkGobPointToXYZ), never
+    with mouse look: undoing a clamped mouse pitch left the camera turned until forward walked backward.
+    Returns the name destroyed, or None."""
     game.lua('coop.gunner=nil')
-    if sniper:
-        game.lua('coop_press(257, 200)')     # Kurt's sniper mode (right mouse toggles it)
-        time.sleep(.8)
     found = None
-    pitch = 0
     offset = hits_since(game, 0)[1]
-    for want_pitch in pitches:
-        game.lua(f'coop_mouse(0,{want_pitch - pitch})')
-        pitch = want_pitch
-        for a in range(steps):
-            ang = a * 360 / steps
-            game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {math.cos(math.radians(ang)):.4f}, '
-                     f'{math.sin(math.radians(ang)):.4f}, 0) coop_press(256, 250)')
+
+    def face(ang, elev):
+        a, e = math.radians(ang), math.radians(elev)
+        return (f'local p=coop.real_player() mdkGobPointToXYZ(p, {math.cos(a):.4f}, {math.sin(a):.4f}, '
+                f'{math.tan(e):.4f})')
+    for elev in pitches:
+        for k in range(steps):
+            ang = k * 360 / steps
+            game.lua(face(ang, elev) + (' coop_test_sniper()' if sniper else ' coop_press(256, 250)'))
             time.sleep(.4)
             names, offset = hits_since(game, offset)
             hit = [n for n in names if n in wanted]
             if hit:
-                found = (hit[0], ang)
+                found = (hit[0], ang, elev)
                 break
         if found:
             break
-    def done():
-        game.lua(f'coop_mouse(0,{-pitch}) coop.GunnerOn(60)' + (' coop_press(257, 200)' if sniper else ''))
+    game.lua('coop.GunnerOn(60)')
     if not found:
-        done()
         log(f'    {"sniper" if sniper else "fire"} sweep hit none of {sorted(wanted)[:6]}')
         return None
-    name, ang = found
-    log(f'    fire sweep: {name} is hit facing {ang:.0f} degrees, pitch {pitch}')
+    name, ang, elev = found
+    log(f'    fire sweep: {name} is hit facing {ang:.0f} degrees, elevation {elev}')
     t0 = time.monotonic()
+    game.lua('coop.gunner=nil')
     while time.monotonic() - t0 < 30 and alive(game, name):
-        game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {math.cos(math.radians(ang)):.4f}, '
-                 f'{math.sin(math.radians(ang)):.4f}, 0) coop_press(256, 600)')
+        game.lua(face(ang, elev) + (' coop_test_sniper()' if sniper else ' coop_press(256, 600)'))
         time.sleep(.5)
-    done()
+    game.lua('coop.GunnerOn(60)')
     if alive(game, name) and not sniper:
         log(f'    fire sweep: {name} still alive after 30 s')
         return None
     log(f'    fire sweep: destroyed {name} in {time.monotonic() - t0:.1f}s')
     return name
-
 
 def snipe(game, name, log):
     """A sniper shot at name: the game's own sniper round, launched along Kurt's aim at the target (with
@@ -489,14 +486,14 @@ def chain_step(game, level, nav, pos, target, log, chute=False):
                 while time.monotonic() - t0 < 30 and alive(game, o):
                     time.sleep(1)
                 if alive(game, o):
-                    gone = fire_sweep(game, {o}, log, pitches=(0, -35, 35))
+                    gone = fire_sweep(game, {o}, log, pitches=(0, -20, 20))
                     log(f'    {o}: {"killed" if gone else "still alive"}')
             sniper = 'DAMAGE_SNIPER' in info['damage']
             log(f'    trigger {opener}.{event} ({"sniper" if sniper else "shots"}) to open {info["opens"]}')
             if sniper:
                 snipe(game, opener, log)
             else:
-                fire_sweep(game, {opener}, log, pitches=(0, -35, 35, -70))
+                fire_sweep(game, {opener}, log, pitches=(0, -20, 20, -40))
             return True
     return False
 
@@ -709,7 +706,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                         gone = gen['name']
                         break
                 if not gone:
-                    gone = wanted and fire_sweep(game, wanted, log, pitches=(0, -35, 35, -70, 70, 140))
+                    gone = wanted and fire_sweep(game, wanted, log, pitches=(0, -20, 20, -40, 40, 60))
                 if gone:
                     stats['destroyed'].append(gone)
                     done = True
