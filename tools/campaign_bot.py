@@ -339,12 +339,15 @@ def hits_since(game, offset):
     return re.findall(r'damage bob -> (\S+)', data[offset:].decode('latin-1')), len(data)
 
 
-def fire_sweep(game, wanted, log, pitches=(0, 70, -70), steps=16):
+def fire_sweep(game, wanted, log, pitches=(0, 70, -70), steps=16, sniper=False):
     """Find which of the wanted objects the hero can hit from here, without knowing where their visible
     part is (a scripted wall's registered position is its pivot, often inside rock): turn through
     steps directions at a few pitches, fire a short burst at each, and read what was hit. Then hold the
     aim that hit and fire until it is gone. Returns the name destroyed, or None."""
     game.lua('coop.gunner=nil')
+    if sniper:
+        game.lua('coop_press(257, 200)')     # Kurt's sniper mode (right mouse toggles it)
+        time.sleep(.8)
     found = None
     pitch = 0
     offset = hits_since(game, 0)[1]
@@ -363,9 +366,11 @@ def fire_sweep(game, wanted, log, pitches=(0, 70, -70), steps=16):
                 break
         if found:
             break
+    def done():
+        game.lua(f'coop_mouse(0,{-pitch}) coop.GunnerOn(60)' + (' coop_press(257, 200)' if sniper else ''))
     if not found:
-        game.lua(f'coop_mouse(0,{-pitch}) coop.GunnerOn(60)')
-        log(f'    fire sweep hit none of {sorted(wanted)[:6]}')
+        done()
+        log(f'    {"sniper" if sniper else "fire"} sweep hit none of {sorted(wanted)[:6]}')
         return None
     name, ang = found
     log(f'    fire sweep: {name} is hit facing {ang:.0f} degrees, pitch {pitch}')
@@ -374,12 +379,54 @@ def fire_sweep(game, wanted, log, pitches=(0, 70, -70), steps=16):
         game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {math.cos(math.radians(ang)):.4f}, '
                  f'{math.sin(math.radians(ang)):.4f}, 0) coop_press(256, 600)')
         time.sleep(.5)
-    game.lua(f'coop_mouse(0,{-pitch}) coop.GunnerOn(60)')
-    if alive(game, name):
+    done()
+    if alive(game, name) and not sniper:
         log(f'    fire sweep: {name} still alive after 30 s')
         return None
     log(f'    fire sweep: destroyed {name} in {time.monotonic() - t0:.1f}s')
     return name
+
+
+def live_pos(game, name):
+    t = game.note('lp', f'local g=getglobal("{name}") if (g and coop_alive(g)==1) then coop_note("lp", '
+                        f'format("%.2f %.2f %.2f", g.position.x, g.position.y, g.position.z)) else coop_note("lp", "none") end')
+    return None if t.startswith('none') else tuple(float(v) for v in t.split())
+
+
+def chain_step(game, level, nav, pos, target, log, chute=False):
+    """The level scripts' own dependency chains (campaign_mine.py 'deps'): something near the hero or the
+    target is opened by a handler on another object (a sniper lock opening a door); that opener may first
+    need enabling by other objects' deaths (three enemies). Kill the live prerequisites, then trigger the
+    opener with the damage it checks for. True if something was done."""
+    deps = level.m.get('deps', {})
+    where = {o['name']: o['pos'] for o in level.m['objects']}
+    for opener, events in deps.items():
+        for event, info in events.items():
+            if not any(t in where and min(math.dist(where[t], pos), math.dist(where[t], target)) < 80
+                       for t in info['opens']):
+                continue
+            if not alive(game, opener):
+                continue
+            prereq = [o for o, evs in deps.items() if any(opener in i['enables'] for i in evs.values())
+                      and alive(game, o)]
+            for o in prereq:
+                at = live_pos(game, o)
+                if not at:
+                    continue
+                spot = reachable_toward(nav, game.pos(), at)
+                log(f'    {opener} needs {o} dead first: going near it')
+                walk(game, nav, spot, log, timeout=30)
+                t0 = time.monotonic()
+                while time.monotonic() - t0 < 30 and alive(game, o):
+                    time.sleep(1)
+                if alive(game, o):
+                    gone = fire_sweep(game, {o}, log, pitches=(0, -35, 35))
+                    log(f'    {o}: {"killed" if gone else "still alive"}')
+            sniper = 'DAMAGE_SNIPER' in info['damage']
+            log(f'    trigger {opener}.{event} ({"sniper" if sniper else "shots"}) to open {info["opens"]}')
+            hit = fire_sweep(game, {opener}, log, pitches=(0, -35, 35, -70), sniper=sniper)
+            return True
+    return False
 
 
 def objectives(level, pos, toward=None, radius=150):
@@ -543,6 +590,9 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
             if broken:
                 stats['destroyed'].append(broken['name'])
                 time.sleep(1.5)
+                continue
+            # the level scripts' own chains first: prerequisites, then the opener with its damage type
+            if stalls <= 2 and chain_step(game, level, nav, pos, target, log, chute=chute):
                 continue
             # what the level is waiting for: the nearest living scripted objective the hero can reach
             # a view of (the arena's exit opens when its three generators are gone) --

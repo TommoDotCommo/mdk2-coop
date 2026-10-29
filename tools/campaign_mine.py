@@ -88,6 +88,7 @@ def mine_level(geo, logic):
         'checkpoints': {str(k): v for k, v in sorted(checkpoints.items())},
         'events': events,
         'exits': exits(logic),
+        'deps': dependencies(logic),
         'combos': sorted(set(COMBO.findall(logic))),
         'pickups': [o for o in objects if PICKUP.match(o['type'])],
         'spawners': [o for o in objects if ENEMY_SPAWN.match(o['type'])],
@@ -113,6 +114,33 @@ def exits(logic):
         commented = logic.rfind('--', logic.rfind('\n', 0, m.start()), m.start()) >= 0
         if not commented:
             out.append({'to': [int(m.group(1)), int(m.group(2))], 'in': owner, 'line': line})
+    return out
+
+
+HANDLER_HEAD = re.compile(r'^([A-Za-z0-9_]+)\.(On[A-Za-z]+)\s*=\s*function', re.M)
+OPENS = [re.compile(r'omAnimPlay\(\s*([A-Za-z0-9_]+)\s*,\s*ANIM_OPEN'),
+         re.compile(r'mdkProxDoorLock\(\s*([A-Za-z0-9_]+)\s*,\s*0\s*\)'),
+         re.compile(r'omGobExitStasis\(\s*([A-Za-z0-9_]+)\s*\)'),
+         re.compile(r'omGobDelete\(\s*([A-Za-z0-9_]+)\s*\)')]
+ENABLES = re.compile(r'omAnimPlay\(\s*([A-Za-z0-9_]+)\s*,\s*ANIM_ENABLED')
+DAMAGE = re.compile(r'DAMAGE_[A-Z]+')
+
+
+def dependencies(logic):
+    """What each object's script handlers do, for ordering objectives: the objects a handler opens (door
+    animations, door locks released, objects leaving stasis or deleted), the ones it enables, and the
+    damage types it checks for (a sniper lock opens only to DAMAGE_SNIPER).
+    {object: {event: {'opens': [...], 'enables': [...], 'damage': [...]}}}"""
+    heads = [(m.start(), m.group(1), m.group(2)) for m in HANDLER_HEAD.finditer(logic)]
+    out = {}
+    for i, (start, obj, event) in enumerate(heads):
+        end = heads[i + 1][0] if i + 1 < len(heads) else len(logic)
+        body = logic[start:end]
+        opens = sorted({m.group(1) for rx in OPENS for m in rx.finditer(body)} - {obj})
+        enables = sorted({m.group(1) for m in ENABLES.finditer(body)} - {obj})
+        damage = sorted(set(DAMAGE.findall(body)))
+        if opens or enables or damage:
+            out.setdefault(obj, {})[event] = {'opens': opens, 'enables': enables, 'damage': damage}
     return out
 
 
