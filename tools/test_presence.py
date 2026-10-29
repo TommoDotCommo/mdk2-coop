@@ -132,6 +132,7 @@ snapshot_mutants = {
     'canopy-not-encoded': ('canopy_encode(&s->canopy, o, (int)(end - o))',
                            '1 /* deliberately omit canopy bytes */'),
     'canopy-not-decoded': ('canopy_decode(p, (int)(end - p), &s->canopy)', '1'),
+    'teleport-blended': ('if (snap_jump(a, b))\n            t->view', 'if (0)\n            t->view'),
     'canopy-lost-on-interpolation': ('*out = t < 0.5f ? *a : *b;',
                                      '*out = t < 0.5f ? *a : *b; out->canopy.present = 0;'),
 }

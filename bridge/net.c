@@ -876,6 +876,18 @@ static void blend(struct snap *out, const struct snap *a, const struct snap *b, 
     }
 }
 
+/* A step between two snapshots this long is a teleport (a warp, a revive, a respawn), not movement: blending it
+ * would drag the view through every room in between, and rooms_remote_frame would run those rooms' OnEnterRoom
+ * for a player who never was there, in whichever games happened to sample the blend. */
+#define TELEPORT_UNITS  500.0f
+
+static int snap_jump(const struct snap *a, const struct snap *b)
+{
+    float dx = b->pos[0] - a->pos[0], dy = b->pos[1] - a->pos[1], dz = b->pos[2] - a->pos[2];
+
+    return dx * dx + dy * dy + dz * dz > TELEPORT_UNITS * TELEPORT_UNITS;
+}
+
 void track_update(struct track *t, double clock_offset)
 {
     double render;
@@ -896,7 +908,10 @@ void track_update(struct track *t, double clock_offset)
     } else if ((double)t->snaps[i].time >= render) {
         const struct snap *a = &t->snaps[i - 1], *b = &t->snaps[i];
         float span = (float)(b->time - a->time);
-        blend(&t->view, a, b, span > 0.0f ? (float)(render - a->time) / span : 1.0f);
+        if (snap_jump(a, b))
+            t->view = (double)b->time > render ? *a : *b;       /* stay until the render time reaches the new place */
+        else
+            blend(&t->view, a, b, span > 0.0f ? (float)(render - a->time) / span : 1.0f);
     } else {
         /* newest snapshot is older than render time: extrapolate along the last step */
         const struct snap *a = &t->snaps[t->n - 2], *b = &t->snaps[t->n - 1];
@@ -907,7 +922,7 @@ void track_update(struct track *t, double clock_offset)
         if (ahead > extrap_ms)
             ahead = extrap_ms;
         t->view = *b;
-        if (span > 0.0f)
+        if (span > 0.0f && !snap_jump(a, b))
             for (k = 0; k < 3; k++)
                 t->view.pos[k] = b->pos[k] + (b->pos[k] - a->pos[k]) * (float)(ahead / span);
     }
