@@ -4,7 +4,11 @@ import argparse
 import math
 import os
 import time
-from check_room_ai import RoomCheck, FAR_MARKER
+from check_room_ai import RoomCheck
+
+# The host waits in level one's first room, about 1400 units from the arena (rooms 1 and 8 are the
+# level's two ends). The arena marker used by the room-AI test is inside the arena here.
+HOST_ROOM = 'l1_r1grengen'
 
 
 def run(dirs, output):
@@ -28,16 +32,14 @@ def run(dirs, output):
            lambda h,c: any(r[0]=='ent' and r[-1]=='hans' for r in h), seconds=20)
     # Geometry (docs/TESTING.md, tools/targeting_geometry.py): the client stands in the arena, Hans
     # spawns about 250 units from it, and the host waits in another room more than a thousand units
-    # away, alive, with its health untouched. Nothing aimed at the host can splash onto the client,
-    # and Hans can only aim at the client by choosing the nearest player.
+    # away, alive. Nothing aimed at the host can splash onto the client, and Hans can only aim at
+    # the client by choosing the nearest player.
     near = os.environ.get('MUTANT') == 'near'
     q.command(2, 'mdkGobSetPosition(mdkGetPlayerGob(),"l1_r8lowcenter") local p=mdkGetPlayerGob() mdkGobSetPositionXYZ(p,p.position.x+35,p.position.y,p.position.z)')
     if near:
         q.command(1, 'mdkGobSetPosition(mdkGetPlayerGob(),"l1_r8wp")')   # the old placement: 60 units from the client
     else:
-        q.command(1, f'mdkGobSetPosition(mdkGetPlayerGob(),"{FAR_MARKER}")')
-    # The host stays alive and vulnerable in its own room, so "unharmed" below means something.
-    q.command(1, 'God(0)')
+        q.command(1, f'mdkGobSetPosition(mdkGetPlayerGob(),"{HOST_ROOM}")')
     q.far('Hans: client is far from the host')
     mutant = os.environ.get('MUTANT', '')
     if mutant == 'script-scope':
@@ -101,10 +103,10 @@ def run(dirs, output):
     q.command(2, 'God(0)')
     q.wait('native Hans attack hurts the remote player',
            lambda h,c: q.hp(c)<100 and ['direct_source','n'+boss] in c and any(r[0]=='ai_fire' and r[2:4]==['204','2'] for r in h), seconds=12)
-    # The host was never the target, never fired at and never hurt, and is still far from the client.
+    # The host, alive in another room (kept invulnerable: that room's own enemies would otherwise
+    # make its health meaningless), was never a target of Hans, and the client is still far from it.
     host = q.state(1)
-    assert q.hp(host) == 100, 'the host in its own room was hurt'
-    assert not any(r[0]=='ai_fire' and r[3]=='1' and int(r[4])>0 for r in host), 'Hans fired at the host'
+    assert not any(r[0]=='ai_fire' and r[2]=='204' and r[3]=='1' and int(r[4])>0 for r in host), 'Hans fired at the host'
     q.far('Hans: client still far from the host after the attack')
     q.wait('target scopes restore host handle and stack',
            lambda h,c: ['ai_scope_depth','0'] in h and ['engine_player','@p1'] in h)

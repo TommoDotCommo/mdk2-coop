@@ -85,32 +85,41 @@ check "the glass sequence ran in every game (sign gone)" every_eventually 20 'r2
 check "the host's dog is loose (ai 1)"                  wait_q 1 'r2_dog01.ai' 1 20
 sleep 4
 
-# 2. it picks on one player at a time; place it beside that player, the others stay away
-hurts() { if [ "$1" = 1 ]; then count 1 '^damage r2_dog01 -> bob '; else count 1 "^damage r2_dog01 -> coop_p$1 "; fi; }   # host log: the dog's bites
+# 2. it picks on one player at a time; place it beside that player, the others wait in another room.
+# What counts is read from each game's own process (state dump): that player's own hp went down, the hit arrived
+# there as a direct hit from the dog, and nobody else lost hp. The host's log line "damage r2_dog01 -> ..." is
+# written even when the host does not forward the hit to the client, so it proves nothing about the client.
 beside() {   # beside <n>: the dog next to player n (on the host: its own player, or n's puppet)
     if [ "$1" = 1 ]; then lua 1 'local p = mdkGetPlayerGob() mdkGobSetPositionXYZ(r2_dog01, p.position.x + 1.5, p.position.y, p.position.z + 1)'
     else lua 1 "local p = coop_gob(\"@p$1\") mdkGobSetPositionXYZ(r2_dog01, p.position.x + 1.5, p.position.y, p.position.z + 1)"; fi; }
 geo_check() { mdk_assert_far "$@" | tee -a "$out/geometry.txt"; return "${PIPESTATUS[0]}"; }   # keep the reason: check hides output
+dump_of() {   # dump_of <game>: path of a fresh state dump written by that game's own process
+    local tag="own$RANDOM" f t; f="$(mdk_wsl "$(mdk_dir "$1")")/coop/state_${tag}_$1.txt"; rm -f "$f"
+    lua "$1" "coop_state(\"${tag}_$1\")"; for t in $(seq 1 50); do [ -f "$f" ] && break; sleep 0.1; done; echo "$f"; }
+field() {   # field <game> <row> <column>: one value from that game's own state dump
+    awk -v row="$2" -v col="$3" '$1 == row { print $col; exit }' "$(dump_of "$1")" | tr -d '\r'; }
+own_hp()   { field "$1" player 3; }
+receipts() { field "$1" direct_receipts 2; }
+dog_id=$(awk '$1 == "ent" && $NF == "r2_dog01" { print $2 }' "$(dump_of 1)" | tr -d '\r')
 host_target() {   # the host's native target query for the dog, from its own state dump
-    local tag="tgt$RANDOM" f t; f="$(mdk_wsl "$(mdk_dir 1)")/coop/state_$tag.txt"; rm -f "$f"
-    lua 1 "coop_state(\"$tag\")"; for t in $(seq 1 50); do [ -f "$f" ] && break; sleep 0.1; done
-    awk '$1 == "ai" && $2 == "r2_dog01" { print $3 }' "$f" | tr -d '\r'; }
+    awk '$1 == "ai" && $2 == "r2_dog01" { print $3 }' "$(dump_of 1)" | tr -d '\r'; }
 for n in $(mdk_seq); do
     for i in $(mdk_seq); do
         if [ "$i" = "$n" ]; then place "$i" 78 156
         elif [ "${MUTANT:-}" = near ]; then place "$i" "$((56 + i * 10))" 191
         else lua "$i" 'mdkGobSetPosition(mdkGetPlayerGob(), "l1_r8doganland1")'; fi   # another room, 1000+ units away
     done
-    sleep 3
+    declare -A hp0=() rc0=(); for i in $(mdk_seq); do hp0[$i]=$(own_hp "$i"); rc0[$i]=$(receipts "$i"); done
     check "the dog works on player $n; every other player is outside every splash and strike radius" geo_check "$n" "dog on player $n"
-    declare -A before=(); for i in $(mdk_seq); do before[$i]=$(hurts "$i"); done
-    for t in 1 2 3 4 5 6; do beside "$n"; sleep 1; [ "$(hurts "$n")" -gt "${before[$n]}" ] && break; done
+    for t in 1 2 3 4 5 6 7 8; do beside "$n"; sleep 1; [ "$(own_hp "$n")" -lt "${hp0[$n]}" ] && break; done
     sleep 1
-    check "the dog hurt player $n"                      test "$(hurts "$n")" -gt "${before[$n]}"
+    hp1=$(own_hp "$n")
+    check "the dog hurt player $n: that game's own hp ${hp0[$n]} -> $hp1" test "$hp1" -lt "${hp0[$n]}"
+    check "the hit reached player $n's game as a direct hit from the dog" bash -c "[ '$(receipts "$n")' -gt '${rc0[$n]}' ] && case '$(field "$n" direct_source 2)' in r2_dog01|n$dog_id) true ;; *) false ;; esac"
     check "the host's native target for the dog was player $n" test "$(host_target)" = "@p$n"
     for i in $(mdk_seq); do
         [ "$i" = "$n" ] && continue
-        check "and not player $i while it was on player $n" test "$(hurts "$i")" -le "$((before[$i] + 1))"
+        check "and not player $i while it was on player $n (that game's own hp)" test "$(own_hp "$i")" -ge "${hp0[$i]}"
     done
 done
 
