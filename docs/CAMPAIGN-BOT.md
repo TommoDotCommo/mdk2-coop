@@ -105,8 +105,9 @@ later):
 - **A puppet left behind**: on level 3 the client showed the host's puppet 997 units from the host.
 - **A client crash** on level 8 (checkpoint 6 to 7): access violation at `mdk2hd.exe+0x2a95` reading
   address 8, while binding the host's enemies after the checkpoint load (last bound: a type 511
-  generator); the same load gave the checkpoint's atomic jetpack. Repro with and without the grant
-  (`MDK2_CPITEMS=0`) pending.
+  generator); the same load gave the checkpoint's atomic jetpack. Not reproduced in four 5 minute
+  reruns, two with the grant and two without (`MDK2_CPITEMS=0`); the original came 9 minutes in, so it
+  is intermittent or needs longer play.
 - **A one-way face in level 2's arena** lets a hero cross north (walking, or blown by grenades) and
   not come back.
 
