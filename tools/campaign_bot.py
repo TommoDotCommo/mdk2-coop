@@ -427,7 +427,10 @@ def aimed_kill(game, name, log, seconds=60):
     while time.monotonic() - t0 < seconds and alive(game, name):
         at = live_pos(game, name)
         if at and math.dist(game.pos(), at) > close:
-            game.goto(*at, radius=close * 0.6, timeout=10, explore=1)
+            # along the scanned floor (the pilot's own stepping trips on the arena's one-sided face)
+            nav, _ = scan(game, str(Path(__file__).resolve().parents[1] / 'local/campaign/nav/aim.json'))
+            if nav.cells:
+                walk(game, nav, reachable_toward(nav, game.pos(), at), log, timeout=40)
         for dz in (2, 0, 4):
             game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then mdkGobPointToXYZ(p, '
                      f't.position.x-p.position.x, t.position.y-p.position.y, t.position.z+{dz}-p.position.z-3) '
