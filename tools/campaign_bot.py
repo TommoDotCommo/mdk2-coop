@@ -437,6 +437,10 @@ def aimed_kill(game, name, log, seconds=60):
                      f'coop_press(256, 300) end')
             time.sleep(.45)
         names, off = hits_since(game, off)
+        at = live_pos(game, name)
+        here = game.pos()
+        log(f'      aim {name}: hero {[round(v) for v in here]} '
+            f'{round(math.dist(here, at), 1) if at else "?"} away, hit {sorted(set(names))[:3]}')
         if name in names:
             misses = 0
         else:

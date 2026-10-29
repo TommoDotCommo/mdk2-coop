@@ -1267,7 +1267,28 @@ function coop.PilotTick()
         if (pl.sx) then tx, ty = pl.sx, pl.sy end
     end
     dx, dy = tx - p.position.x, ty - p.position.y
-    if (dx * dx + dy * dy > 0.01) then mdkGobPointToXYZ(p, dx, dy, 0) end
+    -- steering like a player: movement follows the camera, which turns with mouse yaw (the hero's own
+    -- facing can come apart from it: in level 2's arena forward walked backward). The heading is measured
+    -- from how the hero actually moved, and the mouse turns it toward the point (about 0.17 degrees a
+    -- count, positive clockwise) --
+    if (pl.lastx) then
+        local mx, my = p.position.x - pl.lastx, p.position.y - pl.lasty
+        if (mx * mx + my * my > 0.02) then pl.h = atan2(my, mx) end
+    end
+    pl.lastx, pl.lasty = p.position.x, p.position.y
+    if (pl.h and dx * dx + dy * dy > 0.01) then
+        local e = atan2(dy, dx) - pl.h
+        while (e > 180) do e = e - 360 end
+        while (e < -180) do e = e + 360 end
+        local counts = -e * (coop.pilot_turn or 4)
+        if (counts > 250) then counts = 250 end
+        if (counts < -250) then counts = -250 end
+        coop_mouse(counts, 0)
+        -- far off course: do not run the wrong way meanwhile --
+        if (e > 100 or e < -100) then pl.h = nil return end
+    elseif (dx * dx + dy * dy > 0.01) then
+        mdkGobPointToXYZ(p, dx, dy, 0)
+    end
     coop_press(coop.pilot_keys.forward, 120)
     -- Kurt dropping to a landing far below: hold jump in the air, which opens the chute --
     if (pl.chute == 1 and p.position.z > pl.z + 4) then
