@@ -64,8 +64,7 @@ int gob_slot(BYTE *gob)
 {
     int i;
 
-    if (!gob)
-        return -1;
+    if (!gob) return -1; /* empty table slots are not a live object */
     for (i = 0; i < GOB_SLOTS; i++)
         if ((BYTE *)GOB_TABLE[i * 2] == gob)
             return i;
