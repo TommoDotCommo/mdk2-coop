@@ -4,11 +4,14 @@
 #include <math.h>
 #include "bridge.h"
 #include "combat_core.h"
+#include "combat_hud.h"
 static struct cb_state combat;
+static struct cbh_state hud;
 static struct cb_guard reports, outgoing;
 static unsigned short epoch;
 static unsigned int serial;
-static int meter = 1, scroll, page, keys[6];
+/* meter: 0 collapsed to one thin line (default), 1 expanded. The dump keeps the old header fields. */
+static int meter, keys[3];
 static unsigned int source_serial;
 static int dirty, test_deaf;
 static uint64_t last_dump;
@@ -18,7 +21,7 @@ static void sync_epoch(void)
     if (epoch != cur_epoch) {
         cb_reset(&combat); memset(&reports, 0, sizeof(reports));
         memset(&outgoing, 0, sizeof(outgoing));
-        epoch = cur_epoch; scroll = page = 0;
+        cbh_reset(&hud); epoch = cur_epoch;
     }
 }
 static unsigned int target_id(BYTE *g)
@@ -86,6 +89,7 @@ void combat_applied(int attacker, BYTE *target, unsigned int id, int kind, int b
     c.weapon = weapon; c.flags = after <= 0 ? CB_KILL : 0;
     memcpy(c.pos, pos, sizeof(c.pos));
     if (!cb_accept(&combat, &c, attacker, CB_PUBLISH, cur_epoch, clock_ms())) return;
+    cbh_note(&hud, &c, attacker == my_slot, clock_ms());
     dirty = 1;
     event_init(&e, EV_COMBAT);
     /* cb_event is exactly one EV_NAME field; no wire layout change. */
@@ -98,15 +102,19 @@ void combat_event(const struct event *e, int sender)
     sync_epoch();
     if ((test_background && test_deaf) || role_host || e->epoch != cur_epoch) return;
     memcpy(&c, e->name, sizeof(c));
-    if (cb_accept(&combat, &c, sender, CB_CONFIRM, cur_epoch, clock_ms())) dirty = 1;
+    if (cb_accept(&combat, &c, sender, CB_CONFIRM, cur_epoch, clock_ms())) {
+        cbh_note(&hud, &c, c.attacker == my_slot, clock_ms());
+        dirty = 1;
+    }
 }
 const struct cb_state *combat_state(void) { sync_epoch(); return &combat; }
+const struct cbh_state *combat_hud(void) { sync_epoch(); return &hud; }
 void combat_dump(FILE *f)
 {
     unsigned i;
     int p;
     sync_epoch();
-    fprintf(f, "combat %u %u %d %d %d\n", cur_epoch, combat.size, meter, scroll, page);
+    fprintf(f, "combat %u %u %d %d %d\n", cur_epoch, combat.size, meter, 0, 0);
     for (p = 0; p < MAX_PLAYERS; p++)
         fprintf(f, "combat_player %d %llu %llu %.3f %.3f\n", p + 1,
                 (unsigned long long)combat.total[p], (unsigned long long)combat.fight[p],
@@ -126,27 +134,24 @@ static void dump_file(void)
 }
 static void reset_meter(void)
 {
-    /* Keep replay protection and feed through a local presentation reset. */
+    /* Keep replay protection and history through a local presentation reset. */
     memset(combat.total, 0, sizeof(combat.total)); memset(combat.fight, 0, sizeof(combat.fight));
     memset(combat.buckets, 0, sizeof(combat.buckets)); memset(combat.ticks, 0, sizeof(combat.ticks));
     combat.started = 0; dirty = 1;
 }
 void combat_frame(int allowed)
 {
-    static const int codes[6] = {50, 19, 32, 201, 209, 38};
-    static const int vks[6] = {'M', 'R', 'D', VK_PRIOR, VK_NEXT, 'L'};
+    static const int codes[3] = {50, 19, 32};
+    static const int vks[3] = {'M', 'R', 'D'};
     int i, ctrl;
     sync_epoch();
     ctrl = allowed && !chat_blocks_keys() && (input_down(29, VK_CONTROL) || input_down(157, VK_CONTROL));
-    for (i = 0; i < 6; i++) {
+    for (i = 0; i < 3; i++) {
         int down = ctrl && input_down(codes[i], vks[i]);
         if (down && !keys[i]) {
-            if (i == 0) meter = !meter;
+            if (i == 0) { meter = !meter; cbh_peek(&hud, clock_ms()); }
             if (i == 1) reset_meter();
             if (i == 2) dump_file();
-            if (i == 3) { scroll += 4; page++; if (scroll >= (int)combat.size) scroll = combat.size ? combat.size - 1 : 0; }
-            if (i == 4) { scroll -= 4; page--; if (scroll < 0) scroll = 0; if (page < 0) page = 0; }
-            if (i == 5) scroll = page = 0;
         }
         keys[i] = down;
     }
@@ -158,8 +163,6 @@ void combat_frame(int allowed)
     }
 }
 int combat_meter(void) { return meter; }
-int combat_scroll(void) { return scroll; }
-int combat_page(void) { return page; }
 static void l_dump(void) { dump_file(); }
 static void l_reset(void) { reset_meter(); }
 static void l_test(void)

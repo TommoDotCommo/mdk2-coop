@@ -37,7 +37,6 @@ struct cb_state {
     uint64_t start, last;
     int started;
 };
-struct cb_layout { int x, y, width, row, feed_rows, meter_rows; };
 void cb_reset(struct cb_state *s);
 int cb_validate(struct cb_guard *g, struct cb_event *e, int sender, int host,
                 uint16_t epoch, uint64_t now);
@@ -48,5 +47,4 @@ int cb_accept(struct cb_state *s, struct cb_event *e, int sender, int host,
               uint16_t epoch, uint64_t now);
 double cb_rolling(const struct cb_state *s, int slot, uint64_t now);
 double cb_fight_dps(const struct cb_state *s, int slot, uint64_t now);
-struct cb_layout cb_layout(int w, int h, int font);
 #endif

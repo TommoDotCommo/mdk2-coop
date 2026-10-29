@@ -1,27 +1,62 @@
 # Shared combat feedback
 
-Enemy hits are confirmed by the host and shown to every connected player. The four-line
-feed uses `P<slot> +<HP lost> T<enemy kind>/<network id> W<source id> <kill>`.
-Player numbers and colours match the team panel, chat and pings. The meter includes names,
-five-second DPS, current fight DPS, fight damage and damage totals since the local reset. Floating numbers
-rise above the reported target position; the short cross marks its position when damage was
-applied. Positions are target origins, rather than collision contact points (the damage hook
-does not expose a contact point). Off-screen hits remain in the feed.
+Enemy hits are confirmed by the host and shown to every connected player. The presentation is
+glanceable rather than a log: in a fast fight a scrolling list is unreadable, so there is none.
+What you see, all drawn from the same confirmed events and the same counters:
+
+- **Floating damage numbers** above the enemy, larger than the old text, outlined and faded over
+  under a second. Rapid hits by one player on one enemy (within 0.7 s of each other, for at most
+  2.5 s) merge into a single growing number rather than a spray of small ones. The colour is the
+  attacking player's slot colour (the same as the team panel, chat and pings); players on one
+  enemy are offset side by side so their numbers do not overprint. Numbers of 25 or more use the
+  larger font. A killing blow joins the number it finishes, which turns whiter with a thicker
+  outline, a `!` and the enemy's name underneath.
+- **Hitmarker**: a small cross of four diagonal strokes at the screen centre when the local
+  player's hit is confirmed (0.17 s), larger, red and longer (0.42 s) for a kill.
+- **Kill ticker**: at most three short lines under the damage panel, newest first, such as
+  `Hank > Doganboy x3`. Kills of one enemy kind by one player in a row merge into `xN`; a line
+  fades after six seconds. No ids appear anywhere.
+- **Damage panel**: a compact corner panel on the right screen edge, at most 15 percent of the
+  screen width and 20 percent of its height (positions are fractions of the window, text sizes
+  follow the window height, so it scales with resolution; the mod has no separate UI scale).
+  It is *collapsed by default* to one thin line, `DPS  You 30  Team 108`. Ctrl+M expands it:
+  a `Damage` header with the fight timer, then one bar per player, longest first, with the
+  player's name in their colour, a small damage total and a large DPS number. The bar is the
+  player's share of the top player's fight damage. DPS is the fight average, which holds still
+  after the last hit instead of falling to zero five seconds later; the five-second rolling
+  figure stays in the dump. The panel shows from the first hit until the fight ends (eight
+  seconds idle) and then fades out over two seconds; toggling it also shows it for three seconds
+  between fights. Players beyond the rows that fit are not drawn (the dump has them all).
+
+The positions of the panel and ticker avoid the team panel (top left), chat (bottom left), the
+game's own health and ammo readouts and the mic and cutscene boxes (bottom strip), the centred
+status line and the screen centre. The game's own HUD position is an assumption confirmed by
+one screenshot of level 1, not read from the engine. Below about 1280x720 the panel's fixed 15
+percent width gets narrow and long names are clipped; this is untested territory.
+
+Enemy names come from a small table of enemy kinds read from the running game (Bif, Smite,
+Grunt, Conehead, Hoser, Doganboy, Birdbrain, Turret, Bad Max, BFB, Ultra Dog, Fire Smite,
+Poopsy, Cloak Grunt, Doom Sphere, Civilian); any other kind shows as `Enemy`. Weapon and
+ability names are not shown: the damage hook exposes only a projectile type or a damage channel,
+not the selected weapon, so any label would be a guess. Positions are target origins, rather
+than collision contact points. Off-screen hits show in the panel and ticker but have no number.
 
 Hold Ctrl with these keys (chat entry suppresses these shortcuts):
 
 | Key | Action |
 | --- | --- |
-| M | Toggle DPS rows |
+| M | Expand or collapse the damage panel |
 | R | Reset local DPS/totals; preserve history and duplicate protection |
-| PgUp / PgDn | Scroll history four events; page the meter for large parties |
-| L | Return to the latest events / first meter page |
 | D | Dump the bounded history and counters to `combat.txt` in the mod data folder |
+
+Ctrl+PgUp, Ctrl+PgDn and Ctrl+L (history scrolling and meter paging) are removed with the feed.
 
 The newest 512 events stay available until the level epoch changes. A dirty history also
 writes `combat.txt` at most once per second, replacing the previous snapshot. Thus disk use
 is bounded; this is a recent history, not an unlimited lifetime archive. The file contains
-numeric event IDs, target IDs, source IDs, flags and world positions as well as counters.
+numeric event IDs, target IDs, source IDs, flags and world positions as well as counters; the
+ids stay in the file and never on screen. Its header's `meter` field is 1 when the panel is
+expanded (0 collapsed, the default); the scroll and page fields are kept as zero.
 The Lua commands `coop_combat_dump()` and `coop_combat_reset()` provide the same actions.
 A meter reset is local; it does not erase another player's counters.
 
@@ -106,11 +141,24 @@ bash -n tools/qa_combat.sh
 ```
 
 The native core/adapter harness runs with undefined-behaviour sanitisation. It checks guards,
-reordered/duplicate/lost deliveries with retry, fight/rolling totals, history pooling and layout
-rectangles at 640×480, 800×600, 1024×768, 1280×720, 1920×1080, 2560×1440 and 3840×2160. Every
-validation protection has a mutation twin. Text is measured and clipped with the actual HUD
-font at runtime. Rectangle checks do not prove real font rendering or crowded team-panel and
-world-tag placement; verify those in live HUD tests.
+reordered/duplicate/lost deliveries with retry, fight/rolling totals and history pooling. Every
+validation protection has a mutation twin. The presentation core (`bridge/combat_hud.c`, no
+engine dependencies) has its own tests, `tools/test_combat_hud.c`: merge rules for rapid hits
+(same player and enemy, window, cap, kills), number life and style, hitmarker, kill ticker,
+ranking, fade after the fight, number and time formats, friendly names without ids, and the
+layout of the panel, ticker and hitmarker at 1280x720, 1920x1080, 2560x1440, 3840x2160 and
+2560x1080 (21:9), collapsed and expanded, with every row and ticker count. The layout assertions
+are the size limits (15 percent wide, 20 percent tall), containment, no overlap between the
+panel, the ticker and the hitmarker, no overlap with the reserved zones above, disjoint columns,
+and the worst-case strings fitting their boxes under a deliberately wide glyph model. 32 mutation
+twins (no merge, merge across players or enemies, wrong colour, no cap, overlap, too wide,
+too tall, wrong zone, overlapping columns, ...) must each fail an assertion, and the adapter
+twins check that confirmations feed the numbers, that only the local hit raises the hitmarker,
+that the toggle shows the panel and that a level change clears it. At runtime text is
+measured and clipped with the actual HUD font. Rectangle checks do not prove real font
+rendering or crowded team-panel and world-tag placement; `tools/combat_showcase.sh` saves
+in-game screenshots (floating numbers, hitmarker, collapsed and expanded panel, ticker, the
+fade) for a manual look, and nothing asserts on them.
 
 A verifier with Windows interop and three configured disposable game copies should run, in
 order (the normal QA runner obtains its configured resources):
@@ -129,7 +177,7 @@ The T1 `combat-startup` gate checks Lua registration, dump and reset state in on
 The combat suite asserts a host hit of 20 HP and a client hit of 30 HP against the level-1
 `doganboys07` fixture (default 100% dealt damage; level 1's `r2_dog01` is immune until its glass sequence), comparing actual host enemy HP differences,
 per-player totals and complete event ledgers across all three processes, within one HP.
-It then asserts five-second DPS expiry, unchanged idle totals, keyboard toggle edges and reset.
+It then asserts five-second DPS expiry, unchanged idle totals, keyboard toggle edges (the panel starts collapsed, `meter` 0; Ctrl+M makes it 1 and again 0) and reset.
 `coop_combat_test(1)` is a background-test-only deaf receiver mutant, inert in player mode.
 The oracle has game-free tests proving missing events, wrong attribution, inflated counters,
 missing participants, malformed dumps and nonfinite positions fail.

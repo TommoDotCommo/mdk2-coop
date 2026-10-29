@@ -72,13 +72,17 @@ int main(void)
     CB_CHECK(confirmation.kind==EV_COMBAT); memcpy(&payload,confirmation.name,sizeof(payload));
     CB_CHECK(payload.amount==20 && payload.attacker==1 && payload.target==42);
     s=combat_state(); CB_CHECK(s->total[1]==20 && s->size==1);
+    CB_CHECK(hud.pops[0].used && hud.pops[0].amount==20 && hud.pops[0].attacker==1 && hud.hit_valid); /* own hit: number and hitmarker */
     { int before=sends; combat_applied(1,target,42,200,100,100,2049,pos); CB_CHECK(sends==before); }
     cb_reset(&combat); role_host=0;
     combat_event(&confirmation,1); CB_CHECK(combat.size==0);
+    cbh_reset(&hud); my_slot=2;
     combat_event(&confirmation,0); CB_CHECK(combat.size==1 && combat.total[1]==20);
+    CB_CHECK(hud.pops[0].used && hud.pops[0].attacker==1 && !hud.hit_valid); /* a teammate's hit: number, no hitmarker */
+    my_slot=1;
     reset_meter(); CB_CHECK(combat.total[1]==0 && combat.size==1);
     combat_event(&confirmation,0); CB_CHECK(combat.total[1]==0); /* reset retains dedupe */
-    cur_epoch=8; combat_event(&confirmation,0); CB_CHECK(combat.size==0);
+    cur_epoch=8; combat_event(&confirmation,0); CB_CHECK(combat.size==0); CB_CHECK(!hud.pops[0].used && !hud.nticks); /* a new level clears the numbers */
     /* A same-epoch stale payload inside a current envelope still fails. */
     confirmation.epoch=8; combat_event(&confirmation,0); CB_CHECK(combat.size==0);
     confirmation.epoch=6; payload.epoch=8; payload.id=99;
@@ -86,9 +90,12 @@ int main(void)
     combat_event(&confirmation,0); CB_CHECK(combat.size==0);
     role_host=1; combat_applied(0,target,42,200,100,0,2049,pos);
     CB_CHECK(combat.lines[0].e.flags==CB_KILL && combat.total[0]==100);
-    presses[29]=presses[50]=1; combat_frame(1); CB_CHECK(!meter);
-    combat_frame(1); CB_CHECK(!meter); /* edge triggered */
-    presses[50]=0; combat_frame(1); presses[50]=1; combat_frame(1); CB_CHECK(meter);
+    CB_CHECK(!meter); /* collapsed by default */
+    presses[29]=presses[50]=1; combat_frame(1); CB_CHECK(meter);
+    combat_frame(1); CB_CHECK(meter); /* edge triggered */
+    CB_CHECK(cbh_panel_alpha(&combat,&hud,stamp)==1.0f); /* the toggle shows the panel */
+    { double keep=stamp; stamp=100000; presses[50]=0; combat_frame(1); presses[50]=1; combat_frame(1); CB_CHECK(!meter); CB_CHECK(cbh_panel_alpha(&combat,&hud,stamp)==1.0f); /* shown between fights */ presses[50]=0; combat_frame(1); presses[50]=1; combat_frame(1); CB_CHECK(meter); CB_CHECK(cbh_panel_alpha(&combat,&hud,stamp+CBH_PEEK_MS+1)<1.0f); stamp=keep; }
+    presses[50]=0; combat_frame(1); presses[50]=1; combat_frame(1); CB_CHECK(!meter);
     presses[50]=0; presses[19]=1; combat_frame(1); CB_CHECK(combat.total[0]==0 && combat.size==1);
     presses[19]=0;
     f=tmpfile(); CB_CHECK(f!=NULL); combat_dump(f); CB_CHECK(ftell(f)>0); fclose(f);

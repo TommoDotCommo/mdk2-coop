@@ -16,6 +16,7 @@
 #include <math.h>
 #include "bridge.h"
 #include "combat_core.h"
+#include "combat_hud.h"
 
 #define GL_PROJECTION           0x1701
 #define GL_MODELVIEW            0x1700
@@ -205,6 +206,9 @@ static void gfont_pass(float x, float y, int h, const char *s, float r, float g,
     gl.End();
 }
 
+/* multiplies the alpha of every text pass (combat numbers fade out); hud_alpha() sets it */
+static float text_alpha = 1.0f;
+
 static void gfont_text(float x, float y, int h, const char *s, float r, float g, float b)
 {
     if (!gfont_upload())
@@ -212,9 +216,9 @@ static void gfont_text(float x, float y, int h, const char *s, float r, float g,
     gl.Enable(GL_TEXTURE_2D);
     gl.BindTexture(GL_TEXTURE_2D, gfont_tex);
     gl.TexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-    gfont_pass(x + 1.5f, y + 1.5f, h, s, 0.0f, 0.0f, 0.0f, 0.75f);
+    gfont_pass(x + 1.5f, y + 1.5f, h, s, 0.0f, 0.0f, 0.0f, 0.75f * text_alpha);
     /* the sheet is grey chrome: lift the colour so the text keeps the brightness it had */
-    gfont_pass(x, y, h, s, r * 1.3f > 1 ? 1 : r * 1.3f, g * 1.3f > 1 ? 1 : g * 1.3f, b * 1.3f > 1 ? 1 : b * 1.3f, 1.0f);
+    gfont_pass(x, y, h, s, r * 1.3f > 1 ? 1 : r * 1.3f, g * 1.3f > 1 ? 1 : g * 1.3f, b * 1.3f > 1 ? 1 : b * 1.3f, text_alpha);
     gl.Disable(GL_TEXTURE_2D);
 }
 
@@ -286,10 +290,10 @@ static void text(float x, float y, int h, const char *s, float r, float g, float
         return;
     }
     gl.ListBase(font_base - 32);
-    gl.Color4f(0.0f, 0.0f, 0.0f, 0.85f);
+    gl.Color4f(0.0f, 0.0f, 0.0f, 0.85f * text_alpha);
     gl.RasterPos2f(x + 1.0f, (float)h - y - 1.0f);
     gl.CallLists(n, GL_UNSIGNED_BYTE, s);
-    gl.Color4f(r, g, b, 1.0f);
+    gl.Color4f(r, g, b, text_alpha);
     gl.RasterPos2f(x, (float)h - y);
     gl.CallLists(n, GL_UNSIGNED_BYTE, s);
 }
@@ -299,6 +303,7 @@ void hud_font_use(int i) { fsel = i; }
 int hud_font_h(void) { return font_h; }
 int hud_text_w(const char *s) { return text_width(s); }
 void hud_text(float x, float y, int h, const char *s, float r, float g, float b) { text(x, y, h, s, r, g, b); }
+void hud_alpha(float a) { text_alpha = a < 0 ? 0 : a > 1 ? 1 : a; }
 
 /* a box from (x, y) top left, y down */
 static void box(float x, float y, float w, float bh, int h, float r, float g, float b, float a)
@@ -908,74 +913,245 @@ static void draw_movie_box(int w, int h)
         logmsg("hud moviebox: %s | %s | %s", mbox[0], mbox[1], mbox[2]);
 }
 
-/* Text is measured with the actual menu font before drawing; bounded pools only. */
-static void combat_text(int x, int y, int width, int h, const char *line, const float *c)
+/* ---- Combat feedback: floating numbers, hitmarker, kill ticker and the damage panel.
+ * What to show, and where, comes from combat_hud.c (tested without the game); this only draws it. */
+
+/* a thick line between two points, y down */
+static void stroke(float x0, float y0, float x1, float y1, float t, int h, const float *c, float a)
 {
-    char clipped[128];
-    size_t n;
-    snprintf(clipped, sizeof(clipped), "%s", line);
-    n = strlen(clipped);
-    while (n && hud_text_w(clipped) > width) clipped[--n] = 0;
-    hud_text(x, y, h, clipped, c[0], c[1], c[2]);
+    float dx = x1 - x0, dy = y1 - y0, len = sqrtf(dx * dx + dy * dy), nx, ny;
+    if (len < 0.5f)
+        return;
+    nx = -dy / len * t * 0.5f;
+    ny = dx / len * t * 0.5f;
+    gl.Color4f(c[0], c[1], c[2], a);
+    gl.Begin(GL_QUADS);
+    gl.Vertex2f(x0 + nx, (float)h - (y0 + ny));
+    gl.Vertex2f(x1 + nx, (float)h - (y1 + ny));
+    gl.Vertex2f(x1 - nx, (float)h - (y1 - ny));
+    gl.Vertex2f(x0 - nx, (float)h - (y0 - ny));
+    gl.End();
 }
+
+/* text with a dark outline, faded by a (the font in use is the caller's choice) */
+static void outlined(float x, float y, int h, const char *s, const float *c, float a, int o)
+{
+    static const float black[3] = {0, 0, 0};
+    text_alpha = a;
+    text(x - o, y - o, h, s, black[0], black[1], black[2]);
+    text(x + o, y - o, h, s, black[0], black[1], black[2]);
+    text(x - o, y + o, h, s, black[0], black[1], black[2]);
+    text(x + o, y + o, h, s, black[0], black[1], black[2]);
+    text(x, y, h, s, c[0], c[1], c[2]);
+    text_alpha = 1.0f;
+}
+
+/* shorten to fit width pixels in the font in use (measured, not estimated) */
+static void fit_text(char *s, int width)
+{
+    size_t n = strlen(s);
+    while (n && text_width(s) > width)
+        s[--n] = 0;
+}
+
+static int font_px_of(int f)
+{
+    int px;
+    fsel = f;
+    px = font_h;
+    return px;
+}
+
+/* right-aligned in [x, x + width) */
+static void text_right(float x, int width, float y, int h, const char *s, const float *c, float a)
+{
+    text_alpha = a;
+    text(x + width - text_width(s), y, h, s, c[0], c[1], c[2]);
+    text_alpha = 1.0f;
+}
+
+static void draw_numbers(int w, int h, uint64_t now)
+{
+    const struct cbh_state *hs = combat_hud();
+    static const float white[3] = {1, 1, 1};
+    unsigned i;
+
+    for (i = 0; i < CBH_POPS; i++) {
+        const struct cbh_pop *p = &hs->pops[i];
+        struct cbh_style st;
+        float pos[3], c[3], sx, sy, tw, px;
+        char num[16];
+        int o;
+
+        if (!cbh_pop_style(p, now, &st))
+            continue;
+        memcpy(pos, p->pos, sizeof(pos));
+        pos[2] += 1.0f;
+        if (!project(pos, w, h, &sx, &sy))
+            continue;
+        slot_colour(p->attacker, c);
+        fsel = st.size ? 2 : 0;
+        px = (float)font_h;
+        snprintf(num, sizeof(num), st.size == 2 ? "%u!" : "%u", (unsigned)(p->amount > 99999 ? 99999 : p->amount));
+        if (st.size == 2) {                     /* kill: whiter, bigger outline, the enemy's name below */
+            c[0] += (1 - c[0]) * 0.45f; c[1] += (1 - c[1]) * 0.45f; c[2] += (1 - c[2]) * 0.45f;
+        }
+        o = st.size == 2 ? (h >= 1000 ? 3 : 2) : (h >= 1000 ? 2 : 1);
+        tw = (float)text_width(num);
+        sx += ((p->attacker & 3) - 1.5f) * px * 1.7f - tw * 0.5f;      /* players on one enemy sit side by side */
+        sy -= st.rise * px * 1.1f + (p->attacker & 1) * px * 0.9f;
+        if (sx < 8) sx = 8;
+        if (sx + tw > w - 8) sx = w - 8 - tw;
+        if (sy < px + 8) sy = px + 8;
+        if (sy > h - 8) sy = (float)(h - 8);
+        outlined(sx, sy, h, num, c, st.alpha, o);
+        if (st.size == 2) {
+            char cap[32];
+            snprintf(cap, sizeof(cap), "%s", cbh_enemy_name(p->kind));
+            fsel = 1;
+            outlined(sx + (tw - text_width(cap)) * 0.5f, sy + font_h * 1.25f, h, cap, white, st.alpha, 1);
+        }
+    }
+    fsel = 0;
+}
+
+static void draw_hitmarker(int w, int h, uint64_t now)
+{
+    static const float white[3] = {1, 1, 1}, red[3] = {1.0f, 0.28f, 0.22f}, dark[3] = {0, 0, 0};
+    const struct cbh_state *hs = combat_hud();
+    float a, cx = w * 0.5f, cy = h * 0.5f, t, in, out;
+    int kind = cbh_hit_style(hs, now, &a);
+    struct cbh_layout l;
+    const float *c = kind == 2 ? red : white;
+    int k;
+
+    if (!kind)
+        return;
+    l = cbh_layout(w, h, 10, 10, 0, 0, 0);
+    out = (kind == 2 ? l.kill_hit.w : l.hit.w) * 0.5f;
+    in = out * 0.35f;
+    t = (float)(h / 280 < 3 ? 3 : h / 280) * (kind == 2 ? 1.6f : 1.0f);
+    for (k = 0; k < 4; k++) {
+        float sx = (k & 1) ? 1.0f : -1.0f, sy = (k & 2) ? 1.0f : -1.0f;
+        stroke(cx + sx * in, cy + sy * in, cx + sx * out, cy + sy * out, t + 2, h, dark, 0.6f * a);
+        stroke(cx + sx * in, cy + sy * in, cx + sx * out, cy + sy * out, t, h, c, a);
+    }
+}
+
 static void draw_combat(int w, int h)
 {
     const struct cb_state *s = combat_state();
-    struct cb_layout l;
-    const float white[3] = {0.9f, 0.9f, 0.9f};
-    float c[3], sx, sy;
-    unsigned i;
-    int row = 0, p, first, count = 0, slots[CB_PLAYERS];
-    char line[128];
+    const struct cbh_state *hs = combat_hud();
+    static const float white[3] = {0.95f, 0.95f, 0.95f}, dim[3] = {0.7f, 0.74f, 0.8f}, gold[3] = {1.0f, 0.85f, 0.3f};
     uint64_t now = (uint64_t)now_ms();
-    hud_font_use(1);
-    l = cb_layout(w, h, hud_font_h());
-    /* At most 32 recent world markers. Rising numbers share the chat palette. */
-    for (i = 0; i < s->size && i < 32; i++) {
-        const struct cb_line *hit = &s->lines[(s->next + CB_KEEP - 1 - i) % CB_KEEP];
-        double age = (double)(now - hit->at);
-        float pos[3];
-        if (age > 1000) continue;
-        memcpy(pos, hit->e.pos, sizeof(pos)); pos[2] += 1.0f + (float)age / 700.0f;
-        if (!project(pos, w, h, &sx, &sy)) continue;
-        slot_colour(hit->e.attacker, c);
-        snprintf(line, sizeof(line), "+%u%s", hit->e.amount, hit->e.flags & CB_KILL ? " K" : "");
-        if (sx < 8 || sx + hud_text_w(line) > w - 8 || sy < hud_font_h() + 8 || sy > h - 8) continue;
-        /* Cross at the reported target position, number rising above it. */
-        hud_text(sx, sy, h, line, c[0], c[1], c[2]);
-        if (age < 250 && project(hit->e.pos, w, h, &sx, &sy) && sx >= 6 && sx <= w-6 && sy >= 6 && sy <= h-6) {
-            hud_box(sx-4, sy-1, 8, 2, h, c[0], c[1], c[2], 1);
-            hud_box(sx-1, sy-4, 2, 8, h, c[0], c[1], c[2], 1);
+    struct cbh_layout l;
+    float pa, c[3];
+    int order[8], n, small, big, i;
+    char b[40];
+
+    hud_font_use(0);
+    draw_numbers(w, h, now);
+    draw_hitmarker(w, h, now);
+    small = font_px_of(1);
+    big = font_px_of(0);
+    n = cbh_rank(s, order, 8);
+    l = cbh_layout(w, h, small, big, combat_meter(), n, hs->nticks);
+    pa = cbh_panel_alpha(s, hs, now);
+
+    if (pa > 0) {
+        float px = (float)l.panel.x, py = (float)l.panel.y;
+        box(px, py, (float)l.panel.w, (float)l.panel.h, h, 0.02f, 0.03f, 0.06f, 0.6f * pa);
+        box(px + l.panel.w - 2.0f, py, 2.0f, (float)l.panel.h, h, 1.0f, 0.85f, 0.3f, 0.8f * pa);
+        fsel = 1;
+        if (!combat_meter()) {
+            /* collapsed: one thin line, own DPS and the team's */
+            double mine = my_slot >= 0 && my_slot < CB_PLAYERS ? cb_fight_dps(s, my_slot, now) : 0;
+            float x = px + l.pad, y = py + l.pad + font_h, room = (float)(l.panel.w - 2 * l.pad);
+            char you[24], team[24], num[16];
+            cbh_fmt_count(num, sizeof(num), (uint64_t)(mine + 0.5));
+            snprintf(you, sizeof(you), "You %s", num);
+            cbh_fmt_count(num, sizeof(num), (uint64_t)(cbh_team_dps(s, now) + 0.5));
+            snprintf(team, sizeof(team), "Team %s", num);
+            if (text_width("DPS  ") + text_width(you) + text_width("  ") + text_width(team) <= room) {
+                text_alpha = pa;
+                text(x, y, h, "DPS", dim[0], dim[1], dim[2]);
+                x += text_width("DPS  ");
+                text_alpha = 1.0f;
+            }
+            slot_colour(my_slot < 0 ? 0 : my_slot, c);
+            outlined(x, y, h, you, c, pa, 1);
+            outlined(x + text_width(you) + text_width("  "), y, h, team, white, pa, 1);
+        } else {
+            float y = py + l.pad + font_h, top = n ? (float)s->fight[order[0]] : 1.0f;
+            text_alpha = pa;
+            text(px + l.pad, y, h, "Damage", gold[0], gold[1], gold[2]);
+            cbh_fmt_time(b, sizeof(b), cbh_fight_ms(s, now));
+            text_right(px, l.panel.w - l.pad, y, h, b, dim, pa);
+            if (!n) {
+                fsel = 1;
+                text_alpha = pa;
+                text(px + l.pad, py + l.header_h + l.pad + l.row_h * 0.7f, h, "Waiting for a fight", dim[0], dim[1], dim[2]);
+                text_alpha = 1.0f;
+            }
+            for (i = 0; i < l.rows && i < n; i++) {
+                int slot = order[i];
+                float ry = py + l.header_h + l.pad + i * l.row_h, base;
+                float frac = top > 0 ? (float)s->fight[slot] / top : 0;
+                char name[40], tot[16], dps[16];
+
+                slot_colour(slot, c);
+                box(px + l.pad, ry, (l.panel.w - 2 * l.pad) * frac, l.row_h - 2.0f, h, c[0], c[1], c[2],
+                    (slot == my_slot ? 0.42f : 0.28f) * pa);
+                if (slot == my_slot)
+                    box(px + l.pad, ry, 2.0f, l.row_h - 2.0f, h, c[0], c[1], c[2], 0.95f * pa);
+                fsel = 1;
+                snprintf(name, sizeof(name), "%.*s", CBH_PLAYER_CHARS, player_name(slot));
+                fit_text(name, l.name_w);
+                base = ry + (l.row_h + font_h) * 0.5f - 1.0f;
+                outlined(px + l.name_x + 3, base, h, name, c, pa, 1);
+                cbh_fmt_count(tot, sizeof(tot), s->fight[slot]);
+                fsel = 3;
+                text_right(px + l.total_x, l.total_w, ry + (l.row_h + font_h) * 0.5f - 1.0f, h, tot, dim, pa);
+                cbh_fmt_count(dps, sizeof(dps), (uint64_t)(cb_fight_dps(s, slot, now) + 0.5));
+                fsel = 0;
+                text_alpha = pa;
+                text_right(px + l.dps_x, l.dps_w, ry + (l.row_h + font_h) * 0.5f - 1.0f, h, dps, white, pa);
+                text_alpha = 1.0f;
+            }
         }
     }
-    hud_box(l.x-4, l.y-l.row, l.width+8,
-            l.row * (l.feed_rows + (combat_meter() ? l.meter_rows + 2 : 0) + 1), h, 0, 0, 0, 0.6f);
-    combat_text(l.x, l.y, l.width, h, "COMBAT  Ctrl+M meter  Ctrl+D dump", white);
-    for (i = 0; i < (unsigned)l.feed_rows; i++) {
-        unsigned back = i + combat_scroll();
-        const struct cb_event *e;
-        if (back >= s->size) break;
-        e = &s->lines[(s->next + CB_KEEP - 1 - back) % CB_KEEP].e;
-        slot_colour(e->attacker, c);
-        snprintf(line, sizeof(line), "P%02u +%05u T%03u/%08x W%04u %c",
-                e->attacker+1, e->amount, e->kind, e->target, e->weapon, e->flags & CB_KILL ? 'K' : '-');
-        combat_text(l.x, l.y + (++row)*l.row, l.width, h, line, c);
-    }
-    row = l.feed_rows + 1;
-    if (combat_meter()) {
-        combat_text(l.x, l.y+row++*l.row, l.width, h, "PLAYER  5s/fight DPS  fight/all damage", white);
-        for (p = 0; p < CB_PLAYERS; p++)
-            if (player_connected(p) || s->total[p]) slots[count++] = p;
-        first = count ? (combat_page() % ((count + l.meter_rows - 1) / l.meter_rows)) * l.meter_rows : 0;
-        for (p = first; p < count && p < first + l.meter_rows; p++) {
-            int slot = slots[p];
-            slot_colour(slot, c);
-            snprintf(line, sizeof(line), "P%02d %.6s %.1f/%.1f %llu/%llu", slot+1, player_name(slot),
-                    cb_rolling(s, slot, now), cb_fight_dps(s, slot, now),
-                    (unsigned long long)s->fight[slot], (unsigned long long)s->total[slot]);
-            combat_text(l.x, l.y+row++*l.row, l.width, h, line, c);
+    /* recent kills: at most three short lines under the panel */
+    fsel = 1;
+    for (i = 0; i < (int)hs->nticks; i++) {
+        const struct cbh_tick *t = &hs->ticks[i];
+        uint64_t age = now - t->at;
+        float ta, tx, ty, tw;
+        char pname[24], line[64], rest[48];
+
+        if (age >= CBH_TICK_MS)
+            break;
+        ta = age < CBH_TICK_MS - 1000 ? 1.0f : 1.0f - (float)(age - (CBH_TICK_MS - 1000)) / 1000.0f;
+        snprintf(pname, sizeof(pname), "%.*s", CBH_PLAYER_CHARS, player_name(t->attacker));
+        if (t->count > 1)
+            snprintf(rest, sizeof(rest), " > %s x%u", cbh_enemy_name(t->kind), t->count);
+        else
+            snprintf(rest, sizeof(rest), " > %s", cbh_enemy_name(t->kind));
+        snprintf(line, sizeof(line), "%s%s", pname, rest);
+        fit_text(line, l.ticker.w - 2 * l.pad);
+        tw = (float)text_width(line);
+        tx = (float)(l.ticker.x + l.ticker.w - l.pad) - tw;
+        ty = (float)(l.ticker.y + i * l.line_h + font_h);
+        box(tx - l.pad, ty - font_h - 1.0f, tw + 2.0f * l.pad, (float)l.line_h, h, 0.02f, 0.03f, 0.06f, 0.45f * ta);
+        slot_colour(t->attacker, c);
+        if (text_width(pname) <= text_width(line)) {
+            outlined(tx, ty, h, pname, c, ta, 1);
+            snprintf(rest, sizeof(rest), "%s", line + strlen(pname));
+            outlined(tx + text_width(pname), ty, h, rest, white, ta, 1);
+        } else {
+            outlined(tx, ty, h, line, c, ta, 1);
         }
     }
+    fsel = 0;
     hud_font_use(0);
 }
 

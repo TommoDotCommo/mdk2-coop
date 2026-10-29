@@ -135,19 +135,4 @@ static void fuzz(void)
     }
     puts("PASS 200000 deterministic malformed/valid payload fuzz cases");
 }
-static void layout(void)
-{
-    int sizes[][2]={{640,480},{800,600},{1024,768},{1280,720},{1920,1080},{2560,1440},{3840,2160}};
-    unsigned i;
-    for(i=0;i<sizeof(sizes)/sizeof(sizes[0]);i++) {
-        int w=sizes[i][0],h=sizes[i][1],f=h/64<10?10:h/64;
-        struct cb_layout l=cb_layout(w,h,f);
-        int bottom=l.y+l.row*(l.feed_rows+l.meter_rows+2);
-        CHECK(l.x>=w/2 && l.x+l.width+8<=w);
-        CHECK(l.y-l.row>h/4); /* leaves the ordinary team panel's small-party area */
-        CHECK(bottom<h*0.67 && l.meter_rows>=1 && l.meter_rows<=16);
-        CHECK(l.row>f && l.feed_rows==4);
-    }
-    puts("PASS shared layout rectangles at 640x480 through 3840x2160");
-}
-int main(void) { protections(); meters(); simulation(); fuzz(); layout(); return 0; }
+int main(void) { protections(); meters(); simulation(); fuzz(); return 0; }

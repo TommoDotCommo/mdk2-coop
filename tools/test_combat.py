@@ -37,8 +37,71 @@ MUTANTS = {
     'history-bound': ('if (s->size < CB_KEEP)', 'if (1)'),
     'rolling-expiry': ('tick - s->ticks[i] < 50', 'tick - s->ticks[i] <= 50'),
     'fight-idle': ('now - s->last >= CB_IDLE', 'now - s->last > CB_IDLE'),
-    'layout-overflow': ('l.y = h * 36 / 100', 'l.y = h * 70 / 100'),
 }
+HUD_MUTANTS = {
+    'no-merge': ('q->used && !q->kill &&', '0 && q->used && !q->kill &&'),
+    'merge-any-enemy': ('q->target == e->target &&', '1 &&'),
+    'merge-any-player': ('q->attacker == e->attacker &&', '1 &&'),
+    'wrong-colour': ('pick->attacker = e->attacker;', 'pick->attacker = 0;'),
+    'merge-forever': ('now - q->born <= CBH_MERGE_CAP_MS', '1'),
+    'merge-window': ('now - q->last <= CBH_MERGE_MS &&', 'now - q->last <= CBH_MERGE_MS * 10 &&'),
+    'merge-amount': ('p->amount += e->amount;', 'p->amount = e->amount;'),
+    'merge-into-kill': ('!q->kill &&', '1 &&'),
+    'kill-flag-lost': ('if (kill) p->kill = 1;', ''),
+    'kill-life': ('p->kill ? CBH_KILL_MS : CBH_POP_MS', 'CBH_POP_MS'),
+    'kill-style': ('out->size = p->kill ? 2 :', 'out->size = p->kill ? 1 :'),
+    'pop-expiry': ('!p->used || age >= life', '!p->used'),
+    'hitmarker-teammate': ('if (mine) {', 'if (1) {'),
+    'hit-expiry': ('if (age >= life) return 0;', ''),
+    'ticker-merge': ('t->attacker == e->attacker && t->kind == e->kind', '1'),
+    'ticker-bound': ('if (s->nticks < CBH_TICKS) s->nticks++;', 's->nticks++;'),
+    'rank-order': ('s->fight[all[i - 1]] < s->fight[p]', 's->fight[all[i - 1]] > s->fight[p]'),
+    'fade-stays': ('float f = 1.0f - (float)(now - end) / (float)CBH_FADE_MS;', 'float f = 1.0f;'),
+    'no-peek': ('if (h->peek_until > now) a = 1;', ''),
+    'fight-time': ('now - s->last >= CB_IDLE ? s->last : now', 'now'),
+    'enemy-fallback': ('default: return "Enemy";', 'default: return "";'),
+    'enemy-raw-id': ('case 207: return "Doganboy";', 'case 207: return "T207";'),
+    'count-format': ('if (v < 1000) snprintf', 'if (v < 1000000) snprintf'),
+    'time-format': ('"%u:%02u"', '"%u:%u"'),
+    'layout-overlap': ('l.ticker.y = l.panel.y + l.panel.h + l.pad;', 'l.ticker.y = l.panel.y;'),
+    'layout-wide': ('l.panel_max.w = l.panel.w = w * 15 / 100;', 'l.panel_max.w = l.panel.w = w * 30 / 100;'),
+    'layout-tall': ('maxh = h * 20 / 100', 'maxh = h * 40 / 100'),
+    'layout-zone': ('top = h * 22 / 100', 'top = h * 70 / 100'),
+    'layout-columns': ('l.total_x = l.name_x + l.name_w + l.pad;', 'l.total_x = l.name_x;'),
+    'layout-text-fit': ('l.dps_w = cbh_text_w(5, px_big);', 'l.dps_w = cbh_text_w(1, px_big);'),
+    'layout-collapsed': ('l.panel.h = expanded ? ', 'l.panel.h = 1 ? '),
+    'layout-hitmarker': ('l.hit.x = (w - l.hit.w) / 2;', 'l.hit.x = w - l.hit.w;'),
+}
+
+
+def run_hud(folder):
+    source = (ROOT / 'bridge/combat_hud.c').read_text()
+    for name, twin in [('hud', None), *HUD_MUTANTS.items()]:
+        code = source
+        if twin:
+            old, new = twin
+            if code.count(old) != 1:
+                raise SystemExit(f'FAIL missing hud mutation site: {name}')
+            code = code.replace(old, new)
+        path = folder / f'hud_{name}.c'
+        path.write_text(code)
+        binary = folder / f'hud_{name}'
+        subprocess.run([os.environ.get('CC_NATIVE', 'cc'), '-std=c99', '-O1', '-g',
+                        '-fsanitize=undefined', '-fno-sanitize-recover=all',
+                        '-I', str(ROOT / 'bridge'), str(ROOT / 'tools/test_combat_hud.c'),
+                        str(path), str(ROOT / 'bridge/combat_core.c'), '-lm', '-o', str(binary)],
+                       check=True, timeout=30)
+        result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
+        if twin:
+            if not result.returncode or 'FAIL line' not in result.stderr:
+                raise SystemExit(f'FAIL hud mutant not assertion-killed: {name}: {result.stderr}')
+            print(f'PASS hud mutant caught: {name}')
+        else:
+            print(result.stdout, end='')
+            if result.returncode:
+                raise SystemExit(result.stderr)
+    print(f'PASS {len(HUD_MUTANTS)} combat HUD mutation twins')
+
 
 def run():
     with tempfile.TemporaryDirectory(prefix='combat-') as folder:
@@ -73,6 +136,12 @@ def run():
             'host-only-apply': ('!role_host || sender <= 0', 'sender <= 0'),
             'live-puppet': ('!gob_alive(puppets[sender])', '0'),
             'host-only-receive': ('|| e->epoch != cur_epoch) return;', ') return;'),
+            'hud-feed-host': ('    cbh_note(&hud, &c, attacker == my_slot, clock_ms());\n', ''),
+            'hud-feed-client': ('        cbh_note(&hud, &c, c.attacker == my_slot, clock_ms());\n', ''),
+            'hud-mine': ('cbh_note(&hud, &c, c.attacker == my_slot, clock_ms());', 'cbh_note(&hud, &c, 1, clock_ms());'),
+            'toggle-peek': ('{ meter = !meter; cbh_peek(&hud, clock_ms()); }', '{ meter = !meter; }'),
+            'meter-default': ('static int meter, keys[3];', 'static int meter = 1, keys[3];'),
+            'epoch-hud': ('cbh_reset(&hud); epoch = cur_epoch;', 'epoch = cur_epoch;'),
             'reset-dedupe': ('combat.started = 0; dirty = 1;', 'combat.started = 0; dirty = 1; memset(&combat.guard, 0, sizeof(combat.guard));'),
         }
         for name, twin in [('adapter', None), *twins.items()]:
@@ -90,7 +159,8 @@ def run():
                             '-Wno-unused-parameter', '-I', str(ROOT / 'bridge'),
                             '-DCOMBAT_SOURCE="' + str(source) + '"',
                             str(ROOT / 'tools/test_combat_adapter.c'),
-                            str(ROOT / 'bridge/combat_core.c'), '-lm', '-o', str(binary)],
+                            str(ROOT / 'bridge/combat_core.c'), str(ROOT / 'bridge/combat_hud.c'),
+                            '-lm', '-o', str(binary)],
                            check=True, timeout=30)
             result = subprocess.run([str(binary)], cwd=folder, capture_output=True, text=True, timeout=30)
             if twin:
@@ -101,6 +171,7 @@ def run():
                 print(result.stdout, end='')
                 if result.returncode:
                     raise SystemExit(result.stderr)
+        run_hud(folder)
 
 if __name__ == '__main__':
     run()

@@ -87,14 +87,3 @@ double cb_fight_dps(const struct cb_state *s, int slot, uint64_t now)
     double seconds = s->started ? (end - s->start) / 1000.0 : 0;
     return s->fight[slot] / (seconds < 1 ? 1 : seconds);
 }
-struct cb_layout cb_layout(int w, int h, int font)
-{
-    struct cb_layout l;
-    l.row = font + 3; l.width = w * 46 / 100;
-    l.x = w - l.width - 8; l.y = h * 36 / 100;
-    l.feed_rows = 4;
-    l.meter_rows = (h * 27 / 100) / l.row - l.feed_rows - 2;
-    if (l.meter_rows > CB_PLAYERS) l.meter_rows = CB_PLAYERS;
-    if (l.meter_rows < 1) l.meter_rows = 1;
-    return l;
-}

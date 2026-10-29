@@ -205,7 +205,7 @@ Open a bug report (or a feature request): https://github.com/TommoDotCommo/mdk2-
 
 MIT licensed (LICENSE.txt). MDK2 HD itself is not included.
 
-Combat feedback: coloured confirmed enemy hits, floating numbers and a DPS meter.
-Ctrl+M toggles DPS, Ctrl+R resets local counters, Ctrl+PgUp/PgDn scrolls/pages,
-Ctrl+L returns to live, Ctrl+D dumps combat.txt (also saved automatically).
-Recent history is bounded to 512 events. Source IDs describe projectiles or damage channels.
+Combat feedback: coloured floating damage numbers (rapid hits merge), a hitmarker, a kill
+ticker and a damage panel at the right edge. The panel starts as one line; Ctrl+M expands it to a
+bar per player. Ctrl+R resets local counters, Ctrl+D dumps combat.txt (also saved automatically).
+Recent history is bounded to 512 events.

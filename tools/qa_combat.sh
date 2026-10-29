@@ -44,16 +44,17 @@ sleep 9
 snapshot idle
 compare clienthit idle --idle
 # Local keyboard edges, exercised on every process; controls must not repeat while held.
+# The meter starts collapsed (0); Ctrl+M expands it (1) and a second press collapses it again.
 for i in 1 2 3; do lua "$i" 'coop_press(29,500) coop_press(50,250)'; done
 sleep 1
-snapshot hidden
-compare idle hidden --meter 0
+snapshot expanded
+compare idle expanded --meter 1
 for i in 1 2 3; do lua "$i" 'coop_press(29,500) coop_press(50,250)'; done
 sleep 1
-snapshot shown
-compare hidden shown --meter 1
+snapshot collapsed
+compare expanded collapsed --meter 0
 for i in 1 2 3; do lua "$i" 'coop_combat_reset()'; done
 snapshot reset
-compare shown reset --reset
+compare collapsed reset --reset
 printf '7 passed, 0 failed\n'
 echo "state evidence: $out"

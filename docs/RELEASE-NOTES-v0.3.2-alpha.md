@@ -15,11 +15,10 @@
 - Automatic update discovery from GitHub releases: queries GitHub releases list endpoint (`/releases?per_page=10`), parses release arrays, ignores drafts, orders pre-releases and final releases by semver (`v0.3.2-alpha` above `v0.3.1-alpha`, final `v0.3.2` above `v0.3.2-alpha`), breaks ties by `published_at`, and adds an "include pre-releases" option (defaults to ON for alpha releases).
 - Atomic package installation with SHA-256 sidecar checksum verification, PE header validation, and verified automatic rollback on failure.
 
-### Combat Feedback & DPS Meter
-- Real-time combat feed and damage log (`bridge/combat.c`, `bridge/combat_core.c`, `docs/COMBAT.md`).
-- Floating hitmarkers and rising damage numbers colored per player.
-- In-game DPS meter showing 5-second rolling DPS, fight DPS, and total fight damage (toggle with `Ctrl+M`, reset with `Ctrl+R`, scroll with `Ctrl+PgUp`/`Ctrl+PgDn`, dump to `combat.txt` with `Ctrl+D`).
-- Host-confirmed enemy HP loss telemetry using event `EV_COMBAT` in sync core.
+### Combat Feedback
+- Glanceable feedback instead of a scrolling log (`bridge/combat.c`, `bridge/combat_hud.c`, `docs/COMBAT.md`): large outlined floating damage numbers coloured per player, where rapid hits by one player on one enemy merge into one growing number; kills get a bolder number with the enemy's friendly name; a hitmarker at the screen centre for your own hits (red and longer for kills); and a ticker of at most three recent kills such as `Hank > Doganboy x3`. No internal ids are shown.
+- A compact damage panel at the right screen edge (at most 15 percent of the width and 20 percent of the height). It starts collapsed to one line with your DPS and the team's; `Ctrl+M` expands it to a bar per player (sorted, with name, total, DPS and the fight timer), and it fades out after the fight. `Ctrl+R` resets local counters and `Ctrl+D` dumps `combat.txt`. `Ctrl+PgUp`, `Ctrl+PgDn` and `Ctrl+L` are gone with the feed.
+- Host-confirmed enemy HP loss telemetry using event `EV_COMBAT` in sync core (unchanged).
 
 ### Sync Core & Gameplay Fixes
 - Progression synchronization for mortar weapons, shared pickup distributions, and enemy health display bars.
@@ -35,12 +34,13 @@ Each baseline passed and each deliberately broken variant failed as required.
 - **Enemy targeting** (`tools/qa_ai.sh`): client-near and host-near cases pass; `MUTANT=targeting` and `MUTANT=hostaoe` fail.
 - **Remote Kurt canopy, three peers** (`tools/qa_presence.sh`): 27 of 27 including client-to-client relay; `MUTANT=canopy` fails all 27.
 - **Client join flow** (`tools/qa_join.sh`): 7 of 7 (waiting screen, automatic pull, host leaving, cancel, retry, 65-second outage, and a packet from a previous protocol giving the update message); `MUTANT=join` fails 5 of 7. Version mismatch is detected by protocol magic only; there is no exact mod-version string check and no separate old release was installed.
-- **Combat feed ledger and DPS meter** (`tools/qa_combat.sh`, three processes, state read from the processes): a host hit of 20 and a client hit of 30 produce identical event ledgers, per-player totals and 5-second DPS on all three, matching the measured enemy HP loss; idle expiry, the Ctrl+M toggle edges and reset also pass (7 of 7). `MUTANT=deaf` fails on the ledger comparison. `tools/qa_combat_startup.sh` passes.
+- **Combat ledger and damage panel state** (`tools/qa_combat.sh`, three processes, state read from the processes): a host hit of 20 and a client hit of 30 produce identical event ledgers, per-player totals and 5-second DPS on all three, matching the measured enemy HP loss; idle expiry, the Ctrl+M toggle edges (the panel starts collapsed) and reset also pass (7 of 7). `MUTANT=deaf` fails on the ledger comparison. `tools/qa_combat_startup.sh` passes. Game-free tests cover the HUD layout at five resolutions, the number merging and the fade with 32 mutation twins (`tools/test_combat.py`).
 - **Playtest sync** (`tools/qa_playtest.sh`, 40 of 40): mortar progression through the dome callbacks, shared pickups, scaled enemy health bars on both games; `MUTANT=pickups` and `MUTANT=dome` fail.
 
 ### Not verified live
 
-- **Rendering of hitmarkers, coloured damage numbers and the feed text** is not covered: the live check reads the ledger that feeds them (attacker, amount, target, position), not drawn pixels. Layout is checked by rectangle tests only.
+- **Rendering of the damage numbers, hitmarker, ticker and panel** is not asserted: the live check reads the ledger that feeds them, not drawn pixels. Layout is checked by rectangle tests under a wide glyph model; the real font was only looked at in in-game screenshots (`tools/combat_showcase.sh`) at one resolution on level 1, not at the other sizes. The position of the game's own HUD is an assumption; the panel avoids the bottom strip and the top-left team panel.
+- **Weapon and ability names** are not shown: the damage hook does not expose the selected weapon. Enemy kinds outside a short table of known ones display as `Enemy`.
 - **Lossy-link combat** (`lossy-combat` gate), projectile source attribution, reconnect and host migration during combat were not run live.
 - **Dome mortar puzzle** is exercised through collision and explosion callbacks, not projectile flight.
 - **Voice chat hardware**: tested with synthetic audio and protocol simulations only, not a physical microphone.

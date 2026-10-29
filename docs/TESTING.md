@@ -184,7 +184,7 @@ The network core also rejects a variant that omits enemy maximum HP from spawn e
 
 ## Combat feedback
 
-`python3 tools/test_combat.py` runs the portable core, simulator, fuzzer and mutation twins
+`python3 tools/test_combat.py` runs the portable core, the presentation core (merge, ranking, fade and layout at five resolutions), simulator, fuzzer and mutation twins
 without Windows execution. `tools/qa_combat.sh` is the three-process HP-loss/ledger scenario,
 registered as `combat` in the feature ladder. See [COMBAT.md](COMBAT.md#verification) for
 ordered live commands, the required failing mutant and the limits of T0 layout checks.

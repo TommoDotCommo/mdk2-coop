@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, sys.argv[1])
 from combatcheck import load
 s = load(sys.argv[2])
-assert s['size'] == 0 and s['meter'] == 1
+assert s['size'] == 0 and s['meter'] == 0  # the meter starts collapsed
 assert len(s['players']) == 16 and all(v == (0, 0, 0., 0.) for v in s['players'].values())
 print('PASS one-process combat registration, dump and reset state')
 PY

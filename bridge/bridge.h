@@ -517,6 +517,7 @@ int diag_bundle_poll(char *msg, int size);  /* 0 idle, 1 running, 2 done (msg: t
 
 /* Combat telemetry (host-confirmed enemy HP loss). */
 struct cb_state;
+struct cbh_state;
 unsigned int ent_netid(BYTE *gob);
 void combat_report(BYTE *from, BYTE *target, const char *name, int damage, int type, int part);
 int combat_allow_hit(struct event *e, int sender, BYTE *target);
@@ -524,11 +525,10 @@ void combat_applied(int attacker, BYTE *target, unsigned int id, int kind, int b
                     int after, int weapon, const float *pos);
 void combat_event(const struct event *e, int sender);
 const struct cb_state *combat_state(void);
+const struct cbh_state *combat_hud(void);
 void combat_dump(FILE *f);
 void combat_frame(int allowed);
 int combat_meter(void);
-int combat_scroll(void);
-int combat_page(void);
 void combat_lua_init(void);
 
 #endif
