@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "bridge.h"
+#include "anim_guard.h"
 
 const char *gob_name(BYTE *gob)
 {
@@ -126,6 +127,125 @@ void gob_kill(BYTE *gob)
     doomed[ndoomed % MAX_DOOMED].handle = gob_handle(slot);
     ndoomed++;
     gob_delete(gob);
+}
+
+/* ---- guarded animation lookup (anim_guard.h) ---- */
+
+/* om_anim_state_raw begins "push esi; mov esi,[esp+8]; test esi,esi; je; cmp [esi+0x60],0; je; push esi; call model".
+ * Read the callee from that call instead of trusting an address that may differ between builds; if the code is
+ * not the expected shape, no model check is possible and the failure is logged once. */
+static anim_model_fn anim_model_resolve(void)
+{
+    static anim_model_fn fn;
+    static int resolved;
+
+    if (!resolved) {
+        const BYTE *p = (const BYTE *)(uintptr_t)0x44c640;
+        static const BYTE shape[] = { 0x56, 0x8b, 0x74, 0x24, 0x08, 0x85, 0xf6, 0x74, 0x2e,
+                                      0x83, 0x7e, 0x60, 0x00, 0x74, 0x28, 0x56, 0xe8 };
+        resolved = 1;
+        if (!memcmp(p, shape, sizeof(shape)))
+            fn = (anim_model_fn)(uintptr_t)((DWORD)(uintptr_t)(p + sizeof(shape) + 4) + *(const DWORD *)(p + sizeof(shape)));
+        else
+            logmsg("anim guard: the game's lookup has an unexpected shape; only the controller check applies");
+    }
+    return fn;
+}
+
+int anim_guard_on = 1;
+
+/* volatile on purpose: with the lookup visible as the constant address 0x44c640, GCC 10 -O2 compiled the guarded
+ * path to "call the model accessor, then return NULL" and dropped the lookup call, silencing every animation */
+static anim_lookup_fn volatile raw_lookup = (anim_lookup_fn)(uintptr_t)0x44c640;
+
+DWORD *anim_state(void *gob, int id)
+{
+    if (!anim_guard_on)
+        return om_anim_state_raw(gob, id);
+    return anim_state_checked(gob, id, anim_model_resolve(), raw_lookup);
+}
+
+/* ---- animation update overflow ----
+ * The game's per-frame animation update (0x44dd40) collects every state of a gob that is flagged (+0x0) or still
+ * has weight (+0x18 > 0) into two 20 entry arrays on its stack, the state pointers and their indices, side by
+ * side. Its limit check allows a 21st entry, which lands on the first slot of the index array: the next call then
+ * receives a state pointer as "index" and reads (pointer * 40) past the state array (Overhaul exe+0x672ed, access
+ * violation at an address near 0xffffffff9...). Keep every gob well below the limit before the update runs. */
+#define ANIM_LIVE_MAX   16      /* the game's arrays hold 20 */
+
+int anim_trim_on = 1;
+typedef int (__cdecl *anim_update_t)(BYTE *gob);
+static anim_update_t anim_update_orig;
+
+static int anim_state_live(const DWORD *st)
+{
+    return st[0] != 0 || *(const float *)&st[6] > 0.0f;
+}
+
+/* Stop surplus animation states of one gob, keeping the current and previous ones. Returns how many. */
+int anim_trim(BYTE *gob)
+{
+    BYTE *ctl = *(BYTE **)(gob + GOB_ANIM), *states;
+    int count, k, live = 0, stopped = 0;
+
+    if (!ctl || !(states = *(BYTE **)(ctl + 0x24)))
+        return 0;
+    count = *(short *)(ctl + 0x3c);
+    if (count <= ANIM_LIVE_MAX || count > 1000)
+        return 0;
+    for (k = 0; k < count; k++)
+        live += anim_state_live((DWORD *)(states + k * 40));
+    for (k = 0; live > ANIM_LIVE_MAX && k < count; k++) {
+        DWORD *st = (DWORD *)(states + k * 40);
+
+        if (!anim_state_live(st) || st == *(DWORD **)(ctl + 0x28) || st == *(DWORD **)(ctl + 0x2c))
+            continue;
+        st[0] = 0;
+        *(float *)&st[6] = 0.0f;
+        live--;
+        stopped++;
+    }
+    return stopped;
+}
+
+static void anim_trim_report(BYTE *gob, int n)
+{
+    static int reported;
+
+    if (n && reported++ < 5)
+        logmsg("anim guard: stopped %d surplus animation states on %s (the game's update holds 20)", n, gob_name(gob));
+}
+
+/* Fallback when the update cannot be hooked: before every scene update, trim every gob (a few thousand reads) */
+void anim_trim_all(void)
+{
+    int i;
+
+    if (!anim_trim_on || anim_update_orig)
+        return;
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *gob = (BYTE *)GOB_TABLE[i * 2];
+
+        if (gob)
+            anim_trim_report(gob, anim_trim(gob));
+    }
+}
+
+/* The update has seven callers in the game (think functions, scripts), none of them in the scene update we tick
+ * from, so trim at its entry. */
+static int __cdecl anim_update_hook(BYTE *gob)
+{
+    if (anim_trim_on && gob)
+        anim_trim_report(gob, anim_trim(gob));
+    return anim_update_orig(gob);
+}
+
+void anim_trim_init(void)
+{
+    static const BYTE prologue[6] = { 0x81, 0xec, 0xac, 0x00, 0x00, 0x00 };      /* sub esp, 0xac */
+
+    anim_update_orig = (anim_update_t)hook_code((BYTE *)0x44dd40, prologue, sizeof(prologue), anim_update_hook);
+    logmsg("animation update hook %s", anim_update_orig ? "installed" : "NOT installed (trimming before the scene update instead)");
 }
 
 int gob_alive(BYTE *gob)

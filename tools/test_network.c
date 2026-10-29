@@ -25,6 +25,8 @@ static UINT fake_profile_int(const char *, const char *, int, const char *);
 #undef GetModuleHandleA
 #undef GetProcAddress
 #undef GetCommandLineA
+/* the game's animation lookup does not exist in this process; no case here animates a gob */
+DWORD *anim_state(void *gob, int id) { return NULL; }
 #ifndef NET_SOURCE
 #define NET_SOURCE "../bridge/net.c"
 #endif

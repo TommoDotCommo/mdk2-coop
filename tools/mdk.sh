@@ -8,6 +8,11 @@
 #   MDK2_REGISTER_PID       optional executable called with each newly started PID
 #   MDK2_PROCESS_SERVICE=1  launch through Win32_Process.Create when the calling process
 #                           forces system DLLs ahead of the local dinput8.dll proxy
+#   MDK2_CRASH_DIR          folder the Overhaul build writes dump%04i.dmp into (default %LOCALAPPDATA%\MDK2HD\crash)
+#   MDK2_CRASH_GUARD=0      switch the crash guard off (non-test use); see "Crash guard" below
+#   MDK2_OVERHAUL_EXE       Windows path of the Overhaul build's mdk2hd.exe; MDK2_BUILD (default steam) or
+#                           MDK2_BUILD<i> (overhaul|steam, per instance) chooses the executable tools/install.sh
+#                           puts into each copy
 # Keys are DirectInput scancodes (1 Esc, 17 W, 30 A, 31 S, 32 D, 57 Space = jump with the co-op
 # bindings, 59-68 F1-F10, 87 F11).
 # Private configuration is optional and never tracked. Export its variables so child scripts
@@ -45,6 +50,55 @@ mdk_start() { local d p; d=$(mdk_dir "${1:-1}") || return 1
               [[ "$p" =~ ^[1-9][0-9]*$ ]] || { echo "game launch returned no valid PID" >&2; return 1; }
               if [ -n "${MDK2_REGISTER_PID:-}" ]; then "$MDK2_REGISTER_PID" "$p" >&2 || return 1; fi
               echo "$p"; }
+# ---- Crash guard: every script that sources this file fails when one of its game copies crashes ----
+# A crash leaves a dump in the shared crash folder (Overhaul build), a coop/logs/*.crash marker next to the
+# session log (every build), and often an error dialog that stalls the game. The first script that sources this
+# file takes a snapshot (MDK2_CRASH_STATE, exported so child scripts share it); mdk_kill, a command that cannot
+# be delivered and the end of the script scan it. A script that crashes a game on purpose says so with
+# mdk_crash_expect before. Findings turn a passing exit status into 97 and print "CRASH ..." lines.
+mdk_crash_tool="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/crashwatch.py"
+mdk_crash_on() { [ "${MDK2_CRASH_GUARD:-1}" != 0 ] && [ -n "${MDK2_CRASH_STATE:-}" ] && [ -f "$MDK2_CRASH_STATE" ]; }
+mdk_crash_begin() {
+    [ "${MDK2_CRASH_GUARD:-1}" != 0 ] || return 0
+    [ -n "${MDK2_CRASH_STATE:-}" ] && [ -f "$MDK2_CRASH_STATE" ] && return 0
+    local args=() i d crash="${MDK2_CRASH_DIR:-}"
+    for i in $(mdk_seq); do d="$(mdk_dir "$i" 2>/dev/null)" || return 0; args+=(--dir "$d"); done
+    if [ -z "$crash" ]; then
+        crash="$(powershell.exe -NoProfile -Command '$env:LOCALAPPDATA' 2>/dev/null | tr -d '\r')\\MDK2HD\\crash"
+        [ "$crash" = '\MDK2HD\crash' ] && return 0
+    fi
+    export MDK2_CRASH_STATE; MDK2_CRASH_STATE="$(mktemp /tmp/mdk2-crash-state.XXXXXX)"
+    export MDK2_CRASH_OWNER=$$
+    python3 -I "$mdk_crash_tool" begin --state "$MDK2_CRASH_STATE" --crash-dir "$crash" "${args[@]}" || unset MDK2_CRASH_STATE
+}
+# mdk_crash_expect [n]: the script is about to crash n game(s) on purpose
+mdk_crash_expect() { mdk_crash_on && python3 -I "$mdk_crash_tool" expect --state "$MDK2_CRASH_STATE" "${1:-1}"; return 0; }
+# mdk_crash_scan: close and record error dialogs now (a dialog stalls the game, so look often)
+mdk_crash_scan() { mdk_crash_on && python3 -I "$mdk_crash_tool" dialogs --state "$MDK2_CRASH_STATE" --close >&2 || true; return 0; }
+# mdk_crash_collect <dir>: move the dumps this run made of its own copies out of the player's crash folder
+mdk_crash_collect() { mdk_crash_on && python3 -I "$mdk_crash_tool" collect --state "$MDK2_CRASH_STATE" "$1" >&2; return 0; }
+# mdk_crash_report: print findings; status 1 when there are unexpected ones
+mdk_crash_report() { mdk_crash_on || return 0; python3 -I "$mdk_crash_tool" check --state "$MDK2_CRASH_STATE" >&2; }
+# at exit: the outermost script reports once and turns success into failure
+mdk_crash_exit() {
+    local rc="${1:-0}"
+    if mdk_crash_on; then
+        if ! mdk_crash_report; then
+            echo "CRASH: a game copy crashed during this run: $0 fails" >&2
+            [ "$rc" = 0 ] && rc=97
+        fi
+        [ "${MDK2_CRASH_OWNER:-}" = "$$" ] && rm -f "$MDK2_CRASH_STATE"
+    fi
+    return "$rc"
+}
+# Scripts set their own EXIT traps; chain the guard behind whatever they set.
+trap() {
+    if [ "$#" -eq 2 ] && { [ "$2" = EXIT ] || [ "$2" = 0 ]; } && [ "${MDK2_CRASH_GUARD:-1}" != 0 ]; then
+        builtin trap "mdk_rc=\$?; $1; mdk_crash_exit \$mdk_rc; exit \$?" EXIT
+    else
+        builtin trap "$@"
+    fi
+}
 mdk_pids()  { cat "$MDK2_PIDS"; }
 mdk_pid()   { local i=0 p; for p in $(mdk_pids); do i=$((i + 1)); [ "$i" = "$1" ] && { echo "$p"; return; }; done; }
 # Input: in background test mode (MDK2_BACKGROUND=1 at install) a Lua line goes to the game
@@ -56,7 +110,12 @@ mdk_bg()    { grep -q '^background=1' "$(mdk_wsl "$(mdk_dir "$(mdk_inst "$1")")"
 mdk_cmd()   { local d i; d="$(mdk_wsl "$(mdk_dir "$(mdk_inst "$1")")")/coop"
               printf '%s\r\n' "$2" > "$d/command.tmp"; mv "$d/command.tmp" "$d/command.lua"
               for i in $(seq 1 100); do [ -e "$d/command.lua" ] || return 0; sleep 0.1; done
-              echo "mdk_cmd: game $1 did not pick up: $2" >&2; return 1; }
+              echo "mdk_cmd: game $1 did not pick up: $2" >&2
+              mdk_crash_scan
+              if mdk_crash_on && ! mdk_alive "$1"; then
+                  python3 -I "$mdk_crash_tool" record --state "$MDK2_CRASH_STATE" exit "game $1 (instance $(mdk_inst "$1")) is gone; command: $2"
+              fi
+              return 1; }
 # mdk_press <pid> <code> <count> <holdMs> <gapMs>: code 0-255 scancode, 256 left / 257 right mouse
 mdk_press() { local n; for n in $(seq 1 "$3"); do
                   mdk_cmd "$1" "coop_press($2, $4)" || return 1; sleep "$(echo "($4 + $5) / 1000" | bc -l)"; done; }
@@ -97,10 +156,38 @@ mdk_state() { local i d f files=() name
               python3 "$(dirname "${BASH_SOURCE[0]}")/statecheck.py" "${files[@]}"; }
 mdk_alive() { tasklist.exe /FI "PID eq $1" | grep -i mdk2hd >/dev/null; }   # no -q: SIGPIPE under pipefail
 # mdk_kill: stop the games running from our copies only (other sessions may be running other copies)
-mdk_kill()  { local i d w=""; for i in $(mdk_seq); do
+mdk_kill()  { mdk_crash_scan; local i d w=""; for i in $(mdk_seq); do
                   d=$(mdk_dir "$i") || return 1
                   w="$w -or \$_.Path -like '$d\\*'"; done
               powershell.exe -NoProfile -Command "Get-Process mdk2hd -ErrorAction SilentlyContinue | Where-Object { \$false $w } | Stop-Process -Force" >/dev/null 2>&1 || true; }
+# mdk_build_for <i>: the build instance i should run (overhaul|steam), or empty to leave the copy as it is.
+# MDK2_BUILD<i> overrides MDK2_BUILD for one instance, so a pair can mix builds.
+mdk_build_for() { local v="MDK2_BUILD$1"; echo "${!v:-${MDK2_BUILD:-}}"; }
+# mdk_place_build <i>: put the chosen executable into instance i's copy (a private file: replaced, never
+# written in place). The Overhaul build is the one the owner plays and the only one with a crash dialog and
+# dump writer; the Steam build is the lab default. Prints "instance i: <build> <sha prefix>".
+mdk_place_build() {
+    local i="$1" b src d have want
+    b="$(mdk_build_for "$i")"; d="$(mdk_wsl "$(mdk_dir "$i")")"
+    case "$b" in
+        "") ;;
+        overhaul) src="${MDK2_OVERHAUL_EXE:-}"
+                  [ -n "$src" ] || { echo "MDK2_BUILD=overhaul needs MDK2_OVERHAUL_EXE (Windows path of its mdk2hd.exe)" >&2; return 1; } ;;
+        steam)    src="${MDK2_SRC:-}"; [ -n "$src" ] && src="$src\\mdk2hd.exe" ;;
+        *)        echo "unknown MDK2_BUILD '$b' (overhaul or steam)" >&2; return 1 ;;
+    esac
+    if [ -n "${src:-}" ]; then
+        src="$(mdk_wsl "$src")"
+        [ -f "$src" ] || { echo "no game executable at $src" >&2; return 1; }
+        want="$(sha256sum "$src" | cut -c1-8)"; have="$(sha256sum "$d/mdk2hd.exe" 2>/dev/null | cut -c1-8)"
+        if [ "$want" != "$have" ]; then
+            mdk_alive_in "$i" && { echo "instance $i is running; refusing to replace its executable" >&2; return 1; }
+            rm -f "$d/mdk2hd.exe" && cp "$src" "$d/mdk2hd.exe" || return 1
+        fi
+        echo "instance $i: ${b:-as provisioned} build, mdk2hd.exe sha256 $want" >&2
+    fi
+}
+mdk_alive_in() { local d; d="$(mdk_dir "$1")"; powershell.exe -NoProfile -Command "Get-Process mdk2hd -ErrorAction SilentlyContinue | Where-Object { \$_.Path -like '$d\\*' }" 2>/dev/null | grep -q . ; }
 # mdk_boot: start every instance and wait until all clients have followed the host into a level
 # (install with MDK2_START so the host loads one by itself once the others have joined)
 mdk_boot()  { mdk_kill; sleep 2; local i c pids="" ok
@@ -108,3 +195,6 @@ mdk_boot()  { mdk_kill; sleep 2; local i c pids="" ok
               for i in $(seq 1 60); do sleep 2; ok=1
                   for c in $(seq 2 "$MDK2_N"); do grep -q "^level [1-9][0-9]* checkpoint [0-9]* started" "$(mdk_log "$c")" 2>/dev/null || ok=0; done
                   [ $ok = 1 ] && break; done; sleep 6; }
+# Take the snapshot and make the end of this script report crashes (see "Crash guard" above).
+mdk_crash_begin
+trap : EXIT

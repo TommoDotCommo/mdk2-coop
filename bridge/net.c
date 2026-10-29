@@ -923,7 +923,7 @@ static unsigned char anim_id_of(BYTE *gob, DWORD *st)
     if (!st)
         return NO_ANIM;
     for (id = 0; id < ANIM_ID_MAX; id++)
-        if (om_anim_state(gob, id) == st)
+        if (anim_state(gob, id) == st)
             return (unsigned char)id;
     return NO_ANIM;
 }
@@ -944,7 +944,7 @@ void snap_capture(BYTE *gob, struct snap *s)
     s->cur = anim_id_of(gob, *(DWORD **)(ctl + 0x28));
     s->prev = anim_id_of(gob, *(DWORD **)(ctl + 0x2c));
     for (id = 0; id < ANIM_ID_MAX && s->nanims < SNAP_ANIMS; id++) {
-        DWORD *st = om_anim_state(gob, id);
+        DWORD *st = anim_state(gob, id);
         if (st && st[0]) {
             s->anims[s->nanims].id = (unsigned char)id;
             memcpy(s->anims[s->nanims].state, st, sizeof(s->anims[0].state));
@@ -1093,7 +1093,7 @@ void anim_apply(BYTE *gob, const struct snap *s)
     if (!ctl)
         return;
     for (id = 0; id < ANIM_ID_MAX; id++) {
-        DWORD *st = om_anim_state(gob, id);
+        DWORD *st = anim_state(gob, id);
         if (!st)
             continue;
         for (i = 0; i < s->nanims && s->anims[i].id != id; i++)
@@ -1103,8 +1103,8 @@ void anim_apply(BYTE *gob, const struct snap *s)
         else
             st[0] = 0;
     }
-    *(DWORD **)(ctl + 0x28) = s->cur != NO_ANIM ? om_anim_state(gob, s->cur) : NULL;
-    *(DWORD **)(ctl + 0x2c) = s->prev != NO_ANIM ? om_anim_state(gob, s->prev) : NULL;
+    *(DWORD **)(ctl + 0x28) = s->cur != NO_ANIM ? anim_state(gob, s->cur) : NULL;
+    *(DWORD **)(ctl + 0x2c) = s->prev != NO_ANIM ? anim_state(gob, s->prev) : NULL;
 }
 
 /* ---- player packets ---- */

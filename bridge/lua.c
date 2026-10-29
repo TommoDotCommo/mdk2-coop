@@ -796,14 +796,14 @@ static void l_coop_animdump(void)
     if (!gob || !(ctl = *(BYTE **)(gob + GOB_ANIM)))
         return;
     for (cur = 0; cur < ANIM_ID_MAX && (!*(void **)(ctl + 0x28) ||
-                                         (void *)om_anim_state(gob, cur) != *(void **)(ctl + 0x28)); cur++)
+                                         (void *)anim_state(gob, cur) != *(void **)(ctl + 0x28)); cur++)
         ;
     logmsg("animdump %s pos (%.2f, %.2f, %.2f) cur=%p (anim %d) prev=%p", gob_name(gob),
            ((float *)(gob + GOB_POSITION))[0], ((float *)(gob + GOB_POSITION))[1],
            ((float *)(gob + GOB_POSITION))[2], *(void **)(ctl + 0x28), cur < ANIM_ID_MAX ? cur : -1,
            *(void **)(ctl + 0x2c));
     for (id = 0; id < ANIM_ID_MAX; id++) {
-        DWORD *st = om_anim_state(gob, id);
+        DWORD *st = anim_state(gob, id);
         char line[256];
         int n;
 
@@ -864,6 +864,83 @@ static void l_coop_crash(void)
     logmsg("coop_crash: crashing on purpose");
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);  /* no Windows error dialog on the desktop */
     *(volatile int *)(uintptr_t)0x10 = 1;
+}
+
+/* coop_animscan(): the bridge's own animation paths (snapshot capture and re-apply) over every gob with a
+ * controller, as net sync does for each synced entity; logs how many gobs had no animation table. */
+static void l_coop_animscan(void)
+{
+    int i, n = 0, bare = 0, active = 0, worst = 0;
+    char worst_name[64] = "";
+
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *gob = (BYTE *)GOB_TABLE[i * 2];
+        struct snap s;
+        int id, any = 0;
+
+        if (!gob || !*(BYTE **)(gob + GOB_ANIM))
+            continue;
+        snap_capture(gob, &s);
+        anim_apply(gob, &s);
+        for (id = 0; id < ANIM_ID_MAX; id++)
+            any |= anim_state(gob, id) != NULL;
+        n++;
+        bare += !any;
+        active += s.nanims > 0;
+        {   /* the game's per-frame animation update lists every state that is flagged or still has weight, in a
+             * 20 entry stack buffer; see docs/DEVELOPMENT.md (animation update overflow) */
+            BYTE *ctl = *(BYTE **)(gob + GOB_ANIM), *states = *(BYTE **)(ctl + 0x24);
+            int k, count = *(short *)(ctl + 0x3c), live = 0;
+            for (k = 0; states && k < count && k < 400; k++) {
+                DWORD *st = (DWORD *)(states + k * 40);
+                live += st[0] != 0 || *(float *)&st[6] > 0.0f;
+            }
+            if (live > worst) {
+                worst = live;
+                snprintf(worst_name, sizeof(worst_name), "%s", gob_name(gob));
+            }
+        }
+    }
+    logmsg("animscan: %d gobs with an animation controller, %d without any animation state, %d playing an animation, "
+           "most states still flagged or weighted on one gob: %d (%s)", n, bare, active, worst, worst_name);
+}
+
+/* coop_animflood(gob, n): make n animation states of the gob live at once, as the game's update must never see more
+ * than 20 (see game.c); background test mode only */
+static void l_coop_animflood(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL), *ctl, *states;
+    int n = (int)lua_getnumber(lua_getparam(2)), k, count;
+
+    if (!test_background || !gob || !(ctl = *(BYTE **)(gob + GOB_ANIM)) || !(states = *(BYTE **)(ctl + 0x24)))
+        return;
+    count = *(short *)(ctl + 0x3c);
+    for (k = 0; k < n && k < count; k++) {
+        DWORD *st = (DWORD *)(states + k * 40);
+        st[0] = 1;
+        *(float *)&st[6] = 1.0f;
+    }
+    logmsg("animflood: %d of %d animation states made live on %s", k, count, gob_name(gob));
+}
+
+/* coop_animtrim(on): switch the overflow guard off to prove a test needs it; background test mode only */
+static void l_coop_animtrim(void)
+{
+    if (!test_background)
+        return;
+    anim_trim_on = lua_getnumber(lua_getparam(1)) != 0;
+    logmsg("animtrim: surplus animation state trimming %s", anim_trim_on ? "on" : "OFF (test)");
+}
+
+/* coop_animguard(on): switch the guarded animation lookup off to prove a test needs it; background test mode only */
+static void l_coop_animguard(void)
+{
+    if (!test_background) {
+        logmsg("coop_animguard: only in background test mode");
+        return;
+    }
+    anim_guard_on = lua_getnumber(lua_getparam(1)) != 0;
+    logmsg("animguard: guarded animation lookup %s", anim_guard_on ? "on" : "OFF (test)");
 }
 
 /* coop_test_noondie(on): clients stop running a dead enemy's OnDie (the bug fixed in entities.c); background test mode only */
@@ -989,6 +1066,10 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_emitters", l_coop_emitters);
     tolua_function(NULL, "coop_emitter_guard", l_coop_emitter_guard);
     tolua_function(NULL, "coop_crash", l_coop_crash);
+    tolua_function(NULL, "coop_animscan", l_coop_animscan);
+    tolua_function(NULL, "coop_animguard", l_coop_animguard);
+    tolua_function(NULL, "coop_animflood", l_coop_animflood);
+    tolua_function(NULL, "coop_animtrim", l_coop_animtrim);
     tolua_function(NULL, "coop_diag_test", l_coop_diag_test);
     tolua_function(NULL, "coop_script_events", l_coop_script_events);
     tolua_function(NULL, "coop_test_noondie", l_coop_test_noondie);
@@ -1018,6 +1099,7 @@ void l_coop_init(void)
     logmsg("coop_init: lua functions registered, damage hook %s", deal_damage_orig ? "installed" : "NOT installed");
     shots_init();
     pickups_init();
+    anim_trim_init();
     ents_init();
     rooms_init();
     frame_init();
