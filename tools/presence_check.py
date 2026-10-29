@@ -3,6 +3,7 @@
 import argparse
 import math
 from pathlib import Path
+import targeting_geometry
 
 
 def load(path):
@@ -47,7 +48,11 @@ def ai(before_host, before_client, host, client, host_near=False):
     target, before_target = (host, before_host) if host_near else (client, before_client)
     other, before_other = (client, before_client) if host_near else (host, before_host)
     target_slot = 1 if host_near else slot
-    assert math.dist(player(host)[1], player(client)[1]) > 100, 'other player must be out of strike range'
+    # The geometry rule (tools/targeting_geometry.py): the player under test is far outside every splash
+    # and strike radius from the other player, in the dumps before and after, so only the enemy's own
+    # targeting can explain the hit. Read from both games' own player positions.
+    for stage, (h, c) in (('before', (before_host, before_client)), ('after', (host, client))):
+        targeting_geometry.assert_separation([h, c], target_slot, label=f'ai {stage}')
     assert player(target)[0] < player(before_target)[0], 'selected player did not lose hp'
     assert player(other)[0] == player(before_other)[0], 'distant player was damaged'
     assert number(target, 'direct_receipts') > number(before_target, 'direct_receipts'), 'no applied direct HURT'

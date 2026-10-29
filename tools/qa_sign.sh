@@ -11,6 +11,11 @@
 #     handler of a synced or partly synced event that ran on the host only
 #   SNIPER=<n> tools/qa_sign.sh    which player fires the sniper round (default 2, a client; 1 is the host)
 #   MUTANT=noondie tools/qa_sign.sh   clients skip the dog's OnDie (the bug this test was written for): must fail
+#   Targeting geometry (docs/TESTING.md): while the dog works on player n every other player waits in another room of the
+#   level, more than a thousand units away, and the distance is asserted from every game's own state dump; the dog's
+#   native target (the host's target query) must be player n.
+#   MUTANT=hostaoe tools/qa_sign.sh   the host does not route the dog's direct hits to remote players: must fail
+#   MUTANT=near tools/qa_sign.sh      the other players stand beside player n as the old test had it: the geometry check must fail
 # Needs MDK2_N >= 3, isolated game copies and MDK2_BACKGROUND (see tools/mdk.sh); about 3 minutes.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -52,7 +57,10 @@ hostile() { q 1 'coop_hp(r2_dog01)'; }
 
 mdk_boot
 H=1
+# The test games start invulnerable; the dog's hits are judged on each player's own hp, so turn that off.
+for i in $(mdk_seq); do lua "$i" 'God(0)'; done
 if [ "${MUTANT:-}" = noondie ]; then for i in $(seq 2 "$MDK2_N"); do lua "$i" 'coop_test_noondie(1)'; done; fi
+case "${MUTANT:-}" in ''|noondie|near) : ;; hostaoe) lua 1 'coop_presence_test(0,0,1,0)' ;; *) echo "Unknown sign mutant"; exit 2 ;; esac
 # everyone into room 2, in front of the glass (the dog is behind it at y 152, the players come in at y 172)
 for i in $(mdk_seq); do place "$i" "$((70 + i * 4))" 172; done
 sleep 4
@@ -79,21 +87,42 @@ check "the glass sequence ran in every game (sign gone)" every_eventually 20 'r2
 check "the host's dog is loose (ai 1)"                  wait_q 1 'r2_dog01.ai' 1 20
 sleep 4
 
-# 2. it picks on one player at a time; place it beside that player, the others stay away
-hurts() { if [ "$1" = 1 ]; then count 1 '^damage r2_dog01 -> bob '; else count 1 "^damage r2_dog01 -> coop_p$1 "; fi; }   # host log: the dog's bites
+# 2. it picks on one player at a time; place it beside that player, the others wait in another room.
+# What counts is read from each game's own process (state dump): that player's own hp went down, the hit arrived
+# there as a direct hit from the dog, and nobody else lost hp. The host's log line "damage r2_dog01 -> ..." is
+# written even when the host does not forward the hit to the client, so it proves nothing about the client.
 beside() {   # beside <n>: the dog next to player n (on the host: its own player, or n's puppet)
     if [ "$1" = 1 ]; then lua 1 'local p = mdkGetPlayerGob() mdkGobSetPositionXYZ(r2_dog01, p.position.x + 1.5, p.position.y, p.position.z + 1)'
     else lua 1 "local p = coop_gob(\"@p$1\") mdkGobSetPositionXYZ(r2_dog01, p.position.x + 1.5, p.position.y, p.position.z + 1)"; fi; }
+geo_check() { mdk_assert_far "$@" | tee -a "$out/geometry.txt"; return "${PIPESTATUS[0]}"; }   # keep the reason: check hides output
+dump_of() {   # dump_of <game>: path of a fresh state dump written by that game's own process
+    local tag="own$RANDOM" f t; f="$(mdk_wsl "$(mdk_dir "$1")")/coop/state_${tag}_$1.txt"; rm -f "$f"
+    lua "$1" "coop_state(\"${tag}_$1\")"; for t in $(seq 1 150); do [ -f "$f" ] && break; sleep 0.1; done; echo "$f"; }
+field() {   # field <game> <row> <column>: one value from that game's own state dump
+    awk -v row="$2" -v col="$3" '$1 == row { print $col; exit }' "$(dump_of "$1")" | tr -d '\r'; }
+own_hp()   { field "$1" player 3; }
+receipts() { field "$1" direct_receipts 2; }
+dog_id=$(awk '{ sub(/\r$/, "") } $1 == "ent" && $NF == "r2_dog01" { print $2 }' "$(dump_of 1)" | tr -d '\r')
+host_target() {   # the host's native target query for the dog, from its own state dump
+    awk '$1 == "ai" && $2 == "r2_dog01" { print $3 }' "$(dump_of 1)" | tr -d '\r'; }
 for n in $(mdk_seq); do
-    for i in $(mdk_seq); do [ "$i" = "$n" ] && place "$i" 78 156 || place "$i" "$((56 + i * 10))" 191; done
-    sleep 2
-    declare -A before=(); for i in $(mdk_seq); do before[$i]=$(hurts "$i"); done
-    for t in 1 2 3 4 5 6; do beside "$n"; sleep 1; [ "$(hurts "$n")" -gt "${before[$n]}" ] && break; done
+    for i in $(mdk_seq); do
+        if [ "$i" = "$n" ]; then place "$i" 78 156
+        elif [ "${MUTANT:-}" = near ]; then place "$i" "$((56 + i * 10))" 191
+        else lua "$i" 'mdkGobSetPosition(mdkGetPlayerGob(), "l1_r8doganland1")'; fi   # another room, 1000+ units away
+    done
+    declare -A hp0=() rc0=(); for i in $(mdk_seq); do hp0[$i]=$(own_hp "$i"); rc0[$i]=$(receipts "$i"); done
+    check "the dog works on player $n; every other player is outside every splash and strike radius" geo_check "$n" "dog on player $n"
+    for t in 1 2 3 4 5 6 7 8; do beside "$n"; sleep 1; [ "$(own_hp "$n")" -lt "${hp0[$n]}" ] && break; done
     sleep 1
-    check "the dog hurt player $n"                      test "$(hurts "$n")" -gt "${before[$n]}"
+    hp1=$(own_hp "$n")
+    check "the dog hurt player $n: that game's own hp ${hp0[$n]} -> $hp1" test "$hp1" -lt "${hp0[$n]}"
+    # The host's own player is hit natively, with no remote receipt; a client's game must have received the hit from the host.
+    [ "$n" = 1 ] || check "the hit reached player $n's game as a direct hit from the dog" bash -c "[ '$(receipts "$n")' -gt '${rc0[$n]}' ] && case '$(field "$n" direct_source 2)' in r2_dog01|n$dog_id) true ;; *) false ;; esac"
+    check "the host's native target for the dog was player $n" test "$(host_target)" = "@p$n"
     for i in $(mdk_seq); do
         [ "$i" = "$n" ] && continue
-        check "and not player $i while it was on player $n" test "$(hurts "$i")" -le "$((before[$i] + 1))"
+        check "and not player $i while it was on player $n (that game's own hp)" test "$(own_hp "$i")" -ge "${hp0[$i]}"
     done
 done
 

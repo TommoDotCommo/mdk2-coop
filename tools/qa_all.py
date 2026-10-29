@@ -37,6 +37,7 @@ class Gate:
 
 OFFLINE = [Gate("rear-gate-routing", ("bash", "tools/test_rear_gate.sh")),
            Gate("presence-core", ("python3", "tools/test_presence.py")),
+           Gate("targeting-geometry", ("python3", "tools/targeting_geometry.py", "scan")),
            Gate("launcher-audio", ("bash", "tools/test_launcher_audio.sh")),
            Gate("launcher-profiles", ("python3", "tools/test_launcher_profiles.py")),
            Gate("install-policy", ("python3", "tools/test_install_policy.py")),

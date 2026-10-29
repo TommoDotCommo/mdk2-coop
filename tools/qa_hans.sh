@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Authored level-one final boss task, native aim and damage; two background copies.
-# MUTANT=script-scope or targeting must fail.
+# MUTANT=script-scope, targeting or hostaoe must fail; MUTANT=near (host placed beside the client) must be rejected by the geometry check.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=2 MDK2_BACKGROUND=1 MDK2_START='1 8'

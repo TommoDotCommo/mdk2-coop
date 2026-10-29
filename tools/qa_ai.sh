@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Direct native Grunt targeting, approach and damage, with the other player far away.
 # Requires two disposable copies. MUTANT=targeting or hostaoe must exit nonzero.
+# Geometry (docs/TESTING.md, tools/targeting_geometry.py): the two players start in different rooms about
+# 1400 units apart, far outside any splash or strike radius; both the dumps before and after are checked.
+# MUTANT=near puts both players on the same spot: the geometry assertion must reject it.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=2
@@ -14,6 +17,7 @@ lua 2 'God(0)'
 case "${MUTANT:-}" in
     targeting) lua 1 'coop_presence_test(0,1,0,1)' ;;
     hostaoe) lua 1 'coop_presence_test(0,0,1,1)' ;;
+    near) : ;;
     '') : ;;
     *) echo 'Unknown AI mutant' >&2; exit 2 ;;
 esac
@@ -28,7 +32,13 @@ run_case() {
         lua 1 'mdkGobSetPosition(mdkGetPlayerGob(),"l1_r1grengen")'
         lua 2 'mdkGobSetPosition(mdkGetPlayerGob(),"l1_r8doganland1")'
     fi
+    # MUTANT=near: the other player joins the one under test, as the old tests had it.
+    if [ "${MUTANT:-}" = near ]; then
+        if [ "$who" = host ]; then lua 2 'mdkGobSetPosition(mdkGetPlayerGob(),"l1_r8doganland1")'
+        else lua 1 'mdkGobSetPosition(mdkGetPlayerGob(),"l1_r8doganland1")'; fi
+    fi
     sleep 3
+    check "$who case: the other player is outside every splash and strike radius (process state)" mdk_assert_far "$([ "$who" = host ] && echo 1 || echo 2)" "ai $who"
     # Reset the level's native target override to its host default. This never
     # names the client: selecting the nearby puppet still requires the mod.
     lua 1 'mdkSetAITargetGob(mdkGetPlayerGob())'

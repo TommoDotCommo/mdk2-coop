@@ -12,7 +12,7 @@ def sample(role, slot):
     return {'role': [[role]], 'me': [[str(slot)]], 'level': [['1']], 'life': [['0']],
             'ai_hook': [['1']], 'join': [['3']], 'join_screen': [['0']],
             'melee_only': [['1']], 'direct_receipts': [['0']], 'direct_source': [['none']],
-            'player': [['100','100','-200' if slot == 1 else '50','0','0']]}
+            'player': [['100','100','-2000' if slot == 1 else '50','0','0']]}
 
 
 class PresenceOracles(unittest.TestCase):
@@ -53,6 +53,19 @@ class PresenceOracles(unittest.TestCase):
         bh['ent'][0][3] = '54'
         h['ent'][0][3] = '54'
         with self.assertRaises(AssertionError): oracle.ai(bh,bc,h,c)
+
+    def test_other_player_beside_the_target_fails_whatever_else_holds(self):
+        # The old failure mode: the host stands next to the client, so area damage aimed at the host
+        # would hurt the client. Every other assertion of the fixture passes; the geometry rule must not.
+        for stage in ('before', 'after'):
+            for distance in ('51', '150', '299'):
+                bh,bc,h,c = self.fixture()
+                (bh if stage == 'before' else h)['player'][0][2] = distance
+                (bc if stage == 'before' else c)['player'][0][2] = '0'
+                with self.assertRaisesRegex(AssertionError, 'units from target'):
+                    oracle.ai(bh,bc,h,c)
+        bh,bc,h,c = self.fixture()
+        oracle.ai(bh,bc,h,c)
 
     def test_host_near_control(self):
         bh,bc,h,c = self.fixture()

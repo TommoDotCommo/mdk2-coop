@@ -128,6 +128,32 @@ The installer gate reserves a copy to read its executable but launches no game.
 Default features use at most three players; historical eight-player results are
 not revalidated by this profile.
 
+## Targeting geometry audit
+
+Rule (`tools/targeting_geometry.py limits`): a test of enemy or boss targeting, aggro or damage to a
+player keeps the player under test at least 3 times the largest splash radius or attack reach from every
+other player (300 units; the radii are listed in the module, and the 100-unit native projectile explosion
+radius is an assumed bound, not a measurement). The separation is read from each game's own state dump
+(`player` row, and the other games' `puppet` rows must agree within 15 units), by `mdk_assert_far` in the
+shell suites and `targeting_geometry.assert_separation` in the Python harnesses. `python3 tools/qa_all.py
+offline` runs `targeting_geometry.py scan`, which fails any `tools/qa_*.sh` or `check_*.py` that mentions
+an enemy, a target or a hit source without calling the helper (the few exceptions are listed there with
+their reason). `MUTANT=near` in each suite below puts the players together and the geometry check must
+reject the run.
+
+| Suite | Tests | Positions | Separation asserted | Host-only area damage could pass? |
+|---|---|---|---|---|
+| `qa_ai.sh` | Grunt picks, approaches and strikes the nearest player (client case, host case) | the player under test in level 1 room 8, the other in room 1 | both cases, before the enemy is made (1368 units measured) | No: `MUTANT=hostaoe` and `targeting` fail |
+| `qa_room_ai.sh` | round enemies, generator, turrets and the glass enemy against the client | client in the generator room, host sent to room 8 after the generator starts | after the host leaves, each stage (1345 to 1376 units measured) | No: `hostaoe` and `targeting` fail |
+| `qa_hans.sh` | Hans (level 1 boss) targets and hurts the client | client in the arena, Hans about 250 units from it, host in room 1 | before and after the attack (1382 units measured) | No: `hostaoe` and `targeting` fail |
+| `qa_sign.sh` | the first Doganboy works on each player in turn | the player under test beside the dog, every other player in another room | every round, for every player (1345 units measured) | No: the hit must arrive in that game as a direct hit from the dog; others' own hp must not drop |
+| `qa_proximity.sh` | proximity triggers that read the nearest player (level 7 boss) | one player walks to the boss, the other waits elsewhere | not asserted: no enemy aims, no damage; the nearest-player query is the subject | not applicable |
+| `qa_combat.sh` | damage numbers and the combat meter after scripted hits on an enemy | all three players at the level start | not asserted, on purpose: scripted single-target damage from a named attacker to an enemy, no area damage, nothing is aimed at a player | not applicable |
+| `qa_playtest.sh` | shared pickups, the dome puzzle, scripted hurt of each player | players together for pickups | not asserted, on purpose: damage is a scripted single-target hit on a named player, healing is the subject | not applicable |
+| `qa_revive.sh`, `qa_save.sh`, `qa_n.sh`, `qa_menu.sh` | down/revive, drop-out, relay and difficulty rules, using scripted single-target hits (`mdkDealDamage` on one named player) | players together | not asserted, on purpose: a hit names its victim, so no enemy aim or area is involved | not applicable |
+| `qa_shots.sh`, `qa_shots_native.sh` | projectile launch and replay; a replayed grenade must not deal damage on a peer | players together | not asserted: nobody asserts a target or a hit by the enemy; a grenade exploding beside the other player could only make the "no damage" check fail, never pass | not applicable |
+| `qa_presence.sh`, `qa_join.sh` | canopy replication, joining | no enemy | not applicable | not applicable |
+
 ## Failures must be detectable
 
 The cutscene suite also has a focused event-order regression, using two configured

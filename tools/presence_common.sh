@@ -10,7 +10,7 @@ capture() {
         path="$(mdk_wsl "$(mdk_dir "$i")")/coop/state_${tag}_${i}.txt"
         rm -f "$path"
         lua "$i" "coop_state(\"${tag}_${i}\")" || return 1
-        for t in $(seq 1 50); do [ -f "$path" ] && break; sleep .1; done
+        for t in $(seq 1 150); do [ -f "$path" ] && break; sleep .1; done
         cp "$path" "$out/${tag}_${i}.txt" || return 1
     done
 }

@@ -55,6 +55,13 @@ Testing rules:
 - Automated game tests must use `MDK2_BACKGROUND=1`: muted, without taking focus or
   desktop input. Stop only processes belonging to the configured test copies.
   These harnesses need Windows process interop and isolated copies of the supported game.
+- A test of enemy or boss targeting, aggro or damage to a player keeps the player under test far from
+  every other player: at least three times the largest splash radius or attack reach involved
+  (`tools/targeting_geometry.py`, currently 300 units), in another room where the scenario allows,
+  with the distance asserted from every game's own state dump. Standing players side by side lets area
+  damage aimed at one pass for the other. Each such test needs a host-only-area-damage mutant that fails,
+  and calls `mdk_assert_far` / `targeting_geometry`, which `qa_all.py offline` enforces by scanning
+  `tools/`. See `docs/TESTING.md`.
 - Prefer automated state checks. Turn manually discovered bugs into regression
   tests and verify that deliberately broken variants fail where practical.
 - Run checks appropriate to the change; report only validation actually performed.
