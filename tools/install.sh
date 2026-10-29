@@ -21,6 +21,7 @@ mdk_kill
 sleep 2
 mdk_tools_install
 dirs=""
+seen_ids=""
 for i in $(mdk_seq); do
     d="$(mdk_wsl "$(mdk_dir $i)")"
     [ -f "$d/mdk2hd.exe" ] || { echo "no game in $d (tools/copies.sh makes more copies)"; exit 1; }
@@ -36,6 +37,16 @@ for i in $(mdk_seq); do
     p="$d/coop/player.ini"
     if [ -f "$p" ] && grep -q '^\[\(steam_\)\?slots\]' "$p"; then
         awk '/^\[/ { skip = ($0 ~ /^\[(steam_)?slots\]/) } !skip' "$p" > "$p.new" && rm -f "$p" && mv "$p.new" "$p"
+    fi
+    # Two copies with one player id are one player to the host: a lobby run leaves id=0000000N behind and a slot
+    # reused at another position then holds the same id as its neighbour, so both clients take each other's
+    # connection forever. Drop the id of a later copy that repeats an earlier one (the game makes a new one).
+    if [ -f "$p" ]; then
+        pid=$(sed -n 's/^id=\([0-9a-fA-F]*\).*/\1/p' "$p" | head -1)
+        if [ -n "$pid" ] && case " $seen_ids " in *" $pid "*) true ;; *) false ;; esac; then
+            echo "install: $d repeats player id $pid; giving it a new one"
+            grep -v '^id=' "$p" > "$p.new" && rm -f "$p" && mv "$p.new" "$p"
+        elif [ -n "$pid" ]; then seen_ids="$seen_ids $pid"; fi
     fi
     dirs="$dirs $d"
     if mdk_isolated; then mdk_profile_seed "$i" || { echo "cannot seed the profile of game $i"; exit 1; }; fi
