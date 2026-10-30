@@ -8,6 +8,8 @@ coop_test_sethp, and reads each game's own state dump (bridge/state.c, "ent <net
 """
 import sys
 
+FLYER_TYPE = 230
+
 
 def ents(path):
     out = {}
@@ -15,23 +17,25 @@ def ents(path):
         for line in f:
             p = line.split()
             if len(p) >= 8 and p[0] == "ent" and p[2] != "gone":
-                out[p[1]] = int(p[3])
+                out[p[1]] = (int(p[2]), int(p[3]))
     return out
 
 
 def main(argv):
     if len(argv) == 2 and argv[0] == "pick":
-        for nid, hp in sorted(ents(argv[1]).items()):
-            if hp >= 20:
+        # a walking or standing enemy (not a flyer, whose type is shared with fixed turrets, nor a generator)
+        for nid, (typ, hp) in sorted(ents(argv[1]).items()):
+            if 200 <= typ <= 259 and typ != FLYER_TYPE and hp >= 20:
                 print(nid, hp)
                 return 0
-        print("FAIL  no enemy with hp >= 20 in the host's dump")
+        print("FAIL  no ground enemy with hp >= 20 in the host's dump")
         return 1
     if len(argv) == 5 and argv[0] == "check":
         nid, want = argv[1], int(argv[2])
         host, client = ents(argv[3]), ents(argv[4])
-        ok = host.get(nid) == want and client.get(nid) == want
-        print(f"{'PASS' if ok else 'FAIL'}  enemy {nid} wanted hp {want}: host {host.get(nid)}, client {client.get(nid)}")
+        hp = lambda d: d[nid][1] if nid in d else None
+        ok = hp(host) == want and hp(client) == want
+        print(f"{'PASS' if ok else 'FAIL'}  enemy {nid} wanted hp {want}: host {hp(host)}, client {hp(client)}")
         return 0 if ok else 1
     print(__doc__)
     return 2
