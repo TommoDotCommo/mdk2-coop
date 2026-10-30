@@ -780,7 +780,7 @@ def open_column(game, here, top, reach=14):
     return pts[n - 1] if n > 0 else None
 
 
-def jet_to(game, stand_z, xy, seconds=12, over=6.0):
+def jet_to(game, stand_z, xy, seconds=12, over=6.0, land=True):
     """Max's jetpack: up until above stand_z, then over to xy holding that height (thrust off above the
     band, on below it, so the tank lasts), and down onto it. (landed there, position)"""
     game.lua('coop.pilot=nil coop_press(57, 15000)')
@@ -810,6 +810,9 @@ def jet_to(game, stand_z, xy, seconds=12, over=6.0):
         elif time.monotonic() - best_t > 3:
             break                           # out of fuel, or under a ceiling
         time.sleep(.1)
+    if not land:                            # on through the air to the next point: keep the thrust as it is
+        p = game.pos()
+        return math.dist(p[:2], xy) < 1.5 and abs(p[2] - stand_z) < 3, p
     game.lua('coop_press(57, 0)')
     last = None
     for _ in range(30):                     # down and settled
@@ -1541,7 +1544,8 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         if p.get('air'):
             # the recording was in the air here (a flight, or a glide over a gap): fly to the point at
             # its height instead of walking off an edge
-            ok, at = jet_to(game, p['pos'][2], p['pos'][:2], seconds=6, over=0.5)
+            more = i + 1 < len(pts) and pts[i + 1].get('air')
+            ok, at = jet_to(game, p['pos'][2], p['pos'][:2], seconds=6, over=0.5, land=not more)
             if ok or math.dist(at, p['pos']) < radius + 1:
                 i += 1
                 last_progress, best = time.monotonic(), None
