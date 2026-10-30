@@ -114,9 +114,25 @@ static BYTE *ai_select(const float *pos, BYTE *actor)
     return best >= 0 ? bodies[best] : NULL;
 }
 
+/* The sight check at 0x402a40 (three callers) reads gob+0x84 -> field +8 of the target this getter
+ * returns and faults when a gob that is still in the table has no game object yet (a level being
+ * built) or no longer (a doomed one): mdk2hd.exe+0x2a95 reading 8. The native getter returns such a
+ * gob as it is. No target is the answer its callers already handle (the getter itself returns
+ * none for a downed hero). */
+static unsigned int ai_infoless_targets;
+static BYTE *ai_target_ready(BYTE *target)
+{
+    if (!target || !*(BYTE **)(target + GOB_INFO)) {
+        if (target && ai_infoless_targets++ < 8)
+            logmsg("ai: target gob %p has no game object (level loading?): none given", (void *)target);
+        return NULL;
+    }
+    return target;
+}
+
 static BYTE *ai_target(void)
 {
-    BYTE *target = ai_select(ai_actor ? (const float *)(ai_actor + GOB_POSITION) : NULL, ai_actor);
+    BYTE *target = ai_target_ready(ai_select(ai_actor ? (const float *)(ai_actor + GOB_POSITION) : NULL, ai_actor));
     int index = ai_actor ? gob_slot(ai_actor) : -1;
     if (index >= 0 && role_host && have_remote) {
         int victim = target ? gob_slot(target) : -1;
