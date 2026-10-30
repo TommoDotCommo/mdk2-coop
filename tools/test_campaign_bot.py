@@ -221,6 +221,8 @@ def flight_rules(b, quiet=False):
     src = open(os.path.join(os.path.dirname(__file__), 'campaign_bot.py')).read()
     out.append(('a followed recording caps the gunner\'s fight (a generator spawns enemies without end)',
                 'coop.gunner_cap=10000' in src and 'gn.max_fight and now - gn.fight_start > gn.max_fight' in lua))
+    out.append(('a hero 80 units from the point is off the route, one 5 units away is not',
+                b.off_route((0.0, 30.0, 0.0), (4.6, 109.8, 3.7)) and not b.off_route((0.0, 0.0, 0.0), (3.0, 4.0, 0.0))))
     out.append(('the gunner is given turret names as a Lua table', b.lua_names(['a', 'b']) == '{"a", "b"}'))
     # the Lua gunner must list the targets it was given (a bay's turrets are not actors)
     out.append(('the gunner shoots named scripted objects (turrets)',
@@ -248,7 +250,7 @@ for label, ok in results:
 # mutants: each must make at least one check fail
 import types
 real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED', 'lift_ready',
-                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear', 'aimable', 'climb_out', 'squad_ok')}
+                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear', 'aimable', 'climb_out', 'squad_ok', 'off_route')}
 mutants = {
     'only "air" points are flown (the hop onto a lift is walked)':
         dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
@@ -274,6 +276,7 @@ mutants = {
     'aim only at objectives on the hero\'s own floor': dict(aimable=lambda o, here, reach=30.0: math.dist(o['pos'], here) < reach and abs(o['pos'][2] - here[2]) < 12),
     'a hero in a pit is never flown out': dict(climb_out=lambda rise, stuck, jetpack, wall=4.0, after=8.0: False),
     'a squad passes when only the leader got through': dict(squad_ok=lambda ok, gaps, limit=40.0: bool(ok)),
+    'no hero is ever off the route': dict(off_route=lambda here, target, limit=15.0: False),
     'no flight lands on a lift': dict(plan_boardings=lambda pts, fly, lifts, standoff=8.0, base=None: []),
     'every lift is the nearest, however far': dict(boarding=lambda pts, fly, i, lifts, reach=9.0:
                                                     real['boarding'](pts, fly, i, lifts, reach=1e9)),

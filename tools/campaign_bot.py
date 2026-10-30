@@ -596,6 +596,8 @@ def aimed_kill(game, name, log, seconds=60):
             if misses >= 2 and close > 4:
                 close = max(4, close - 4)
                 misses = 0
+            elif close <= 4 and misses >= 3:
+                break                        # as close as it gets and nothing hits it (a wall absorbs the shots)
     game.lua('coop.GunnerOn(60)')
     gone = not alive(game, name)
     log(f'    {"killed" if gone else "could not kill"} {name} by aimed fire in {time.monotonic() - t0:.0f}s'
@@ -1684,6 +1686,11 @@ def squad_ok(leader_ok, gaps, limit=40.0):
     return bool(leader_ok and all(g <= limit for g in gaps.values()))
 
 
+def off_route(here, target, limit=15.0):
+    """Too far from the next point of a recording to walk to it in a straight line."""
+    return math.dist(here, target) > limit
+
+
 def aimable(o, here, reach=30.0):
     """A scripted objective the recording's shooting may have been aimed at: within reach in 3D, whatever
     the floor (a generator hangs above the ledge it is shot from)."""
@@ -1915,6 +1922,16 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 for obj in objectives(level, here, p['pos'], radius=40)[:4]:
                     if alive(game, obj['name']) and kill_objective(game, nav, obj, log):
                         break
+            continue
+        # taken far from the recording (an objective's kill walked the hero off into another room): back along
+        # the scanned floor to the point, the pilot's straight steps cannot find the way round walls
+        if level and scratch and time.monotonic() - last_progress > 10 and off_route(here, p['pos']) \
+                and ('back', Nav.spot(here)) not in helped:
+            helped.add(('back', Nav.spot(here)))
+            nav, _ = scan(game, scratch)
+            if nav.cells:
+                log(f'    {math.dist(here, p["pos"]):.0f} units from point {i}: back along the scanned floor')
+                walk(game, nav, p['pos'], log, timeout=40)
             continue
         # held up where the recording was shooting (a scripted wall in the way): fire along the way
         if any(256 in q['keys'] for q in pts[max(0, i - 10):i + 3]):
