@@ -819,7 +819,7 @@ def jet_to(game, stand_z, xy, seconds=12, over=6.0):
             break
         last = p
     p = game.pos()
-    return abs(p[2] - stand_z) < 2.5, p
+    return abs(p[2] - stand_z) < 2.5 and math.dist(p[:2], xy) < 3, p
 
 
 def hop(game, landing, log, rise_s=4.0, rest_s=6.0):
