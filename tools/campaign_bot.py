@@ -54,6 +54,11 @@ class Game:
                 if time.monotonic() > deadline:
                     raise TimeoutError(f'game {self.slot}: no note {key} (Lua error? see bridge.log)')
                 time.sleep(.03)
+            for _ in range(20):             # the game may still be renaming the file into place
+                try:
+                    return path.read_text()
+                except FileNotFoundError:
+                    time.sleep(.03)
             return path.read_text()
 
     def state(self):

@@ -176,6 +176,15 @@ later):
 - **A one-sided face in level 2's arena** blocks the engine's line of sight going south (not north);
   heroes walk across it both ways, so this is only a quirk for line-of-sight users (enemy AI included).
 
+**Jetpack findings (flight work in progress).** A full tank is about 10.5 s of thrust at `timescale` 1 but
+only about 5.5 s of game time at 2: fuel and climb are spent per frame, so flights are planned and tested
+at x1. Only a refueller within a few units fills the tank (measured away from one: no refill). A hero that
+lands on a ledge with the jump key still down does not take off again (the engine wants a new press): the
+pilot's height hold now lets go of the key for a tick when thrust does not move him. The follower's thrust
+estimate (`coop.jet_ms`) undercounts on a loaded machine (ticks are further apart than its 50 ms step); the
+owner's 5 to 6 recording uses 9.6 s of a 10.5 s tank, so a follower that wastes thrust on hovering or
+failed hops cannot repeat it on one fill.
+
 ## Status
 
 Level 2 on the Overhaul build, God mode on. The owner played all of level 2 with the journal on, and

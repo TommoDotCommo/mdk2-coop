@@ -1294,11 +1294,20 @@ function coop.PilotTick()
         pl.lz, pl.lt = p.position.z, now
         local ahead = p.position.z + vz * (coop.jet_lead or 0.35)
         if (ahead < pl.z - 0.4) then
-            if (now >= (pl.jet_until or 0)) then
+            -- (a hero landed on a ledge with the key still down does not take off again: the engine wants
+            -- a new press, so let go for a tick when the thrust does not move him)
+            if (vz > -0.5 and vz < 0.5) then pl.still = pl.still or now else pl.still = nil end
+            if (pl.still and now - pl.still > 350 and pl.jet_until) then
+                coop_press(coop.pilot_keys.jump, 0)
+                pl.jet_until = nil
+                pl.still = nil
+            elseif (now >= (pl.jet_until or 0)) then
                 coop_press(coop.pilot_keys.jump, 3000)
                 pl.jet_until = now + 2900
             end
-            coop.jet_ms = (coop.jet_ms or 0) + 50
+            -- fuel burns only in the air: count it while the hero has been rising or hovering lately
+            if (vz > 0.5 or vz < -0.5) then pl.air_ms = now end
+            if (now - (pl.air_ms or 0) < 1500) then coop.jet_ms = (coop.jet_ms or 0) + 50 end
             pl.off = nil
         elseif (ahead > pl.z + 0.6 and not pl.off) then
             -- also a hold left over from the point before (a new PilotGo does not know of it)
