@@ -1463,6 +1463,18 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             i += 1
             last_progress, best = time.monotonic(), None
             continue
+        if here[2] < p['pos'][2] - 6 and (57 in p['keys'] or any(57 in q['keys'] for q in pts[max(0, i - 8):i])):
+            # below the recording where it flew or glided (room 6: across the shaft's open top on
+            # momentum): fly back to the point from the open centre line of a shaft, or a column found open
+            col = (level and level.shaft_near(here)) or open_column(game, here, p['pos'][2])
+            if col:
+                nudge(game, col, tol=1.5)
+            ok, at = jet_to(game, p['pos'][2], p['pos'][:2])
+            log(f'  below the recording at point {i}: flew back up {"to it" if ok else "short"}, now '
+                f'{[round(v, 1) for v in at]}')
+            if ok:
+                last_progress, best = time.monotonic(), None
+                continue
         for code in p['keys']:
             game.lua(f'coop_press({code if code < 256 else code}, 450)')
         rise = p['pos'][2] - here[2]
