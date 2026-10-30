@@ -1469,9 +1469,11 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     log(f'  following {len(pts)} points of {path}')
     game.lua('coop.GunnerOn(60)')
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
-    helped, aimed = set(), set()
+    helped, aimed, flybacks = set(), set(), {}
     while i < len(pts):
         here = game.pos()
+        if math.dist(here, pts[-1]['pos']) < 6:
+            break                           # at the recording's end (the next checkpoint) already
         # skip on: the nearest of the next few points
         ahead = range(i, min(len(pts), i + 80))
         j = min(ahead, key=lambda k: math.dist(here, pts[k]['pos']))
@@ -1500,7 +1502,9 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             i = j + 1
             last_progress, best = time.monotonic(), None
             continue
-        if here[2] < p['pos'][2] - 6 and (57 in p['keys'] or any(57 in q['keys'] for q in pts[max(0, i - 8):i])):
+        if here[2] < p['pos'][2] - 6 and flybacks.get(i, 0) < 3 and \
+                (57 in p['keys'] or any(57 in q['keys'] for q in pts[max(0, i - 8):i])):
+            flybacks[i] = flybacks.get(i, 0) + 1
             # below the recording where it flew or glided (room 6: across the shaft's open top on
             # momentum): fly back to the point from the open centre line of a shaft, or a column found open
             col = (level and level.shaft_near(here)) or open_column(game, here, p['pos'][2])
