@@ -673,7 +673,9 @@ def hop(game, landing, log, rise_s=4.0, rest_s=6.0):
 def climb(game, target, seconds=9):
     """A powered climb with Max's jetpack: one continuous hold of jump, the hero turned to the goal and
     walking at it. Returns the highest z reached."""
-    game.lua('coop.pilot=nil coop_press(57, 8000)')
+    game.lua('coop.pilot=nil')
+    time.sleep(8)        # a full tank: the jetpack refills while Max stands
+    game.lua('coop_press(57, 8000)')
     top, t0 = game.pos()[2], time.monotonic()
     while time.monotonic() - t0 < seconds:
         p = game.pos()
