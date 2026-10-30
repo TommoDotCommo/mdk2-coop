@@ -1580,7 +1580,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             if cc.regrouped({g.slot: g.pos() for g in games}, goal):
                 regroup = round(time.monotonic() - t1)
                 break
-            for g in followers:
+            for g in games:         # the leader too: its route may end a few steps short of the portal
                 if math.dist(g.pos(), goal) > 15:
                     g.goto(*goal, radius=6, timeout=10, explore=1)
         log(f'  regrouped at the goal: {"in %ss" % regroup if regroup is not None else "no"}')
