@@ -1249,7 +1249,8 @@ end
 -- The gunner: while on, the nearest living enemy the hero can see (engine line of sight) within
 -- range is faced and shot with the fire button; the pilot waits meanwhile. Counts shots and targets.
 coop.gunner = nil
-function coop.GunnerOn(range) coop.gunner = { range = range or 60, shots = 0, engaged = 0, next_ms = 0, skip = {}, kills = 0 } end
+coop.gunner_cap = nil     -- ms of firing after which the gunner rests (a recording being followed sets it)
+function coop.GunnerOn(range) coop.gunner = { range = range or 60, shots = 0, engaged = 0, next_ms = 0, skip = {}, kills = 0, max_fight = coop.gunner_cap } end
 -- Scripted objects the gunner also shoots (a bay's turrets are not actors, so coop_nearest_enemy never lists
 -- them): names from the level model. They are faced with pitch, nearest living one first, no line of sight test.
 function coop.GunnerTargets(names)
@@ -1275,6 +1276,9 @@ function coop.GunnerTick()
     local now = coop_ms()
     if (not p or now < gn.next_ms) then return end
     gn.next_ms = now + 100
+    -- a fight that goes on (a generator spawning enemies without end) must not hold the pilot for ever: after
+    -- max_fight ms of firing the gunner rests rest ms and the pilot walks on (the owner's recording ran on)
+    if (gn.rest_until and now < gn.rest_until) then return end
     local e, k = nil, 1
     while (k <= 8 and not e) do
         local c = coop_nearest_enemy(p.position.x, p.position.y, p.position.z, gn.range, k)
@@ -1301,6 +1305,16 @@ function coop.GunnerTick()
             gn.skip[e] = 1
             gn.target = nil
             return
+        end
+        if (gn.turret ~= e) then
+            if (not gn.fight_start or now - (gn.last_fire or 0) > 1500) then gn.fight_start = now end
+            gn.last_fire = now
+            if (gn.max_fight and now - gn.fight_start > gn.max_fight) then
+                gn.rest_until = now + (gn.rest or 6000)
+                gn.fight_start = nil
+                gn.busy = 0
+                return
+            end
         end
         -- Max tips onto his side when pointed up or down (the owner saw it): he only turns --
         if (gn.turret == e) then

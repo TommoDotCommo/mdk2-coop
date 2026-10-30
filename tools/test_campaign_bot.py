@@ -217,9 +217,12 @@ def flight_rules(b, quiet=False):
                 and not b.climb_out(2.0, 10.0, True)))
     out.append(('a squad passes only with every player near the leader',
                 b.squad_ok(True, {2: 3.1}) and not b.squad_ok(True, {2: 334.8}) and not b.squad_ok(False, {2: 1.0})))
+    lua = open(os.path.join(os.path.dirname(__file__), '..', 'lua', 'coop_dev.lua')).read()
+    src = open(os.path.join(os.path.dirname(__file__), 'campaign_bot.py')).read()
+    out.append(('a followed recording caps the gunner\'s fight (a generator spawns enemies without end)',
+                'coop.gunner_cap=10000' in src and 'gn.max_fight and now - gn.fight_start > gn.max_fight' in lua))
     out.append(('the gunner is given turret names as a Lua table', b.lua_names(['a', 'b']) == '{"a", "b"}'))
     # the Lua gunner must list the targets it was given (a bay's turrets are not actors)
-    lua = open(os.path.join(os.path.dirname(__file__), '..', 'lua', 'coop_dev.lua')).read()
     out.append(('the gunner shoots named scripted objects (turrets)',
                 'function coop.GunnerTargets' in lua and 'coop.GunnerPick(p, gn)' in lua))
     # hovering with jump held after a climb (the owner's turret fight at a bay) stays flown until jump is let go

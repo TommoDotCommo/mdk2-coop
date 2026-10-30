@@ -1739,7 +1739,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     tracked = tracked_points(boards)
     log(f'  following {len(pts)} points of {path} ({len(fly)} flown at their height)')
     # a checkpoint start past a refueller has a full tank (coop.FuelGrantTick); count thrust from here
-    game.lua('coop.GunnerOn(60) coop.jet_ms=0')
+    game.lua('coop.gunner_cap=10000 coop.GunnerOn(60) coop.jet_ms=0')
     assist = os.environ.get('MDK2_FUEL_ASSIST') == '1'
     if assist:
         game.lua('coop.fuel_assist=1')     # a test crutch (campaign_run.py --fuel-assist): the tank never runs dry
