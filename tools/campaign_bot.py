@@ -1302,13 +1302,61 @@ def compare_worlds(games, folder, tag, log):
     return r.returncode == 0, r.stdout
 
 
-def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, record=None):
+def compare_step(games, folder, tag, log):
+    """compare_worlds, its last statecheck output sorted by the tolerance table (tools/campaign_coop.py)."""
+    import campaign_coop
+    try:
+        ok, text = compare_worlds(games, folder, tag, log)
+    except (TimeoutError, OSError) as e:      # a game that cannot dump (crashed, hung) is a finding too
+        return {'tag': tag, 'ok': False, 'findings': [f'FAIL  no state dump: {e}'], 'known': [], 'warn': [],
+                'summary': 'no dump'}
+    c = campaign_coop.classify(text)
+    return {'tag': tag, 'ok': ok, **c}
+
+
+def desync_mutant(games, log):
+    """The world comparison's mutant: delete a living enemy in one client's game only (it stays alive on
+    the host). The next step's comparison must report it as a finding."""
+    host, client = games[0], games[1]
+    rows = host.state()
+    for r in rows:
+        if r and r[0] == 'ent' and r[2] != 'gone' and int(r[3]) > 0:
+            gid = r[1]
+            name = ' '.join(r[7:])
+            client.lua(f'local g=coop_gob("n{gid}") if (g) then omGobDelete(g) end')
+            log(f'  MUTANT desync: deleted enemy {gid} {name} in game {client.slot} only')
+            return {'deleted': gid, 'name': name, 'game': client.slot}
+    log('  MUTANT desync: no living enemy to delete')
+    return {'deleted': None}
+
+
+def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, record=None,
+          no_god=False, step_units=25.0, step_seconds=45.0, mutant=None, roles=False):
     """Every game is a bot: player 1 leads to the goal; each other player follows the leader with its
-    own pilot and gunner. Worlds are compared at the end."""
+    own pilot and gunner. The worlds are compared after every step of the leader's progress (each
+    step_units of way, or step_seconds) and at the end. Without God mode (no_god) each hero looks after
+    its health, a standing teammate revives a downed one (holding R beside it, bridge/revive.c) and
+    downs, revives and deaths are counted. With roles, a step with several objectives is split: each
+    player after the leader takes a different one, then all regroup at the goal."""
     import threading
+    import campaign_coop as cc
     leader, followers = games[0], games[1:]
     result = {}
     stop = threading.Event()
+    t_start = time.monotonic()
+    steps, care = [], {'heals': 0, 'retreats': 0, 'revive_tries': 0, 'revive_ok': 0}
+    lives = cc.Lives([g.slot for g in games])
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    assigned = {}
+    if roles:
+        start = leader.pos()
+        top = [o for o in objectives(level, [(a + b) / 2 for a, b in zip(start, goal)], goal,
+                                     radius=math.dist(start[:2], goal[:2]) / 2 + 40)
+               if abs(o['pos'][2] - goal[2]) < 20 and alive(leader, o['name'])]
+        assigned = cc.split(top, len(games))
+        log(f'  roles: objectives {[o["name"] for o in top]}; '
+            f'{ {s: o["name"] for s, o in assigned.items()} or "nothing to split"}')
 
     def lead():
         try:
@@ -1339,10 +1387,26 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                                    scratch=str(Path(folder) / f'nav_{g.slot}.json'))
                 result[f'follower_{g.slot}'] = stats
                 if ok:
+                    take_role(g)
                     return
+            elif g.slot in assigned:
+                take_role(g)
             chase(g)
         except Exception as e:
             log(f'[{g.slot}] crashed: {e!r}')
+
+    def take_role(g):
+        obj = assigned.get(g.slot)
+        if obj is None:
+            return
+        if alive(g, obj['name']):
+            log(f'[{g.slot}] role: {obj["name"]} ({obj["type"]}), not the leader\'s')
+            done = aimed_kill(g, obj['name'], lambda m: log(f'[{g.slot}] ' + m), seconds=60)
+        else:
+            done = None
+        result[f'role_{g.slot}'] = {'objective': obj['name'], 'killed_by_me': done,
+                                    'alive_on_host': alive(leader, obj['name'])}
+        g.goto(*goal, radius=6, timeout=40, explore=1)     # regroup at the portal
 
     def chase(g):
         g.lua('coop.GunnerOn(60)')
@@ -1360,17 +1424,157 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 time.sleep(.5)
         result[g.slot] = far
 
+    def watch():
+        """A world comparison after every step of the leader's progress."""
+        last_pos, last_t, n = None, time.monotonic(), 0
+        while not stop.wait(1.0):
+            try:
+                here = leader.pos()
+            except (TimeoutError, OSError):
+                continue
+            if here is None:
+                continue
+            if last_pos is None:
+                last_pos = here
+            if math.dist(here, last_pos) < step_units and time.monotonic() - last_t < step_seconds:
+                continue
+            n += 1
+            s = compare_step(games, folder, f'step{n:02d}', log)
+            s.update(step=n, t=round(time.monotonic() - t_start), leader=[round(v, 1) for v in here])
+            steps.append(s)
+            log(f'  step {n}: {len(s["findings"])} findings, {len(s["known"])} known, {len(s["warn"])} warn')
+            (folder / 'steps.json').write_text(json.dumps(steps, indent=1))
+            last_pos, last_t = here, time.monotonic()
+            if mutant == 'desync' and n == 1:
+                result['mutant'] = desync_mutant(games, log)
+
+    def peek(g, read=Game.telemetry):
+        """This game's hp and life (or another reading), or None while another thread drives it (a revive)."""
+        if not g.lock.acquire(blocking=False):
+            return None
+        try:
+            return read(g)
+        except (TimeoutError, OSError, ValueError):
+            return None
+        finally:
+            g.lock.release()
+
+    reviving, last_heal, trail = set(), {}, {g.slot: [] for g in games}
+    taken = set()
+
+    def revive(g, d):
+        """g walks to the downed player d and holds R beside it (ordinary controls)."""
+        with g.lock:
+            try:
+                for attempt in range(3):
+                    care['revive_tries'] += 1
+                    body = d.pos()
+                    if body is None:
+                        break
+                    g.goto(*body, radius=2.5, timeout=25, explore=1)
+                    near = math.dist(g.pos(), body)
+                    log(f'[{g.slot}] revive {d.slot}: try {attempt + 1}, {near:.1f} from the body')
+                    if near > 4.5:
+                        continue
+                    g.lua('coop.PilotStop() coop_press(19, 4500)')
+                    t1 = time.monotonic()
+                    while time.monotonic() - t1 < 7:
+                        if d.telemetry()['life'] == cc.ALIVE:
+                            care['revive_ok'] += 1
+                            log(f'[{g.slot}] revived player {d.slot} in {time.monotonic() - t1:.1f}s of R')
+                            return
+                        time.sleep(.3)
+            except (TimeoutError, OSError) as e:
+                log(f'[{g.slot}] revive {d.slot}: {e!r}')
+            finally:
+                reviving.discard(d.slot)
+
+    def heal(g, hp):
+        """Low on health: the nearest health pickup if one is near, otherwise back off along the way it came."""
+        with g.lock:
+            here = g.pos()
+            o = cc.health_target(level.m.get('pickups', []), here, taken)
+            if o and alive(g, o['name']):
+                taken.add(o['name'])
+                g.goto(*o['pos'], radius=1.5, timeout=20, explore=1)
+                care['heals'] += 1
+                log(f'[{g.slot}] hp {hp}: went for {o["name"]} ({o["type"]}), hp now {g.telemetry()["hp"]}')
+            elif trail[g.slot]:
+                back = trail[g.slot][0]
+                g.goto(*back, radius=2, timeout=6, explore=1)
+                care['retreats'] += 1
+                log(f'[{g.slot}] hp {hp}: no health near, backed off to {[round(v) for v in back]}')
+
+    def look_after():
+        while not stop.wait(1.0):
+            now = time.monotonic() - t_start
+            seen = {}
+            for g in games:
+                t = peek(g)
+                if t is None:
+                    continue
+                seen[g.slot] = t
+                ev = lives.update(g.slot, t['life'], now)
+                if ev:
+                    log(f'  player {g.slot}: {ev} (hp {t["hp"]})')
+            if not no_god:
+                continue
+            pos = {g.slot: peek(g, Game.pos) for g in games if g.slot in seen}
+            for s, p in pos.items():
+                if p:
+                    trail[s] = (trail[s] + [p])[-10:]
+            for g in games:
+                t = seen.get(g.slot)
+                if not t:
+                    continue
+                if t['life'] == cc.DOWNED and g.slot not in reviving:
+                    who = cc.reviver(pos, {s: v['life'] for s, v in seen.items()}, g.slot)
+                    if who:
+                        reviving.add(g.slot)
+                        helper = next(x for x in games if x.slot == who)
+                        log(f'  player {g.slot} is down: player {who} goes to revive it')
+                        threading.Thread(target=revive, args=(helper, g), daemon=True).start()
+                elif t['life'] == cc.ALIVE and 0 < t['hp'] < cc.LOW_HP and now - last_heal.get(g.slot, -99) > 20:
+                    last_heal[g.slot] = now
+                    threading.Thread(target=heal, args=(g, t['hp']), daemon=True).start()
+
     threads = [threading.Thread(target=lead)] + [threading.Thread(target=keep_up, args=(g,)) for g in followers]
-    for t in threads:
+    helpers = [threading.Thread(target=watch, daemon=True), threading.Thread(target=look_after, daemon=True)]
+    for t in threads + helpers:
         t.start()
     for t in threads:
         t.join()
-    ok_world, _ = compare_worlds(games, folder, 'end', log)
+    stop.set()
+    for t in helpers:
+        t.join(timeout=60)
+    regroup = None
+    if roles or len(games) > 2:
+        # regroup at the portal: everyone within 15 units of the goal
+        t1 = time.monotonic()
+        while time.monotonic() - t1 < 60:
+            if cc.regrouped({g.slot: g.pos() for g in games}, goal):
+                regroup = round(time.monotonic() - t1)
+                break
+            for g in followers:
+                if math.dist(g.pos(), goal) > 15:
+                    g.goto(*goal, radius=6, timeout=10, explore=1)
+        log(f'  regrouped at the goal: {"in %ss" % regroup if regroup is not None else "no"}')
+    end = compare_step(games, folder, 'end', log)
+    end.update(step='end', t=round(time.monotonic() - t_start))
+    steps.append(end)
+    (folder / 'steps.json').write_text(json.dumps(steps, indent=1))
     gaps = {g.slot: round(math.dist(g.pos(), leader.pos()), 1) for g in followers}
     log(f'  followers\' distance from the leader at the end: {gaps}')
-    followed = {k: v for k, v in result.items() if str(k).startswith('follower_')}
+    followed = {k: v for k, v in result.items() if str(k).startswith(('follower_', 'role_', 'mutant'))}
+    findings = sorted({f for s in steps for f in s['findings']})
+    known = sorted({k[0] for s in steps for k in s['known']})
+    stats = {'leader': result['leader'][1], 'world_ok': end['ok'], 'gaps': gaps, 'steps': len(steps),
+             'findings': findings, 'known': len(known), 'lives': lives.totals(), 'care': care,
+             'regroup_s': regroup, **followed}
+    (folder / 'squad.json').write_text(json.dumps({'ok': result['leader'][0], **stats, 'known_lines': known,
+                                                   'life_events': lives.events}, indent=1, default=str))
     # passing is getting through; a world that differs is a co-op finding, reported beside it
-    return result['leader'][0], {'leader': result['leader'][1], 'world_ok': ok_world, 'gaps': gaps, **followed}
+    return result['leader'][0], stats
 
 
 # Keys that move or turn the hero: the pilot does that itself when following a recording.
@@ -1637,6 +1841,10 @@ def main(argv=None):
     sq.add_argument('--route', help='follow this recording instead of exploring')
     sq.add_argument('--record', help="record the leader's play under this name (kept by the game in coop/)")
     sq.add_argument('--evidence', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/runs'))
+    sq.add_argument('--no-god', action='store_true', help='heroes mind their health and revive each other')
+    sq.add_argument('--roles', action='store_true', help='split a step\'s objectives between the players')
+    sq.add_argument('--step-units', type=float, default=25.0, help='compare the worlds after this much progress')
+    sq.add_argument('--mutant', choices=['desync'], help='desync: delete an enemy in one client only (must be reported)')
     fo = sub.add_parser('follow', help='play a recorded route closed-loop')
     fo.add_argument('--dirs', nargs='+', required=True)
     fo.add_argument('--player', type=int, default=1)
@@ -1694,7 +1902,8 @@ def main(argv=None):
         t0 = time.monotonic()
         folder = Path(a.evidence) / time.strftime('%Y%m%d-%H%M%S')
         ok, stats = squad(games, Level(a.level), a.to, folder, lambda m: print(m, flush=True), fly=a.fly,
-                          chute=a.chute, route=a.route, record=a.record)
+                          chute=a.chute, route=a.route, record=a.record, no_god=a.no_god, roles=a.roles,
+                          step_units=a.step_units, mutant=a.mutant)
         print(f'{"RESULT: PASS" if ok else "RESULT: FAIL"} in {time.monotonic() - t0:.0f}s: {stats}; evidence {folder}')
         return 0 if ok else 1
     if a.cmd == 'advance':
