@@ -819,7 +819,12 @@ def destroy(game, objs, toward, log, seconds=20):
         if gone:
             log(f'    destroyed {gone[0]["name"]} in {time.monotonic() - t0:.1f}s')
             return gone[0]
-        game.lua(f'local p=coop.real_player() coop.Face(p, {toward[0]}-p.position.x, {toward[1]}-p.position.y, 0) '
+        # at the wall itself when one stands close (level 4's tunnel mouth: the way on lies off to the side
+        # of it), otherwise along the way the hero wants to go
+        here = game.pos()
+        near = min(objs, key=lambda o: math.dist(o['pos'][:2], here[:2]))
+        aim = near['pos'] if math.dist(near['pos'][:2], here[:2]) < 40 else toward
+        game.lua(f'local p=coop.real_player() coop.Face(p, {aim[0]}-p.position.x, {aim[1]}-p.position.y, 0) '
                  f'coop_press(256, 600)')
         time.sleep(.5)
     return None
