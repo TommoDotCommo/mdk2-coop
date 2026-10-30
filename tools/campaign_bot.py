@@ -1352,7 +1352,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     import campaign_coop as cc
     leader, followers = games[0], games[1:]
     for g in games:
-        g.gun_range = 14 if tactic == 'run' else 60      # run: shoot only what is close, keep moving
+        g.gun_range = 6 if tactic == 'run' else 60       # run: shoot only what blocks the way, keep moving
     result = {}
     stop = threading.Event()
     t_start = time.monotonic()
