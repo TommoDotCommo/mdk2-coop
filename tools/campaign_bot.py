@@ -102,12 +102,12 @@ class Game:
         f = [int(v) for v in t.split()]
         return dict(zip(('level', 'cp', 'hp', 'shots', 'targets', 'life'), f))
 
-    def goto(self, x, y, z, radius=2.5, timeout=60, trail=None, explore=1, jump=0, fly=0, chute=0, flat=1):
+    def goto(self, x, y, z, radius=2.5, timeout=60, trail=None, explore=1, jump=0, fly=0, chute=0, flat=1, track=None):
         # leaving a held height (fly=2) for the ground: let go of the jetpack first
         off = 'coop_press(57, 0) ' if fly != 2 and getattr(self, 'held', False) else ''
         self.held = fly == 2
         self.lua(f'{off}coop.PilotGo({x},{y},{z},{radius},{flat},{explore}) coop.pilot.max_stuck=40 coop.pilot.jump={jump} '
-                 f'coop.pilot.fly={fly} coop.pilot.chute={chute}')
+                 f'coop.pilot.fly={fly} coop.pilot.chute={chute}' + (f' coop.pilot.track="{track}"' if track else ''))
         deadline = time.monotonic() + timeout
         while True:
             p = self.pilot()
@@ -1528,6 +1528,17 @@ def refuel_mode(pts, pad, reach=5.0):
     return 'stand'
 
 
+def hover_points(pts, pads, reach=6.0):
+    """Points the recording spent hovering by a pump that hangs in a shaft (jump tapped beside it, never
+    far enough above a floor to count as "air"): flown, or the follower lets go of the jetpack there and
+    falls out of the shaft."""
+    out = set()
+    for pad in pads:
+        if refuel_mode(pts, pad) == 'hover':
+            out |= {k for k, p in enumerate(pts) if 57 in p['keys'] and math.dist(p['pos'], pad['pos']) < reach}
+    return out
+
+
 def needs_fuel(used_ms, pts, fly, i, pads=(), tank_ms=TANK_MS, climb=JET_CLIMB):
     """Whether the jetpack (used_ms of thrust since it was last filled) is likely to run dry on the
     flight starting at point i before it lands or reaches a refueller: that stretch's climb at the
@@ -1600,6 +1611,12 @@ def plan_boardings(pts, fly, lifts, standoff=8.0, base=None):
     return out
 
 
+def tracked_points(boards):
+    """Flown point -> the lift it keeps above (pilot `track`): the last stretch of a flight onto a lift,
+    from the point where the hero holds out from its edge."""
+    return {k: bd['lift']['name'] for bd in boards for k in range(bd['wait_at'] or bd['start'], bd['last'] + 1)}
+
+
 # the hero hovers this far above the spot where the person landed on a lift: the platform is solid, and
 # one rising through the hero's height under him carries him, but one met from below pushes him out
 BOARD_OVER = 2.0
@@ -1669,10 +1686,14 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     # without a jetpack (level 2 before checkpoint 5) the recording's air is jumps: walked, with a jump
     fly = flown(pts) if jetpack else set()
     pads = [o for o in level.m['objects'] if o['type'] == 'OBJ_REFUELLER'] if level else []
+    if jetpack:
+        fly |= hover_points(pts, pads)
     lifts = [o for o in level.m['objects'] if o['type'] == 'OBJ_SCENERY' and 'platform' in o['name']] if level else []
     flown_only, fly = fly, extend_to_lifts(pts, fly, lifts)
     boards = plan_boardings(pts, fly, lifts, base=flown_only)
     over = {bd['last'] for bd in boards}
+    # the last stretch of a flight onto a lift keeps above the platform as it rises (the person's hop was faster)
+    tracked = tracked_points(boards)
     log(f'  following {len(pts)} points of {path} ({len(fly)} flown at their height)')
     # a checkpoint start past a refueller has a full tank (coop.FuelGrantTick); count thrust from here
     game.lua('coop.GunnerOn(60) coop.jet_ms=0')
@@ -1768,7 +1789,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             tgt = list(p['pos'])
             if i in over:
                 tgt[2] += BOARD_OVER
-            r = game.goto(*tgt, radius=1.5, timeout=6, explore=0, fly=2)
+            r = game.goto(*tgt, radius=1.5, timeout=6, explore=0, fly=2, track=tracked.get(i))
             at = game.pos()
             if r.get('state') == 'arrived' or (math.dist(at[:2], p['pos'][:2]) < radius
                                                and abs(at[2] - p['pos'][2]) < 2.5):

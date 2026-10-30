@@ -1304,6 +1304,13 @@ function coop.PilotTick()
     local now = coop_ms()
     if (now < pl.next_ms) then return end
     pl.next_ms = now + 50
+    -- boarding a moving lift (pl.track names it): the height is at least two units above its platform, which
+    -- may rise through the recorded height while the hero is still on the way --
+    if (pl.track) then
+        pl.zbase = pl.zbase or pl.z
+        local g = getglobal(pl.track)
+        if (g and g.position.z + 2.0 > pl.zbase) then pl.z = g.position.z + 2.0 else pl.z = pl.zbase end
+    end
     -- holding a height (Max following a recorded flight): thrust below the point's height, none above
     -- it, so the hero hovers there; this goes on while the gunner aims, or he drops out of the air --
     if (pl.fly == 2) then

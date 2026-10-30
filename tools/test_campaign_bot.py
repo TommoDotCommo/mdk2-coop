@@ -174,6 +174,10 @@ def flight_rules(b, quiet=False):
         + [{'pos': (16.0, 0.0, 12.0), 'keys': [], 'air': False, 'ride': True}] * 3
     lfly = set(range(1, 9))
     plan = b.plan_boardings(lng, lfly, [{'name': 'L', 'pos': [17.0, 0.0, 12.0]}])
+    tr = b.tracked_points(b.plan_boardings(lng, lfly, [{'name': 'L', 'pos': [17.0, 0.0, 12.0]}]))
+    out.append(('only the last stretch of a flight onto a lift keeps above the platform',
+                set(tr.values()) == {'L'} and min(tr) == b.plan_boardings(lng, lfly, [{'name': 'L', 'pos': [17.0, 0.0, 12.0]}])[0]['wait_at']
+                and max(tr) == 8))
     out.append(('a boarding holds out from under the lift (8 units), from the ground',
                 len(plan) == 1 and plan[0]['wait_at'] is not None
                 and math.dist(lng[plan[0]['wait_at'] - 1]['pos'][:2], (17.0, 0.0)) >= 8
@@ -199,6 +203,13 @@ def flight_rules(b, quiet=False):
                 b.nearest_ahead((12.4, 0.3, 0.0), loop, 0) == 4 and b.nearest_ahead((0.1, 0.0, 0.0), loop, 0) == 0))
     out.append(('a point clearly nearer than the current one is skipped to',
                 b.nearest_ahead((26.9, 0.0, 0.0), loop, 2) == 9))
+    # a pump hanging in a shaft: the points where the person tapped jump beside it are flown, a point
+    # far from it is not
+    hp = [{'pos': (1.0, 0.0, 52.0 + k % 3), 'keys': [57] if k % 2 else [], 'air': bool(k % 2)} for k in range(6)] \
+        + [{'pos': (30.0, 0.0, 52.0), 'keys': [57], 'air': False}]
+    got = b.hover_points(hp, [pump])
+    out.append(('the points hovered by a hanging pump are flown, others are not',
+                got == {1, 3, 5} and not b.hover_points(hp, [floor])))
     return out
 
 
@@ -209,7 +220,7 @@ for label, ok in results:
 # mutants: each must make at least one check fail
 import types
 real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED', 'lift_ready',
-                                    'boarding', 'plan_boardings', 'nearest_ahead')}
+                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points')}
 mutants = {
     'only "air" points are flown (the hop onto a lift is walked)':
         dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
@@ -226,6 +237,9 @@ mutants = {
     'the nearest point wins outright (skips over flown points)':
         dict(nearest_ahead=lambda here, pts, i, window=80, slack=1.5: min(range(i, min(len(pts), i + window)),
                                                                          key=lambda k: math.dist(here, pts[k]['pos']))),
+    'a hovered pump is not flown': dict(hover_points=lambda pts, pads, reach=6.0: set()),
+    'every flown point keeps above the platform': dict(tracked_points=lambda boards: {k: bd['lift']['name'] for bd in boards
+                                                                                      for k in range(bd['start'], bd['last'] + 1)}),
     'no flight lands on a lift': dict(plan_boardings=lambda pts, fly, lifts, standoff=8.0, base=None: []),
     'every lift is the nearest, however far': dict(boarding=lambda pts, fly, i, lifts, reach=9.0:
                                                     real['boarding'](pts, fly, i, lifts, reach=1e9)),
