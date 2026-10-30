@@ -1848,6 +1848,14 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         here = game.pos()
         if math.dist(here, pts[-1]['pos']) < 6:
             break                           # at the recording's end (the next checkpoint) already
+        # a wipe puts the squad back at its checkpoint, far behind the point it was walking to: rewind to
+        # the nearest earlier point (otherwise the pilot pushes at walls 100 units short of it)
+        if math.dist(here, pts[i]['pos']) > 30 and i > 0:
+            k = min(range(max(0, i - 300), i), key=lambda q: math.dist(here, pts[q]['pos']))
+            if math.dist(here, pts[k]['pos']) < math.dist(here, pts[i]['pos']) - 20:
+                log(f'  {math.dist(here, pts[i]["pos"]):.0f} units behind point {i} (a checkpoint reload?): '
+                    f'back to point {k}')
+                i, last_progress, best = k, time.monotonic(), None
         # skip on: the nearest of the next few points
         ahead = range(i, min(len(pts), i + 80))
         j = min(ahead, key=lambda k: math.dist(here, pts[k]['pos']))
