@@ -1295,10 +1295,19 @@ function coop.PilotTick()
     if (pl.chute == 1 and p.position.z > pl.z + 4) then
         coop_press(coop.pilot_keys.jump, 200)
     end
-    -- flying (Max with a fuelled jetpack): hold jump while the waypoint is above the hero --
-    if (pl.fly == 1 and pl.z > p.position.z + 0.8) then
-        coop_press(coop.pilot_keys.jump, 200)
-        pl.best_ms = now
+    -- flying (Max with a fuelled jetpack): one continuous hold of jump while the waypoint is above the
+    -- hero (tapping it only jumps), let go once level with it --
+    if (pl.fly == 1) then
+        if (pl.z > p.position.z + 0.8) then
+            if (now >= (pl.jet_until or 0)) then
+                coop_press(coop.pilot_keys.jump, 3000)
+                pl.jet_until = now + 2900
+            end
+            pl.best_ms = now
+        elseif (pl.jet_until) then
+            coop_press(coop.pilot_keys.jump, 0)
+            pl.jet_until = nil
+        end
     end
     -- a waypoint above a step: jump on the way to it, once, when close --
     if (pl.jump == 1 and d < 3.5 and not pl.jumped) then
