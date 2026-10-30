@@ -302,4 +302,53 @@ with tempfile.TemporaryDirectory() as tmp:
     (crash / 'dump0001.dmp').write_bytes(b'MDMP not really')
     lines = [l for l in cr.crash_lines(env) if l.startswith('CRASH')]
     check('a new dump%04i.dmp of a copy is a CRASH with its path', len(lines) == 1 and 'dump0001.dmp' in lines[0])
+# World comparison with a second host dump (tools/statecheck.py --after): dumps are taken one game after another, so a
+# fight or a spawn moves the host's world between the host's and a client's. Evidence: the campaign survey's level 2
+# runs showed the client lower on hp (the client dumped after more hits), an enemy "extra" on the client (the host made
+# it after its dump) and one the host had removed (its DESPAWN still on the way). Real mismatches must still fail.
+HEADER = 'role {role}\nlevel 2\nme {me}\nlife 0\n'
+
+
+def dump(role, ents, me=None):
+    text = HEADER.format(role=role, me=me or (1 if role == 'host' else 2))
+    # one hero each, far apart, and the other's puppet where that hero stands
+    text += 'player 1 100 0 0 0\npuppet 2 500 0 0\n' if role == 'host' else 'player 1 100 500 0 0\npuppet 1 0 0 0\n'
+    for nid, spec in ents.items():
+        text += f'ent {nid} {spec}\n' if spec == 'gone' else 'ent {} {} {} {} {} {} {}\n'.format(nid, *spec)
+    return text
+
+
+def statecheck(host, client, post=None):
+    with tempfile.TemporaryDirectory() as t:
+        names = []
+        for i, text in enumerate((host, client) + ((post,) if post else ())):
+            f = Path(t) / f'd{i}.txt'
+            f.write_text(text)
+            names.append(str(f))
+        args = names[:2] + (['--after', names[2]] if post else [])
+        r = subprocess.run([sys.executable, str(Path(__file__).with_name('statecheck.py')), *args], capture_output=True, text=True)
+        return r.returncode, r.stdout
+
+
+sam = lambda hp, x=0.0: (201, hp, x, 0.0, 0.0, 'sam')
+rc, out = statecheck(dump('host', {'a': sam(14)}), dump('client', {'a': sam(0)}))
+check('statecheck without --after: client hp 0 against 14 fails', rc == 1 and 'hp 14 on host, 0 on client' in out)
+rc, out = statecheck(dump('host', {'a': sam(14)}), dump('client', {'a': sam(0)}), dump('host', {'a': sam(0)}))
+check('statecheck --after: client hp the host reached in between passes', rc == 0 and 'went on to 0' in out)
+rc, out = statecheck(dump('host', {'a': sam(14)}), dump('client', {'a': sam(30)}), dump('host', {'a': sam(0)}))
+check('statecheck --after: client hp above what the host ever had fails', rc == 1)
+rc, out = statecheck(dump('host', {'a': sam(60)}), dump('client', {'a': sam(0)}), dump('host', {'a': sam(60)}))
+check('statecheck --after: a client stuck at 0 while the host stays at 60 fails (the silent refill)', rc == 1)
+rc, out = statecheck(dump('host', {}), dump('client', {'b': sam(50)}), dump('host', {'b': sam(50)}))
+check('statecheck --after: an enemy the host made after its first dump passes', rc == 0 and 'made it after' in out)
+rc, out = statecheck(dump('host', {}), dump('client', {'b': sam(50)}), dump('host', {}))
+check('statecheck --after: an enemy the host never had still fails', rc == 1)
+rc, out = statecheck(dump('host', {'c': 'gone'}), dump('client', {'c': sam(0)}), dump('host', {}))
+check('statecheck --after: a removed enemy whose DESPAWN is on the way passes', rc == 0 and 'DESPAWN is on the way' in out)
+rc, out = statecheck(dump('host', {'c': 'gone'}), dump('client', {'c': sam(0)}), dump('host', {'c': 'gone'}))
+check('statecheck --after: an enemy the host keeps "gone" without removing it fails', rc == 1)
+rc, out = statecheck(dump('host', {'m': sam(40, 0.0)}), dump('client', {'m': sam(40, 9.0)}), dump('host', {'m': sam(40, 10.0)}))
+check('statecheck --after: a mover on the host\'s path between the dumps passes', rc == 0 and 'apart' not in out)
+rc, out = statecheck(dump('host', {'m': sam(40, 0.0)}), dump('client', {'m': sam(40, 60.0)}), dump('host', {'m': sam(40, 10.0)}))
+check('statecheck --after: a mover off the host\'s path still fails', rc == 1)
 print("all checks passed")

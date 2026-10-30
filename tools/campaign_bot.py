@@ -1470,8 +1470,12 @@ def compare_worlds(games, folder, tag, log):
     # a mismatch is looked at again 1.5 s later, as tools/replay.sh does: one sample can catch a fast
     # mover mid-interpolation; both results are kept
     for attempt in (1, 2):
-        dumps = [str(dump_state(g, folder, f'{tag}{"" if attempt == 1 else "_again"}')) for g in games]
-        r = subprocess.run([sys.executable, str(Path(__file__).with_name('statecheck.py')), *dumps],
+        name = f'{tag}{"" if attempt == 1 else "_again"}'
+        dumps = [str(dump_state(g, folder, name)) for g in games]
+        # the dumps are taken one game after another, and a fight or a spawn moves the world in between: the host
+        # dumps once more at the end, and statecheck.py fails a client only for what the host never held in between
+        post = str(dump_state(games[0], folder, f'{name}_post'))
+        r = subprocess.run([sys.executable, str(Path(__file__).with_name('statecheck.py')), *dumps, '--after', post],
                            capture_output=True, text=True)
         last = (r.stdout.strip().splitlines() or ['no output'])[-1]
         log(f'  worlds at {tag}{"" if attempt == 1 else " (again)"}: {last}')

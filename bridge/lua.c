@@ -138,8 +138,10 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part)
             if (kind >= ACTOR_TYPE_MIN && kind <= ACTOR_TYPE_MAX)
                 combat_applied(from_slot, target, id, kind, before, gob_hp(target), weapon, pos);
         }
-        if (target != local_player && name[0])
+        if (target != local_player && name[0]) {
             event_queue_applied(name, from, damage, type, part, gob_hp(target));
+            ent_hp_told(target);
+        }
         if (name[0] && gob_is_actor(target))
             logmsg("hp %s %d", name, gob_hp(target));
         return;
@@ -364,7 +366,8 @@ static void l_coop_apply(void)
         applying_hit = 0;
         break;
     case EV_APPLY:      /* client: the host applied this */
-        deal_damage_orig(apply_attacker(), gob, damage, type, part);
+        if (part != HPSYNC_PART)
+            deal_damage_orig(apply_attacker(), gob, damage, type, part);
         /* a mirror keeps its old hp through the hit (the game's handler leaves it alone, and
          * the host may have ignored the hit): take the host's, death comes from its despawn */
         if (apply_hp >= 0 && gob_is_actor(gob) && gob_hp(gob) != apply_hp)
@@ -952,6 +955,16 @@ static void l_coop_test_noondie(void)
         test_no_ondie = (int)num_param(1);
 }
 
+/* coop_test_sethp(gob, hp): change an actor's hp the way the game's own scripts do, with no hit (host, background test mode only;
+ * tools/qa_hpsync.sh) */
+static void l_coop_test_sethp(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL);
+
+    if (test_background && gob_alive(gob) && gob_is_actor(gob))
+        gob_set_hp(gob, (int)num_param(2));
+}
+
 /* coop_script_events(): log every script handler that ran this level, and how often (scripttrace.c) */
 static void l_coop_script_events(void)
 {
@@ -1073,6 +1086,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_diag_test", l_coop_diag_test);
     tolua_function(NULL, "coop_script_events", l_coop_script_events);
     tolua_function(NULL, "coop_test_noondie", l_coop_test_noondie);
+    tolua_function(NULL, "coop_test_sethp", l_coop_test_sethp);
     tolua_function(NULL, "coop_emote", l_coop_emote);
     tolua_function(NULL, "coop_emoting", l_coop_emoting);
     tolua_function(NULL, "coop_revive_tick", l_coop_revive_tick);
