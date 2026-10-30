@@ -759,6 +759,14 @@ function coop.CheckpointItems(l, cp)
         [5] = { { OBJ_JETPACK, 9, 10 } },                -- l5_r9_g04, below checkpoint 8
         [8] = { { OBJ_ATOMICJETPACK, 6, 7 } },           -- l8r5_jetpack, at checkpoint 5
     }
+    -- Max's standard jetpack fills only at a refueller, so a start past one has an empty tank (level 2
+    -- room 9's first lift is above a jump with the nearest refueller on the top platform): fill it
+    local fuel = { [2] = { 6, 7, 8, 9, 10 }, [5] = { 9, 10 } }
+    local f = 1
+    while (fuel[l] and fuel[l][f]) do
+        if (fuel[l][f] == cp) then coop.fuel_grant = "wait" end
+        f = f + 1
+    end
     local list = items[l]
     if (not list) then return end
     local k = 1
@@ -775,6 +783,25 @@ function coop.CheckpointItems(l, cp)
             i = i + 1
         end
         k = k + 1
+    end
+end
+
+-- The fuel grant: a refueller the engine fills the jetpack from, hidden under the floor at the hero
+-- for six seconds, once the hero stands in the level with the jetpack given (coop.CheckpointItems)
+function coop.FuelGrantTick()
+    local p = coop.real_player()
+    if (not coop.fuel_grant or not p or (coop.cp_given or 0) < 1) then return end
+    if (coop.fuel_grant == "wait") then
+        coop.fuel_gob = mdkCreateObjectLua("coop_fuel_grant", OBJ_REFUELLER, mdkGetScene(), nil, nil,
+            p.position.x, p.position.y, p.position.z - 6, 1, 0, 0, 0, nil, 0, 0, 0, 0)
+        coop.fuel_grant = coop_ms() + 6000
+        coop_log("checkpoint start: jetpack fuel given")
+    elseif (coop_ms() > coop.fuel_grant) then
+        if (coop.fuel_gob and coop_alive(coop.fuel_gob) == 1) then omGobDelete(coop.fuel_gob) end
+        coop.fuel_gob = nil
+        coop.fuel_grant = nil
+    else
+        mdkGobSetPositionXYZ(coop.fuel_gob, p.position.x, p.position.y, p.position.z - 6)
     end
 end
 
@@ -838,6 +865,7 @@ function coop.HandlerTick()
     end
     coop.DomeTick()
     coop.SharedPickupTick()
+    coop.FuelGrantTick()
     if (coop.join) then coop.TryJoin() end
     coop.ProximityTick()
     coop.RearGateTick()
@@ -1614,6 +1642,7 @@ function level(l, cp, sec)
     coop.targetable = {}
     coop.rewards = {}
     coop.cp_given = 0
+    coop.fuel_grant = nil
     coop.rear_gate_result = nil
     coop.level = l
     coop.cp = cp
