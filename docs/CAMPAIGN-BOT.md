@@ -74,6 +74,35 @@ recording of the bot exploring level 2's gutter (walls broken, enemies fought) f
 fresh game. A recording that never reached a later checkpoint is kept by the recorder as
 `<name>.route.partial`, which the follower reads too.
 
+**A person's play, hands-free** (`MDK2_JOURNAL=1` at install, `[test] journal=1`): the bridge records
+every frame of the session in the route format to `coop/journal/L<level>_cp<cp>_<time>.route`, a new
+file at each checkpoint the game reports. Pausing, menus and dying do not stop it.
+`campaign_bot.py journal <folder>` turns the files into `local/routes/seg_<level>_<from>_<to>.route`,
+the routes `campaign_run.py` follows. The game does not report every checkpoint passed (level 2 played
+from checkpoint 6 to its end came as one file), so a file is cut where the hero first comes within
+12 units of each next checkpoint's position, and only the last attempt (after a death's jump back) is
+kept.
+
+What following a person's play needs beyond positions, learnt from the owner's level 2:
+- **Lift rides** (room 9's rising platforms): stretches where the hero stood still while its height
+  changed, with no jump held, are waited out once for the whole ride, giving up when the height stops
+  changing.
+- **Refuellers**: a point on a refueller is mounted, as the person stood there to fill up.
+- **Shooting**: where the recording fired, the nearest living scripted objective within 50 units is
+  aimed at (a generator the person finished off gates the arena's exit); when held up 25 s, the bot's
+  own objective killing runs once from that spot (door locks).
+- **Glides and drops**: below a stretch the person flew or glided, the hero flies back up from a
+  shaft's open centre line (at most three times per point).
+- **Every player plays the recording** in a squad, rather than chasing the leader on foot (Max's
+  flights cannot be chased).
+
+The owner's shaft climb also changed the bot's own play: one tank does a whole shaft when each level
+is landed on (the light's grate, then each closed hatch), thrust is cut once high enough and the hero
+drifts across, and a bay's turrets are shot from the hatch with fire held (`bay_climb`: 344 s with a
+refuel trip per bay, then 252 s on one tank). A checkpoint start past a refueller fills Max's jetpack
+(`coop.FuelGrantTick`: a refueller hidden under the hero for six seconds), like the key items: from
+checkpoint 9 an empty tank could not reach room 9's first lift.
+
 ## Speed
 
 - Navigation is scanned, not explored by walking, and scans are cached per checkpoint.
