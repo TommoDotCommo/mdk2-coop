@@ -1671,6 +1671,12 @@ def jet_used(game):
         return 0
 
 
+def aimable(o, here, reach=30.0):
+    """A scripted objective the recording's shooting may have been aimed at: within reach in 3D, whatever
+    the floor (a generator hangs above the ledge it is shot from)."""
+    return math.dist(o['pos'], here) < reach
+
+
 def turrets_to_clear(objects, here, radius=45.0, dz=16.0):
     """Names of the turrets near the hero, on his floor or hovering level with them: the ones a bay's
     hatch waits for. The recording fired at them (level 2's bays) and went on only when they were dead."""
@@ -1845,10 +1851,10 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         if 256 in p['keys'] and level:
             # the recording was shooting here: what it shot is most likely the nearest living scripted
             # objective (the arena's generators: one left at 16 hp kept its exit shut), so aim at it
-            # (within reach on the same floor: the walk to a generator 37 units off took a hero off the
-            # ledge and down a shaft)
-            near = [o for o in objectives(level, here, None, radius=50)
-                    if o['name'] not in aimed and math.dist(o['pos'], here) < 30 and abs(o['pos'][2] - here[2]) < 12]
+            # (within 30 units: the walk to a generator 37 units off took a hero off the ledge and down a
+            # shaft; but not only on his floor: room 8's generator hangs 20 above the ledge the recording
+            # shot it from, and its exit stayed shut)
+            near = [o for o in objectives(level, here, None, radius=50) if o['name'] not in aimed and aimable(o, here)]
             near = [o for o in near if alive(game, o['name'])][:1]
             for o in near:
                 aimed.add(o['name'])
