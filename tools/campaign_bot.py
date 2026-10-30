@@ -584,9 +584,12 @@ def fire_sweep(game, wanted, log, pitches=(0, -20, 20, -40, 40), steps=16, snipe
 
 def snipe(game, name, log):
     """A sniper shot at name: the game's own sniper round, launched along Kurt's aim at the target (with
-    a few heights on it). Known shortcut: sniper mode's camera is not steered by the bot yet (its rounds
-    follow the camera, not the hero's facing), so the round is launched by coop_test_sniper; the hit, the
-    script's reaction and its replication to the other games are the game's own."""
+    a few heights on it). First the way a player does it (sniper_aim: sniper mode, the camera turned by mouse
+    look until it points at the target, the fire button); when that does not connect (no line of sight from
+    here, or mouse look is not available) the shortcut: the round is launched along the hero's facing by
+    coop_test_sniper. The hit, the script's reaction and its replication to the other games are the game's own."""
+    if CAMERA_SNIPER and sniper_aim(game, name, log, shots=3):
+        return True
     off = hits_since(game, 0)[1]
     for dz in (0, 1, -1, 2, -2, 3):
         game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then coop.Face(p, '
@@ -601,6 +604,130 @@ def snipe(game, name, log):
             return True
     log(f'    sniper rounds missed {name}')
     return False
+
+
+def cam_forward(q):
+    """The camera's forward vector from its orientation quaternion (w, x, y, z): the engine's forward is +y
+    (coop.Face builds yaw about z, then pitch about x, positive up)."""
+    w, x, y, z = q
+    return (2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x))
+
+
+def aim_error(forward, to):
+    """(yaw, pitch) degrees the camera must turn to look along `to`: yaw positive turns left
+    (counter-clockwise from above), pitch positive looks up."""
+    def angles(v):
+        return math.degrees(math.atan2(v[1], v[0])), math.degrees(math.atan2(v[2], math.hypot(v[0], v[1])))
+    (ya, pa), (yb, pb) = angles(forward), angles(to)
+    return (yb - ya + 180) % 360 - 180, pb - pa
+
+
+# Mouse look through the faked pad's right stick (coop.Look holds it for whole frames). Degrees the camera
+# turns per frame at a deflection, measured on the Overhaul build (the response is far from linear):
+LOOK_YAW = {0.5: 0.43, 1.0: 2.83}
+LOOK_PITCH = {0.5: 0.17, 0.7: 0.70, 1.0: 2.05}
+
+
+def look_pulse(err, pitch=False, deadband=0.8):
+    """(stick, frames) that turn the camera by err degrees: the biggest deflection that does not overshoot.
+    The caller measures again afterwards."""
+    if abs(err) < deadband:
+        return 0.0, 0
+    table = LOOK_PITCH if pitch else LOOK_YAW
+    r = max((r for r, deg in table.items() if 3 * deg <= abs(err)), default=min(table))
+    return math.copysign(r, err), max(1, round(abs(err) / table[r]))
+
+
+def camera_pose(game):
+    t = game.note('campose', 'local x,y,z,w,a,b,c=coop_pose(mdkGetCameraGob()) local p=coop.real_player() '
+                  'local x2,y2,z2=coop_pose(p) coop_note("campose", format("%.3f %.3f %.3f %.4f %.4f %.4f %.4f %.3f %.3f %.3f", '
+                  'x,y,z,w,a,b,c,x2,y2,z2))')
+    v = [float(f) for f in t.split()]
+    return v[0:3], v[3:7], v[7:10]
+
+
+def look(game, rx, ry, frames, rt=0):
+    """Hold the faked pad's right stick (and the fire trigger) for exactly `frames` game frames; returns once
+    the pulse has finished."""
+    done = lambda: int(game.note('look', 'coop_note("look", tostring(coop.lookdone))'))
+    before = done()
+    game.lua(f'coop.Look({rx:.2f}, {ry:.2f}, {frames}, 0, {rt})')
+    t0 = time.monotonic()
+    while done() == before and time.monotonic() - t0 < 10:
+        time.sleep(.05)
+
+
+def sniper_mode(game, want):
+    """Sniper mode on or off (the left trigger toggles it); in it the camera sits at the hero's eye, a
+    unit behind, instead of a few units back."""
+    for _ in range(3):
+        cam, _, hero = camera_pose(game)
+        on = math.dist(cam[:2], hero[:2]) < 2.0
+        if on == want:
+            return True
+        game.lua('coop_pad_fake(0,0,0,0,0,255,0)')
+        time.sleep(.4)
+        game.lua('coop_pad_fake()')
+        time.sleep(.8)
+    return False
+
+
+# sniper rounds are aimed with the camera (mouse look) first; --shortcut-sniper goes straight to the launched round
+CAMERA_SNIPER = True
+
+
+def sniper_aim(game, name, log, rounds=25, dz=0.0, shots=3):
+    """A sniper shot the way a player takes it: sniper mode on, the camera turned by mouse look (the right
+    stick of a faked pad) until it points at the target, the fire button. Closed loop on the camera's own
+    orientation. Returns True when the target's name appears among the things hit."""
+    off = hits_since(game, 0)[1]
+    if not sniper_mode(game, True):
+        log('    sniper mode would not switch on')
+        return False
+    ok = False
+    try:
+        for _ in range(rounds):
+            at = live_pos(game, name)
+            if not at:
+                break
+            cam, q, _ = camera_pose(game)
+            to = (at[0] - cam[0], at[1] - cam[1], at[2] + dz - cam[2])
+            yaw, pitch = aim_error(cam_forward(q), to)
+            sy, ny = look_pulse(yaw)
+            sp, np_ = look_pulse(pitch, pitch=True)
+            if not (ny or np_):
+                look(game, 0, 0, 14, rt=255)           # sniper mode stays on; the fire button for a moment
+                time.sleep(.8)
+                names, off = hits_since(game, off)
+                if name in names:
+                    ok = True
+                    break
+                log(f'    sniper shot at {name} from {[round(v) for v in cam]}: hit {sorted(set(names))[:3]}')
+                shots -= 1
+                if shots <= 0:
+                    break
+                dz += 1.0 if dz <= 0 else -2.0
+                continue
+            # the stick's right turns clockwise; a positive yaw error turns left
+            if ny:
+                look(game, -sy, 0, ny)
+            if np_:
+                look(game, 0, sp, np_)
+            time.sleep(.2)
+    finally:
+        game.lua('coop_pad_fake()')
+        sniper_mode(game, False)
+        # the camera's pitch is left where the aim put it: level it again
+        for _ in range(6):
+            cam, q, _ = camera_pose(game)
+            _, pitch = aim_error(cam_forward(q), (0, 1, 0))
+            sp, np_ = look_pulse(pitch, pitch=True)
+            if not np_:
+                break
+            look(game, 0, sp, np_)
+            time.sleep(.2)
+    log(f'    {"sniped" if ok else "missed"} {name} with the camera aim')
+    return ok
 
 
 def aimed_kill(game, name, log, seconds=60):
@@ -1951,6 +2078,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
 
 
 def main(argv=None):
+    global CAMERA_SNIPER
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
     g = sub.add_parser('goto')
@@ -2001,7 +2129,10 @@ def main(argv=None):
     jo = sub.add_parser('journal', help="turn a person's play journals into segment routes")
     jo.add_argument('folder', help='a game copy\'s coop/journal folder (or a copy of it)')
     jo.add_argument('--out', default=str(Path(__file__).resolve().parents[1] / 'local/routes'))
+    ap.add_argument('--shortcut-sniper', action='store_true',
+                    help='launch sniper rounds along the hero\'s facing (coop_test_sniper) instead of aiming the camera')
     a = ap.parse_args(argv)
+    CAMERA_SNIPER = not a.shortcut_sniper
     if a.cmd == 'journal':
         made = journal_segments(a.folder, a.out)
         print(f'{len(made)} segment routes written to {a.out}')

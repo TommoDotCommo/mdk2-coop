@@ -1376,8 +1376,27 @@ function coop.PilotTick()
     end
 end
 
+-- Mouse look and triggers in whole frames (background test mode: the faked pad, bridge/pad.c): the right stick
+-- (rx, ry) and the triggers held for exactly n frames, so a turn does not depend on how soon the driver's next
+-- command arrives. coop.lookdone counts the pulses that have finished.
+coop.lookdone = 0
+function coop.Look(rx, ry, frames, lt, rt)
+    coop.lookq = { rx = rx, ry = ry, n = frames, lt = lt or 0, rt = rt or 0 }
+end
+function coop.LookTick()
+    local q = coop.lookq
+    if (q.n > 0) then
+        coop_pad_fake(0, 0, q.rx, q.ry, 0, q.lt, q.rt)
+        q.n = q.n - 1
+    else
+        coop_pad_fake()
+        coop.lookq = nil
+        coop.lookdone = coop.lookdone + 1
+    end
+end
 function coop.Tick()
     coop.ControlsCheck()
+    if (coop.lookq) then coop.LookTick() end
     -- host autostart (tools/play.sh <level> <cp>): once the title screen has been up a while
     -- and coop.autostart_players others have joined (or a minute has gone by), load the start
     -- checkpoint; retried until a level is running --
