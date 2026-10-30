@@ -148,7 +148,9 @@ def segment(level, seg, players, owner, hook, out, god, opts=None):
                 # its play is recorded, kept as the segment's route if it passes
                 routes = ROOT / 'local/routes'
                 known = routes / f'seg_{level}_{start}_{end}.route'
-                if known.exists():
+                if opts.get('explore'):
+                    pass                    # the bot plays on its own (a recording that fails is not the test)
+                elif known.exists():
                     args += ['--route', str(known)]
                 else:
                     args += ['--record', f'seg_{level}_{start}_{end}']
@@ -260,6 +262,7 @@ def main(argv=None):
     ap.add_argument('--no-god', action='store_true', help='play without invulnerability: heroes revive each other')
     ap.add_argument('--roles', action='store_true', help="split a step's objectives between the players")
     ap.add_argument('--timescale', type=float, help='game clock factor (MDK2_TIMESCALE); 1 to confirm findings')
+    ap.add_argument('--explore', action='store_true', help='the bot plays on its own, ignoring recorded routes')
     ap.add_argument('--repeat', type=int, default=1, help='run each segment this many times')
     ap.add_argument('--mutant', choices=['desync', 'crash'],
                     help='desync: an enemy deleted in one client only; crash: a game crashed (both must be reported)')
@@ -278,7 +281,7 @@ def main(argv=None):
     out = ROOT / 'local/campaign/runs' / time.strftime('%Y%m%d-%H%M%S')
     out.mkdir(parents=True, exist_ok=True)
     with concurrent.futures.ThreadPoolExecutor(a.shards) as pool:
-        opts = {'no_god': a.no_god, 'roles': a.roles, 'timescale': a.timescale, 'mutant': a.mutant}
+        opts = {'no_god': a.no_god, 'roles': a.roles, 'timescale': a.timescale, 'mutant': a.mutant, 'explore': a.explore}
         runs = [(seg, k) for seg in a.segments for k in range(a.repeat)]
         jobs = {pool.submit(segment, a.level, seg, a.players, f'{base}-seg{i}', hook, out / f'run{k + 1}'
                             if a.repeat > 1 else out, not a.no_god, opts): seg
