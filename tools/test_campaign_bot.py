@@ -214,4 +214,5 @@ check('a goal on the hero\'s height needs no lift', lv.lift_toward([-28, 45, 0.1
 check('a goal at neither end\'s height needs no lift', lv.lift_toward([-28, 45, 0.1], [-28, 21, -45]) is None)
 check('a goal far from the cab\'s column needs no lift', lv.lift_toward([-28, 45, 0.1], [300, 21, -91]) is None)
 check('a hero not at an end\'s height does not use the lift', lv.lift_toward([-28, 45, -40], [-28, 21, -91]) is None)
-print('36 passed, 0 failed')
+check('a hero a floor below the lift\'s bottom door still heads for it', lv.lift_toward([-28, 20, -108], [-28, 40, 0.0]) is not None)
+print('37 passed, 0 failed')

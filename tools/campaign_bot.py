@@ -158,7 +158,7 @@ class Level:
         best = None
         for lf in self.m.get('lifts', []):
             for a, b in ((lf['top'], lf['bottom']), (lf['bottom'], lf['top'])):
-                if abs(a['pos'][2] - here[2]) > 8 or abs(b['pos'][2] - goal[2]) > 15:
+                if abs(a["pos"][2] - here[2]) > 20 or abs(b["pos"][2] - goal[2]) > 15:
                     continue
                 if abs(goal[2] - here[2]) < drop or math.dist(lf['cab']['pos'][:2], goal[:2]) > 100:
                     continue
