@@ -690,34 +690,56 @@ def find_shaft(level, pos, goal):
 
 
 def shaft_climb(game, shaft, ring, goal_z, log, rest_s=7.0, max_levels=12):
-    """Climb a shaft of ring lips the way a player does (the owner: Max kept catching under the lips):
-    on each lip rest to refill the jetpack, rise while moving into the open centre, keep rising to just
-    above the next lip, then move back out over the ring and come down onto it."""
+    """Climb a shaft of lips the way a player does (the owner: Max kept catching under the lips): on each
+    lip rest to refill the jetpack, rise where the way up is open, and once just above the next lip move
+    over it and come down onto it. Where the way up is open differs by level, so rise points are tried
+    from the ring spot in toward the open centre, and the one that lands is kept for the next level."""
     cx, cy, floors = shaft
+    fractions = [0.0, 0.5, 1.0]
     for _ in range(max_levels):
         here = game.pos()
         if here[2] >= goal_z - 2:
             return True
-        above = [f for f in floors if f > here[2] + 2] + [goal_z]
-        nxt = min(above)
-        game.lua('coop.pilot=nil coop.gunner=nil')
-        time.sleep(rest_s)
-        game.lua('coop_press(57, 7000)')
-        t0 = time.monotonic()
-        while time.monotonic() - t0 < 6:
-            p = game.pos()
-            target = (cx, cy) if p[2] < nxt + 2.5 else ring
-            if math.dist(p[:2], target) > 1.2:
-                game.lua(f'local p=coop.real_player() coop.Face(p,{target[0]}-p.position.x,{target[1]}-p.position.y,0) '
+        nxt = min([f for f in floors if f > here[2] + 2] + [goal_z])
+        landed = False
+        for frac in list(fractions):
+            rise = (ring[0] + (cx - ring[0]) * frac, ring[1] + (cy - ring[1]) * frac)
+            game.lua('coop.pilot=nil coop.gunner=nil')
+            # to the rise point on this lip (or floor), then a full tank
+            for _ in range(15):
+                p = game.pos()
+                if math.dist(p[:2], rise) < 1.5:
+                    break
+                game.lua(f'local p=coop.real_player() coop.Face(p,{rise[0]}-p.position.x,{rise[1]}-p.position.y,0) '
                          f'coop_press(17,200)')
-            if p[2] >= nxt + 2.5 and math.dist(p[:2], ring) < 3:
+                time.sleep(.2)
+            time.sleep(rest_s)
+            start_z = game.pos()[2]
+            game.lua('coop_press(57, 7000)')
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 6:
+                p = game.pos()
+                if p[2] >= nxt + 1.5:
+                    if math.dist(p[:2], ring) < 2.5:
+                        break
+                    game.lua(f'local p=coop.real_player() coop.Face(p,{ring[0]}-p.position.x,{ring[1]}-p.position.y,0) '
+                             f'coop_press(17,200)')
+                time.sleep(.12)
+            game.lua('coop_press(57, 0)')
+            time.sleep(1.5)
+            now = game.pos()
+            ok = now[2] > nxt - 2
+            log(f'    shaft: lip at {nxt:.1f} rising {frac:.0%} toward the centre: '
+                f'{"landed" if ok else "fell"} at {[round(v, 1) for v in now]}')
+            if ok:
+                fractions.remove(frac)
+                fractions.insert(0, frac)       # what worked first next time
+                landed = True
                 break
-            time.sleep(.15)
-        game.lua('coop_press(57, 0) coop.GunnerOn(60)')
-        time.sleep(1.5)
-        now = game.pos()
-        log(f'    shaft: lip at {nxt:.1f}, landed at {[round(v, 1) for v in now]}')
-        if now[2] < nxt - 2:
+            if now[2] < start_z - 2:             # fell below where it rose from: back to the lower lip
+                break
+        game.lua('coop.GunnerOn(60)')
+        if not landed:
             return False
     return game.pos()[2] >= goal_z - 2
 
