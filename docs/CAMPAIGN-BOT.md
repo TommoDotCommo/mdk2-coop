@@ -248,7 +248,7 @@ another (host first, then each client, hundreds of ms apart), and a fight or a s
 between.
 - hp: client 4's own log in run -083108 holds the host's hp sequence for the SAM spawn exactly
   (44, 38, 34, 28, 24, 18, 14, 8, 4, 0); the host dumped at 14, the clients' dumps came 2 to 3 hits later (8, 8, 0), after the retry's host dump too. The client is
-  always the lower one because it dumps last (all nine hp pairs in the five runs are client <= host).
+  always the lower one because it dumps last (client <= host in all 27 per-step hp findings of the 2026-10-31 runs).
 - extra enemy: the host's `ent spawn` line comes after its own dump in all of -065804 (`e003d`), -081843 (`a0407`),
   -083108 (`c040d`); the clients bound it before their dump. In -084429 (`103fc`) the host's dump read `ent 103fc gone`
   (corpse removed, DESPAWN sent at the next tick, 100 ms later) while the client's dump came before the DESPAWN arrived.
