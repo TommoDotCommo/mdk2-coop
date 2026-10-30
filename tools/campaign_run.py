@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+ASSIST = None       # --fuel-assist: None off, an empty set for every segment, else the segments ("9-10") given
 
 
 def hook_path(arg):
@@ -30,6 +31,10 @@ def hook_path(arg):
     if not hook:
         raise SystemExit('no resource hook: set MDK2_QA_RESOURCES or pass --resources (see docs/TESTING.md)')
     return hook
+
+
+def assisted(start, end):
+    return ASSIST is not None and (not ASSIST or f'{start}-{end}' in ASSIST)
 
 
 def flies(level, start):
@@ -111,7 +116,7 @@ def segment(level, seg, players, owner, hook, out, god, routes_on=True, chain=()
         result = {'segment': seg if not chain else f'{level}:{start}-{chain[-1]}',
                   'result': 'PASS' if run.returncode == 0 and len(legs) == len(chain) + 1 else 'FAIL',
                   'mode': ('chain ' if chain else '') + ('recorded' if '--route' in args else 'autonomous')
-                  + (' +fuel assist' if os.environ.get('MDK2_FUEL_ASSIST') == '1' else ''),
+                  + (' +fuel assist' if assisted(start, end) else ''),
                   'seconds': round(time.monotonic() - t0), 'last': tail[0] if tail else ''}
         if chain:
             result['legs'] = legs
@@ -172,7 +177,8 @@ def play(level, start, end, players, wsl, folder, routes_on, logname):
                 args += ['--record', f'seg_{level}_{start}_{end}']
         else:
             args += ['--scratch', str(folder / 'nav.json')]
-        run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=1500)
+        run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=1500,
+                             env=dict(os.environ, MDK2_FUEL_ASSIST='1' if assisted(start, end) else '0'))
     name = f'seg_{level}_{start}_{end}.route'
     made = Path(wsl[0]) / 'coop' / name
     if run.returncode == 0 and made.exists() and not (ROOT / 'local/routes' / name).exists():
@@ -193,8 +199,9 @@ def main(argv=None):
     ap.add_argument('--resources')
     ap.add_argument('--no-god', action='store_true', help='play without invulnerability')
     ap.add_argument('--no-routes', action='store_true', help='the bot on its own even where a recording exists')
-    ap.add_argument('--fuel-assist', action='store_true',
-                    help='test crutch: a refueller follows each hero so a flight never runs dry (reported in the mode)')
+    ap.add_argument('--fuel-assist', nargs='*', metavar='SEG',
+                    help='test crutch: a refueller follows each hero so a flight never runs dry; for all segments, '
+                         'or only those named (9-10 6-7); reported in the mode')
     ap.add_argument('--chain', action='store_true', help='consecutive segments of one level in one game pair, in order')
     a = ap.parse_args(argv)
     if a.campaign:
@@ -204,8 +211,9 @@ def main(argv=None):
                       if l == l2 and a.first <= l <= a.last]
     if not a.segments or (not a.level and any(':' not in s for s in a.segments)):
         ap.error('give --segments with --level, level:start-end segments, or --campaign')
-    if a.fuel_assist:
-        os.environ['MDK2_FUEL_ASSIST'] = '1'
+    global ASSIST
+    if a.fuel_assist is not None:
+        ASSIST = set(a.fuel_assist)
     hook = hook_path(a.resources)
     base = os.environ.get('LAB_OWNER') or os.environ.get('MDK2_QA_OWNER')
     if not base:
