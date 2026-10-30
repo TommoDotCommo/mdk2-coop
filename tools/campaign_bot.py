@@ -248,7 +248,7 @@ class Nav:
         if -6 <= rise <= self.WALK_RISE:
             # Max without Kurt's chute: keep off the rim of a drop (the pilot cuts corners, and the way
             # back up costs fuel)
-            return base * 4 if self.fly and not self.chute and self.rim(n) else base
+            return base * 20 if self.fly and not self.chute and self.rim(n) else base
         if rise < -6 and self.chute:                    # Kurt's chute
             return base * 2
         if rise < -6 and self.fly:
@@ -359,7 +359,7 @@ def walk(game, nav, goal, log, timeout=90):
             # keep later plans off the edge he went over: the cells above where he landed
             low = game.pos()
             for c in nav.cells.values():
-                if c[2] > low[2] + 6 and math.dist(c[:2], low[:2]) < 4:
+                if c[2] > low[2] + 6 and math.dist(c[:2], low[:2]) < 6:
                     Nav.blocked.add(Nav.spot(c))
         if fell and nav.fly:
             # off the edge into a pit (level 2 room 6: the shaft's open top, down onto its locked
@@ -1129,6 +1129,8 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
             spot = reachable_toward(nav, before, target)
             pos, state = walk(game, nav, spot, log)
             stats['walks'] += 1
+            if state == 'fell' and fly:
+                prepare_flight(game, level, scan(game, out, fly=True)[0], log)   # the way back up burnt fuel
             # progress is a new best distance to the target: walking back what a push lost is not
             gained = best - math.dist(pos[:2], target[:2])
             best = min(best, math.dist(pos[:2], target[:2]))
