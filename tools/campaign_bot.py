@@ -1671,6 +1671,22 @@ def jet_used(game):
         return 0
 
 
+def turrets_to_clear(objects, here, radius=45.0, dz=10.0):
+    """Names of the turrets near the hero, on his floor or hovering level with them: the ones a bay's
+    hatch waits for. The recording fired at them (level 2's bays) and went on only when they were dead."""
+    return [o['name'] for o in objects if o['type'] == 'OBJ_TURRET'
+            and math.dist(o['pos'][:2], here[:2]) < radius and abs(o['pos'][2] - here[2]) < dz]
+
+
+def live_count(game, names):
+    """How many of the named scripted objects are alive, in one call to the game."""
+    if not names:
+        return 0
+    code = 'local n=0 ' + ' '.join(f'local g=getglobal("{n}") if (g and coop_alive(g)==1) then n=n+1 end' for n in names) \
+        + ' coop_note("lc", tostring(n))'
+    return int(game.note('lc', code).strip() or 0)
+
+
 def nearest_ahead(here, pts, i, window=80, slack=1.5):
     """The point to carry on from: the earliest of the next `window` points that is within `slack` units
     of the nearest one. Taking the nearest alone jumped a hero hovering at a pump to a later point at the
@@ -1833,6 +1849,17 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 aimed.add(o['name'])
                 aimed_kill(game, o['name'], log, seconds=30)
                 game.lua('coop.GunnerOn(60)')
+        if 256 in p['keys'] and level and jetpack and ('bay', round(here[2] / 12)) not in retries:
+            # the recording fired at a bay's turrets here: stay (the gunner has the aim) until they are dead,
+            # as the hatch above stays shut until then
+            tur = turrets_to_clear(level.m['objects'], here)
+            if tur:
+                retries[('bay', round(here[2] / 12))] = 1
+                t1 = time.monotonic()
+                while time.monotonic() - t1 < 30 and live_count(game, tur):
+                    time.sleep(.7)
+                log(f'    turrets near {[round(v) for v in here]}: {live_count(game, tur)} of {len(tur)} left after '
+                    f'{time.monotonic() - t1:.0f}s')
         for code in p['keys']:
             game.lua(f'coop_press({code if code < 256 else code}, 450)')
         rise = p['pos'][2] - here[2]

@@ -203,6 +203,12 @@ def flight_rules(b, quiet=False):
                 b.nearest_ahead((12.4, 0.3, 0.0), loop, 0) == 4 and b.nearest_ahead((0.1, 0.0, 0.0), loop, 0) == 0))
     out.append(('a point clearly nearer than the current one is skipped to',
                 b.nearest_ahead((26.9, 0.0, 0.0), loop, 2) == 9))
+    # the turrets a bay's hatch waits for: those near the hero on his floor, not ones on other floors or far off
+    objs = [{'name': 'a', 'type': 'OBJ_TURRET', 'pos': [10.0, 0.0, 46.0]}, {'name': 'b', 'type': 'OBJ_TURRET', 'pos': [0.0, 20.0, 52.0]},
+            {'name': 'c', 'type': 'OBJ_TURRET', 'pos': [0.0, 5.0, 66.0]}, {'name': 'd', 'type': 'OBJ_TURRET', 'pos': [90.0, 0.0, 46.0]},
+            {'name': 'e', 'type': 'OBJ_DESTRUCTABLE', 'pos': [1.0, 1.0, 46.0]}]
+    out.append(('the turrets to clear are the near ones on the hero\'s floor',
+                b.turrets_to_clear(objs, (0.0, 0.0, 46.0)) == ['a', 'b']))
     # hovering with jump held after a climb (the owner's turret fight at a bay) stays flown until jump is let go
     hv = [{'ms': k * 100, 'pos': (0.0, 0.0, 3.0 * k), 'keys': [57], 'air': True, 'ride': False} for k in range(5)] \
         + [{'ms': 600 + k * 100, 'pos': (0.0, 0.0, 12.0), 'keys': [57, 256], 'air': False, 'ride': False} for k in range(4)] \
@@ -226,7 +232,7 @@ for label, ok in results:
 # mutants: each must make at least one check fail
 import types
 real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED', 'lift_ready',
-                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points')}
+                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear')}
 mutants = {
     'only "air" points are flown (the hop onto a lift is walked)':
         dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
@@ -247,6 +253,8 @@ mutants = {
     'a hovered pump is not flown': dict(hover_points=lambda pts, pads, reach=6.0: set()),
     'every flown point keeps above the platform': dict(tracked_points=lambda boards: {k: bd['lift']['name'] for bd in boards
                                                                                       for k in range(bd['start'], bd['last'] + 1)}),
+    'every turret counts, wherever it is': dict(turrets_to_clear=lambda objects, here, radius=45.0, dz=10.0:
+                                                [o['name'] for o in objects if o['type'] == 'OBJ_TURRET']),
     'no flight lands on a lift': dict(plan_boardings=lambda pts, fly, lifts, standoff=8.0, base=None: []),
     'every lift is the nearest, however far': dict(boarding=lambda pts, fly, i, lifts, reach=9.0:
                                                     real['boarding'](pts, fly, i, lifts, reach=1e9)),
