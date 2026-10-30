@@ -627,6 +627,23 @@ def destroy(game, objs, toward, log, seconds=20):
     return None
 
 
+def climb(game, target, seconds=9):
+    """A powered climb with Max's jetpack: one continuous hold of jump, the hero turned to the goal and
+    walking at it. Returns the highest z reached."""
+    game.lua('coop.pilot=nil coop_press(57, 8000)')
+    top, t0 = game.pos()[2], time.monotonic()
+    while time.monotonic() - t0 < seconds:
+        p = game.pos()
+        top = max(top, p[2])
+        if p[2] >= target[2] + 1:
+            break
+        game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p,{target[0]}-p.position.x,'
+                 f'{target[1]}-p.position.y,0) coop_press(17,250)')
+        time.sleep(.3)
+    game.lua('coop_press(57, 0)')
+    return top
+
+
 def prepare_flight(game, level, nav, log):
     """Max: pick up a jetpack lying within reach, then stand on the nearest reachable refueller."""
     here = game.pos()
@@ -735,10 +752,14 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
             # the goal straight above (level 2's shaft, 118 up): a powered climb, jump held while steering
             here = game.pos()
             if fly and target[2] - here[2] > 10 and math.dist(here[:2], target[:2]) < 40:
+                # fuel first (anything on the way burns it), then what works by hand: one long hold of
+                # jump while turning to and walking at the goal
+                prepare_flight(game, level, nav, log)
                 log(f'    climbing with the jetpack to {[round(v) for v in target]}')
-                r = game.goto(*target, radius=4, timeout=25, explore=0, fly=1, flat=0)
-                log(f'    climb: {r.get("state")} at {[round(v, 1) for v in game.pos()]}')
-                if r.get('state') == 'arrived' or game.pos()[2] > here[2] + 10:
+                z0 = game.pos()[2]
+                top = climb(game, target)
+                log(f'    climb: up {top - z0:.1f}, now at {[round(v, 1) for v in game.pos()]}')
+                if game.pos()[2] > z0 + 10:
                     stalls = 0
                     continue
             if fly and stalls == 1 and prepare_flight(game, level, nav, log):
