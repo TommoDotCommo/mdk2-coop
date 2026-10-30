@@ -1283,6 +1283,25 @@ function coop.PilotTick()
     local now = coop_ms()
     if (now < pl.next_ms) then return end
     pl.next_ms = now + 50
+    -- holding a height (Max following a recorded flight): thrust below the point's height, none above
+    -- it, so the hero hovers there; this goes on while the gunner aims, or he drops out of the air --
+    if (pl.fly == 2) then
+        if (p.position.z < pl.z - 0.4) then
+            if (now >= (pl.jet_until or 0)) then
+                coop_press(coop.pilot_keys.jump, 3000)
+                pl.jet_until = now + 2900
+            end
+            coop.jet_ms = (coop.jet_ms or 0) + 50
+            pl.off = nil
+        elseif (p.position.z > pl.z + 0.6 and not pl.off) then
+            -- also a hold left over from the point before (a new PilotGo does not know of it)
+            coop_press(coop.pilot_keys.jump, 0)
+            pl.jet_until = nil
+            pl.off = 1
+        elseif (pl.jet_until) then
+            coop.jet_ms = (coop.jet_ms or 0) + 50
+        end
+    end
     -- the gunner has the hero's aim: wait, and do not count it as stuck --
     if (coop.gunner and (coop.gunner.busy or 0) > now) then pl.best_ms = now return end
     local dx = pl.x - p.position.x
@@ -1291,6 +1310,16 @@ function coop.PilotTick()
     local d = sqrt(dx * dx + dy * dy)
     if (pl.flat == 0) then d = sqrt(dx * dx + dy * dy + dz * dz) end
     pl.d = d
+    if (pl.fly == 2 and d <= pl.r) then
+        -- over the point: arrived once at its height too; meanwhile hover without walking on
+        if (dz < (pl.zr or 2) and dz > -(pl.zr or 2)) then
+            pl.state = "arrived"
+            pl.ms = now - pl.t0
+        elseif (now - pl.best_ms > 4000) then
+            pl.state = "stuck"
+        end
+        return
+    end
     if (d <= pl.r) then
         pl.state = "arrived"
         pl.ms = now - pl.t0
@@ -1359,6 +1388,9 @@ function coop.PilotTick()
     if (d < pl.best - 0.75) then
         pl.best = d
         pl.best_ms = now
+    elseif (pl.fly == 2) then
+        -- in the air a stuck hop or strafe would upset the height: just give up after a while
+        if (now - pl.best_ms > 4000) then pl.state = "stuck" end
     elseif (now - pl.best_ms > 1500) then
         pl.stuck = pl.stuck + 1
         pl.best_ms = now

@@ -32,7 +32,7 @@ def hook_path(arg):
     return hook
 
 
-def segment(level, seg, players, owner, hook, out, god):
+def segment(level, seg, players, owner, hook, out, god, routes_on=True):
     if ':' in seg:
         level, seg = int(seg.split(':')[0]), seg.split(':')[1]
     start, end = (int(v) for v in seg.split('-'))
@@ -56,11 +56,19 @@ def segment(level, seg, players, owner, hook, out, god):
     dirs = [env[f'MDK2_DIR{i}'] for i in range(1, players + 1)]
     wsl = [subprocess.run(['wslpath', '-u', d], capture_output=True, text=True).stdout.strip() for d in dirs]
     t0 = time.monotonic()
+    # crashes fail a segment: tools/mdk.sh takes the crash guard's snapshot (dump folders, error dialogs,
+    # crash markers) before the games start, and it is checked when they have been closed
+    snap = subprocess.run(['bash', '-c', f'source "{ROOT}/tools/mdk.sh" >/dev/null 2>&1; echo "$MDK2_CRASH_STATE"'],
+                          env=env, capture_output=True, text=True).stdout.strip()
+    if snap and Path(snap).is_file():
+        env['MDK2_CRASH_STATE'] = snap
+    result = {'segment': seg, 'result': 'FAIL'}
     try:
         boot = f'source "{ROOT}/tools/mdk.sh" && "{ROOT}/tools/install.sh" >/dev/null && mdk_boot >/dev/null'
         b = subprocess.run(['bash', '-c', boot], env=env, capture_output=True, text=True, timeout=600)
         if b.returncode:
-            return {'segment': seg, 'result': 'BOOT', 'detail': b.stderr[-300:]}
+            result = {'segment': seg, 'result': 'BOOT', 'detail': b.stderr[-300:]}
+            return result
         # the host loads the start checkpoint by itself a while after the title screen: wait for it
         wait = ('import sys, time; sys.path.insert(0, sys.argv[1]); import campaign_bot as c\n'
                 'g = c.Game(sys.argv[2], 1); t0 = time.monotonic()\n'
@@ -74,7 +82,8 @@ def segment(level, seg, players, owner, hook, out, god):
         w = subprocess.run([sys.executable, '-c', wait, str(ROOT / 'tools'), wsl[0], str(level)],
                            capture_output=True, text=True)
         if w.returncode:
-            return {'segment': seg, 'result': 'BOOT', 'detail': (w.stderr or w.stdout)[-300:]}
+            result = {'segment': seg, 'result': 'BOOT', 'detail': (w.stderr or w.stdout)[-300:]}
+            return result
         setup = 'coop.save_interval=999999' + (' God(1)' if god else '')
         subprocess.run([sys.executable, '-c', 'import sys; sys.path.insert(0, sys.argv[1]); import campaign_bot as c\n'
                         'for i, d in enumerate(sys.argv[3:], 1): c.Game(d, i).lua(sys.argv[2])',
@@ -95,8 +104,10 @@ def segment(level, seg, players, owner, hook, out, god):
                 # its play is recorded, kept as the segment's route if it passes
                 routes = ROOT / 'local/routes'
                 known = routes / f'seg_{level}_{start}_{end}.route'
-                if known.exists():
+                if known.exists() and routes_on:
                     args += ['--route', str(known)]
+                elif known.exists():
+                    pass                    # the bot on its own, the recording kept as it is
                 else:
                     args += ['--record', f'seg_{level}_{start}_{end}']
             else:
@@ -107,9 +118,17 @@ def segment(level, seg, players, owner, hook, out, god):
         if run.returncode == 0 and made.exists() and not (ROOT / 'local/routes' / name).exists():
             (ROOT / 'local/routes').mkdir(parents=True, exist_ok=True)
             (ROOT / 'local/routes' / name).write_bytes(made.read_bytes())
-        tail = (folder / 'bot.log').read_text().strip().splitlines()[-1:]
+        lines = (folder / 'bot.log').read_text().strip().splitlines()
+        tail = lines[-1:]
         result = {'segment': seg, 'result': 'PASS' if run.returncode == 0 else 'FAIL',
+                  'mode': 'recorded' if '--route' in args else 'autonomous',
                   'seconds': round(time.monotonic() - t0), 'last': tail[0] if tail else ''}
+        stall = [l for l in lines if ' lost at point ' in l or 'ARRIVED' in l or 'gave up' in l.lower()]
+        if stall and run.returncode:
+            result['stall'] = stall[-1].strip()[:240]
+        diffs = [l.strip() for l in lines if l.strip().startswith('worlds at ')]
+        if diffs:
+            result['worlds'] = diffs[-1][:240]
         if "'world_ok': False" in result['last']:
             result['coop_finding'] = 'worlds differ (see statecheck_end_*.txt)'
     except subprocess.TimeoutExpired as e:
@@ -119,7 +138,19 @@ def segment(level, seg, players, owner, hook, out, god):
             log = Path(d) / 'coop' / 'bridge.log'
             if log.exists():
                 (folder / f'bridge_{i}.log').write_text(log.read_text(encoding='latin-1'), encoding='latin-1')
+        watch = [sys.executable, '-I', str(ROOT / 'tools/crashwatch.py')]
+        if env.get('MDK2_CRASH_STATE'):
+            subprocess.run(watch + ['dialogs', '--state', env['MDK2_CRASH_STATE'], '--close'], capture_output=True)
         subprocess.run(['bash', '-c', f'source "{ROOT}/tools/mdk.sh" && mdk_kill'], env=env, capture_output=True)
+        if env.get('MDK2_CRASH_STATE'):
+            c = subprocess.run(watch + ['check', '--state', env['MDK2_CRASH_STATE']], capture_output=True, text=True)
+            (folder / 'crash_check.txt').write_text(c.stdout + c.stderr)
+            if c.returncode:
+                result['crash'] = (c.stdout + c.stderr).strip()[-400:]
+                result['result'] = 'CRASH'
+            Path(env['MDK2_CRASH_STATE']).unlink(missing_ok=True)
+        else:
+            result['crash'] = 'unknown: no crash guard snapshot'
         subprocess.run([sys.executable, hook, 'release'], env=env, capture_output=True)
     (folder / 'results.json').write_text(json.dumps(result, indent=1))
     return result
@@ -136,6 +167,7 @@ def main(argv=None):
     ap.add_argument('--players', type=int, default=2)
     ap.add_argument('--resources')
     ap.add_argument('--no-god', action='store_true', help='play without invulnerability')
+    ap.add_argument('--no-routes', action='store_true', help='the bot on its own even where a recording exists')
     a = ap.parse_args(argv)
     if a.campaign:
         # tools/checkpoints.txt: the launcher's checkpoints in play order
@@ -151,7 +183,8 @@ def main(argv=None):
     out = ROOT / 'local/campaign/runs' / time.strftime('%Y%m%d-%H%M%S')
     out.mkdir(parents=True, exist_ok=True)
     with concurrent.futures.ThreadPoolExecutor(a.shards) as pool:
-        jobs = {pool.submit(segment, a.level, seg, a.players, f'{base}-seg{i}', hook, out, not a.no_god): seg
+        jobs = {pool.submit(segment, a.level, seg, a.players, f'{base}-seg{i}', hook, out, not a.no_god,
+                            not a.no_routes): seg
                 for i, seg in enumerate(a.segments)}
         results = []
         for job in concurrent.futures.as_completed(jobs):
@@ -159,6 +192,13 @@ def main(argv=None):
             results.append(r)
             print(f"{r['result']:<7} segment {r['segment']:<8} {r.get('seconds', '-')}s  {r.get('last', r.get('detail', ''))[:160]}", flush=True)
     (out / 'summary.json').write_text(json.dumps(results, indent=1))
+    rows = ['| segment | mode | result | seconds | stall point / last line | worlds | crash |', '|---|---|---|---|---|---|---|']
+    for r in sorted(results, key=lambda r: [int(v) for v in r['segment'].replace(':', '-').split('-')]):
+        cell = lambda v: str(v).replace('|', '/').replace('\n', ' ')
+        rows.append(f"| {r['segment']} | {r.get('mode', '-')} | {r['result']} | {r.get('seconds', '-')} | "
+                    f"{cell(r.get('stall') or r.get('detail') or r.get('last', ''))[:200]} | {cell(r.get('worlds', '-'))} | "
+                    f"{cell(r.get('crash', 'none'))[:120]} |")
+    (out / 'report.md').write_text('\n'.join(rows) + '\n')
     passed = sum(r['result'] == 'PASS' for r in results)
     print(f'RESULT: {passed}/{len(results)} segments passed; evidence {out}')
     return 0 if passed == len(results) else 1

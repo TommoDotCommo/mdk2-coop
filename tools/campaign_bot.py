@@ -1323,7 +1323,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             leader.lua(f'coop_route("record", "{record}")')
         if route:
             result['leader'] = follow(leader, route, lambda m: log('[1] ' + m), level=level,
-                                      scratch=str(Path(folder) / 'nav_1.json'))
+                                      scratch=str(Path(folder) / 'nav_1.json'), jetpack=fly)
         else:
             result['leader'] = advance(leader, level, goal, str(Path(folder) / 'nav_1.json'),
                                        lambda m: log('[1] ' + m), fly=fly, chute=chute)
@@ -1336,7 +1336,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 # every player plays the recording itself (Max's flights cannot be chased on foot);
                 # a player stuck on it walks on toward the leader
                 ok, stats = follow(g, route, lambda m: log(f'[{g.slot}] ' + m), level=level,
-                                   scratch=str(Path(folder) / f'nav_{g.slot}.json'))
+                                   scratch=str(Path(folder) / f'nav_{g.slot}.json'), jetpack=fly)
                 result[f'follower_{g.slot}'] = stats
                 if ok:
                     return
@@ -1375,6 +1375,11 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
 
 # Keys that move or turn the hero: the pilot does that itself when following a recording.
 MOVE_KEYS = {17, 30, 31, 32, 200, 203, 205, 208}
+# Level 2 room 9's lifts rise about 4 units a second; a fall is several times faster.
+LIFT_SPEED = 8.0
+# Max's standard jetpack: a full tank is about 10.5 s of thrust, climbing some 15 units a second.
+TANK_MS = 10500
+JET_CLIMB = 15.0
 
 
 def load_route(path):
@@ -1467,8 +1472,9 @@ def route_waypoints(frames, step_ms=400, step_units=3.0):
         if last is None or moved >= step_units or (moved >= 0.5 and ms - last[0] >= 5 * step_ms):
             # a lift ride (level 2 room 9's rising platforms): height changed, the hero stood still and
             # held no jump; the follower waits there for the lift instead of walking on
+            # (at a lift's pace: falling straight down a shaft, 25 units a second, is no ride)
             ride = bool(last) and math.dist(pos[:2], last[1][:2]) < 1.0 and abs(pos[2] - last[1][2]) >= 2 \
-                and 57 not in held
+                and 57 not in held and abs(pos[2] - last[1][2]) / max(ms - last[0], 1) * 1000 < LIFT_SPEED
             out.append({'ms': ms, 'pos': pos, 'keys': sorted(held), 'level': level, 'cp': cp, 'ride': ride,
                         'air': air and not ride})
             held, last = set(), (ms, pos)
@@ -1478,23 +1484,109 @@ def route_waypoints(frames, step_ms=400, step_units=3.0):
     return out
 
 
-def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None):
+def flown(pts):
+    """Indices of the recording's points the follower flies at their recorded height (the pilot's
+    height hold, fly=2) rather than walks: points in the air, points risen to with jump held (a jetpack
+    hop onto a platform, too low to count as air), and the landing point after them, so the hero comes
+    down onto the spot the person landed on instead of dropping short of it."""
+    out, up = set(), False
+    for k, p in enumerate(pts):
+        rise = p['pos'][2] - pts[k - 1]['pos'][2] if k else 0
+        was, up = up, bool(p.get('air') or (57 in p['keys'] and rise > 0.7 and not p.get('ride')))
+        if up or (was and not p.get('ride')):
+            out.add(k)                      # in the air, or the landing just after
+    return out
+
+
+def stretch_start(pts, fly, i):
+    """The last point walked (not flown) before point i: where a failed flight is tried again from."""
+    k = i
+    while k > 0 and k in fly:
+        k -= 1
+    return k
+
+
+def refuel_mode(pts, pad, reach=5.0):
+    """How the recording filled up at a refueller: 'stand' on it (a pad on a floor or step), 'hover'
+    beside it (level 2 room 9's pumps hang in the shaft: the person tapped jump next to one), or None
+    when the recording never came near it."""
+    near = [p for p in pts if math.dist(p['pos'], pad['pos']) < reach]
+    if not near:
+        return None
+    if any(p.get('air') or 57 in p['keys'] for p in near) and \
+            not any(abs(p['pos'][2] - pad['pos'][2]) < 1.0 and 57 not in p['keys'] for p in near):
+        return 'hover'
+    return 'stand'
+
+
+def needs_fuel(used_ms, pts, fly, i, pads=(), tank_ms=TANK_MS, climb=JET_CLIMB):
+    """Whether the jetpack (used_ms of thrust since it was last filled) is likely to run dry on the
+    flight starting at point i before it lands or reaches a refueller: that stretch's climb at the
+    jetpack's rate, plus a margin. A tank just filled is never refilled (a climb longer than one tank
+    needs the refuellers on the way)."""
+    if i not in fly or used_ms < 1500:
+        return False
+    k, up = i, 0.0
+    while k in fly and k < len(pts):
+        if k:
+            up += max(0.0, pts[k]['pos'][2] - pts[k - 1]['pos'][2])
+        if k > i and any(math.dist(pts[k]['pos'], pad) < 5 for pad in pads):
+            break
+        k += 1
+    return used_ms + up / climb * 1000 + 1500 > tank_ms
+
+
+def hover_refuel(game, pad, log, seconds=6):
+    """Fill up beside a refueller hanging in the air: hold a height just above it, over it, a while."""
+    x, y, z = pad['pos']
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < seconds:
+        game.goto(x, y, z + 2.5, radius=1.5, timeout=2, explore=0, fly=2)
+    game.lua('coop_press(57, 0)')
+    p = game.pos()
+    ok = math.dist(p, (x, y, z + 2.5)) < 4
+    log(f'    hovered by {pad["name"]}: {"yes" if ok else "no"}, hero at {[round(v, 1) for v in p]}')
+    return ok
+
+
+def jet_used(game):
+    try:
+        return int(float(game.note('jet', 'coop_note("jet", tostring(coop.jet_ms or 0))').strip()))
+    except (ValueError, TimeoutError):
+        return 0
+
+
+def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None, jetpack=True):
     """Play a recording closed-loop: walk its positions with the pilot (skipping on when nearer a later
     point), pressing the action keys the recording held on each stretch. Robust to timing and drift,
     unlike replaying the inputs by the clock."""
     pts = route_waypoints(load_route(path))
-    log(f'  following {len(pts)} points of {path}')
-    game.lua('coop.GunnerOn(60)')
+    # without a jetpack (level 2 before checkpoint 5) the recording's air is jumps: walked, with a jump
+    fly = flown(pts) if jetpack else set()
+    pads = [o for o in level.m['objects'] if o['type'] == 'OBJ_REFUELLER'] if level else []
+    log(f'  following {len(pts)} points of {path} ({len(fly)} flown at their height)')
+    # a checkpoint start past a refueller has a full tank (coop.FuelGrantTick); count thrust from here
+    game.lua('coop.GunnerOn(60) coop.jet_ms=0')
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
-    helped, aimed, flybacks, fuelled_at = set(), set(), {}, {}
+    helped, aimed, flybacks, fuelled_at, retries, pinned = set(), set(), {}, {}, {}, False
+
+    def refuel(pad, why):
+        mode = refuel_mode(pts, pad) or ('hover' if pad['pos'][2] > game.pos()[2] + 2 else 'stand')
+        fuelled_at[pad['name']] = i
+        ok = hover_refuel(game, pad, log) if mode == 'hover' else mount_refueller(game, pad, log)
+        if ok:
+            game.lua('coop.jet_ms=0')
+        log(f'  refuelled at {pad["name"]} ({mode}, {why}): {"yes" if ok else "no"}')
+        return ok
+
     while i < len(pts):
         here = game.pos()
         if math.dist(here, pts[-1]['pos']) < 6:
             break                           # at the recording's end (the next checkpoint) already
-        # skip on: the nearest of the next few points
+        # skip on: the nearest of the next few points (not while going back to retry a flight or lift)
         ahead = range(i, min(len(pts), i + 80))
         j = min(ahead, key=lambda k: math.dist(here, pts[k]['pos']))
-        if j > i:
+        if j > i and not pinned:
             i = j
         p = pts[i]
         if p.get('ride'):
@@ -1516,10 +1608,15 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             z = game.pos()[2]
             log(f'  lift ride at points {i}-{j}: {"rode to" if abs(z - want) <= 1.5 else "stopped at"} '
                 f'{z:.1f} (recorded {want:.1f})')
+            if abs(z - want) > 1.5 and z < want and retries.get(('ride', i), 0) < 2:
+                # not on the lift: go back to the way onto it (often a jetpack hop) and try again
+                retries[('ride', i)] = retries.get(('ride', i), 0) + 1
+                i, pinned = stretch_start(pts, fly, max(0, i - 1)), True
+                continue
             i = j + 1
             last_progress, best = time.monotonic(), None
             continue
-        if here[2] < p['pos'][2] - 6 and flybacks.get(i, 0) < 3 and \
+        if jetpack and i not in fly and here[2] < p['pos'][2] - 6 and flybacks.get(i, 0) < 3 and \
                 (57 in p['keys'] or any(57 in q['keys'] for q in pts[max(0, i - 8):i])):
             flybacks[i] = flybacks.get(i, 0) + 1
             # below the recording where it flew or glided (room 6: across the shaft's open top on
@@ -1533,22 +1630,49 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             if ok:
                 last_progress, best = time.monotonic(), None
                 continue
-        if level:
-            # the recording stood on a refueller (it fills only there, while standing): do the same
-            pad = next((o for o in level.m['objects'] if o['type'] == 'OBJ_REFUELLER'
-                        and math.dist(o['pos'], p['pos']) < 2.5 and i - fuelled_at.get(o['name'], -99) > 30), None)
-            if pad:
-                fuelled_at[pad['name']] = i
-                ok = mount_refueller(game, pad, log)
-                log(f'  refuelled at {pad["name"]} as the recording did: {"yes" if ok else "no"}')
-        if p.get('air'):
-            # the recording was in the air here (a flight, or a glide over a gap): fly to the point at
-            # its height instead of walking off an edge
-            more = i + 1 < len(pts) and pts[i + 1].get('air')
-            ok, at = jet_to(game, p['pos'][2], p['pos'][:2], seconds=6, over=0.5, land=not more)
-            if ok or math.dist(at, p['pos']) < radius + 1:
+        # the recording filled up at a refueller here (standing on it, or hovering by one hanging in a
+        # shaft): do the same
+        pad = next((o for o in pads if math.dist(o['pos'], p['pos']) < 5
+                    and i - fuelled_at.get(o['name'], -99) > 30), None)
+        if pad:
+            refuel(pad, 'as the recording did')
+        if i in fly:
+            # a flight (or a hop onto a platform): first, enough fuel for it, from a refueller in reach
+            if i - 1 not in fly and needs_fuel(jet_used(game), pts, fly, i, [o['pos'] for o in pads]):
+                near = [o for o in pads if math.dist(o['pos'], here) < 60]
+                if near:
+                    refuel(min(near, key=lambda o: math.dist(o['pos'], here)), 'low before a flight')
+                    game.goto(*pts[max(0, i - 1)]['pos'], radius=2, timeout=15, explore=1)
+            # fly to the point holding its recorded height (the pilot's height hold), not walking off
+            # an edge or sinking under a lip
+            r = game.goto(*p['pos'], radius=1.5, timeout=6, explore=0, fly=2)
+            at = game.pos()
+            if r.get('state') == 'arrived' or (math.dist(at[:2], p['pos'][:2]) < radius
+                                               and abs(at[2] - p['pos'][2]) < 2.5):
                 i += 1
+                pinned = False
                 last_progress, best = time.monotonic(), None
+                continue
+            d = math.dist(at, p['pos'])
+            if best is None or d < best - 1:
+                best, last_progress = d, time.monotonic()
+            if at[2] > p['pos'][2] - 4 and r.get('state') != 'stuck' and time.monotonic() - last_progress < 15:
+                continue                    # still up there (the gunner had the aim a while): go on
+            s = stretch_start(pts, fly, i)
+            if retries.get(s, 0) < 3:
+                # the flight failed (out of fuel, or caught under something): down, refuel at the
+                # nearest refueller in reach, back to where the flight began and fly it again
+                retries[s] = retries.get(s, 0) + 1
+                game.lua('coop.PilotStop() coop_press(57, 0)')
+                time.sleep(2)
+                here = game.pos()
+                log(f'  flight failed at point {i} {p["pos"]}, hero at {[round(v, 1) for v in here]}: '
+                    f'again from point {s} (try {retries[s]})')
+                near = [o for o in pads if math.dist(o['pos'], here) < 60]
+                if near:
+                    refuel(min(near, key=lambda o: math.dist(o['pos'], here)), 'after a failed flight')
+                game.goto(*pts[s]['pos'], radius=2, timeout=20, explore=1)
+                i, pinned = s, True
                 continue
         if 256 in p['keys'] and level:
             # the recording was shooting here: what it shot is most likely the nearest living scripted
@@ -1563,10 +1687,13 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         for code in p['keys']:
             game.lua(f'coop_press({code if code < 256 else code}, 450)')
         rise = p['pos'][2] - here[2]
-        r = game.goto(*p['pos'], radius=radius, timeout=6, explore=0, jump=int(0.7 < rise <= 3.5),
-                      fly=int(57 in p['keys'] and rise > 3.5))
+        # Kurt: a drop the recording made with jump held is a glide (the chute opens on a held jump)
+        r = game.goto(*p['pos'], radius=radius, timeout=6, explore=0,
+                      jump=int(0.7 < rise <= 3.5 or (not jetpack and 57 in p['keys'] and rise > -1)),
+                      fly=int(57 in p['keys'] and rise > 3.5), chute=int(57 in p['keys'] and rise < -4))
         if r.get('state') == 'arrived' or math.dist(game.pos(), p['pos']) < radius + 1:
             i += 1
+            pinned = False
             last_progress, best = time.monotonic(), None
             continue
         # the pilot would not move (within its own idea of arrival, or turned away): a few plain steps
