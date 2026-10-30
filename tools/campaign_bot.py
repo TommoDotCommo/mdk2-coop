@@ -1469,7 +1469,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     log(f'  following {len(pts)} points of {path}')
     game.lua('coop.GunnerOn(60)')
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
-    helped = set()
+    helped, aimed = set(), set()
     while i < len(pts):
         here = game.pos()
         # skip on: the nearest of the next few points
@@ -1512,6 +1512,16 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             if ok:
                 last_progress, best = time.monotonic(), None
                 continue
+        if 256 in p['keys'] and level:
+            # the recording was shooting here: what it shot is most likely the nearest living scripted
+            # objective (the arena's generators: one left at 16 hp kept its exit shut), so aim at it
+            near = [o for o in objectives(level, here, None, radius=50)
+                    if o['name'] not in aimed and math.dist(o['pos'], here) < 50]
+            near = [o for o in near if alive(game, o['name'])][:1]
+            for o in near:
+                aimed.add(o['name'])
+                aimed_kill(game, o['name'], log, seconds=30)
+                game.lua('coop.GunnerOn(60)')
         for code in p['keys']:
             game.lua(f'coop_press({code if code < 256 else code}, 450)')
         rise = p['pos'][2] - here[2]
