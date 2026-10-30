@@ -209,6 +209,11 @@ def flight_rules(b, quiet=False):
             {'name': 'e', 'type': 'OBJ_DESTRUCTABLE', 'pos': [1.0, 1.0, 46.0]}]
     out.append(('the turrets to clear are the near ones on the hero\'s floor',
                 b.turrets_to_clear(objs, (0.0, 0.0, 46.0)) == ['a', 'b']))
+    out.append(('the gunner is given turret names as a Lua table', b.lua_names(['a', 'b']) == '{"a", "b"}'))
+    # the Lua gunner must list the targets it was given (a bay's turrets are not actors)
+    lua = open(os.path.join(os.path.dirname(__file__), '..', 'lua', 'coop_dev.lua')).read()
+    out.append(('the gunner shoots named scripted objects (turrets)',
+                'function coop.GunnerTargets' in lua and 'coop.GunnerPick(p, gn)' in lua))
     # hovering with jump held after a climb (the owner's turret fight at a bay) stays flown until jump is let go
     hv = [{'ms': k * 100, 'pos': (0.0, 0.0, 3.0 * k), 'keys': [57], 'air': True, 'ride': False} for k in range(5)] \
         + [{'ms': 600 + k * 100, 'pos': (0.0, 0.0, 12.0), 'keys': [57, 256], 'air': False, 'ride': False} for k in range(4)] \

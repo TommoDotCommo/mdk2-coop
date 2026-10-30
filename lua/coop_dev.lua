@@ -1250,6 +1250,24 @@ end
 -- range is faced and shot with the fire button; the pilot waits meanwhile. Counts shots and targets.
 coop.gunner = nil
 function coop.GunnerOn(range) coop.gunner = { range = range or 60, shots = 0, engaged = 0, next_ms = 0, skip = {}, kills = 0 } end
+-- Scripted objects the gunner also shoots (a bay's turrets are not actors, so coop_nearest_enemy never lists
+-- them): names from the level model. They are faced with pitch, nearest living one first, no line of sight test.
+function coop.GunnerTargets(names)
+    if (coop.gunner) then coop.gunner.names = names coop.gunner.nname = 0 end
+end
+function coop.GunnerPick(p, gn)
+    local best, bd, i = nil, gn.range * gn.range, 1
+    while (gn.names and gn.names[i]) do
+        local g = getglobal(gn.names[i])
+        if (g and coop_alive(g) == 1 and not gn.skip[g]) then
+            local dx, dy, dz = g.position.x - p.position.x, g.position.y - p.position.y, g.position.z - p.position.z
+            local d = dx * dx + dy * dy + dz * dz
+            if (d < bd) then best = g bd = d end
+        end
+        i = i + 1
+    end
+    return best
+end
 function coop.GunnerTick()
     local gn = coop.gunner
     if (not gn) then return end
@@ -1267,6 +1285,7 @@ function coop.GunnerTick()
             k = k + 1
         end
     end
+    if (not e) then e = coop.GunnerPick(p, gn) gn.turret = e end
     if (e) then
         if (gn.target ~= e) then
             gn.engaged = gn.engaged + 1
@@ -1284,7 +1303,11 @@ function coop.GunnerTick()
             return
         end
         -- Max tips onto his side when pointed up or down (the owner saw it): he only turns --
-        coop.Face(p, e.position.x - p.position.x, e.position.y - p.position.y, 0)
+        if (gn.turret == e) then
+            coop.Face(p, e.position.x - p.position.x, e.position.y - p.position.y, e.position.z - p.position.z - 3)
+        else
+            coop.Face(p, e.position.x - p.position.x, e.position.y - p.position.y, 0)
+        end
         coop_press(256, 150)
         gn.shots = gn.shots + 1
         gn.busy = now + 300
