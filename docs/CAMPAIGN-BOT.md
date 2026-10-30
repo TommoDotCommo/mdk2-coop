@@ -176,8 +176,11 @@ stretches the person flew or glided; flying those airborne points at their recor
 newest change and is not yet tested. On its own, without a recording, the bot passes 3→4, 5→6
 (252 s), 7→8 and 8→9.
 
-Levels 3 and 4 on the bot's own (two players, Overhaul, God on, clock x2; a partial run, stopped after
-four segments): 3:1→2, 4:1→2 (the window broken) and 4:3→4 pass; 4:2→3 stops on the second window,
+Levels 3 and 4 on the bot's own, second run (eight segments): 3:2→3 and 4:9→10 pass as well; 4:5→6 rides the
+vortex fan (a lift of 218 units) and then falls out; 4:8→9 got to 61 units from its checkpoint when the time ran out;
+4:2→3 now has blind chute drops (walk off a rim toward a landing the scan cannot see), not yet run live; 4:4→5 and
+4:10→11 are held up by fans and sniper locks whose chains are long (the lock under 4:10→11's pit shows only from the
+pit's ring). Earlier partial run (stopped after four segments): 3:1→2, 4:1→2 (the window broken) and 4:3→4 pass; 4:2→3 stops on the second window,
 which took more than one sniper round (now sniped again while rounds hit; not yet rerun). The fan
 ride and the switch-on chain openers are built and tested without the game, not yet live. Most of
 level 3 needs Doc's items (leaf blower, duct tape, ladders, magnet), the fish minigame or the
