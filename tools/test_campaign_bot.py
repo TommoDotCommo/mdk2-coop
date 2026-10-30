@@ -169,4 +169,19 @@ if lv4file.exists():
     below = [1137.0, -348.0, -102.0]
     check('a hero below every room box is planned from the nearest room, not a crash',
           lv4.room_of(below) is None and lv4.path(below, [1117.0, -545.0, 252.0])[1])
-print('23 passed, 0 failed')
+# the game moves note_<key>.tmp over note_<key>.txt; the move fails while the bot has the .txt open, and
+# the newer text then stays in the .tmp (a scan 'done' that never showed: a 15 minute wait)
+import os
+import tempfile
+with tempfile.TemporaryDirectory() as td:
+    txt, tmp = Path(td) / 'note_nav_state.txt', Path(td) / 'note_nav_state.tmp'
+    check('a note not written yet reads as None', bot.read_note(txt) is None)
+    txt.write_text('running')
+    check('a note is its .txt', bot.read_note(txt) == 'running')
+    tmp.write_text('done 22849 115')
+    os.utime(txt, ns=(1, 1))
+    check('a newer .tmp left by a failed move is the note', bot.read_note(txt) == 'done 22849 115')
+    os.utime(tmp, ns=(1, 1))
+    os.utime(txt, ns=(2, 2))
+    check('an older .tmp is not', bot.read_note(txt) == 'running')
+print('27 passed, 0 failed')

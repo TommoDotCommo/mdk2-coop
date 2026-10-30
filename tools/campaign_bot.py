@@ -48,13 +48,16 @@ class Game:
         with self.lock:
             path = self.coop / f'note_{key}.txt'
             path.unlink(missing_ok=True)
+            path.with_suffix('.tmp').unlink(missing_ok=True)
             self._lua(code, 12)
             deadline = time.monotonic() + timeout
-            while not path.exists():
+            while True:
+                text = read_note(path)
+                if text is not None:
+                    return text
                 if time.monotonic() > deadline:
                     raise TimeoutError(f'game {self.slot}: no note {key} (Lua error? see bridge.log)')
                 time.sleep(.03)
-            return path.read_text()
 
     def state(self):
         self.serial += 1
@@ -317,6 +320,23 @@ class Nav:
         return out
 
 
+def read_note(path):
+    """The text of a coop_note file, or None. The game writes note_<key>.tmp and moves it over
+    note_<key>.txt; the move fails while a reader has the .txt open (the bot polling it), leaving the
+    newer text in the .tmp for good, so the newer of the two is the note."""
+    path = Path(path)
+    best = None
+    for p in (path, path.with_suffix('.tmp')):
+        try:
+            st = p.stat().st_mtime_ns
+            text = p.read_text()
+        except OSError:
+            continue
+        if best is None or st >= best[0]:
+            best = (st, text)
+    return best[1] if best else None
+
+
 def scan(game, out, timeout=900, fly=False, chute=False):
     """Scan the hero's surroundings (coop.NavStart) and save the cells."""
     for old in game.coop.glob('note_nav_*.txt'):
@@ -331,7 +351,7 @@ def scan(game, out, timeout=900, fly=False, chute=False):
     deadline = time.monotonic() + timeout
     state = game.coop / 'note_nav_state.txt'
     while time.monotonic() < deadline:
-        text = state.read_text() if state.exists() else ''
+        text = read_note(state) or ''
         if text.startswith('done') or text.startswith('nofloor'):
             break
         time.sleep(1)
@@ -340,7 +360,7 @@ def scan(game, out, timeout=900, fly=False, chute=False):
         nav.add_lines(f.read_text())
     nav.fly, nav.chute = fly, chute
     nav.save(out)
-    return nav, (state.read_text() if state.exists() else 'timeout')
+    return nav, (read_note(state) or 'timeout')
 
 
 def walk(game, nav, goal, log, timeout=90):
