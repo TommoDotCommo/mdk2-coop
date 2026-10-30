@@ -315,8 +315,8 @@ between.
 
 ## Status
 
-This file is the integrated status of four worker branches (flight and chaining, levels 3 and 4,
-co-op checks, flying-enemy drift) merged onto the campaign-bot branch. Evidence paths below are
+This file is the integrated status of the worker branches (flight and chaining, levels 3 and 4,
+co-op checks, flying-enemy drift, the second host dump and the hp-only APPLY fix) merged onto the campaign-bot branch. Evidence paths below are
 under `local/` (ignored), from each branch's own runs; the integrated tree has been checked with
 the game-free gates and a short live smoke (see the last section).
 
@@ -345,14 +345,18 @@ the game-free gates and a short live smoke (see the last section).
 - Level 2, the bot's own play: 3→4, 5→6 (252 s), 7→8 and 8→9. At the co-op branch's tip the owner's
   recording of 5→6 fails (both players stop under the shaft) and the bot's own 5→6 failed at x1
   (`local/campaign/runs/20261030-233117/run1/2-5-6`).
-- Levels 3 and 4 on the bot's own, second run (eight segments): 3:2→3 and 4:9→10 pass; 3:1→2,
-  4:1→2 (the window broken) and 4:3→4 passed in an earlier partial run. 4:5→6 rides the vortex fan
-  (a lift of 218 units) and then falls out; 4:8→9 got to 61 units from its checkpoint when the
-  time ran out; 4:2→3 now has blind chute drops, not yet run live; 4:4→5 and 4:10→11 are held up
-  by fans and sniper locks whose chains are long. The fan ride and the switch-on chain openers are
-  built and unit-tested, not yet live. Most of level 3 needs Doc's items, the fish minigame or the
-  spacewalk, and level 4 needs the theatre's '?' doors, the stage dance and bouncing sniper shells,
-  so these need a person's recording; the owner's level 3 journals hold no play.
+- Levels 3 and 4 on the bot's own, third run (full table in the run's `report.md`; two players, God on):
+  passing are 3:1→2, 3:2→3, 3:3→4 (the plane scan), 3:4→5 (timing dependent), 3:10→11 (trivial),
+  4:1→2, 4:2→3 (362 s: the tunnel plug sniped, the tunnel walked, the 175 unit shaft dropped with the
+  chute held, the room's generator killed), 4:3→4, 4:6→7 (131 s), 4:8→9 (1069 s, needs a 1200 s
+  limit) and 4:9→10. Worlds matched at the end of every one (L3 13 enemies, L4 48 to 53 compared).
+  Held up by something the bot does not do yet: 3:5→6 (the elevator at (17,34) is not entered),
+  3:6→16 to 3:9→10 (walkway, slide, Doc's items, the spacewalk; the plane scan only gives a rough
+  map there), 4:4→5 (the neck is passed, then the platforms: the lock chain l4_blowlock02 → blower02
+  is sniped from the pit and misses), 4:5→6 (the vortex: the three spheres are hit, the fans lift
+  Kurt 17 units at a time, the target is 138 higher), 4:7→8 (the exit door of the arena does not
+  open), 4:10→11 (the pit's lock hit without a draft) and 4:11→14 (a generator no reachable place
+  sees). The owner's level 3 journals hold no play (the hero stands still), so they give no routes.
 - Co-op: the per-step comparison and its desync mutant (level 2, 5→6, x2), the crash watch and its
   crash mutant (level 2, 7→8), the no-God care on 7→8 (three runs at x1) and the revive with the
   `down` / `down-stay` mutants (`local/campaign/runs/20261030-234947`). The care loop keeps each
@@ -360,33 +364,20 @@ the game-free gates and a short live smoke (see the last section).
 - Flying enemies on clients: `tools/qa_flyers.sh` measured at most 97.0 units of drift with the old
   behaviour (mutant `attached`) and at most 3.3 with the fix (91.8 and 9.0 at x2).
 
+- Roles with three and four players (level 2, 3→4, x1, Overhaul build): both PASS with the regroup
+  checked. 3→4 was used because 5→6 does not pass; it has eight objectives at the goal's height
+  (alerts, a door lock, walls). The no-God series fails on 3→4 (the bot cannot yet survive room 3's
+  turrets) and 8→9 (the route is lost without God mode, reason unknown); 5→6 still fails with God.
+- Fixed on the way: the care loop could not read the leader's position while the leader's pilot held
+  the command file, so a downed player got no reviver for 30 s and bled out (it keeps each game's last
+  reading); the regroup did not send the leader; `world_ok` at a segment's end counted known
+  flying-enemy drift as a difference.
+- World comparison against a second host dump (`statecheck.py --after`, taken once the clients' are
+  written): hp, position and spawn differences that the host's own world passed through in between are
+  dump skew, not co-op bugs; `tools/qa_hpsync.sh` (with its `nosync` mutant) gates the hp-only APPLY fix
+  for the silent host hp refill. See the per-step mismatches section above.
+
 **Not yet**
-- `--roles` live; 3 and 4 player runs; the no-God series on 5→6.
+- The no-God series on 5→6; 5→6 itself at x1.
 - Levels 5 to 12 beyond the survey, Doc's items, sniper locks that need long chains, bosses,
   minigames, movies, combat damage to the hero.
-
-Levels 3 and 4 on the bot's own, third run (full table in the run's `report.md`; Overhaul build, two players,
-God on): passing are 3:1→2, 3:2→3, 3:3→4 (the plane scan), 3:4→5 (timing dependent), 3:10→11 (trivial),
-4:1→2, 4:2→3 (362 s: the tunnel plug sniped, the tunnel walked, the 175 unit shaft dropped with the chute
-held, the room's generator killed), 4:3→4, 4:6→7 (131 s), 4:8→9 (1069 s, needs a 1200 s limit) and 4:9→10.
-Worlds matched at the end of every one of them (L3 13 enemies, L4 48 to 53 compared). Held up by something
-the bot does not do yet: 3:5→6 (the elevator at (17,34) is not entered), 3:6→16 to 3:9→10 (walkway, slide,
-Doc's items, the spacewalk; the plane scan only gives a rough map there), 4:4→5 (the neck is passed, then the
-platforms: the lock chain l4_blowlock02 → blower02 is sniped from the pit and misses), 4:5→6 (the vortex:
-the three spheres are hit, the fans lift Kurt 17 units at a time, the target is 138 higher), 4:7→8 (the exit
-door of the arena does not open), 4:10→11 (the pit's lock hit without a draft) and 4:11→14 (a generator no
-reachable place sees). The owner's level 3 journals hold no play (the hero stands still), so they give no
-routes. Not yet: levels 5 to 12, Doc's items, bosses, minigames,
-movies, combat damage to the hero.
-
-Co-op checks at the branch tip (all on level 2, Overhaul build, x1): the per-step comparison and its
-desync mutant, the crash watch and its crash mutant, the no-God care on 7 to 8 (three runs), the revive
-with its mutants (down passes, down-stay fails), and roles with three and four players on 3 to 4 (both
-PASS, regroup checked) are shown live. The no-God series fails on 3 to 4 and 8 to 9 (see the Co-op
-section: the bot cannot yet survive room 3's turrets, and 8 to 9 loses its route without God mode for an
-unknown reason); 5 to 6 still fails with God mode too (the flight code is another job's). The 3 and 4
-player runs are on 3 to 4, which has eight objectives at the goal's height (alerts, a door lock, walls),
-because 5 to 6 does not pass. Found and fixed on the way: the care loop could not read the leader's
-position while the leader's pilot held the command file, so a downed player got no reviver for 30 s and
-bled out (it keeps each game's last reading); the regroup did not send the leader; `world_ok` at a
-segment's end counted known flying-enemy drift as a difference.
