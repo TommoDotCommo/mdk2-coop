@@ -823,8 +823,12 @@ def destroy(game, objs, toward, log, seconds=20):
         # of it), otherwise along the way the hero wants to go
         here = game.pos()
         near = min(objs, key=lambda o: math.dist(o['pos'][:2], here[:2]))
-        aim = near['pos'] if math.dist(near['pos'][:2], here[:2]) < 40 else toward
-        game.lua(f'local p=coop.real_player() coop.Face(p, {aim[0]}-p.position.x, {aim[1]}-p.position.y, 0) '
+        close = math.dist(near['pos'][:2], here[:2]) < 40
+        aim = near['pos'] if close else toward
+        # its registered position is the pivot, which may sit well above the hero's feet: aim at it with
+        # pitch on every other burst
+        rise = near['pos'][2] - here[2] - 3 if close and int((time.monotonic() - t0) / .5) % 2 else 0
+        game.lua(f'local p=coop.real_player() coop.Face(p, {aim[0]}-p.position.x, {aim[1]}-p.position.y, {rise:.1f}) '
                  f'coop_press(256, 600)')
         time.sleep(.5)
     return None
@@ -1290,6 +1294,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
     stats = {'scans': 0, 'walks': 0, 'destroyed': [], 'rounds': 0, 'skipped': 0}
     game.level = level
     tried_from = {}
+    tried_walls = set()
     if level.m.get('level') in (2, 5, 8, 11):
         max_arm(game, log)
     if fly:
@@ -1401,6 +1406,19 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 top = climb(game, target)
                 log(f'    climb: up {top - z0:.1f}, now at {[round(v, 1) for v in game.pos()]}')
                 if game.pos()[2] > z0 + 10:
+                    stalls = 0
+                    continue
+            # a scripted wall within a few strides is what the way on needs broken (level 4's tunnel mouth):
+            # once each, before any other idea
+            close_walls = [o for o in level.m['objects'] if o['type'] == 'OBJ_DESTRUCTABLE'
+                           and o['name'] not in tried_walls and math.dist(o['pos'][:2], here[:2]) < 40
+                           and abs(o['pos'][2] - here[2]) < 40 and alive(game, o['name'])]
+            if close_walls:
+                tried_walls.update(o['name'] for o in close_walls)
+                broken = destroy(game, close_walls, target, log)
+                if broken:
+                    stats['destroyed'].append(broken['name'])
+                    time.sleep(1.5)
                     stalls = 0
                     continue
             # Kurt: sniper locks the level watches by itself (level 4's spheres under the vortex): one round each
