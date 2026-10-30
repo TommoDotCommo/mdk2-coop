@@ -223,7 +223,7 @@ class Nav:
         base = math.dist(a[:3], b[:3])
         if -6 <= rise <= self.WALK_RISE:
             return base
-        if rise < -6 and self.chute:
+        if rise < -6 and (self.chute or self.fly):     # Kurt's chute, or Max's jetpack to slow the fall
             return base * 2
         if 0 < rise <= self.JUMP_RISE and self.flat(n):
             return base * 4
