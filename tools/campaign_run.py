@@ -32,7 +32,7 @@ def hook_path(arg):
     return hook
 
 
-def segment(level, seg, players, owner, hook, out, god, routes_on=True):
+def segment(level, seg, players, owner, hook, out, god, routes_on=True, chain=()):
     if ':' in seg:
         level, seg = int(seg.split(':')[0]), seg.split(':')[1]
     start, end = (int(v) for v in seg.split('-'))
@@ -45,7 +45,8 @@ def segment(level, seg, players, owner, hook, out, god, routes_on=True):
     # the lab queues fairly and answers BUSY at once while another lease is ahead: try again for a while
     deadline = time.monotonic() + 1800
     while True:
-        r = subprocess.run([sys.executable, hook, 'acquire', str(players), '5400'], env=env, capture_output=True, text=True)
+        r = subprocess.run([sys.executable, hook, 'acquire', str(players), str(14400 if chain else 5400)], env=env,
+                           capture_output=True, text=True)
         if r.returncode == 0:
             break
         if time.monotonic() > deadline or 'BUSY' not in (r.stderr + r.stdout):
@@ -88,44 +89,25 @@ def segment(level, seg, players, owner, hook, out, god, routes_on=True):
         subprocess.run([sys.executable, '-c', 'import sys; sys.path.insert(0, sys.argv[1]); import campaign_bot as c\n'
                         'for i, d in enumerate(sys.argv[3:], 1): c.Game(d, i).lua(sys.argv[2])',
                         str(ROOT / 'tools'), setup, *wsl], check=True)
-        with open(folder / 'bot.log', 'w') as log:
-            cmd = 'advance' if players == 1 else 'squad'
-            args = [sys.executable, '-u', str(ROOT / 'tools/campaign_bot.py'), cmd, '--dirs', *wsl,
-                    '--level', str(ROOT / f'local/campaign/level{level}.json'), '--to', *map(str, goal)]
-            # Max's levels: from the jetpack's checkpoint on, the bot refuels and flies
-            if (level, start) >= (2, 5) and level in (2, 5, 8, 11) and not (level == 5 and start < 9) \
-                    and not (level == 8 and start < 5):
-                args.append('--fly')
-            if level in (1, 4, 7, 10):
-                args.append('--chute')      # Kurt
-            if cmd == 'squad':
-                args += ['--evidence', str(folder)]
-                # a segment solved before is followed from its recording; otherwise the bot explores and
-                # its play is recorded, kept as the segment's route if it passes
-                routes = ROOT / 'local/routes'
-                known = routes / f'seg_{level}_{start}_{end}.route'
-                if known.exists() and routes_on:
-                    args += ['--route', str(known)]
-                elif known.exists():
-                    pass                    # the bot on its own, the recording kept as it is
-                else:
-                    args += ['--record', f'seg_{level}_{start}_{end}']
-            else:
-                args += ['--scratch', str(folder / 'nav.json')]
-            run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=1500)
-        name = f'seg_{level}_{start}_{end}.route'
-        made = Path(wsl[0]) / 'coop' / name
-        if run.returncode == 0 and made.exists() and not (ROOT / 'local/routes' / name).exists():
-            (ROOT / 'local/routes').mkdir(parents=True, exist_ok=True)
-            (ROOT / 'local/routes' / name).write_bytes(made.read_bytes())
-        lines = (folder / 'bot.log').read_text().strip().splitlines()
+        # chained: the later segments go on in the same games, each from where the one before ended
+        legs = []
+        for leg, (a, b) in enumerate(zip([start, end, *chain], [end, *chain])):
+            logname = 'bot.log' if not leg else f'bot_{a}_{b}.log'
+            run, args, lines = play(level, a, b, players, wsl, folder, routes_on, logname)
+            legs.append({'segment': f'{level}:{a}-{b}', 'result': 'PASS' if run.returncode == 0 else 'FAIL',
+                         'seconds': round(time.monotonic() - t0), 'last': (lines or [''])[-1][:200]})
+            if run.returncode:
+                break
         tail = lines[-1:]
-        result = {'segment': seg, 'result': 'PASS' if run.returncode == 0 else 'FAIL',
-                  'mode': 'recorded' if '--route' in args else 'autonomous',
+        result = {'segment': seg if not chain else f'{level}:{start}-{chain[-1]}',
+                  'result': 'PASS' if run.returncode == 0 and len(legs) == len(chain) + 1 else 'FAIL',
+                  'mode': ('chain ' if chain else '') + ('recorded' if '--route' in args else 'autonomous'),
                   'seconds': round(time.monotonic() - t0), 'last': tail[0] if tail else ''}
+        if chain:
+            result['legs'] = legs
         stall = [l for l in lines if ' lost at point ' in l or 'ARRIVED' in l or 'gave up' in l.lower()]
         if stall and run.returncode:
-            result['stall'] = stall[-1].strip()[:240]
+            result['stall'] = (f'{legs[-1]["segment"]}: ' if chain else '') + stall[-1].strip()[:240]
         diffs = [l.strip() for l in lines if l.strip().startswith('worlds at ')]
         if diffs:
             result['worlds'] = diffs[-1][:240]
@@ -156,6 +138,40 @@ def segment(level, seg, players, owner, hook, out, god, routes_on=True):
     return result
 
 
+def play(level, start, end, players, wsl, folder, routes_on, logname):
+    """One segment played by the bot in running games: (process, its arguments, its log lines)."""
+    model = json.loads((ROOT / f'local/campaign/level{level}.json').read_text())
+    goal = model['checkpoints'][str(end)]['pos']
+    with open(folder / logname, 'w') as log:
+        cmd = 'advance' if players == 1 else 'squad'
+        args = [sys.executable, '-u', str(ROOT / 'tools/campaign_bot.py'), cmd, '--dirs', *wsl,
+                '--level', str(ROOT / f'local/campaign/level{level}.json'), '--to', *map(str, goal)]
+        # Max's levels: from the jetpack's checkpoint on, the bot refuels and flies
+        if (level, start) >= (2, 5) and level in (2, 5, 8, 11) and not (level == 5 and start < 9) \
+                and not (level == 8 and start < 5):
+            args.append('--fly')
+        if level in (1, 4, 7, 10):
+            args.append('--chute')      # Kurt
+        if cmd == 'squad':
+            args += ['--evidence', str(folder)]
+            # a segment solved before is followed from its recording; otherwise the bot explores and
+            # its play is recorded, kept as the segment's route if it passes
+            known = ROOT / 'local/routes' / f'seg_{level}_{start}_{end}.route'
+            if known.exists() and routes_on:
+                args += ['--route', str(known)]
+            elif not known.exists():
+                args += ['--record', f'seg_{level}_{start}_{end}']
+        else:
+            args += ['--scratch', str(folder / 'nav.json')]
+        run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=1500)
+    name = f'seg_{level}_{start}_{end}.route'
+    made = Path(wsl[0]) / 'coop' / name
+    if run.returncode == 0 and made.exists() and not (ROOT / 'local/routes' / name).exists():
+        (ROOT / 'local/routes').mkdir(parents=True, exist_ok=True)
+        (ROOT / 'local/routes' / name).write_bytes(made.read_bytes())
+    return run, args, (folder / logname).read_text().strip().splitlines()
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--level', type=int, default=0)
@@ -168,6 +184,7 @@ def main(argv=None):
     ap.add_argument('--resources')
     ap.add_argument('--no-god', action='store_true', help='play without invulnerability')
     ap.add_argument('--no-routes', action='store_true', help='the bot on its own even where a recording exists')
+    ap.add_argument('--chain', action='store_true', help='consecutive segments of one level in one game pair, in order')
     a = ap.parse_args(argv)
     if a.campaign:
         # tools/checkpoints.txt: the launcher's checkpoints in play order
@@ -182,9 +199,17 @@ def main(argv=None):
         raise SystemExit('set LAB_OWNER (a unique identity for this run)')
     out = ROOT / 'local/campaign/runs' / time.strftime('%Y%m%d-%H%M%S')
     out.mkdir(parents=True, exist_ok=True)
+    if a.chain:
+        # one run: boot at the first segment's start and play every segment in turn in the same games
+        legs = [s if ':' in s else f'{a.level}:{s}' for s in a.segments]
+        lvl = int(legs[0].split(':')[0])
+        ends = [int(s.split('-')[1]) for s in legs]
+        a.segments, chain = [legs[0]], ends[1:]
+    else:
+        chain = []
     with concurrent.futures.ThreadPoolExecutor(a.shards) as pool:
         jobs = {pool.submit(segment, a.level, seg, a.players, f'{base}-seg{i}', hook, out, not a.no_god,
-                            not a.no_routes): seg
+                            not a.no_routes, chain): seg
                 for i, seg in enumerate(a.segments)}
         results = []
         for job in concurrent.futures.as_completed(jobs):
