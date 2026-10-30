@@ -117,4 +117,25 @@ frames += [(6000 + i * 100, {17}, 2, 9, (0.3 * i, 0.0, 11.8)) for i in range(30)
 pts = bot.route_waypoints(frames)
 check('a lift ride is followed by waiting, the walk after it is not',
       any(p['ride'] for p in pts if p['pos'][2] < 11) and not any(p['ride'] for p in pts if p['pos'][0] > 1))
-print('15 passed, 0 failed')
+# Objectives: a pickup with an OnDie handler (level 3's BFB) is not something to shoot at.
+lv = bot.Level.__new__(bot.Level)
+lv.m = {'objects': [{'name': 'bfb', 'type': 'OBJ_BFB', 'pos': [5, 0, 0]},
+                    {'name': 'gen', 'type': 'OBJ_DOGANBOYGENERATOR', 'pos': [30, 0, 0]},
+                    {'name': 'wall', 'type': 'OBJ_DESTRUCTABLE', 'pos': [10, 0, 0]}],
+        'events': {'bfb': ['OnDie'], 'wall': ['OnDie']}, 'pickups': [{'name': 'bfb', 'type': 'OBJ_BFB'}]}
+check('a pickup is never an objective, the wall and the generator are',
+      [o['name'] for o in bot.objectives(lv, [0, 0, 0])] == ['wall', 'gen'])
+# Off the route: the level carried the hero away (level 3's start) against a walk along the route.
+check('a hero carried into a room off the route is replanned',
+      bot.off_route(level, [{'room': 'b'}, {'room': 'c'}], [2, 5, 1], [60, 50, 1]))
+check('a hero who walked along the route is not',
+      not bot.off_route(level, [{'room': 'b'}, {'room': 'c'}], [2, 5, 1], [28, 5, 1])
+      and not bot.off_route(level, [{'room': 'b'}], [2, 5, 1], [8, 5, 1]))
+# Kurt's fans: the one under the way up is chosen, not one off to the side or above the target.
+lv.m['objects'] = [{'name': 'fan_far', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [300, 0, 0]},
+                   {'name': 'fan_above', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [10, 0, 90]},
+                   {'name': 'fan_side', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [40, 30, 0]},
+                   {'name': 'fan_under', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [10, -25, -90]}]
+check('a fan below the target and near both ends is ridden, nearest the target first',
+      [o['name'] for o in bot.fans_toward(lv, [0, 0, 0], [10, -30, 60])] == ['fan_under', 'fan_side'])
+print('19 passed, 0 failed')

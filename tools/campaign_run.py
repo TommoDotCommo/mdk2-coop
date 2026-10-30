@@ -32,7 +32,21 @@ def hook_path(arg):
     return hook
 
 
-def segment(level, seg, players, owner, hook, out, god):
+CRASH = ROOT / 'tools/crashwatch.py'
+# the non-Steam Overhaul build's mdk2hd.exe (sha256 prefix), the build players use
+OVERHAUL_SHA = '6b8b2400'
+
+
+def build_of(wsl_dir):
+    import hashlib
+    exe = Path(wsl_dir) / 'mdk2hd.exe'
+    if not exe.exists():
+        return 'unknown'
+    sha = hashlib.sha256(exe.read_bytes()).hexdigest()
+    return 'overhaul' if sha.startswith(OVERHAUL_SHA) else f'other:{sha[:8]}'
+
+
+def segment(level, seg, players, owner, hook, out, god, limit=1500, need_build=None):
     if ':' in seg:
         level, seg = int(seg.split(':')[0]), seg.split(':')[1]
     start, end = (int(v) for v in seg.split('-'))
@@ -48,7 +62,8 @@ def segment(level, seg, players, owner, hook, out, god):
         r = subprocess.run([sys.executable, hook, 'acquire', str(players), '5400'], env=env, capture_output=True, text=True)
         if r.returncode == 0:
             break
-        if time.monotonic() > deadline or 'BUSY' not in (r.stderr + r.stdout):
+        # exit 3: busy, or too little free RAM for another game; both pass
+        if time.monotonic() > deadline or (r.returncode != 3 and 'BUSY' not in (r.stderr + r.stdout)):
             return {'segment': seg, 'result': 'BUSY', 'detail': r.stderr.strip()[-300:]}
         time.sleep(20)
     env.update(json.loads(r.stdout))
@@ -56,11 +71,34 @@ def segment(level, seg, players, owner, hook, out, god):
     dirs = [env[f'MDK2_DIR{i}'] for i in range(1, players + 1)]
     wsl = [subprocess.run(['wslpath', '-u', d], capture_output=True, text=True).stdout.strip() for d in dirs]
     t0 = time.monotonic()
+    result = {'segment': seg, 'result': 'BOOT'}
+    crash_state = None
+    watching = None
     try:
+        build = build_of(wsl[0])
+        if need_build and build != need_build:
+            result = {'segment': seg, 'result': 'BUILD', 'detail': f'copies run {build}, not {need_build}'}
+            return result
+        # crashes fail a segment: a new dump%04i.dmp, a coop/logs/*.crash marker or the error dialog
+        # (tools/crashwatch.py, through mdk.sh's guard so the copies' own crash folders are watched)
+        c = subprocess.run(['bash', '-c', f'source "{ROOT}/tools/mdk.sh" && mdk_crash_begin && echo "$MDK2_CRASH_STATE"'],
+                           env=env, capture_output=True, text=True)
+        crash_state = (c.stdout.strip().splitlines() or [''])[-1] or None
+        if crash_state:
+            import threading
+            watching = threading.Event()
+
+            def dialogs():
+                # an error dialog stalls the game: close and record it as soon as it shows
+                while not watching.wait(20):
+                    subprocess.run([sys.executable, '-I', str(CRASH), 'dialogs', '--state', crash_state, '--close'],
+                                   capture_output=True)
+            threading.Thread(target=dialogs, daemon=True).start()
         boot = f'source "{ROOT}/tools/mdk.sh" && "{ROOT}/tools/install.sh" >/dev/null && mdk_boot >/dev/null'
         b = subprocess.run(['bash', '-c', boot], env=env, capture_output=True, text=True, timeout=600)
         if b.returncode:
-            return {'segment': seg, 'result': 'BOOT', 'detail': b.stderr[-300:]}
+            result = {'segment': seg, 'result': 'BOOT', 'detail': b.stderr[-300:]}
+            return result
         # the host loads the start checkpoint by itself a while after the title screen: wait for it
         wait = ('import sys, time; sys.path.insert(0, sys.argv[1]); import campaign_bot as c\n'
                 'g = c.Game(sys.argv[2], 1); t0 = time.monotonic()\n'
@@ -74,7 +112,8 @@ def segment(level, seg, players, owner, hook, out, god):
         w = subprocess.run([sys.executable, '-c', wait, str(ROOT / 'tools'), wsl[0], str(level)],
                            capture_output=True, text=True)
         if w.returncode:
-            return {'segment': seg, 'result': 'BOOT', 'detail': (w.stderr or w.stdout)[-300:]}
+            result = {'segment': seg, 'result': 'BOOT', 'detail': (w.stderr or w.stdout)[-300:]}
+            return result
         setup = 'coop.save_interval=999999' + (' God(1)' if god else '')
         subprocess.run([sys.executable, '-c', 'import sys; sys.path.insert(0, sys.argv[1]); import campaign_bot as c\n'
                         'for i, d in enumerate(sys.argv[3:], 1): c.Game(d, i).lua(sys.argv[2])',
@@ -101,7 +140,7 @@ def segment(level, seg, players, owner, hook, out, god):
                     args += ['--record', f'seg_{level}_{start}_{end}']
             else:
                 args += ['--scratch', str(folder / 'nav.json')]
-            run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=1500)
+            run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=limit)
         name = f'seg_{level}_{start}_{end}.route'
         made = Path(wsl[0]) / 'coop' / name
         if run.returncode == 0 and made.exists() and not (ROOT / 'local/routes' / name).exists():
@@ -109,20 +148,72 @@ def segment(level, seg, players, owner, hook, out, god):
             (ROOT / 'local/routes' / name).write_bytes(made.read_bytes())
         tail = (folder / 'bot.log').read_text().strip().splitlines()[-1:]
         result = {'segment': seg, 'result': 'PASS' if run.returncode == 0 else 'FAIL',
-                  'seconds': round(time.monotonic() - t0), 'last': tail[0] if tail else ''}
+                  'seconds': round(time.monotonic() - t0), 'last': tail[0] if tail else '', 'build': build}
         if "'world_ok': False" in result['last']:
             result['coop_finding'] = 'worlds differ (see statecheck_end_*.txt)'
     except subprocess.TimeoutExpired as e:
         result = {'segment': seg, 'result': 'TIMEOUT', 'seconds': round(time.monotonic() - t0), 'detail': str(e)[:200]}
     finally:
+        if watching:
+            watching.set()
         for i, d in enumerate(wsl, 1):
             log = Path(d) / 'coop' / 'bridge.log'
             if log.exists():
                 (folder / f'bridge_{i}.log').write_text(log.read_text(encoding='latin-1'), encoding='latin-1')
         subprocess.run(['bash', '-c', f'source "{ROOT}/tools/mdk.sh" && mdk_kill'], env=env, capture_output=True)
+        if crash_state:
+            c = subprocess.run([sys.executable, '-I', str(CRASH), 'check', '--state', crash_state],
+                               capture_output=True, text=True)
+            crashes = [l for l in c.stdout.splitlines() if l.startswith('CRASH')]
+            result['crash'] = crashes
+            if crashes:
+                result['result'] = 'CRASH'
+            Path(crash_state).unlink(missing_ok=True)
+        else:
+            result['crash'] = 'unwatched'
         subprocess.run([sys.executable, hook, 'release'], env=env, capture_output=True)
-    (folder / 'results.json').write_text(json.dumps(result, indent=1))
+        # each copy keeps its own saves ([test] save_dir): checkpoint loads touch no player's saves
+        ini = Path(wsl[0]) / 'coop' / 'coop.ini'
+        result['save_dir'] = next((l.split('=', 1)[1].strip() for l in
+                                   (ini.read_text(errors='replace').splitlines() if ini.exists() else [])
+                                   if l.startswith('save_dir=')), 'none')
+        result.update(stall_of(folder / 'bot.log'))
+        (folder / 'results.json').write_text(json.dumps(result, indent=1))
     return result
+
+
+def stall_of(log):
+    """Where the leader got to and why it stopped, from the bot's log: its last position and the last
+    thing it said before giving up."""
+    import re
+    if not log.exists():
+        return {}
+    lines = [l for l in log.read_text(errors='replace').splitlines() if l.startswith('[1]')]
+    pos = None
+    for l in lines:
+        m = re.search(r'now \[([-\d.]+), ([-\d.]+), ([-\d.]+)\]', l)
+        if m:
+            pos = [float(v) for v in m.groups()]
+    why = next((l[3:].strip() for l in reversed(lines)
+                if not re.search(r'stalled toward|toward \[|pushed toward|aim |worlds at', l)), '')
+    return {'stall_pos': pos, 'stall_why': why[:160]}
+
+
+def report(out, results):
+    """report.md: one row per segment."""
+    rows = ['| segment | result | seconds | crash | world | stall at | last word |', '|---|---|---|---|---|---|---|']
+    def order(r):
+        l, se = r['segment'].split(':')
+        return (int(l), *map(int, se.split('-')))
+    for r in sorted(results, key=order):
+        world = 'DIFF' if r.get('coop_finding') else ('match' if r.get('result') in ('PASS', 'FAIL') else '?')
+        crash = r.get('crash') or 'none'
+        crash = '; '.join(crash) if isinstance(crash, list) else crash
+        rows.append(f"| {r['segment']} | {r['result']} | {r.get('seconds', '-')} | {crash} | "
+                    f"{world} | {r.get('stall_pos') or ''} | {(r.get('stall_why') or r.get('detail') or '').replace('|', '/')} |")
+    passed = sum(r['result'] == 'PASS' for r in results)
+    (out / 'report.md').write_text(f'# Campaign bot run {out.name}\n\n{passed}/{len(results)} segments passed.\n\n'
+                                   + '\n'.join(rows) + '\n')
 
 
 def main(argv=None):
@@ -136,6 +227,8 @@ def main(argv=None):
     ap.add_argument('--players', type=int, default=2)
     ap.add_argument('--resources')
     ap.add_argument('--no-god', action='store_true', help='play without invulnerability')
+    ap.add_argument('--timeout', type=int, default=1500, help="seconds for a segment's bot before it is stopped")
+    ap.add_argument('--build', choices=('overhaul',), help='refuse copies that run another build')
     a = ap.parse_args(argv)
     if a.campaign:
         # tools/checkpoints.txt: the launcher's checkpoints in play order
@@ -151,14 +244,16 @@ def main(argv=None):
     out = ROOT / 'local/campaign/runs' / time.strftime('%Y%m%d-%H%M%S')
     out.mkdir(parents=True, exist_ok=True)
     with concurrent.futures.ThreadPoolExecutor(a.shards) as pool:
-        jobs = {pool.submit(segment, a.level, seg, a.players, f'{base}-seg{i}', hook, out, not a.no_god): seg
+        jobs = {pool.submit(segment, a.level, seg, a.players, f'{base}-seg{i}', hook, out, not a.no_god,
+                            a.timeout, a.build): seg
                 for i, seg in enumerate(a.segments)}
         results = []
         for job in concurrent.futures.as_completed(jobs):
             r = job.result()
             results.append(r)
             print(f"{r['result']:<7} segment {r['segment']:<8} {r.get('seconds', '-')}s  {r.get('last', r.get('detail', ''))[:160]}", flush=True)
-    (out / 'summary.json').write_text(json.dumps(results, indent=1))
+            (out / 'summary.json').write_text(json.dumps(results, indent=1))
+            report(out, results)
     passed = sum(r['result'] == 'PASS' for r in results)
     print(f'RESULT: {passed}/{len(results)} segments passed; evidence {out}')
     return 0 if passed == len(results) else 1

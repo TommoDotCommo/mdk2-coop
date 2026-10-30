@@ -649,9 +649,12 @@ def objectives(level, pos, toward=None, radius=150):
     walls) within radius of the hero; those nearest the way on (toward) first, and among equals the ones
     the scripts react to before plain destructibles."""
     kinds = ('OBJ_DESTRUCTABLE', 'OBJ_DOGANBOYGENERATOR', 'OBJ_SAMSMITEGENERATOR')
+    # a pickup with an OnDie handler is an item to carry, not a blocker (level 3's BFB: shooting at it
+    # filled every stall of the level)
+    items = {o['name'] for o in level.m.get('pickups', [])}
     out = [o for o in level.m['objects']
            if (o['type'] in kinds or 'OnDie' in level.m['events'].get(o['name'], []))
-           and math.dist(o['pos'][:2], pos[:2]) < radius]
+           and o['name'] not in items and math.dist(o['pos'][:2], pos[:2]) < radius]
     ref = toward or pos
 
     def rank(o):
@@ -660,9 +663,10 @@ def objectives(level, pos, toward=None, radius=150):
     return sorted(out, key=rank)
 
 
-def kill_objective(game, nav, obj, log, seconds=25):
+def kill_objective(game, nav, obj, log, seconds=25, sniper=False):
     """Walk to a reachable cell that sees obj (engine line of sight), then shoot it, with pitch, until
-    the game says it is gone."""
+    the game says it is gone. With sniper (Kurt), what the chaingun does not break gets sniper rounds
+    (level 4's windows)."""
     x, y, z = obj['pos']
     cells = sorted(reachable(nav, game.pos()), key=lambda k: math.dist(nav.cells[k][:3], obj['pos']))[:40]
     # the line of sight ends inside the object's own body at its centre: look for a height on it that
@@ -677,7 +681,8 @@ def kill_objective(game, nav, obj, log, seconds=25):
         # an object inside another's body (level 2's door locks sit at the door's centre, shown on its
         # face): the line of sight misses it, but bullets hit its face from in front. Try spots around
         # it and keep the first whose bursts the game reports as hits on it.
-        return circle_kill(game, nav, obj, log, seconds)
+        return circle_kill(game, nav, obj, log, seconds) or (sniper and snipe(game, obj['name'], log)
+                                                             and not alive(game, obj['name']))
     walk(game, nav, spot, log)
     t0 = time.monotonic()
     while time.monotonic() - t0 < seconds:
@@ -688,6 +693,11 @@ def kill_objective(game, nav, obj, log, seconds=25):
                  f'coop_press(256, 600)')
         time.sleep(.5)
     log(f'    {obj["name"]}: still alive after {seconds}s of fire')
+    if sniper and snipe(game, obj['name'], log):
+        time.sleep(1)
+        if not alive(game, obj['name']):
+            log(f'    killed {obj["name"]} with sniper rounds')
+            return True
     return False
 
 
@@ -1034,6 +1044,67 @@ def bay_climb(game, level, shaft, goal, log, max_trips=8):
     return False
 
 
+def fans_toward(level, here, target, reach=80):
+    """Kurt's lifts: the fans (OBJ_BLOWERCYLINDER) whose updraft could carry him from here up toward a
+    target above: near both in the plane and below the target; the one nearest the target first."""
+    fans = [o for o in level.m['objects'] if o['type'] == 'OBJ_BLOWERCYLINDER'
+            and math.dist(o['pos'][:2], here[:2]) < reach and math.dist(o['pos'][:2], target[:2]) < reach
+            and o['pos'][2] < target[2]]
+    return sorted(fans, key=lambda o: math.dist(o['pos'][:2], target[:2]))
+
+
+def fan_ride(game, level, nav, target, log, done=set(), seconds=14):
+    """Ride a fan's updraft with Kurt's chute up to a target above (level 4: fans switched on by a
+    sniper shot at the lock under them). Walks to the edge of the column, steps in with jump held (the
+    chute opens in the air and the draft lifts it), keeps over the column's centre while rising, then
+    steers to the target once above it. True if the hero got higher by 10 units or more."""
+    here = game.pos()
+    deps = level.m.get('deps', {})
+    for fan in fans_toward(level, here, target):
+        # the lock that switches it on (OBJ_SNIPERDOOR1 'enables' the fan): one sniper shot, once
+        for opener, events in deps.items():
+            if any(fan['name'] in i['enables'] for i in events.values()) and opener not in done:
+                done.add(opener)
+                log(f'    {fan["name"]} is switched on by {opener}: sniping it')
+                snipe(game, opener, log)
+        fx, fy, fz = fan['pos']
+        cells = [k for k in reachable(nav, here) if nav.cells[k][2] >= fz - 2]
+        if not cells:
+            continue
+        edge = nav.cells[min(cells, key=lambda k: math.dist(nav.cells[k][:2], (fx, fy)))][:3]
+        if math.dist(edge[:2], (fx, fy)) > 30:
+            continue
+        log(f'    riding {fan["name"]} at {[round(v) for v in fan["pos"]]} from {[round(v) for v in edge]}')
+        walk(game, nav, edge, log, timeout=40)
+        z0 = game.pos()[2]
+        top, t0, over = z0, time.monotonic(), False
+        game.lua('coop.pilot=nil coop.gunner=nil')
+        game.lua(f'coop_press(57, {seconds * 1000})')
+        while time.monotonic() - t0 < seconds:
+            p = game.pos()
+            top = max(top, p[2])
+            over = over or p[2] >= target[2] + 2
+            # over the column's centre while rising; to the target once above it
+            aim = target if over else (fx, fy)
+            if math.dist(p[:2], aim[:2]) < (2.5 if over else 1.5):
+                if over:
+                    break
+            else:
+                game.lua(f'local p=coop.real_player() coop.Face(p,{aim[0]}-p.position.x,{aim[1]}-p.position.y,0) '
+                         f'coop_press(17,250)')
+            if time.monotonic() - t0 > 5 and top < z0 + 3:
+                break                       # no draft: the fan is off, or this is not its column
+            time.sleep(.3)
+        game.lua('coop_press(57, 0)')
+        time.sleep(1.5)
+        game.lua('coop.GunnerOn(60)')
+        now = game.pos()
+        log(f'    fan ride: up {top - z0:.1f} (top {top:.1f}), now {[round(v, 1) for v in now]}')
+        if now[2] > z0 + 10:
+            return True
+    return False
+
+
 def climb(game, target, seconds=9):
     """A powered climb with Max's jetpack: one continuous hold of jump, the hero turned to the goal and
     walking at it. Returns the highest z reached."""
@@ -1081,17 +1152,29 @@ def prepare_flight(game, level, nav, log):
     return ok
 
 
+def off_route(level, ahead, planned_from, here, jump=40):
+    """True when the hero is far from where the remaining room route was planned and in none of its
+    rooms: carried or teleported by the level, not walked."""
+    if math.dist(planned_from, here) < jump:
+        return False
+    rooms = {level.room_of(list(planned_from))} | {st['room'] for st in ahead}
+    return level.room_of(list(here)) not in rooms
+
+
 def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
     """Get the hero to goal: portal by portal, scanning, walking, and breaking scripted walls."""
     game.lua('coop.GunnerOn(60)')
-    here = game.pos()
-    _, portals = level.path(list(here), list(goal))
-    # the room boxes have no vertical links (level 2's shaft from room 5 up to room 6): when the goal is
-    # near and the room route starts by going away from it, head for the goal and let the scan find the way
-    if portals and math.dist(here, goal) < 200 and \
-            math.dist(portals[0]['to'], goal) > math.dist(here, goal) + 20:
-        log(f'  room route leads away (via {portals[0]["room"]}): straight for the goal instead')
-        portals = [{'to': list(goal), 'room': level.room_of(list(goal)), 'via': 'goal'}]
+    def route_from(here):
+        _, portals = level.path(list(here), list(goal))
+        # the room boxes have no vertical links (level 2's shaft from room 5 up to room 6): when the goal
+        # is near and the room route starts by going away from it, head for the goal and let the scan
+        # find the way
+        if portals and math.dist(here, goal) < 200 and \
+                math.dist(portals[0]['to'], goal) > math.dist(here, goal) + 20:
+            log(f'  room route leads away (via {portals[0]["room"]}): straight for the goal instead')
+            portals = [{'to': list(goal), 'room': level.room_of(list(goal)), 'via': 'goal'}]
+        return portals
+    portals = route_from(game.pos())
     stats = {'scans': 0, 'walks': 0, 'destroyed': [], 'rounds': 0, 'skipped': 0}
     game.level = level
     tried_from = {}
@@ -1100,13 +1183,25 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
     if fly:
         prepare_flight(game, level, scan(game, out, fly=True)[0], log)
     index = 0
+    planned_from = game.pos()
     while index < len(portals):
+        if off_route(level, portals[index:], planned_from, game.pos()):
+            # a script moved the hero (level 3 starts with Doc carried 165 units on after the intro):
+            # the room route from where he was is no use, plan again from here
+            log(f'  moved off the route to {level.room_of(list(game.pos()))}: planning again')
+            planned_from = game.pos()
+            portals = route_from(planned_from)
+            index = 0
         target = portals[index]['to']
         stalls = 0
         best = math.dist(game.pos()[:2], target[:2])
         # arrived: near in the plane and in height (the shaft's goal is straight above its floor)
         final = index == len(portals) - 1    # portal points sit mid-height in a doorway: only the goal's height counts
+        replan = False
         while math.dist(game.pos()[:2], target[:2]) > 4 or (final and abs(game.pos()[2] - target[2]) > 6):
+            if off_route(level, portals[index:], planned_from, game.pos()):
+                replan = True
+                break
             # already further along (carried, or walked through): go on from the latest portal whose
             # room the hero is in, instead of walking back --
             room = level.room_of(list(game.pos()))
@@ -1188,6 +1283,10 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 if game.pos()[2] > z0 + 10:
                     stalls = 0
                     continue
+            # Kurt: a target well above, a fan near it (level 4's updrafts) -- ride it with the chute
+            if chute and target[2] - here[2] > 8 and fan_ride(game, level, nav, target, log):
+                stalls = 0
+                continue
             if fly and stalls == 1 and prepare_flight(game, level, nav, log):
                 continue
             # a door opens as the hero comes near, after the scan saw it shut: push on straight toward
@@ -1221,7 +1320,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                     continue
                 if not alive(game, obj['name']):
                     continue
-                if kill_objective(game, nav, obj, log):
+                if kill_objective(game, nav, obj, log, sniper=chute):
                     stats['destroyed'].append(obj['name'])
                     done = True
                     break
@@ -1255,6 +1354,8 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
             if stalls >= 3:
                 log(f'  stalled toward {target}')
                 return False, stats
+        if replan:
+            continue
         index += 1
     stats['telemetry'] = game.telemetry()
     return True, stats
