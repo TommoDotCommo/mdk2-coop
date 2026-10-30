@@ -1360,6 +1360,9 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 if nav.cells:
                     break
                 log(f'    scan found no floor under the hero ({state.strip()}): waiting')
+                if chute:
+                    # falling (a shaft the push walked into): the chute stays open while jump is held
+                    game.lua('coop_press(57, 2500)')
                 time.sleep(2)
             else:
                 return False, stats
