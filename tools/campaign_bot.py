@@ -1584,6 +1584,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 if math.dist(g.pos(), goal) > 15:
                     g.goto(*goal, radius=6, timeout=10, explore=1)
         log(f'  regrouped at the goal: {"in %ss" % regroup if regroup is not None else "no"}')
+        if regroup is None:
+            log('  not at the goal (units): ' + str({g.slot: round(math.dist(g.pos(), goal), 1) for g in games}))
     end = compare_step(games, folder, 'end', log)
     end.update(step='end', t=round(time.monotonic() - t_start))
     steps.append(end)

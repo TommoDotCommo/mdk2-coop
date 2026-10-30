@@ -185,6 +185,13 @@ def segment(level, seg, players, owner, hook, out, god, opts=None):
                 if k in sq:
                     result[k] = sq[k]
             result['roles'] = {k: v for k, v in sq.items() if k.startswith('role_')}
+            if (opts.get('roles') or players > 2) and 'regroup_s' in sq and sq['regroup_s'] is None:
+                # the squad did not meet at the portal within 60 s: a co-op finding, the segment fails
+                result['findings'] = result['findings'] + ['regroup: the players did not all reach the goal in 60 s']
+                if result['result'] == 'PASS':
+                    result['result'] = 'FAIL'
+                    result['coop_finding'] = 'the squad did not regroup at the goal'
+                result['last'] = result['findings'][-1]
             m = sq.get('mutant') or {}
             if opts.get('mutant') in ('down', 'down-stay') and not m.get('ok'):
                 # the downed player was not revived (or died): a finding, the segment fails
