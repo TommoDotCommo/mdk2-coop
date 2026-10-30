@@ -189,7 +189,8 @@ check('threats: enemies whose AI target is a player, by player; generators and t
 check('focus: a missile near comes first, else the weakest within reach, nothing out of reach',
       cc.pick_focus(ht['threats'][1], ht['players']['me'])['name'] == 'l2r3samspawn02_s'
       and cc.pick_focus(ht['threats'][1][:1], ht['players']['me'])['name'] == 'l2r3turret03'
-      and cc.pick_focus(ht['threats'][2], ht['players'][2], reach=50) is None)
+      and cc.pick_focus(ht['threats'][2], ht['players'][2], reach=50) is None
+      and cc.pick_focus([dict(ht['threats'][1][0], type=201, pos=(92.8, 540.0, -27.0))], ht['players']['me']) is None)
 cand = cc.cover_candidates((0, 0, 0), [(30, 0, 0), (1, 0, 0)])
 check('cover places: nearest first, the hero\'s own spot and trail points on top of it left out',
       cand[0] == (cand[0][0], cand[0][1], 0) and math.dist(cand[0], (0, 0, 0)) <= 5.0 + 1e-6

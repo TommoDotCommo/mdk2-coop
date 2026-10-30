@@ -174,14 +174,16 @@ def host_threats(rows):
     return {'players': players, 'threats': out}
 
 
-def pick_focus(threats, here, reach=90.0):
+def pick_focus(threats, here, reach=55.0):
     """What a hero shoots first among the enemies targeting it: a missile within 25 units (it is about to
-    hit), otherwise the one that dies soonest (lowest health), the nearer on a tie. None if nothing is in reach."""
+    hit), otherwise the one that dies soonest (lowest health), the nearer on a tie. Only what is within the
+    weapon's reach counts (the AI targets a hero from across the room), and a missile further off is not
+    worth a shot. None if nothing is in reach."""
     near = [(math.dist(t['pos'], here), t) for t in threats]
-    near = [(d, t) for d, t in near if d <= reach]
+    near = [(d, t) for d, t in near if d <= (25 if t['type'] == MISSILE else reach)]
     if not near:
         return None
-    missiles = [(d, t) for d, t in near if t['type'] == MISSILE and d <= 25]
+    missiles = [(d, t) for d, t in near if t['type'] == MISSILE]
     pool = missiles or near
     return min(pool, key=lambda x: (x[1]['hp'], x[0]))[1]
 

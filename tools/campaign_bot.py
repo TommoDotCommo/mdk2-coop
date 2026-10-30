@@ -1490,7 +1490,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                     log(f'[{g.slot}] revive {d.slot}: try {attempt + 1}, {near:.1f} from the body')
                     if near > 4.5:
                         continue
-                    g.lua('coop.PilotStop() coop_press(19, 4500)')
+                    g.lua('coop.gun_saved = coop.gunner coop.gunner = nil coop.PilotStop() coop_press(19, 4500)')
                     t1 = time.monotonic()
                     while time.monotonic() - t1 < 7:
                         if d.telemetry()['life'] == cc.ALIVE:
@@ -1501,6 +1501,10 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             except (TimeoutError, OSError) as e:
                 log(f'[{g.slot}] revive {d.slot}: {e!r}')
             finally:
+                try:
+                    g.lua('if (coop.gun_saved) then coop.gunner = coop.gun_saved coop.gun_saved = nil end')
+                except (TimeoutError, OSError):
+                    pass
                 reviving.discard(d.slot)
 
     snap = {'t': 0.0, 'host': {'players': {}, 'threats': {}}}
@@ -1532,7 +1536,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             with g.lock:
                 g.lua('coop.PilotStop()')
                 here = g.pos()
-                thr = [t['pos'] for t in snap['host']['threats'].get(g.slot, []) if math.dist(t['pos'], here) < 150]
+                thr = [t['pos'] for t in snap['host']['threats'].get(g.slot, []) if math.dist(t['pos'], here) < 60]
                 cands = cc.cover_candidates(here, trail[g.slot])[:24]
                 if not thr or not cands:
                     return
@@ -1549,7 +1553,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 while time.monotonic() - t0 < 10 and not stop.is_set():
                     time.sleep(1)
                     if not [t for t in snap['host']['threats'].get(g.slot, [])
-                            if math.dist(t['pos'], spot) < 90]:
+                            if math.dist(t['pos'], spot) < 45]:
                         break
                 care['cover_s'] += round(time.monotonic() - t0)
         except (TimeoutError, OSError, ValueError) as e:
@@ -1608,7 +1612,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                     f'{math.dist(focus["pos"], here):.0f} away), own hp {t["hp"]}')
         if g.slot in busy_with or g.slot in reviving or t['life'] != cc.ALIVE:
             return
-        if 0 < t['hp'] <= cc.COVER_HP and focus and now_s() - last_heal.get(('cover', g.slot), -99) > 6:
+        near_fire = [x for x in mine if math.dist(x['pos'], here) < 45]
+        if 0 < t['hp'] <= cc.COVER_HP and near_fire and now_s() - last_heal.get(('cover', g.slot), -99) > 12:
             last_heal[('cover', g.slot)] = now_s()
             busy_with[g.slot] = 'cover'
             threading.Thread(target=cover, args=(g, t['hp']), daemon=True).start()

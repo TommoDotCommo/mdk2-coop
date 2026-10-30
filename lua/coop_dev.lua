@@ -1263,7 +1263,7 @@ function coop.GunnerTick()
     -- the focus (what is shooting the hero, chosen by the bot from the host's state) comes first --
     if (gn.focus) then
         local f = coop.FindGob(gn.focus)
-        if (f and (coop_hp(f) or 0) > 0 and not gn.skip[f] and mdkAILineOfSight(p, f, 6.3, 150) == 1) then
+        if (f and (coop_hp(f) or 0) > 0 and not gn.skip[f] and mdkAILineOfSight(p, f, 6.3, gn.range) == 1) then
             e = f
             k = 9
         end
