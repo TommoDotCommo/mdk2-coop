@@ -153,8 +153,10 @@ later):
 
 ## Status
 
-Shown live on the Overhaul build, level 2, God mode on (combat damage to the hero is not yet
-managed): from checkpoint 3 the bot crossed the Gutter of Death on its own, breaking the four
-scripted walls and the door lock, killing the enemies their deaths released, and walked the tunnels
-to the Arena of Death entrance. Not yet: the remaining levels, pickups as objectives, Doc's items,
-sniper locks, bosses, minigames, movies, co-op roles, data reports.
+Level 2 on the Overhaul build, God mode on. The owner played all of level 2 with the journal on, and
+the bot follows those routes in two-player squads: 1→2, 3→4, 5→6 (55 s), 7→8 and 8→9 pass, and 4→5 is
+traversed (worlds differ only by the known flying-enemy drift). 2→3, 6→7 and 9→10 still fail on
+stretches the person flew or glided; flying those airborne points at their recorded height is the
+newest change and is not yet tested. On its own, without a recording, the bot passes 3→4, 5→6
+(252 s), 7→8 and 8→9. Not yet: levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies,
+combat damage to the hero.
