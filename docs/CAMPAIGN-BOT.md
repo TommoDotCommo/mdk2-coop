@@ -215,20 +215,21 @@ failed hops cannot repeat it on one fill.
 ## Status
 
 Level 2 on the Overhaul build, God mode on, two players, the owner's recordings, flights at the game's own speed
-(`campaign_run.py` forces `timescale` 1 for flight segments). Last full run (2026-10-31, with the fuel assist named
-above on every segment): **1→2 (186 s), 3→4 (412 s) and 7→8 (155 s) pass**, and the worlds compared at their ends
-differ in nothing. The others stop at:
+(`campaign_run.py` forces `timescale` 1 for flight segments). Passing, worlds compared at the end with no difference:
+**1→2 (186 s), 3→4 (412 s), 7→8 (155 s)** (fuel assist on in that run) and **5→6 (979 s, no fuel assist, after the bay fix:
+the turrets of each bay are shot with fire held, the hero turned on each; the climb used the tank, refuel trips and
+all)**. The others stop at:
 
 | segment | reached | where it stops |
 |---|---|---|
 | 2→3 | 81 of 236 | room 1: the alarm `l2_alert03` sits behind the wall `l2_r1_90tun01`, which absorbs the aimed shots; the leader is sent back by the objective logic |
 | 4→5 | 201 of 286 | both heroes land 6 units below the recording at (419, 998) and cannot get back; the worlds differ only in the flying mantas (46 and 53 units apart) |
-| 5→6 | 47 of 115 | the bay at 46: its turrets were never shot (the gunner does not take turrets: all alive after 30 s); with fire held and the hero turned on each, three to four of four die in 45 s, but the climb that follows still fails at the hatch |
-| 6→7 | 78 of 326 | the pad refill ran Max off the ledge (fixed after the run: `mount_refueller` uses the pilot), then the first hops; not rerun on the fix |
-| 8→9 | 46 of 187 for the leader | the leader stopped 18 units short of point 46 with nothing logged; the other player followed all 187 points |
-| 9→10 | 240 of 276 | past the lifts and pumps, then the hatches of the upper bays; the fixes for the bays came after the run |
+| 6→7 | 78 of 326 | the pad refill ran Max off the ledge (fixed after that run: `mount_refueller` uses the pilot); the run after the fix is in the report |
+| 8→9 | 46 and 49 of 187 for the leader, twice | the leader stops where the recording holds key 42 (left shift) from point 42 to 50, at (928, 943); the other player follows all 187 points. Key 42 is pressed as an action key; untested whether that stalls the host. |
+| 9→10 | 240 of 276, twice | past the lifts and pumps, then the upper bays (their turret fights came in the fix that made 5→6 pass); the hero ends at the floor of the shaft |
 
-Room 9's lifts are now ridden first try (see Moving lifts), a flight that was lost to them in earlier rounds.
-Not done this round: the whole level chained in one run, the bot without a recording (autonomous), levels 3 to 12,
-Doc's items, sniper locks, bosses, minigames, movies, combat damage to the hero. The one tank still cannot repeat
-the person's flights without the assist.
+Room 9's lifts are ridden first try (see Moving lifts), a flight that was lost to them in earlier rounds. The bay
+fix covers only the bay the hero stands in when the recording fires on foot; flown stretches that fire (room 9's
+bays, 5→6's second and third bays) still skip the wait. Not done: the whole level chained in one run, the bot
+without a recording (autonomous), levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies, combat
+damage to the hero.
