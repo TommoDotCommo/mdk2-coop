@@ -147,8 +147,9 @@ checkpoint 9 an empty tank could not reach room 9's first lift.
   them), the follower stays, the gunner having the aim, until the turrets near it (`turrets_to_clear`: within 45
   units, up to 16 above or below, since a bay's turrets sit 13 above its floor) are dead or 30 s have passed. Without
   it the follower climbs on at once and meets a hatch that is still locked. Hovering with jump held after a climb
-  (the owner shot the bay's turrets from the air) counts as flown. The gunner does not take turrets (all four alive
-  after 30 s), so the follower fires with the key held and turns the hero on each in turn, as `bay_climb` does.
+  (the owner shot the bay's turrets from the air) counts as flown. The gunner takes turrets when given their names (`coop.GunnerTargets`: a bay's
+  turrets are scripted objects, not actors, so `coop_nearest_enemy` never lists them); the bay wait uses it. Untested live
+  (the earlier fire-held loop it replaces passed 5→6).
   Shown live: 5→6 passes at game speed without the fuel assist (979 s).
 - **Fuel assist** (`campaign_run.py --fuel-assist`, a test crutch, off by default and named in the report's mode):
   a refueller kept under each hero (`coop.fuel_assist`), so a recorded flight is not lost to one tank. Without it
@@ -223,10 +224,10 @@ all)**. The others stop at:
 
 | segment | reached | where it stops |
 |---|---|---|
-| 2→3 | 81 of 236 | room 1: the alarm `l2_alert03` sits behind the wall `l2_r1_90tun01`, which absorbs the aimed shots; the leader is sent back by the objective logic |
-| 4→5 | 201 of 286 | both heroes land 6 units below the recording at (419, 998) and cannot get back; the worlds differ only in the flying mantas (46 and 53 units apart) |
+| 2→3 | 81 of 236 | room 1: the alarm `l2_alert03` sits behind the wall `l2_r1_90tun01`, which absorbs the aimed shots, and the objective kills walked the hero 80 units off the recording. Since: aimed fire gives up at point-blank without a hit, and a hero far from the next point walks back along the scanned floor (`off_route`). Not run live since. |
+| 4→5 | 166 and 90 of 286 (round 4) | an aimed kill of room 4's generators takes a hero down into their pit (6 below the floor); in the run of 2026-10-31 10:00 one hero was stuck there each time (the other passed). Since: `off_route` also counts a hero more than 4 below the point (back along the scanned floor), `climb_out` flies a jetpack hero up. Not run live since; the worlds differ only in the flying mantas. |
 | 6→7 | 78 of 326 | the pad refill ran Max off the ledge (fixed after that run: `mount_refueller` uses the pilot); the run after the fix is in the report |
-| 8→9 | 46 and 49 of 187 for the leader, twice | the leader stops where the recording holds key 42 (left shift) from point 42 to 50, at (928, 943); the other player follows all 187 points. Key 42 is pressed as an action key; untested whether that stalls the host. |
+| 8→9 | passes (225 s, 2 players, no assist, 0 world differences, gap 3.3) | the host had stood at (922, 942) shooting what room 8's generator `l2_r8gen00` (a spawner, so not an objective) spawned without end: the gunner holds the pilot while it fires. The gunner now rests 6 s after 10 s of fire while a recording is followed (`coop.gunner_cap`). |
 | 9→10 | 240 of 276, twice | past the lifts and pumps, then the upper bays (their turret fights came in the fix that made 5→6 pass); the hero ends at the floor of the shaft |
 
 Room 9's lifts are ridden first try (see Moving lifts), a flight that was lost to them in earlier rounds. The bay
