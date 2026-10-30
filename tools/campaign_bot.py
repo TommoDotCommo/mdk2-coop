@@ -1947,6 +1947,15 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 time.sleep(.5)
         if time.monotonic() - last_progress > lost_after:
             log(f'  lost at point {i}/{len(pts)} {p["pos"]}, hero at {here}')
+            try:
+                rows = game.state()
+                tg = {r[1]: r[3] for r in rows if r[0] == 'ai_target' and len(r) >= 4}
+                near = sorted((math.dist((float(r[4]), float(r[5]), float(r[6])), here), r[7], r[2], r[3], tg.get(r[1], '-'))
+                              for r in rows if r[0] == 'ent' and len(r) >= 8)[:6]
+                log(f'  lost: hp {game.telemetry()["hp"]}, nearest enemies (dist, name, type, hp, target): '
+                    f'{[(round(d), n, t, h, a) for d, n, t, h, a in near]}')
+            except (TimeoutError, OSError, ValueError):
+                pass
             return False, {'points': len(pts), 'reached': i, 'seconds': round(time.monotonic() - t0)}
     log(f'  followed all {len(pts)} points in {time.monotonic() - t0:.0f}s')
     return True, {'points': len(pts), 'reached': len(pts), 'seconds': round(time.monotonic() - t0)}
