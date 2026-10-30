@@ -1469,7 +1469,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     log(f'  following {len(pts)} points of {path}')
     game.lua('coop.GunnerOn(60)')
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
-    helped, aimed, flybacks = set(), set(), {}
+    helped, aimed, flybacks, fuelled_at = set(), set(), {}, {}
     while i < len(pts):
         here = game.pos()
         if math.dist(here, pts[-1]['pos']) < 6:
@@ -1516,6 +1516,14 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             if ok:
                 last_progress, best = time.monotonic(), None
                 continue
+        if level:
+            # the recording stood on a refueller (it fills only there, while standing): do the same
+            pad = next((o for o in level.m['objects'] if o['type'] == 'OBJ_REFUELLER'
+                        and math.dist(o['pos'], p['pos']) < 2.5 and i - fuelled_at.get(o['name'], -99) > 30), None)
+            if pad:
+                fuelled_at[pad['name']] = i
+                ok = mount_refueller(game, pad, log)
+                log(f'  refuelled at {pad["name"]} as the recording did: {"yes" if ok else "no"}')
         if 256 in p['keys'] and level:
             # the recording was shooting here: what it shot is most likely the nearest living scripted
             # objective (the arena's generators: one left at 16 hp kept its exit shut), so aim at it
