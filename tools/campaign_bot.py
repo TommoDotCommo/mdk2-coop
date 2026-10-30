@@ -1428,6 +1428,14 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                            and abs(o['pos'][2] - here[2]) < 40 and alive(game, o['name'])]
             if close_walls:
                 tried_walls.update(o['name'] for o in close_walls)
+                # from the reachable place nearest the wall in the plane (a tunnel plug is hit along the
+                # tunnel, not from beside its mouth)
+                wall = min(close_walls, key=lambda o: math.dist(o['pos'][:2], here[:2]))
+                cells = [k for k in reachable(nav, here) if abs(nav.cells[k][2] - here[2]) < 12]
+                if cells:
+                    k = min(cells, key=lambda k: math.dist(nav.cells[k][:2], wall['pos'][:2]))
+                    log(f'    to {[round(v) for v in nav.cells[k][:3]]} beside {wall["name"]}')
+                    walk(game, nav, nav.cells[k][:3], log, timeout=30)
                 broken = destroy(game, close_walls, target, log, sniper=chute)
                 if broken:
                     stats['destroyed'].append(broken['name'])
