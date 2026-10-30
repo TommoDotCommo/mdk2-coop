@@ -1686,9 +1686,10 @@ def squad_ok(leader_ok, gaps, limit=40.0):
     return bool(leader_ok and all(g <= limit for g in gaps.values()))
 
 
-def off_route(here, target, limit=15.0):
-    """Too far from the next point of a recording to walk to it in a straight line."""
-    return math.dist(here, target) > limit
+def off_route(here, target, limit=15.0, below=4.0):
+    """Too far from the next point of a recording to walk to it in a straight line, or down in a pit
+    below it (level 2 room 4's generators sit 6 below the floor; before the jetpack there is no flying out)."""
+    return math.dist(here, target) > limit or target[2] - here[2] > below
 
 
 def aimable(o, here, reach=30.0):
