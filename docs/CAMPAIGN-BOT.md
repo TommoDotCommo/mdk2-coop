@@ -217,7 +217,9 @@ later):
 - **Flying enemies drift on clients**, on four levels: mantas up to 231 units from the host's
   positions (levels 2, 4, 8), level 1's flyers up to 53, level 8's ship turret 50.
 - **An enemy dead only on the client**: level 4's `l4_r5grunt` with 60 hp on the host and 0 on the
-  client (two segments).
+  client (two segments). A replication gap, fixed: the host had brought the grunt back to 60 hp
+  without a hit and clients were only told hp in SPAWN and in the APPLY of a hit. The host now sends
+  an hp-only APPLY when an enemy's hp differs from what clients were told (`tools/qa_hpsync.sh`).
 - **Pickup counts differ** on the final levels (11 and 12): 7 against 4, 3 against 2.
 - **A puppet left behind**: on level 3 the client showed the host's puppet 997 units from the host.
 - **A client crash** on level 8 (checkpoint 6 to 7): access violation at `mdk2hd.exe+0x2a95` reading
@@ -236,6 +238,23 @@ pilot's height hold now lets go of the key for a tick when thrust does not move 
 estimate (`coop.jet_ms`) undercounts on a loaded machine (ticks are further apart than its 50 ms step); the
 owner's 5 to 6 recording uses 9.6 s of a 10.5 s tank, so a follower that wastes thrust on hovering or
 failed hops cannot repeat it on one fill.
+
+### Level 2 (3 to 4) per-step mismatches: dump skew, not co-op bugs
+
+The bot's per-step comparison reported `type 201` / `217` enemies "on the client, gone on the host" and
+turrets / SAM spawns with a lower hp on the clients (host 14 against 0; 34 against 16, 16, 4). Cause,
+from the bridge logs of runs 20261031-065804, -081843, -083108 and -084429: the games dump one after
+another (host first, then each client, hundreds of ms apart), and a fight or a spawner moves the host's world in
+between.
+- hp: client 4's own log in run -083108 holds the host's hp sequence for the SAM spawn exactly
+  (44, 38, 34, 28, 24, 18, 14, 8, 4, 0); the host dumped at 14, the clients' dumps came 5 to 8 hits later (8, 8, 0). The client is
+  always the lower one because it dumps last, and `statecheck` ran on the dumps of attempt 2 which are skewed the same way.
+- extra enemy: the host's `ent spawn` line comes after its own dump in all of -065804 (`e003d`), -081843 (`a0407`),
+  -083108 (`c040d`); the clients bound it before their dump. In -084429 (`103fc`) the host's dump read `ent 103fc gone`
+  (corpse removed, DESPAWN sent at the next tick, 100 ms later) while the client's dump came before the DESPAWN arrived.
+- fix: `statecheck.py --after` takes a second host dump written once the clients' are; a client value only fails
+  outside what the host held in between (hp between the two, position on the path, enemy made or removed in between).
+  `campaign_bot.compare_worlds` dumps the host again after the clients. A client stuck at 0 while the host holds 60 still fails.
 
 ## Status
 
