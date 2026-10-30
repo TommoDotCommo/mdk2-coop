@@ -29,13 +29,18 @@ check "the client is outside every splash radius of the host (process state, bef
 pairs=()
 for t in $(seq 1 "${FLYERS_SECONDS:-20}"); do
     tag="fly$t"
-    for i in $(mdk_seq); do rm -f "$(mdk_wsl "$(mdk_dir "$i")")/coop/state_$tag.txt"; done
-    lua 1 "coop_state(\"$tag\")"
+    # each game dumps through its own command file, right after its scene update (the bot's statecheck does the
+    # same); the host's coop_state also asks the client for a dump of the same tag, which this ignores
+    for i in $(mdk_seq); do rm -f "$(mdk_wsl "$(mdk_dir "$i")")/coop/state_${tag}_$i.txt"; done
+    lua 1 "coop_state(\"${tag}_1\")"
+    lua 2 "coop_state(\"${tag}_2\")"
     for k in $(seq 1 50); do
-        [ -f "$(mdk_wsl "$(mdk_dir 1)")/coop/state_$tag.txt" ] && [ -f "$(mdk_wsl "$(mdk_dir 2)")/coop/state_$tag.txt" ] && break
+        [ -f "$(mdk_wsl "$(mdk_dir 1)")/coop/state_${tag}_1.txt" ] && [ -f "$(mdk_wsl "$(mdk_dir 2)")/coop/state_${tag}_2.txt" ] && break
         sleep 0.1
     done
-    for i in $(mdk_seq); do mv "$(mdk_wsl "$(mdk_dir "$i")")/coop/state_$tag.txt" "$out/${tag}_$i.txt"; done
+    for i in $(mdk_seq); do mv "$(mdk_wsl "$(mdk_dir "$i")")/coop/state_${tag}_$i.txt" "$out/${tag}_$i.txt"; done
+    sleep 0.3
+    rm -f "$(mdk_wsl "$(mdk_dir 2)")/coop/state_${tag}_1.txt"
     pairs+=("$out/${tag}_1.txt" "$out/${tag}_2.txt")
     sleep 1
 done
