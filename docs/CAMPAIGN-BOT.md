@@ -71,6 +71,24 @@ authoritative source is the installed game itself:
   bay: refuel, burn up the open ring and then the centre column, drift 16 units off-centre so the
   hatch shuts under him, land, shoot the turrets, walk back to the centre to drop through the hatches,
   refuel. With every hatch unlocked one burn reaches the top (first pass: 342 s, 12 turrets).
+- **Kurt's blind drops** (`blind_drop`): when the way on lies far below and the scan shows no landing (an
+  object the line of sight misses, or beyond 300 units), the bot walks to the rims nearest the target
+  (reachable cells with an open side) and off them toward it with jump held, then scans again from the
+  landing. A rim the hero cannot reach (a wall in the way) is skipped, so the wall is broken instead. The
+  push toward the target holds the chute too: without it the hero walked off level 4's tunnel into a
+  175 unit shaft and died of the fall, in God mode.
+- **Curbs**: a step of up to 2 units onto a sloping cell that leads on to level ground counts as a jump
+  (`Nav.lip`; level 4's tunnel mouth, 58.9 then 60.6 then 61.7, was unreachable for the planner, and so
+  was the neck on the way to the fans), while a steady 40 degree slope is still not walked.
+- **Sniper locks the level watches itself** (`sniper_locks`): on Kurt's levels, locks with no handler in
+  the model (level 4's rising spheres under the vortex) get one sniper round each when the way on is above.
+- **A scan that finds almost nothing** (level 3's rooms have floors the line of sight does not see, so a
+  floor search from the hero's neighbours finds none) is repeated as a plane scan: the hero's height is
+  the floor and the walls are found by the chest-height probes (`coop.NavStart(..., plane)`, at most 6000
+  cells). It gives a rough map (20 cells became 98 on the walkway), not a reliable one.
+- **Notes the game could not move**: `coop_note` writes `note_<key>.tmp` and moves it over the `.txt`;
+  the move fails while the bot has the `.txt` open, leaving the newer text in the `.tmp` for good. A finished
+  scan then looked 'running' for the whole 15 minute scan timeout. `read_note` takes the newer of the two.
 - **Gunner** (`coop.GunnerOn`): the nearest enemy the hero can see is faced (with pitch) and shot;
   a target that loses no health in 3 s is left alone (out of reach, or line of sight through a gap the
   bullets do not pass).
