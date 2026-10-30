@@ -662,6 +662,12 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
     game.lua('coop.GunnerOn(60)')
     here = game.pos()
     _, portals = level.path(list(here), list(goal))
+    # the room boxes have no vertical links (level 2's shaft from room 5 up to room 6): when the goal is
+    # near and the room route starts by going away from it, head for the goal and let the scan find the way
+    if portals and math.dist(here, goal) < 200 and \
+            math.dist(portals[0]['to'], goal) > math.dist(here, goal) + 20:
+        log(f'  room route leads away (via {portals[0]["room"]}): straight for the goal instead')
+        portals = [{'to': list(goal), 'room': level.room_of(list(goal)), 'via': 'goal'}]
     stats = {'scans': 0, 'walks': 0, 'destroyed': [], 'rounds': 0, 'skipped': 0}
     if level.m.get('level') in (2, 5, 8, 11):
         max_arm(game, log)
