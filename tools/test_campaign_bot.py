@@ -169,6 +169,15 @@ if lv4file.exists():
     below = [1137.0, -348.0, -102.0]
     check('a hero below every room box is planned from the nearest room, not a crash',
           lv4.room_of(below) is None and lv4.path(below, [1117.0, -545.0, 252.0])[1])
+# sniper locks nothing in the model reacts to (the vortex room's spheres), near the hero, once each
+lv.m['objects'] = [{'name': 'ball0', 'type': 'OBJ_SNIPERDOOR1', 'pos': [0, 0, -40]},
+                   {'name': 'ball1', 'type': 'OBJ_SNIPERDOOR1', 'pos': [30, 0, -40]},
+                   {'name': 'lockA', 'type': 'OBJ_SNIPERDOOR1', 'pos': [5, 0, -40]},
+                   {'name': 'farball', 'type': 'OBJ_SNIPERDOOR1', 'pos': [500, 0, -40]}]
+lv.m['deps'] = {'lockA': {'OnDamage': {'opens': ['door'], 'enables': [], 'damage': ['DAMAGE_SNIPER']}}}
+check('script-watched sniper locks near the hero are listed nearest first, not the ones with a chain or far off',
+      [o['name'] for o in bot.sniper_locks(lv, [0, 0, 0])] == ['ball0', 'ball1']
+      and [o['name'] for o in bot.sniper_locks(lv, [0, 0, 0], done={'ball0'})] == ['ball1'])
 # a tunnel's mouth: a 1.7 step onto a slope that leads on to level ground (level 4 room 1's tunnel was
 # the way to room 2 and the planner called it unreachable); a plain 1.7 step onto a slope with no level
 # ground beyond it, and a 3 unit rise onto a slope, are still not walked
@@ -192,4 +201,4 @@ with tempfile.TemporaryDirectory() as td:
     os.utime(tmp, ns=(1, 1))
     os.utime(txt, ns=(2, 2))
     check('an older .tmp is not', bot.read_note(txt) == 'running')
-print('29 passed, 0 failed')
+print('30 passed, 0 failed')

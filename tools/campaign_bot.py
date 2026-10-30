@@ -1106,6 +1106,16 @@ def bay_climb(game, level, shaft, goal, log, max_trips=8):
     return False
 
 
+def sniper_locks(level, here, reach=80, done=()):
+    """Sniper locks (OBJ_SNIPERDOOR1) near the hero that no handler in the model reacts to: the level's own
+    update loop watches them (level 4's three rising spheres under the vortex). Nearest first."""
+    deps = level.m.get('deps', {})
+    out = [o for o in level.m['objects'] if o['type'] == 'OBJ_SNIPERDOOR1' and o['name'] not in done
+           and math.dist(o['pos'], here) < reach
+           and not any(i['opens'] or i['enables'] for i in deps.get(o['name'], {}).values())]
+    return sorted(out, key=lambda o: math.dist(o['pos'], here))
+
+
 def fans_toward(level, here, target, reach=80):
     """Kurt's lifts: the fans (OBJ_BLOWERCYLINDER) whose updraft could carry him from here up toward a
     target above: near both in the plane and below the target; the one nearest the target first."""
@@ -1391,6 +1401,15 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 top = climb(game, target)
                 log(f'    climb: up {top - z0:.1f}, now at {[round(v, 1) for v in game.pos()]}')
                 if game.pos()[2] > z0 + 10:
+                    stalls = 0
+                    continue
+            # Kurt: sniper locks the level watches by itself (level 4's spheres under the vortex): one round each
+            if chute and target[2] - here[2] > 8:
+                balls = [o for o in sniper_locks(level, here, done=chain_done) if alive(game, o['name'])]
+                if balls:
+                    for o in balls:
+                        chain_done.add(o['name'])
+                        snipe(game, o['name'], log)
                     stalls = 0
                     continue
             # Kurt: a target well above, a fan near it (level 4's updrafts) -- ride it with the chute
