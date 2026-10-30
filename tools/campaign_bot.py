@@ -810,15 +810,26 @@ def alive(game, name):
     return game.note('alive', f'local g=getglobal("{name}") coop_note("alive", (g and coop_alive(g)==1) and "1" or "0")').strip() == '1'
 
 
-def destroy(game, objs, toward, log, seconds=20):
+def destroy(game, objs, toward, log, seconds=20, sniper=False):
     """Fire along the way the hero wants to go (a blocker is what is in the way; a scripted wall's
     registered position is its pivot, not its face) until one of the nearby destructibles is gone."""
     t0 = time.monotonic()
+    rounds = 0
     while time.monotonic() - t0 < seconds:
         gone = [o for o in objs if not alive(game, o['name'])]
         if gone:
             log(f'    destroyed {gone[0]["name"]} in {time.monotonic() - t0:.1f}s')
             return gone[0]
+        # Kurt: a wall in his reach that the chaingun does not scratch (level 4's tunnel plug) takes two or
+        # three sniper rounds
+        if sniper and rounds < 4:
+            here = game.pos()
+            near = min(objs, key=lambda o: math.dist(o['pos'][:2], here[:2]))
+            if math.dist(near['pos'][:2], here[:2]) < 40:
+                rounds += 1
+                snipe(game, near['name'], log)
+                time.sleep(1.5)
+                continue
         # at the wall itself when one stands close (level 4's tunnel mouth: the way on lies off to the side
         # of it), otherwise along the way the hero wants to go
         here = game.pos()
@@ -1417,7 +1428,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                            and abs(o['pos'][2] - here[2]) < 40 and alive(game, o['name'])]
             if close_walls:
                 tried_walls.update(o['name'] for o in close_walls)
-                broken = destroy(game, close_walls, target, log)
+                broken = destroy(game, close_walls, target, log, sniper=chute)
                 if broken:
                     stats['destroyed'].append(broken['name'])
                     time.sleep(1.5)
@@ -1455,7 +1466,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                     continue
             walls = [o for o in level.m['objects'] if o['type'] == 'OBJ_DESTRUCTABLE'
                      and math.dist(o['pos'][:2], pos[:2]) < 150 and alive(game, o['name'])]
-            broken = walls and destroy(game, walls, target, log)
+            broken = walls and destroy(game, walls, target, log, sniper=chute)
             if broken:
                 stats['destroyed'].append(broken['name'])
                 time.sleep(1.5)
