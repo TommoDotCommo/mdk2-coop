@@ -636,11 +636,13 @@ def destroy(game, objs, toward, log, seconds=20):
     return None
 
 
-def hop(game, landing, log, rise_s=4.0):
+def hop(game, landing, log, rise_s=4.0, rest_s=6.0):
     """One jetpack hop onto a lip above, the way a player does it (the owner: Max kept catching under
     the lips): rise straight up where he stands (the scan found that column clear) until a little above
     the lip, let go, then step across onto it. Fuel is spent only on the height needed."""
     game.lua('coop.pilot=nil')
+    # fuel: the jetpack refills while Max stands (10 s at the shaft's foot gave a full 38 units again)
+    time.sleep(rest_s)
     want = landing[2] + 2.5
     game.lua('coop_press(57, 6000)')
     t0 = time.monotonic()
