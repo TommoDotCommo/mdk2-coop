@@ -824,10 +824,12 @@ def destroy(game, objs, toward, log, seconds=20):
         here = game.pos()
         near = min(objs, key=lambda o: math.dist(o['pos'][:2], here[:2]))
         close = math.dist(near['pos'][:2], here[:2]) < 40
-        aim = near['pos'] if close else toward
-        # its registered position is the pivot, which may sit well above the hero's feet: aim at it with
-        # pitch on every other burst
-        rise = near['pos'][2] - here[2] - 3 if close and int((time.monotonic() - t0) / .5) % 2 else 0
+        # three ways in turn: along the way on, at the wall's pivot level, at the pivot with pitch (it is
+        # registered at a pivot that may sit well above the hero's feet; which one breaks it depends on
+        # where the hero stands)
+        step = int((time.monotonic() - t0) / .5) % 3 if close else 0
+        aim = near['pos'] if step else toward
+        rise = near['pos'][2] - here[2] - 3 if step == 2 else 0
         game.lua(f'local p=coop.real_player() coop.Face(p, {aim[0]}-p.position.x, {aim[1]}-p.position.y, {rise:.1f}) '
                  f'coop_press(256, 600)')
         time.sleep(.5)
