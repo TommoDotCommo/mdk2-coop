@@ -1314,6 +1314,15 @@ def compare_step(games, folder, tag, log):
     return {'tag': tag, 'ok': ok, **c}
 
 
+def down_mutant(games, log):
+    """The revive's mutant: a lethal hit on the last game's hero (a client) puts it down at once, as
+    tools/qa_revive.sh does. The squad must revive it with ordinary controls (a teammate holding R)."""
+    client = games[-1]
+    client.lua('mdkDealDamage(nil, mdkGetPlayerGob(), 999, DAMAGE_BADGUY, -1)')
+    log(f'  MUTANT down: a lethal hit on player {client.slot}')
+    return {'downed': client.slot}
+
+
 def desync_mutant(games, log):
     """The world comparison's mutant: delete a living enemy in one client's game only (it stays alive on
     the host). The next step's comparison must report it as a finding."""
@@ -1448,6 +1457,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             last_pos, last_t = here, time.monotonic()
             if mutant == 'desync' and n == 1:
                 result['mutant'] = desync_mutant(games, log)
+            if mutant in ('down', 'down-stay') and n == 2:
+                result['mutant'] = down_mutant(games, log)
 
     def peek(g, read=Game.telemetry):
         """This game's hp and life (or another reading), or None while another thread drives it (a revive)."""
@@ -1528,7 +1539,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 t = seen.get(g.slot)
                 if not t:
                     continue
-                if t['life'] == cc.DOWNED and g.slot not in reviving:
+                if t['life'] == cc.DOWNED and g.slot not in reviving and mutant != 'down-stay':
                     who = cc.reviver(pos, {s: v['life'] for s, v in seen.items()}, g.slot)
                     if who:
                         reviving.add(g.slot)
@@ -1569,8 +1580,13 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     followed = {k: v for k, v in result.items() if str(k).startswith(('follower_', 'role_', 'mutant'))}
     findings = sorted({f for s in steps for f in s['findings']})
     known = sorted({k[0] for s in steps for k in s['known']})
+    totals = lives.totals()
+    if mutant in ('down', 'down-stay'):
+        result['mutant'] = dict(result.get('mutant', {}), **cc.down_check(totals, (result.get('mutant') or {}).get('downed')))
+        followed['mutant'] = result['mutant']
+        log(f'  mutant {mutant}: {result["mutant"]}')
     stats = {'leader': result['leader'][1], 'world_ok': end['ok'], 'gaps': gaps, 'steps': len(steps),
-             'findings': findings, 'known': len(known), 'lives': lives.totals(), 'care': care,
+             'findings': findings, 'known': len(known), 'lives': totals, 'care': care,
              'regroup_s': regroup, **followed}
     (folder / 'squad.json').write_text(json.dumps({'ok': result['leader'][0], **stats, 'known_lines': known,
                                                    'life_events': lives.events}, indent=1, default=str))
@@ -1845,7 +1861,9 @@ def main(argv=None):
     sq.add_argument('--no-god', action='store_true', help='heroes mind their health and revive each other')
     sq.add_argument('--roles', action='store_true', help='split a step\'s objectives between the players')
     sq.add_argument('--step-units', type=float, default=25.0, help='compare the worlds after this much progress')
-    sq.add_argument('--mutant', choices=['desync'], help='desync: delete an enemy in one client only (must be reported)')
+    sq.add_argument('--mutant', choices=['desync', 'down', 'down-stay'],
+                    help='desync: delete an enemy in one client only (must be reported); down: a lethal hit on a client '
+                         '(must be revived); down-stay: the same without the revive (the player must be reported dead)')
     fo = sub.add_parser('follow', help='play a recorded route closed-loop')
     fo.add_argument('--dirs', nargs='+', required=True)
     fo.add_argument('--player', type=int, default=1)

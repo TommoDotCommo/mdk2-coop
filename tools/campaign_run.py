@@ -9,6 +9,7 @@ same protocol as qa_all.py: `hook acquire N ttl` prints the copies' environment 
     campaign_run.py --level 2 --segments 5-6 --no-god --repeat 3 --timescale 1   co-op play without God mode
     campaign_run.py --level 2 --segments 5-6 --players 3 --roles               split objectives, regroup
     campaign_run.py --level 2 --segments 5-6 --mutant desync|crash            must be reported (a finding, CRASH)
+    campaign_run.py --level 2 --segments 5-6 --no-god --mutant down|down-stay  revived / not revived (FAIL)
 
 A segment "A-B" starts at checkpoint A and must reach checkpoint B's position (from the mined model,
 local/campaign/levelN.json). Results and evidence go under local/campaign/runs/<time>/: one folder per
@@ -159,8 +160,8 @@ def segment(level, seg, players, owner, hook, out, god, opts=None):
             for k in ('no_god', 'roles'):
                 if opts.get(k) and cmd == 'squad':
                     args.append('--' + k.replace('_', '-'))
-            if opts.get('mutant') == 'desync' and cmd == 'squad':
-                args += ['--mutant', 'desync']
+            if opts.get('mutant') in ('desync', 'down', 'down-stay') and cmd == 'squad':
+                args += ['--mutant', opts['mutant']]
             run = watched(args, log, env, wsl, opts, timeout=1500)
             result['gone'] = run.gone
         name = f'seg_{level}_{start}_{end}.route'
@@ -184,6 +185,16 @@ def segment(level, seg, players, owner, hook, out, god, opts=None):
                 if k in sq:
                     result[k] = sq[k]
             result['roles'] = {k: v for k, v in sq.items() if k.startswith('role_')}
+            m = sq.get('mutant') or {}
+            if opts.get('mutant') in ('down', 'down-stay') and not m.get('ok'):
+                # the downed player was not revived (or died): a finding, the segment fails
+                result['findings'] = result['findings'] + [
+                    f"revive: player {m.get('downed')} down seen {m.get('down_seen')}, revived {m.get('revived')}, "
+                    f"died {m.get('died')}"]
+                if result['result'] == 'PASS':
+                    result['result'] = 'FAIL'
+                    result['coop_finding'] = 'a downed player was not revived'
+                result['last'] = result['findings'][-1]
     except subprocess.TimeoutExpired as e:
         result.update({'result': 'TIMEOUT', 'seconds': round(time.monotonic() - t0), 'detail': str(e)[:200]})
     finally:
@@ -264,9 +275,13 @@ def main(argv=None):
     ap.add_argument('--timescale', type=float, help='game clock factor (MDK2_TIMESCALE); 1 to confirm findings')
     ap.add_argument('--explore', action='store_true', help='the bot plays on its own, ignoring recorded routes')
     ap.add_argument('--repeat', type=int, default=1, help='run each segment this many times')
-    ap.add_argument('--mutant', choices=['desync', 'crash'],
-                    help='desync: an enemy deleted in one client only; crash: a game crashed (both must be reported)')
+    ap.add_argument('--mutant', choices=['desync', 'crash', 'down', 'down-stay'],
+                    help='desync: an enemy deleted in one client only; crash: a game crashed (both must be reported); '
+                         'down: a client is put down and must be revived (needs --no-god); down-stay: nobody revives it, '
+                         'the segment must fail')
     a = ap.parse_args(argv)
+    if a.mutant in ('down', 'down-stay') and not a.no_god:
+        ap.error('--mutant down needs --no-god (God mode ignores the hit)')
     if a.campaign:
         # tools/checkpoints.txt: the launcher's checkpoints in play order
         order = [tuple(int(v) for v in t.split('-')) for t in (ROOT / 'tools/checkpoints.txt').read_text().split()]

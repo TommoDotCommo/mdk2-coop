@@ -114,3 +114,11 @@ def split(objectives, players):
 def regrouped(positions, goal, radius=15.0):
     """True when every player stands within radius of the goal (the portal they meet at)."""
     return all(p is not None and math.dist(p, goal) <= radius for p in positions.values())
+
+
+def down_check(totals, slot):
+    """The revive mutant's verdict from Lives.totals(): the player that was hit must have gone down, and
+    been revived without dying. {'down_seen', 'revived', 'died', 'ok'}."""
+    me = totals.get('per_player', {}).get(slot, {})
+    seen, rev, died = me.get('downs', 0) > 0, me.get('revives', 0) > 0, me.get('deaths', 0) > 0
+    return {'down_seen': seen, 'revived': rev, 'died': died, 'ok': seen and rev and not died}

@@ -151,6 +151,17 @@ check('roles: the second player takes the objective after the leader\'s, the res
 check('regrouped only when everyone is at the portal',
       cc.regrouped({1: (0, 0, 0), 2: (10, 0, 0)}, (0, 0, 0)) and not cc.regrouped({1: (0, 0, 0), 2: (20, 0, 0)}, (0, 0, 0)))
 
+t = cc.Lives([1, 2])
+t.update(2, cc.DOWNED)
+check('revive mutant: down and not revived is not ok', not cc.down_check(t.totals(), 2)['ok'])
+t.update(2, cc.ALIVE)
+check('revive mutant: down then revived is ok', cc.down_check(t.totals(), 2)['ok'])
+t = cc.Lives([1, 2])
+t.update(2, cc.DOWNED)
+t.update(2, cc.DEAD)
+check('revive mutant: down then dead is reported', cc.down_check(t.totals(), 2)['died']
+      and not cc.down_check(t.totals(), 2)['ok'] and not cc.down_check(cc.Lives([1, 2]).totals(), 2)['down_seen'])
+
 # Crash detection in campaign_run.py: a new dump in a watched copy's crash folder fails the segment.
 import os, subprocess, tempfile
 import campaign_run as cr
@@ -167,4 +178,4 @@ with tempfile.TemporaryDirectory() as tmp:
     (crash / 'dump0001.dmp').write_bytes(b'MDMP not really')
     lines = [l for l in cr.crash_lines(env) if l.startswith('CRASH')]
     check('a new dump%04i.dmp of a copy is a CRASH with its path', len(lines) == 1 and 'dump0001.dmp' in lines[0])
-print('24 passed, 0 failed')
+print('27 passed, 0 failed')
