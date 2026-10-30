@@ -203,6 +203,12 @@ def flight_rules(b, quiet=False):
                 b.nearest_ahead((12.4, 0.3, 0.0), loop, 0) == 4 and b.nearest_ahead((0.1, 0.0, 0.0), loop, 0) == 0))
     out.append(('a point clearly nearer than the current one is skipped to',
                 b.nearest_ahead((26.9, 0.0, 0.0), loop, 2) == 9))
+    # hovering with jump held after a climb (the owner's turret fight at a bay) stays flown until jump is let go
+    hv = [{'ms': k * 100, 'pos': (0.0, 0.0, 3.0 * k), 'keys': [57], 'air': True, 'ride': False} for k in range(5)] \
+        + [{'ms': 600 + k * 100, 'pos': (0.0, 0.0, 12.0), 'keys': [57, 256], 'air': False, 'ride': False} for k in range(4)] \
+        + [{'ms': 1000 + k * 100, 'pos': (0.0, 0.0, 12.0), 'keys': [], 'air': False, 'ride': False} for k in range(3)]
+    out.append(('a hover with jump held after a climb stays flown until jump is let go',
+                b.flown(hv) >= set(range(0, 9)) and not (b.flown(hv) & {10, 11})))
     # a pump hanging in a shaft: the points where the person tapped jump beside it are flown, a point
     # far from it is not
     hp = [{'pos': (1.0, 0.0, 52.0 + k % 3), 'keys': [57] if k % 2 else [], 'air': bool(k % 2)} for k in range(6)] \
@@ -237,6 +243,7 @@ mutants = {
     'the nearest point wins outright (skips over flown points)':
         dict(nearest_ahead=lambda here, pts, i, window=80, slack=1.5: min(range(i, min(len(pts), i + window)),
                                                                          key=lambda k: math.dist(here, pts[k]['pos']))),
+    'a hover after a climb is walked': dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
     'a hovered pump is not flown': dict(hover_points=lambda pts, pads, reach=6.0: set()),
     'every flown point keeps above the platform': dict(tracked_points=lambda boards: {k: bd['lift']['name'] for bd in boards
                                                                                       for k in range(bd['start'], bd['last'] + 1)}),

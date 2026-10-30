@@ -1501,7 +1501,9 @@ def flown(pts):
     out, up = set(), False
     for k, p in enumerate(pts):
         rise = p['pos'][2] - pts[k - 1]['pos'][2] if k else 0
-        was, up = up, bool(p.get('air') or (57 in p['keys'] and rise > 0.7 and not p.get('ride')))
+        # (jump still held after a flown point is hovering, not standing: the owner hovered 15 s at a bay
+        # shooting its turrets; walked, those points let the jetpack go and the hero fell the shaft)
+        was, up = up, bool(p.get('air') or (57 in p['keys'] and (rise > 0.7 or was) and not p.get('ride')))
         if up or (was and not p.get('ride')):
             out.add(k)                      # in the air, or the landing just after
     return out
