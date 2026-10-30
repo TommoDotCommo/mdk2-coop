@@ -1136,6 +1136,11 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                         and (o['room'] == hero_room or math.dist(o['pos'][:2], target[:2]) < 120)]:
                 if not alive(game, gen['name']):
                     continue
+                # a generator without an OnDie handler gates nothing (room 6's three); one that failed
+                # from near here is not tried again from here
+                where = tried_from.get(gen['name'])
+                if where and math.dist(where, game.pos()) < 15:
+                    continue
                 gspot = rim_toward(nav, game.pos(), gen['pos'])
                 if math.dist(gspot, gen['pos']) > 25:
                     continue
@@ -1143,6 +1148,8 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 walk(game, nav, gspot, log, timeout=60)
                 if aimed_kill(game, gen['name'], log):
                     stats['destroyed'].append(gen['name'])
+                else:
+                    tried_from[gen['name']] = tuple(game.pos())
             if collect(game, level, nav, log) and level.m.get('level') in (2, 5, 8, 11):
                 max_arm(game, log)
             before = game.pos()
