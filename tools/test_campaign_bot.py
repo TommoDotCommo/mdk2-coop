@@ -242,6 +242,38 @@ if lv4file.exists():
     below = [1137.0, -348.0, -102.0]
     check('a hero below every room box is planned from the nearest room, not a crash',
           lv4.room_of(below) is None and lv4.path(below, [1117.0, -545.0, 252.0])[1])
+# sniper locks nothing in the model reacts to (the vortex room's spheres), near the hero, once each
+lv.m['objects'] = [{'name': 'ball0', 'type': 'OBJ_SNIPERDOOR1', 'pos': [0, 0, -40]},
+                   {'name': 'ball1', 'type': 'OBJ_SNIPERDOOR1', 'pos': [30, 0, -40]},
+                   {'name': 'lockA', 'type': 'OBJ_SNIPERDOOR1', 'pos': [5, 0, -40]},
+                   {'name': 'farball', 'type': 'OBJ_SNIPERDOOR1', 'pos': [500, 0, -40]}]
+lv.m['deps'] = {'lockA': {'OnDamage': {'opens': ['door'], 'enables': [], 'damage': ['DAMAGE_SNIPER']}}}
+check('script-watched sniper locks near the hero are listed nearest first, not the ones with a chain or far off',
+      [o['name'] for o in bot.sniper_locks(lv, [0, 0, 0])] == ['ball0', 'ball1']
+      and [o['name'] for o in bot.sniper_locks(lv, [0, 0, 0], done={'ball0'})] == ['ball1'])
+# a tunnel's mouth: a 1.7 step onto a slope that leads on to level ground (level 4 room 1's tunnel was
+# the way to room 2 and the planner called it unreachable); a plain 1.7 step onto a slope with no level
+# ground beyond it, and a 3 unit rise onto a slope, are still not walked
+mouth = grid({(0, 0): 58.9, (1, 0): 58.9, (2, 0): 60.6, (3, 0): 61.7, (4, 0): 61.7, (5, 0): 61.7,
+              (0, 1): 58.9, (1, 1): 58.9, (2, 1): 60.8, (3, 1): 61.9, (4, 1): 61.7, (5, 1): 61.7})
+check('a curb onto a slope that leads to level ground is a jump', mouth.path([0, 0, 58.9], [10, 0, 61.7]) is not None)
+ramp = grid({(i, 0): 58.9 + 1.7 * max(0, i - 1) for i in range(6)} | {(i, 1): 58.9 + 1.7 * max(0, i - 1) for i in range(6)})
+check('a steady 40 degree slope is not walked', ramp.path([0, 0, 58.9], [10, 0, 66.0]) is None)
+# the game moves note_<key>.tmp over note_<key>.txt; the move fails while the bot has the .txt open, and
+# the newer text then stays in the .tmp (a scan 'done' that never showed: a 15 minute wait)
+import os
+import tempfile
+with tempfile.TemporaryDirectory() as td:
+    txt, tmp = Path(td) / 'note_nav_state.txt', Path(td) / 'note_nav_state.tmp'
+    check('a note not written yet reads as None', bot.read_note(txt) is None)
+    txt.write_text('running')
+    check('a note is its .txt', bot.read_note(txt) == 'running')
+    tmp.write_text('done 22849 115')
+    os.utime(txt, ns=(1, 1))
+    check('a newer .tmp left by a failed move is the note', bot.read_note(txt) == 'done 22849 115')
+    os.utime(tmp, ns=(1, 1))
+    os.utime(txt, ns=(2, 2))
+    check('an older .tmp is not', bot.read_note(txt) == 'running')
 # Co-op (tools/campaign_coop.py): the world comparison's tolerance table, lives, revives and roles.
 import campaign_coop as cc
 report = """warn  enemy 1f l2_r6gen00 (type 511) not bound on the client yet
@@ -302,4 +334,4 @@ with tempfile.TemporaryDirectory() as tmp:
     (crash / 'dump0001.dmp').write_bytes(b'MDMP not really')
     lines = [l for l in cr.crash_lines(env) if l.startswith('CRASH')]
     check('a new dump%04i.dmp of a copy is a CRASH with its path', len(lines) == 1 and 'dump0001.dmp' in lines[0])
-print("all checks passed")
+print('all checks passed')

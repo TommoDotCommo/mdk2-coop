@@ -1109,8 +1109,8 @@ function coop.NavView(tx, ty, tz, pts, dzs)
     end
     coop_note("view", "none")
 end
-function coop.NavStart(x, y, z, cell, maxcells, up, down, fly, drop, standing)
-    local n = { cell = cell or 2, max = maxcells or 20000, up = up or 2.5, down = down or 6, head = 1, tail = 1, fly = fly,
+function coop.NavStart(x, y, z, cell, maxcells, up, down, fly, drop, standing, plane)
+    local n = { cell = cell or 2, plane = plane, max = maxcells or 20000, up = up or 2.5, down = down or 6, head = 1, tail = 1, fly = fly,
                 drop = drop,
                 q = {}, seen = {}, out = {}, batch = 0, count = 0, edges = 0 }
     local i, j = floor(x / n.cell + 0.5), floor(y / n.cell + 0.5)
@@ -1158,6 +1158,9 @@ function coop.NavTick()
             if (not f and n.drop and n.drop > 0 and coop.NavClear(x, y, z + 2, nx, ny, z + 2)) then
                 f = coop.NavFloor(nx, ny, z + 2, z - n.drop)
             end
+            -- a floor the line of sight does not see (level 3's rooms): a plane at the hero's height (a low ceiling
+            -- reads as a floor), walls still found by the chest-height probes (the caller asks for it when a scan finds almost nothing) --
+            if (n.plane) then f = z end
             local mx, my = (x + nx) / 2 - n.hx, (y + ny) / 2 - n.hy
             local byhero = mx * mx + my * my < 9 and abs(z - n.hz) < 4
             -- the engine's line of sight passes the back of a one-sided face but not its front: in level 2's

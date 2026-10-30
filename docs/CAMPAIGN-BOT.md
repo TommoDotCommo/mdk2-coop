@@ -71,6 +71,24 @@ authoritative source is the installed game itself:
   bay: refuel, burn up the open ring and then the centre column, drift 16 units off-centre so the
   hatch shuts under him, land, shoot the turrets, walk back to the centre to drop through the hatches,
   refuel. With every hatch unlocked one burn reaches the top (first pass: 342 s, 12 turrets).
+- **Kurt's blind drops** (`blind_drop`): when the way on lies far below and the scan shows no landing (an
+  object the line of sight misses, or beyond 300 units), the bot walks to the rims nearest the target
+  (reachable cells with an open side) and off them toward it with jump held, then scans again from the
+  landing. A rim the hero cannot reach (a wall in the way) is skipped, so the wall is broken instead. The
+  push toward the target holds the chute too: without it the hero walked off level 4's tunnel into a
+  175 unit shaft and died of the fall, in God mode.
+- **Curbs**: a step of up to 2 units onto a sloping cell that leads on to level ground counts as a jump
+  (`Nav.lip`; level 4's tunnel mouth, 58.9 then 60.6 then 61.7, was unreachable for the planner, and so
+  was the neck on the way to the fans), while a steady 40 degree slope is still not walked.
+- **Sniper locks the level watches itself** (`sniper_locks`): on Kurt's levels, locks with no handler in
+  the model (level 4's rising spheres under the vortex) get one sniper round each when the way on is above.
+- **A scan that finds almost nothing** (level 3's rooms have floors the line of sight does not see, so a
+  floor search from the hero's neighbours finds none) is repeated as a plane scan: the hero's height is
+  the floor and the walls are found by the chest-height probes (`coop.NavStart(..., plane)`, at most 6000
+  cells). It gives a rough map (20 cells became 98 on the walkway), not a reliable one.
+- **Notes the game could not move**: `coop_note` writes `note_<key>.tmp` and moves it over the `.txt`;
+  the move fails while the bot has the `.txt` open, leaving the newer text in the `.tmp` for good. A finished
+  scan then looked 'running' for the whole 15 minute scan timeout. `read_note` takes the newer of the two.
 - **Gunner** (`coop.GunnerOn`): the nearest enemy the hero can see is faced (with pitch) and shot;
   a target that loses no health in 3 s is left alone (out of reach, or line of sight through a gap the
   bullets do not pass).
@@ -289,3 +307,16 @@ the game-free gates and a short live smoke (see the last section).
 - Levels 5 to 12 beyond the survey, Doc's items, sniper locks that need long chains, bosses,
   minigames, movies, combat damage to the hero.
 
+Levels 3 and 4 on the bot's own, third run (full table in the run's `report.md`; Overhaul build, two players,
+God on): passing are 3:1→2, 3:2→3, 3:3→4 (the plane scan), 3:4→5 (timing dependent), 3:10→11 (trivial),
+4:1→2, 4:2→3 (362 s: the tunnel plug sniped, the tunnel walked, the 175 unit shaft dropped with the chute
+held, the room's generator killed), 4:3→4, 4:6→7 (131 s), 4:8→9 (1069 s, needs a 1200 s limit) and 4:9→10.
+Worlds matched at the end of every one of them (L3 13 enemies, L4 48 to 53 compared). Held up by something
+the bot does not do yet: 3:5→6 (the elevator at (17,34) is not entered), 3:6→16 to 3:9→10 (walkway, slide,
+Doc's items, the spacewalk; the plane scan only gives a rough map there), 4:4→5 (the neck is passed, then the
+platforms: the lock chain l4_blowlock02 → blower02 is sniped from the pit and misses), 4:5→6 (the vortex:
+the three spheres are hit, the fans lift Kurt 17 units at a time, the target is 138 higher), 4:7→8 (the exit
+door of the arena does not open), 4:10→11 (the pit's lock hit without a draft) and 4:11→14 (a generator no
+reachable place sees). The owner's level 3 journals hold no play (the hero stands still), so they give no
+routes. Not yet: levels 5 to 12, Doc's items, bosses, minigames,
+movies, combat damage to the hero.
