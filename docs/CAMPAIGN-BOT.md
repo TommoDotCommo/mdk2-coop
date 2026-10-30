@@ -95,6 +95,31 @@ What following a person's play needs beyond positions, learnt from the owner's l
   shaft's open centre line (at most three times per point).
 - **Every player plays the recording** in a squad, rather than chasing the leader on foot (Max's
   flights cannot be chased).
+- **Flights are flown at their recorded height**: points in the air, points risen to with jump held (a
+  jetpack hop onto room 9's first lift is only 2 units above the floor at its start, so it never counts
+  as air) and the landing after them go to the pilot's height hold (`coop.PilotGo` with `fly=2`:
+  thrust below the point's height, none above it, hovering over the point until level with it, also
+  while the gunner has the aim). A flight that fails (the hero fell, or stopped making progress) is
+  flown again from the last point walked, after refuelling at the nearest refueller in reach, at most
+  three times; a lift ride that leaves the hero on the floor goes back to the way onto the lift.
+- **Fuel**: the follower counts the jetpack's thrust (`coop.jet_ms`, reset at each refuel and at the
+  start, where a checkpoint past a refueller fills the tank) and refuels first when a flight's climb up
+  to its landing or the next refueller would run a part-used tank dry (about 10.5 s of thrust, some 15
+  units a second of climb). Refuellers the recording used are used the same way: stood on, or, for the
+  pumps hanging in room 9's shaft (the person tapped jump beside them), hovered by for six seconds.
+- **Falls are not lift rides**: a stretch with no jump held counts as a ride only at a lift's pace
+  (under 8 units a second); a fall down a shaft is several times faster.
+- **Kurt's glides**: a drop the recording made with jump held is walked with the chute (jump held in
+  the air); without Max's jetpack (level 2 before checkpoint 5) the recording's air is plain jumps.
+
+**Recording a level for the bot** (`tools/record_level.sh <level> [checkpoint]`): leases one game copy
+from the resource hook (like the test suites), installs the test build with the journal on, starts that
+checkpoint in front with sound for a person to play, waits until the game is closed, keeps the journal
+under `local/journal/<level>_<checkpoint>_<time>/` and turns it into `local/routes/seg_<level>_*.route`,
+then releases the copy (also when interrupted). Set `MDK2_BUILD=overhaul` and `MDK2_OVERHAUL_EXE` to
+record on the Overhaul build. Play on through as many checkpoints as you like; dying and reloading are
+fine (only the last attempt at each segment is kept). `tools/record_level.sh --convert <folder> [out]`
+only converts a journal folder.
 
 The owner's shaft climb also changed the bot's own play: one tank does a whole shaft when each level
 is landed on (the light's grate, then each closed hatch), thrust is cut once high enough and the hero
