@@ -1311,7 +1311,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
         if record:
             leader.lua(f'coop_route("record", "{record}")')
         if route:
-            result['leader'] = follow(leader, route, lambda m: log('[1] ' + m))
+            result['leader'] = follow(leader, route, lambda m: log('[1] ' + m), level=level,
+                                      scratch=str(Path(folder) / 'nav_1.json'))
         else:
             result['leader'] = advance(leader, level, goal, str(Path(folder) / 'nav_1.json'),
                                        lambda m: log('[1] ' + m), fly=fly, chute=chute)
@@ -1437,7 +1438,7 @@ def route_waypoints(frames, step_ms=400, step_units=3.0):
     return out
 
 
-def follow(game, path, log, radius=2.5, lost_after=120):
+def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None):
     """Play a recording closed-loop: walk its positions with the pilot (skipping on when nearer a later
     point), pressing the action keys the recording held on each stretch. Robust to timing and drift,
     unlike replaying the inputs by the clock."""
@@ -1445,6 +1446,7 @@ def follow(game, path, log, radius=2.5, lost_after=120):
     log(f'  following {len(pts)} points of {path}')
     game.lua('coop.GunnerOn(60)')
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
+    helped = set()
     while i < len(pts):
         here = game.pos()
         # skip on: the nearest of the next few points
@@ -1474,8 +1476,18 @@ def follow(game, path, log, radius=2.5, lost_after=120):
         d = math.dist(game.pos(), p['pos'])
         if best is None or d < best - 1:
             best, last_progress = d, time.monotonic()
+        # held up a while with the level model at hand: what the bot does on its own, once per spot --
+        # the scripted objectives near (room 1's door lock, shot from further back in the recording)
+        if level and scratch and time.monotonic() - last_progress > 25 and Nav.spot(here) not in helped:
+            helped.add(Nav.spot(here))
+            nav, _ = scan(game, scratch)
+            if nav.cells:
+                for obj in objectives(level, here, p['pos'], radius=40)[:4]:
+                    if alive(game, obj['name']) and kill_objective(game, nav, obj, log):
+                        break
+            continue
         # held up where the recording was shooting (a scripted wall in the way): fire along the way
-        if any(256 in q['keys'] for q in pts[max(0, i - 3):i + 3]):
+        if any(256 in q['keys'] for q in pts[max(0, i - 10):i + 3]):
             for _ in range(6):
                 game.lua(f'local p=coop.real_player() coop.Face(p, {p["pos"][0]}-p.position.x, '
                          f'{p["pos"][1]}-p.position.y, 0) coop_press(256, 600)')
