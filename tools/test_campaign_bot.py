@@ -90,4 +90,21 @@ trap.add_lines('c 0.0 0.0 0.00 0 0 1 0 0.00 0 1 0.00\nc 2.0 0.0 0.00 1 0 0 0 0.0
 check('a cell with no way back is reachable but not safe',
       trap.key(0, 1, 0) in bot.reachable(trap, [0, 0, 0], safe=False)
       and trap.key(0, 1, 0) not in bot.reachable(trap, [0, 0, 0]))
-print('12 passed, 0 failed')
+# A bay whose hatch opens only once its turrets are dead (level 2's shaft scripts, trimmed).
+import campaign_mine as mine
+script = '''Level.SetUpDoorAndEnemies = function(room, door)
+    room.lockeddoor = door
+    mdkProxDoorLock(door, 1)
+end
+Level.AddEnemy = function(room, enemy)
+    room.numenemies = room.numenemies + 1
+    mdkSetLuaEvent(enemy, "OnDie", Level.EnemyOnDie)
+end
+bay1.OnCreate = function(gob)
+    Level.SetUpDoorAndEnemies(gob, hatch1)
+    Level.AddEnemy(gob, turret1)
+    Level.AddEnemy(gob, turret2)
+end
+'''
+check('a hatch locked by its bay\'s turrets is mined with them', mine.enemy_locks(script) == {'hatch1': ['turret1', 'turret2']})
+print('13 passed, 0 failed')

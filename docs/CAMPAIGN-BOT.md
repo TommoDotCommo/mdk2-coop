@@ -47,7 +47,18 @@ authoritative source is the installed game itself:
   as sniper mode's camera is not steered yet).
 - **Kurt's chute and Max's jetpack**: drop links to landings far below (jump held in the air opens the
   chute); a fuelled jetpack lifts Max 38 units in 3 s of held jump, so fly links reach up to 34 units
-  from under the open column's ceiling, and the bot picks up the jetpack and refuels first.
+  from under the open column's ceiling, and the bot picks up the jetpack and refuels first. Only a
+  refueller fills the tank (it sits on a step: the bot walks at it with a jump); a tank burns for about
+  10.5 s, some 15 units a second of climb once moving. `coop_gob_dump` / `coop_gob_float` (test
+  builds) dump a gob's memory for finding state like this; the fuel is not in Max's own gob.
+- **Hatched shafts** (`bay_climb`; level 2 rooms 5 to 6, 118 units): each bay's floor is a proximity
+  hatch that opens when Max comes within about 10 units of its centre, and a bay's upper hatch stays
+  locked until its four wall turrets are dead (`Level.SetUpDoorAndEnemies` / `Level.AddEnemy`, mined
+  generically as `locks`: a helper that locks its argument and one that gives its argument an OnDie
+  event). One tank cannot both climb and hover through the turret fights, so the bot makes a trip per
+  bay: refuel, burn up the open ring and then the centre column, drift 16 units off-centre so the
+  hatch shuts under him, land, shoot the turrets, walk back to the centre to drop through the hatches,
+  refuel. With every hatch unlocked one burn reaches the top (first pass: 342 s, 12 turrets).
 - **Gunner** (`coop.GunnerOn`): the nearest enemy the hero can see is faced (with pitch) and shot;
   a target that loses no health in 3 s is left alone (out of reach, or line of sight through a gap the
   bullets do not pass).

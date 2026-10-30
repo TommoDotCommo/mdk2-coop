@@ -89,6 +89,7 @@ def mine_level(geo, logic):
         'events': events,
         'exits': exits(logic),
         'deps': dependencies(logic),
+        'locks': enemy_locks(logic),
         'combos': sorted(set(COMBO.findall(logic))),
         'pickups': [o for o in objects if PICKUP.match(o['type'])],
         'spawners': [o for o in objects if ENEMY_SPAWN.match(o['type'])],
@@ -141,6 +142,42 @@ def dependencies(logic):
         damage = sorted(set(DAMAGE.findall(body)))
         if opens or enables or damage:
             out.setdefault(obj, {})[event] = {'opens': opens, 'enables': enables, 'damage': damage}
+    return out
+
+
+HELPER = re.compile(r'^(Level\.[A-Za-z0-9_]+)\s*=\s*function\s*\(([^)]*)\)', re.M)
+
+
+def enemy_locks(logic):
+    """Doors held shut until a set of enemies is dead (level 2's shaft bays: a room's OnCreate calls
+    Level.SetUpDoorAndEnemies(gob, door), which locks the door, then Level.AddEnemy(gob, turret) for
+    each turret, whose OnDie unlocks the door once all are dead). Found from the helpers' bodies, not
+    their names: a helper that locks its argument (mdkProxDoorLock(arg, 1)) and one that gives its
+    argument an OnDie event. {door: [enemies]}"""
+    heads = [(m.start(), m.group(1), [a.strip() for a in m.group(2).split(',')]) for m in HELPER.finditer(logic)]
+    lockers, killers = {}, {}
+    for i, (start, name, params) in enumerate(heads):
+        end = heads[i + 1][0] if i + 1 < len(heads) else len(logic)
+        body = logic[start:end]
+        for n, arg in enumerate(params):
+            if re.search(r'mdkProxDoorLock\(\s*' + re.escape(arg) + r'\s*,\s*1\s*\)', body):
+                lockers[name] = n
+            if re.search(r'mdkSetLuaEvent\(\s*' + re.escape(arg) + r'\s*,\s*"OnDie"', body):
+                killers[name] = n
+    out = {}
+    hand = [(m.start(), m.group(1)) for m in HANDLER_HEAD.finditer(logic)]
+    for i, (start, _obj) in enumerate(hand):
+        body = logic[start:hand[i + 1][0] if i + 1 < len(hand) else len(logic)]
+        doors, enemies = [], []
+        for m in re.finditer(r'(Level\.[A-Za-z0-9_]+)\(([^)]*)\)', body):
+            args = [a.strip() for a in m.group(2).split(',')]
+            if m.group(1) in lockers and len(args) > lockers[m.group(1)]:
+                doors.append(args[lockers[m.group(1)]])
+            if m.group(1) in killers and len(args) > killers[m.group(1)]:
+                enemies.append(args[killers[m.group(1)]])
+        for d in doors:
+            if enemies:
+                out[d] = enemies
     return out
 
 

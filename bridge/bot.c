@@ -242,6 +242,37 @@ static void nearest_enemy(void)
     push_gob(n >= k ? list[k - 1] : NULL);
 }
 
+/* coop_gob_dump(gob, bytes, key): the gob's first bytes (up to 64 KB) raw to coop\\gob_<key>.bin, and
+ * coop_gob_float(gob, offset): one float of it. For finding engine state the scripts cannot read
+ * (Max's jetpack fuel) by comparing dumps taken in known states. */
+#define GOB_DUMP_MAX 0x10000
+static void gob_dump(void)
+{
+    BYTE *g = tolua_getusertype(1, NULL);
+    long len;
+    int bytes = (int)number(2);
+    const char *key = luaL_check_lstr(3, &len);
+    char path[MAX_PATH];
+    FILE *f;
+    size_t i, n = strlen(key);
+    if (!gob_alive(g) || bytes <= 0 || bytes > GOB_DUMP_MAX || !n || n >= 64) return;
+    for (i = 0; i < n; i++)
+        if (!isalnum((unsigned char)key[i]) && key[i] != '_') return;
+    if (IsBadReadPtr(g, bytes)) return;
+    snprintf(path, sizeof(path), "%s\\gob_%s.bin", coop_dir, key);
+    if (!(f = fopen(path, "wb"))) return;
+    fwrite(g, 1, bytes, f);
+    fclose(f);
+}
+
+static void gob_float(void)
+{
+    BYTE *g = tolua_getusertype(1, NULL);
+    int off = (int)number(2);
+    if (!gob_alive(g) || off < 0 || off > GOB_DUMP_MAX - 4 || IsBadReadPtr(g + off, 4)) return;
+    lua_pushnumber(*(float *)(g + off));
+}
+
 /* coop_quat(gob) -> w, x, y, z: a gob's orientation. coop_set_quat(gob, w, x, y, z): set it whole, so
  * the campaign bot can face an exact bearing upright (mdkGobPointToXYZ turns from the current
  * orientation, and its small rolls built up until Max lay on his side, then upside down). */
@@ -270,6 +301,8 @@ static void quat_set(void)
 
 void bot_lua_init(void)
 {
+    tolua_function(NULL, "coop_gob_dump", gob_dump);
+    tolua_function(NULL, "coop_gob_float", gob_float);
     tolua_function(NULL, "coop_quat", quat_get);
     tolua_function(NULL, "coop_set_quat", quat_set);
     tolua_function(NULL, "coop_nearest_enemy", nearest_enemy);

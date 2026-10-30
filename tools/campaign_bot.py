@@ -641,7 +641,7 @@ def hop(game, landing, log, rise_s=4.0, rest_s=6.0):
     the lips): rise straight up where he stands (the scan found that column clear) until a little above
     the lip, let go, then step across onto it. Fuel is spent only on the height needed."""
     game.lua('coop.pilot=nil')
-    # fuel: the jetpack refills while Max stands (10 s at the shaft's foot gave a full 38 units again)
+    # fuel: only a refueller fills the jetpack (a tank burns for about 10.5 s)
     time.sleep(rest_s)
     want = landing[2] + 2.5
     game.lua('coop_press(57, 6000)')
@@ -689,66 +689,137 @@ def find_shaft(level, pos, goal):
     return cx, cy, floors
 
 
-def shaft_climb(game, shaft, ring, goal_z, log, rest_s=7.0, max_levels=12):
-    """Climb a shaft of lips the way a player does (the owner: Max kept catching under the lips): on each
-    lip rest to refill the jetpack, rise where the way up is open, and once just above the next lip move
-    over it and come down onto it. Where the way up is open differs by level, so rise points are tried
-    from the ring spot in toward the open centre, and the one that lands is kept for the next level."""
-    cx, cy, floors = shaft
-    fractions = [0.0, 0.5, 1.0]
-    for _ in range(max_levels):
-        here = game.pos()
-        if here[2] >= goal_z - 2:
+def nudge(game, xy, tol=1.0, tries=40):
+    """Short steps straight at a spot (the pilot's planning is for longer ways)."""
+    for _ in range(tries):
+        p = game.pos()
+        if math.dist(p[:2], xy) < tol:
+            break
+        game.lua(f'local p=coop.real_player() coop.Face(p,{xy[0]}-p.position.x,{xy[1]}-p.position.y,0) '
+                 f'coop_press(17,150)')
+        time.sleep(.2)
+    return game.pos()
+
+
+def mount_refueller(game, pad, log):
+    """Stand on a refueller: it sits on a step, so walk at it with a jump until on its spot. The
+    jetpack fills only there (it does not refill while Max stands elsewhere)."""
+    x, y, z = pad['pos']
+    nudge(game, (x, y), tol=4)
+    for _ in range(6):
+        p = game.pos()
+        if math.dist(p[:2], (x, y)) < 2 and p[2] > z - 0.6:
+            time.sleep(2)
             return True
-        nxt = min([f for f in floors if f > here[2] + 2] + [goal_z])
-        landed = False
-        for frac in list(fractions):
-            rise = (ring[0] + (cx - ring[0]) * frac, ring[1] + (cy - ring[1]) * frac)
-            game.lua('coop.pilot=nil coop.gunner=nil')
-            # to the rise point on this lip (or floor), then a full tank
-            for _ in range(15):
-                p = game.pos()
-                if math.dist(p[:2], rise) < 1.5:
-                    break
-                game.lua(f'local p=coop.real_player() coop.Face(p,{rise[0]}-p.position.x,{rise[1]}-p.position.y,0) '
-                         f'coop_press(17,200)')
-                time.sleep(.2)
-            time.sleep(rest_s)
-            start_z = game.pos()[2]
-            game.lua('coop_press(57, 7000)')
-            t0 = time.monotonic()
-            while time.monotonic() - t0 < 6:
-                p = game.pos()
-                if p[2] >= nxt + 1.5:
-                    if math.dist(p[:2], ring) < 2.5:
-                        break
-                    game.lua(f'local p=coop.real_player() coop.Face(p,{ring[0]}-p.position.x,{ring[1]}-p.position.y,0) '
-                             f'coop_press(17,200)')
-                time.sleep(.12)
-            game.lua('coop_press(57, 0)')
-            time.sleep(1.5)
-            now = game.pos()
-            ok = now[2] > nxt - 2
-            log(f'    shaft: lip at {nxt:.1f} rising {frac:.0%} toward the centre: '
-                f'{"landed" if ok else "fell"} at {[round(v, 1) for v in now]}')
-            if ok:
-                fractions.remove(frac)
-                fractions.insert(0, frac)       # what worked first next time
-                landed = True
+        game.lua(f'local p=coop.real_player() coop.Face(p,{x}-p.position.x,{y}-p.position.y,0) '
+                 f'coop_press(57,250) coop_press(17,450)')
+        time.sleep(1.2)
+    log(f'    could not get onto {pad["name"]}')
+    return False
+
+
+def shaft_doors(level, shaft, low, high):
+    """The hatches in a shaft's column between two heights, lowest first (level 2: proximity doors that
+    open as Max comes within reach; locked ones open when the turrets of their bay are dead)."""
+    cx, cy, _ = shaft
+    return sorted((o for o in level.m['objects'] if 'DOOR' in o['type']
+                   and math.dist(o['pos'][:2], (cx, cy)) < 3 and low < o['pos'][2] < high),
+                  key=lambda o: o['pos'][2])
+
+
+HATCH_TOP = 2.9         # Max stands this far above a closed hatch's registered position
+
+
+def bay_climb(game, level, shaft, goal, log, max_trips=8):
+    """Climb a shaft of hatched bays (level 2's room 5 to room 6, 118 units, worked out in game): a tank
+    burns for about 10.5 s and lifts Max some 15 units a second, and only the refueller at the foot fills
+    it. Each bay's hatch is locked until the bay's four turrets are dead (Level.SetUpDoorAndEnemies, mined
+    as 'locks'). So, trip by trip: refuel, burn up the open ring and then the centre column (hatches open
+    as he passes), drift off-centre over the hatch below the locked one so it shuts under him, land on it
+    and shoot that bay's turrets; then walk back to the centre, drop through the hatches and refuel. Once
+    every hatch is unlocked, one burn takes him to the top."""
+    cx, cy, _ = shaft
+    ring = goal[:2]
+    here = game.pos()
+    side = (ring[0] - cx, ring[1] - cy)
+    n = math.hypot(*side) or 1
+    land_xy = (cx + side[0] / n * 16, cy + side[1] / n * 16)
+    pads = [o for o in level.m['objects'] if o['type'] == 'OBJ_REFUELLER' and o['pos'][2] < here[2] + 5
+            and math.dist(o['pos'][:2], (cx, cy)) < 60]
+    if not pads:
+        return False
+    pad = min(pads, key=lambda o: (round(o['pos'][2] - here[2]) < -40, math.dist(o['pos'][:2], (cx, cy))))
+    doors = shaft_doors(level, shaft, pad['pos'][2] + 5, goal[2])
+    if not doors:
+        return False
+    clear_z = doors[0]['pos'][2] - 8.5      # below this the centre is roofed (room 5's light), the ring open
+    locks = level.m.get('locks', {})
+
+    def burn(stand_z, xy):
+        """Up on one full tank; once above stand_z, over to xy and down onto it."""
+        nudge(game, ring)
+        game.lua('coop.pilot=nil coop.gunner=nil coop_press(57, 12000)')
+        t0, best, best_t = time.monotonic(), -1e9, time.monotonic()
+        while time.monotonic() - t0 < 13:
+            p = game.pos()
+            if p[2] > best + 0.3:
+                best, best_t = p[2], time.monotonic()
+            above = p[2] > stand_z + 2.5
+            to = xy if above else ((cx, cy) if p[2] > clear_z else ring)
+            game.lua(f'local p=coop.real_player() coop.Face(p,{to[0]}-p.position.x,{to[1]}-p.position.y,0) '
+                     f'coop_press(17,200)')
+            if above and math.dist(p[:2], xy) < 2:
                 break
-            if now[2] < start_z - 2:             # fell below where it rose from: back to the lower lip
-                break
-        game.lua('coop.GunnerOn(60)')
-        if not landed:
+            if not above and time.monotonic() - best_t > 3:
+                break                       # out of fuel, or held under a hatch that stays shut
+            time.sleep(.1)
+        game.lua('coop_press(57, 0)')
+        time.sleep(2)
+        p = game.pos()
+        return abs(p[2] - stand_z) < 2.5, p
+
+    def descend():
+        nudge(game, (cx, cy), tol=2)        # the hatch below opens: down to the bottom of the column
+        time.sleep(4)
+        nudge(game, ring, tol=1.5)          # off the light's top to the floor
+        time.sleep(2)
+
+    if here[2] > pad['pos'][2] + 3:
+        descend()                           # up in the column already (a trip before): down to the pad
+    for _ in range(max_trips):
+        shut = [(i, d) for i, d in enumerate(doors) if any(alive(game, e) for e in locks.get(d['name'], []))]
+        if not mount_refueller(game, pad, log):
             return False
-    return game.pos()[2] >= goal_z - 2
+        if not shut:
+            ok, p = burn(goal[2], goal[:2])
+            log(f'    shaft: burn to the top: {"there" if ok else "short"} at {[round(v, 1) for v in p]}')
+            return ok
+        i, door = shut[0]
+        if i == 0:
+            log(f'    shaft: {door["name"]} is locked with no hatch under it to stand on')
+            return False
+        floor = doors[i - 1]['pos'][2] + HATCH_TOP
+        ok, p = burn(floor, land_xy)
+        log(f'    shaft: up to the bay under {door["name"]}: {"landed" if ok else "missed"} at {[round(v, 1) for v in p]}')
+        if ok:
+            for e in locks[door['name']]:
+                o = next((o for o in level.m['objects'] if o['name'] == e), None)
+                t0 = time.monotonic()
+                while o and alive(game, e) and time.monotonic() - t0 < 40:
+                    x, y, z = o['pos']
+                    game.lua(f'local p=coop.real_player() coop.Face(p,{x}-p.position.x,{y}-p.position.y,'
+                             f'{z}-p.position.z-3) coop_press(256,500)')
+                    time.sleep(.5)
+                log(f'    shaft: {e} {"dead" if not alive(game, e) else "still alive"} after {time.monotonic() - t0:.0f}s')
+            game.lua('local p=coop.real_player() coop.Face(p,1,0,0)')
+        descend()
+    return False
 
 
 def climb(game, target, seconds=9):
     """A powered climb with Max's jetpack: one continuous hold of jump, the hero turned to the goal and
     walking at it. Returns the highest z reached."""
     game.lua('coop.pilot=nil')
-    time.sleep(8)        # a full tank: the jetpack refills while Max stands
     game.lua('coop_press(57, 8000)')
     top, t0 = game.pos()[2], time.monotonic()
     while time.monotonic() - t0 < seconds:
@@ -787,10 +858,9 @@ def prepare_flight(game, level, nav, log):
         return False
     best = min(fuel, key=lambda o: math.dist(o['pos'], here))
     walk(game, nav, best['pos'], log, timeout=40)
-    game.goto(*best['pos'], radius=1.0, timeout=10, explore=0)
-    time.sleep(4)
-    log(f'    refuelled at {best["name"]}')
-    return True
+    ok = mount_refueller(game, best, log)
+    log(f'    refuelled at {best["name"]}: {"yes" if ok else "no"}')
+    return ok
 
 
 def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
@@ -879,7 +949,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 shaft = find_shaft(level, game.pos(), target)
                 if shaft:
                     log(f'    shaft at {shaft[0]:.0f}, {shaft[1]:.0f}, lips {[round(f, 1) for f in shaft[2]]}')
-                    if shaft_climb(game, shaft, target[:2], target[2], log):
+                    if bay_climb(game, level, shaft, target, log):
                         stalls = 0
                         continue
                 log(f'    climbing with the jetpack to {[round(v) for v in target]}')
