@@ -1277,7 +1277,8 @@ function coop.PilotStop()
 end
 function coop.PilotTick()
     local pl = coop.pilot
-    if (not pl or pl.state ~= "go") then return end
+    -- (arrived at a height it holds it, until the next point: a held jump would carry the hero on up)
+    if (not pl or (pl.state ~= "go" and not (pl.fly == 2 and pl.state == "arrived"))) then return end
     local p = coop.real_player()
     if (not p) then return end
     local now = coop_ms()
@@ -1286,14 +1287,20 @@ function coop.PilotTick()
     -- holding a height (Max following a recorded flight): thrust below the point's height, none above
     -- it, so the hero hovers there; this goes on while the gunner aims, or he drops out of the air --
     if (pl.fly == 2) then
-        if (p.position.z < pl.z - 0.4) then
+        -- the jetpack answers late and the hero carries on rising a while after letting go (8 units
+        -- after a full climb), so steer by the height he will be at shortly, from his vertical speed --
+        local vz = 0
+        if (pl.lz and now > pl.lt) then vz = (p.position.z - pl.lz) * 1000 / (now - pl.lt) end
+        pl.lz, pl.lt = p.position.z, now
+        local ahead = p.position.z + vz * (coop.jet_lead or 0.35)
+        if (ahead < pl.z - 0.4) then
             if (now >= (pl.jet_until or 0)) then
                 coop_press(coop.pilot_keys.jump, 3000)
                 pl.jet_until = now + 2900
             end
             coop.jet_ms = (coop.jet_ms or 0) + 50
             pl.off = nil
-        elseif (p.position.z > pl.z + 0.6 and not pl.off) then
+        elseif (ahead > pl.z + 0.6 and not pl.off) then
             -- also a hold left over from the point before (a new PilotGo does not know of it)
             coop_press(coop.pilot_keys.jump, 0)
             pl.jet_until = nil
@@ -1302,6 +1309,7 @@ function coop.PilotTick()
             coop.jet_ms = (coop.jet_ms or 0) + 50
         end
     end
+    if (pl.state ~= "go") then return end
     -- the gunner has the hero's aim: wait, and do not count it as stuck --
     if (coop.gunner and (coop.gunner.busy or 0) > now) then pl.best_ms = now return end
     local dx = pl.x - p.position.x
@@ -1315,7 +1323,7 @@ function coop.PilotTick()
         if (dz < (pl.zr or 2) and dz > -(pl.zr or 2)) then
             pl.state = "arrived"
             pl.ms = now - pl.t0
-        elseif (now - pl.best_ms > 4000) then
+        elseif (now - pl.best_ms > 8000) then
             pl.state = "stuck"
         end
         return

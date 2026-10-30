@@ -97,7 +97,10 @@ class Game:
         return dict(zip(('level', 'cp', 'hp', 'shots', 'targets', 'life'), f))
 
     def goto(self, x, y, z, radius=2.5, timeout=60, trail=None, explore=1, jump=0, fly=0, chute=0, flat=1):
-        self.lua(f'coop.PilotGo({x},{y},{z},{radius},{flat},{explore}) coop.pilot.max_stuck=40 coop.pilot.jump={jump} '
+        # leaving a held height (fly=2) for the ground: let go of the jetpack first
+        off = 'coop_press(57, 0) ' if fly != 2 and getattr(self, 'held', False) else ''
+        self.held = fly == 2
+        self.lua(f'{off}coop.PilotGo({x},{y},{z},{radius},{flat},{explore}) coop.pilot.max_stuck=40 coop.pilot.jump={jump} '
                  f'coop.pilot.fly={fly} coop.pilot.chute={chute}')
         deadline = time.monotonic() + timeout
         while True:
