@@ -231,5 +231,8 @@ platforms: the lock chain l4_blowlock02 → blower02 is sniped from the pit and 
 the three spheres are hit, the fans lift Kurt 17 units at a time, the target is 138 higher), 4:7→8 (the exit
 door of the arena does not open), 4:10→11 (the pit's lock hit without a draft) and 4:11→14 (a generator no
 reachable place sees). The owner's level 3 journals hold no play (the hero stands still), so they give no
-routes. Not yet: levels 5 to 12, Doc's items, bosses, minigames,
-movies, combat damage to the hero.
+routes. Round 4 added elevators (3:5→6 passes with `--assist lift` in 92 s, both players riding; that lift is locked
+behind Kermit's puzzle) and camera-aimed sniper rounds (level 4's tunnel plug is broken that way; 4:2→3 passes). Level 3's
+walkway and everything after it need Doc's items (a launcher start at checkpoint 6 gives him none), and level 4's fan
+and pit locks (`l4_blowlock02`, `l4_r7lock`) are not seen from anything the bot walks to. Not yet: levels 5 to 12,
+Doc's items, bosses, minigames, movies, combat damage to the hero.
