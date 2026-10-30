@@ -168,10 +168,16 @@ def flight_rules(b, quiet=False):
     out.append(('the flight landing on a lift is planned with that lift, not a far one',
                 [bd['lift']['name'] for bd in b.plan_boardings(pts, fly, [far, lift])] == ['plat']
                 and not b.plan_boardings(pts, fly, [far])))
-    plan = b.plan_boardings(pts, fly, [lift])
-    out.append(('a boarding holds beside the lift a few points before the landing, from the ground',
-                len(plan) == 1 and plan[0]['wait_at'] is not None and plan[0]['wait_at'] <= plan[0]['last']
-                and not plan[0]['from_ride']))
+    # a longer hop: the hero holds beside the lift, out from under its edge (8 units), not right at it
+    lng = [{'pos': (0.0, 0.0, 0.0), 'keys': [], 'air': False, 'ride': False}] \
+        + [{'pos': (2.0 * k, 0.0, 3.0 + k), 'keys': [57], 'air': True, 'ride': False} for k in range(1, 9)] \
+        + [{'pos': (16.0, 0.0, 12.0), 'keys': [], 'air': False, 'ride': True}] * 3
+    lfly = set(range(1, 9))
+    plan = b.plan_boardings(lng, lfly, [{'name': 'L', 'pos': [17.0, 0.0, 12.0]}])
+    out.append(('a boarding holds out from under the lift (8 units), from the ground',
+                len(plan) == 1 and plan[0]['wait_at'] is not None
+                and math.dist(lng[plan[0]['wait_at'] - 1]['pos'][:2], (17.0, 0.0)) >= 8
+                and math.dist(lng[plan[0]['wait_at']]['pos'][:2], (17.0, 0.0)) < 8 and not plan[0]['from_ride']))
     # a hop from a ride to the next lift is not waited for (the lifts are in step; the first one would go down)
     rides = [{'pos': (0.0, 0.0, 3.0 * k), 'keys': [], 'air': False, 'ride': True} for k in range(4)]
     hop2 = [{'pos': (1.0 * k, 0.0, 12.0 + k), 'keys': [57], 'air': True, 'ride': False} for k in range(4)]
@@ -185,6 +191,14 @@ def flight_rules(b, quiet=False):
     out.append(('a lift going up, far above, or already past the height is not',
                 not b.lift_ready(243.0, 3.0, 239.3) and not b.lift_ready(255.0, -3.0, 239.3)
                 and not b.lift_ready(238.0, -1.0, 239.3)))
+    # carrying on from the earliest point nearly as near as the nearest: a hero hovering at a pump sits as
+    # near to a later point at the same height (not flown) and must not skip to it
+    loop = [{'pos': (3.0 * k, 0.0, 0.0)} for k in range(10)] + [{'pos': (12.5, 0.5, 0.0)}] \
+        + [{'pos': (15.0, 0.0, 30.0)}, {'pos': (0.0, 0.0, 0.0)}]
+    out.append(('the route carries on from the earliest point nearly as near as the nearest',
+                b.nearest_ahead((12.4, 0.3, 0.0), loop, 0) == 4 and b.nearest_ahead((0.1, 0.0, 0.0), loop, 0) == 0))
+    out.append(('a point clearly nearer than the current one is skipped to',
+                b.nearest_ahead((26.9, 0.0, 0.0), loop, 2) == 9))
     return out
 
 
@@ -195,7 +209,7 @@ for label, ok in results:
 # mutants: each must make at least one check fail
 import types
 real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED', 'lift_ready',
-                                    'boarding', 'plan_boardings')}
+                                    'boarding', 'plan_boardings', 'nearest_ahead')}
 mutants = {
     'only "air" points are flown (the hop onto a lift is walked)':
         dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
@@ -209,8 +223,11 @@ mutants = {
     'the lift is boarded whatever way it moves': dict(lift_ready=lambda z, vz, bz, high=4.0: True),
     'the lift is boarded only when it is already at the bottom':
         dict(lift_ready=lambda z, vz, bz, high=4.0: abs(z - bz) < 0.5),
-    'no flight lands on a lift': dict(plan_boardings=lambda pts, fly, lifts, approach=3: []),
-    'every lift is the nearest, however far': dict(boarding=lambda pts, fly, i, lifts, reach=7.0:
+    'the nearest point wins outright (skips over flown points)':
+        dict(nearest_ahead=lambda here, pts, i, window=80, slack=1.5: min(range(i, min(len(pts), i + window)),
+                                                                         key=lambda k: math.dist(here, pts[k]['pos']))),
+    'no flight lands on a lift': dict(plan_boardings=lambda pts, fly, lifts, standoff=8.0, base=None: []),
+    'every lift is the nearest, however far': dict(boarding=lambda pts, fly, i, lifts, reach=9.0:
                                                     real['boarding'](pts, fly, i, lifts, reach=1e9)),
 }
 for name, patch in mutants.items():

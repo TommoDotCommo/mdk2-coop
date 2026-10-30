@@ -32,6 +32,12 @@ def hook_path(arg):
     return hook
 
 
+def flies(level, start):
+    """Max's levels, from the jetpack's checkpoint on: the bot refuels and flies (--fly)."""
+    return (level, start) >= (2, 5) and level in (2, 5, 8, 11) and not (level == 5 and start < 9) \
+        and not (level == 8 and start < 5)
+
+
 def segment(level, seg, players, owner, hook, out, god, routes_on=True, chain=()):
     if ':' in seg:
         level, seg = int(seg.split(':')[0]), seg.split(':')[1]
@@ -42,6 +48,9 @@ def segment(level, seg, players, owner, hook, out, god, routes_on=True, chain=()
     seg = f'{level}:{seg}'
     folder.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, MDK2_QA_OWNER=owner, LAB_OWNER=owner)
+    # the jetpack's tank is spent per frame, so a flight is only repeatable at the game's own speed
+    if flies(level, start) and 'MDK2_TIMESCALE' not in env:
+        env['MDK2_TIMESCALE'] = '1'
     # the lab queues fairly and answers BUSY at once while another lease is ahead: try again for a while
     deadline = time.monotonic() + 1800
     while True:
@@ -101,7 +110,8 @@ def segment(level, seg, players, owner, hook, out, god, routes_on=True, chain=()
         tail = lines[-1:]
         result = {'segment': seg if not chain else f'{level}:{start}-{chain[-1]}',
                   'result': 'PASS' if run.returncode == 0 and len(legs) == len(chain) + 1 else 'FAIL',
-                  'mode': ('chain ' if chain else '') + ('recorded' if '--route' in args else 'autonomous'),
+                  'mode': ('chain ' if chain else '') + ('recorded' if '--route' in args else 'autonomous')
+                  + (' +fuel assist' if os.environ.get('MDK2_FUEL_ASSIST') == '1' else ''),
                   'seconds': round(time.monotonic() - t0), 'last': tail[0] if tail else ''}
         if chain:
             result['legs'] = legs
@@ -147,8 +157,7 @@ def play(level, start, end, players, wsl, folder, routes_on, logname):
         args = [sys.executable, '-u', str(ROOT / 'tools/campaign_bot.py'), cmd, '--dirs', *wsl,
                 '--level', str(ROOT / f'local/campaign/level{level}.json'), '--to', *map(str, goal)]
         # Max's levels: from the jetpack's checkpoint on, the bot refuels and flies
-        if (level, start) >= (2, 5) and level in (2, 5, 8, 11) and not (level == 5 and start < 9) \
-                and not (level == 8 and start < 5):
+        if flies(level, start):
             args.append('--fly')
         if level in (1, 4, 7, 10):
             args.append('--chute')      # Kurt
@@ -184,6 +193,8 @@ def main(argv=None):
     ap.add_argument('--resources')
     ap.add_argument('--no-god', action='store_true', help='play without invulnerability')
     ap.add_argument('--no-routes', action='store_true', help='the bot on its own even where a recording exists')
+    ap.add_argument('--fuel-assist', action='store_true',
+                    help='test crutch: a refueller follows each hero so a flight never runs dry (reported in the mode)')
     ap.add_argument('--chain', action='store_true', help='consecutive segments of one level in one game pair, in order')
     a = ap.parse_args(argv)
     if a.campaign:
@@ -193,6 +204,8 @@ def main(argv=None):
                       if l == l2 and a.first <= l <= a.last]
     if not a.segments or (not a.level and any(':' not in s for s in a.segments)):
         ap.error('give --segments with --level, level:start-end segments, or --campaign')
+    if a.fuel_assist:
+        os.environ['MDK2_FUEL_ASSIST'] = '1'
     hook = hook_path(a.resources)
     base = os.environ.get('LAB_OWNER') or os.environ.get('MDK2_QA_OWNER')
     if not base:

@@ -12,6 +12,7 @@ own level scripts), waits for each step's result in the games' own state, and ke
 import argparse
 import json
 import math
+import os
 import sys
 import time
 from pathlib import Path
@@ -1547,7 +1548,7 @@ def needs_fuel(used_ms, pts, fly, i, pads=(), tank_ms=TANK_MS, climb=JET_CLIMB):
 LIFT_STAND = 0.2       # a hero standing on a lift platform is this high above the platform's origin (measured)
 
 
-def boarding(pts, fly, i, lifts, reach=7.0):
+def boarding(pts, fly, i, lifts, reach=9.0):
     """The lift that the flight starting at point i lands on: (lift, hero height at the landing), or None.
     A lift is a moving platform object (room 9's r9_platform*); the flight is the run of flown points from
     i, and it boards a lift when its last flown point is within reach of one and a ride follows it."""
@@ -1562,20 +1563,39 @@ def boarding(pts, fly, i, lifts, reach=7.0):
     return (min(near, key=lambda n: n[0])[1], land[2]) if near else None
 
 
-def plan_boardings(pts, fly, lifts, approach=3):
+def extend_to_lifts(pts, fly, lifts, span=6):
+    """The flown points plus, for each flight that lands on a lift, the points between its last flown
+    point and the first one standing on the lift: the person was still drifting down onto the platform
+    there (jump already let go, not "air"), and a hero let go at the first of them falls off its edge."""
+    out = set(fly)
+    for i in range(1, len(pts)):
+        if i in fly and i - 1 not in fly and boarding(pts, fly, i, lifts):
+            k = i
+            while k in fly:
+                k += 1
+            r = next((r for r in range(k, min(len(pts), k + span)) if pts[r].get('ride')), None)
+            if r is not None:
+                out |= set(range(k, r))
+    return out
+
+
+def plan_boardings(pts, fly, lifts, standoff=8.0, base=None):
     """The flights that land on a lift: for each, the first flown point (`start`), the last (`last`), the
-    lift, the landing height and `wait_at`, the point to hold at beside the lift until it comes down
-    (`approach` points before the landing; None when the flight is shorter than that)."""
+    lift, the landing height and `wait_at`, the point after the last one at least `standoff` units from
+    the lift (the hero holds there, out from under its edge, until the lift comes down); None when the
+    whole flight is nearer than that. `base` is the flown set before extend_to_lifts."""
     out = []
     for i in range(1, len(pts)):
         if i in fly and i - 1 not in fly:
-            b = boarding(pts, fly, i, lifts)
+            b = boarding(pts, base if base is not None else fly, i, lifts)
             if b:
                 k = i
                 while k in fly:
                     k += 1
-                a = max(i, k - 1 - approach)
-                out.append({'start': i, 'last': k - 1, 'lift': b[0], 'z': b[1], 'wait_at': a + 1 if a + 1 < k else None,
+                far = [j for j in range(i, k) if math.dist(pts[j]['pos'][:2], b[0]['pos'][:2]) >= standoff]
+                hold = max(far) if far else None
+                out.append({'start': i, 'last': k - 1, 'lift': b[0], 'z': b[1],
+                            'wait_at': hold + 1 if hold is not None and hold + 1 < k else None,
                             'from_ride': any(q.get('ride') for q in pts[max(0, i - 5):i])})
     return out
 
@@ -1631,6 +1651,16 @@ def jet_used(game):
         return 0
 
 
+def nearest_ahead(here, pts, i, window=80, slack=1.5):
+    """The point to carry on from: the earliest of the next `window` points that is within `slack` units
+    of the nearest one. Taking the nearest alone jumped a hero hovering at a pump to a later point at the
+    same height that was not flown, so he let go of the jetpack and fell 200 units."""
+    ahead = range(i, min(len(pts), i + window))
+    d = {k: math.dist(here, pts[k]['pos']) for k in ahead}
+    least = min(d.values())
+    return min(k for k in ahead if d[k] <= least + slack)
+
+
 def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None, jetpack=True):
     """Play a recording closed-loop: walk its positions with the pilot (skipping on when nearer a later
     point), pressing the action keys the recording held on each stretch. Robust to timing and drift,
@@ -1640,11 +1670,15 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     fly = flown(pts) if jetpack else set()
     pads = [o for o in level.m['objects'] if o['type'] == 'OBJ_REFUELLER'] if level else []
     lifts = [o for o in level.m['objects'] if o['type'] == 'OBJ_SCENERY' and 'platform' in o['name']] if level else []
-    boards = plan_boardings(pts, fly, lifts)
+    flown_only, fly = fly, extend_to_lifts(pts, fly, lifts)
+    boards = plan_boardings(pts, fly, lifts, base=flown_only)
     over = {bd['last'] for bd in boards}
     log(f'  following {len(pts)} points of {path} ({len(fly)} flown at their height)')
     # a checkpoint start past a refueller has a full tank (coop.FuelGrantTick); count thrust from here
     game.lua('coop.GunnerOn(60) coop.jet_ms=0')
+    assist = os.environ.get('MDK2_FUEL_ASSIST') == '1'
+    if assist:
+        game.lua('coop.fuel_assist=1')     # a test crutch (campaign_run.py --fuel-assist): the tank never runs dry
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
     helped, aimed, flybacks, fuelled_at, retries, pinned = set(), set(), {}, {}, {}, False
 
@@ -1662,8 +1696,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         if math.dist(here, pts[-1]['pos']) < 6:
             break                           # at the recording's end (the next checkpoint) already
         # skip on: the nearest of the next few points (not while going back to retry a flight or lift)
-        ahead = range(i, min(len(pts), i + 80))
-        j = min(ahead, key=lambda k: math.dist(here, pts[k]['pos']))
+        j = nearest_ahead(here, pts, i)
         if j > i and not pinned:
             i = j
         p = pts[i]
@@ -1716,7 +1749,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             refuel(pad, 'as the recording did')
         if i in fly:
             # a flight (or a hop onto a platform): first, enough fuel for it, from a refueller in reach
-            if i - 1 not in fly and needs_fuel(jet_used(game), pts, fly, i, [o['pos'] for o in pads]):
+            if i - 1 not in fly and not assist and needs_fuel(jet_used(game), pts, fly, i, [o['pos'] for o in pads]):
                 near = [o for o in pads if math.dist(o['pos'], here) < 60]
                 if near:
                     refuel(min(near, key=lambda o: math.dist(o['pos'], here)), 'low before a flight')

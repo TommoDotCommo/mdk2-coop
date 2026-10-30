@@ -805,6 +805,25 @@ function coop.FuelGrantTick()
     end
 end
 
+-- Fuel assist (a test option of the campaign bot, off by default): a refueller kept under the hero while
+-- coop.fuel_assist is set, so a recorded flight is not lost to the one tank's 10 s
+function coop.FuelAssistTick()
+    local p = coop.real_player()
+    if (not coop.fuel_assist or not p) then
+        if (coop.fuel_assist_gob) then
+            if (coop_alive(coop.fuel_assist_gob) == 1) then omGobDelete(coop.fuel_assist_gob) end
+            coop.fuel_assist_gob = nil
+        end
+        return
+    end
+    if (not coop.fuel_assist_gob or coop_alive(coop.fuel_assist_gob) ~= 1) then
+        coop.fuel_assist_gob = mdkCreateObjectLua("coop_fuel_assist", OBJ_REFUELLER, mdkGetScene(), nil, nil,
+            p.position.x, p.position.y, p.position.z - (coop.fuel_assist_dz or 2), 1, 0, 0, 0, nil, 0, 0, 0, 0)
+    else
+        mdkGobSetPositionXYZ(coop.fuel_assist_gob, p.position.x, p.position.y, p.position.z - (coop.fuel_assist_dz or 2))
+    end
+end
+
 function coop.SharedPickupDone(gob, itemtype)
     local key, r = next(coop.rewards, nil)
     while (key and r.gob ~= gob) do key, r = next(coop.rewards, key) end
@@ -866,6 +885,7 @@ function coop.HandlerTick()
     coop.DomeTick()
     coop.SharedPickupTick()
     coop.FuelGrantTick()
+    coop.FuelAssistTick()
     if (coop.join) then coop.TryJoin() end
     coop.ProximityTick()
     coop.RearGateTick()
@@ -1295,8 +1315,9 @@ function coop.PilotTick()
         local ahead = p.position.z + vz * (coop.jet_lead or 0.35)
         if (ahead < pl.z - 0.4) then
             -- (a hero landed on a ledge with the key still down does not take off again: the engine wants
-            -- a new press, so let go for a tick when the thrust does not move him)
-            if (vz > -0.5 and vz < 0.5) then pl.still = pl.still or now else pl.still = nil end
+            -- a new press, so let go for a tick when the thrust does not move him -- and he is well below the
+            -- point: a hero hovering at its height or under a platform is not on a ledge)
+            if (vz > -0.5 and vz < 0.5 and pl.z - p.position.z > 2.5) then pl.still = pl.still or now else pl.still = nil end
             if (pl.still and now - pl.still > 350 and pl.jet_until) then
                 coop_press(coop.pilot_keys.jump, 0)
                 pl.jet_until = nil
