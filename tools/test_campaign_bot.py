@@ -197,6 +197,21 @@ check('cover places: nearest first, the hero\'s own spot and trail points on top
       and (30, 0, 0) in cand and (1, 0, 0) not in cand and len(cand) == 33
       and all(math.dist(a, (0, 0, 0)) <= math.dist(b, (0, 0, 0)) for a, b in zip(cand, cand[1:])))
 
+# Transient world differences: tolerated only when the next comparison no longer has them.
+def stp(*lines):
+    return {'findings': list(lines), 'known': [], 'warn': []}
+hpl = 'FAIL  enemy 10042 l2r3turret02: hp 54 on host, 48 on client'
+cl = 'FAIL  enemy 1e003d n1e003d (type 201) on the client 2, gone on the host'
+gone = 'FAIL  enemy 20003 sod101 (type 230, hp 150) deleted on the client'
+sts = cc.settle([stp(hpl, cl, gone), stp(gone), stp(hpl)])
+check('transient: health and client-only lines gone at the next step are known, the rest stay findings',
+      sts[0]['findings'] == [gone] and len(sts[0]['known']) == 2 and sts[0]['settled'] == 2
+      and sts[0]['known'][0][1].startswith('transient'))
+check('transient: the same enemy still different at the next step is a finding; the last step stays unsettled',
+      cc.settle([stp(hpl), stp(hpl)])[0]['findings'] == [hpl] and sts[2]['findings'] == [hpl])
+check('transient: a deleted-on-the-client enemy (the desync mutant) is never tolerated',
+      cc.settle([stp(gone), stp()])[0]['findings'] == [gone])
+
 # Crash detection in campaign_run.py: a new dump in a watched copy's crash folder fails the segment.
 import os, subprocess, tempfile
 import campaign_run as cr
@@ -213,4 +228,4 @@ with tempfile.TemporaryDirectory() as tmp:
     (crash / 'dump0001.dmp').write_bytes(b'MDMP not really')
     lines = [l for l in cr.crash_lines(env) if l.startswith('CRASH')]
     check('a new dump%04i.dmp of a copy is a CRASH with its path', len(lines) == 1 and 'dump0001.dmp' in lines[0])
-print('31 passed, 0 failed')
+print('34 passed, 0 failed')

@@ -196,3 +196,34 @@ def cover_candidates(here, trail, radii=(5.0, 9.0, 14.0, 20.0), spokes=8):
             a = 2 * math.pi * k / spokes
             pts.append((here[0] + r * math.cos(a), here[1] + r * math.sin(a), here[2]))
     return sorted(pts, key=lambda p: math.dist(p, here))
+
+
+# Differences that are real in a single comparison and gone at the next one. They are tolerated only
+# once the next comparison of the same run shows the host's world and the client's agreeing about that
+# enemy (settle()); one that is still there stays a finding. Evidence: docs/CAMPAIGN-BOT.md, findings.
+TRANSIENT = [
+    (re.compile(r'^FAIL  enemy (\w+) \S+: hp \d+ on host, \d+ on client'),
+     'enemy health on a client lags the host while players fire; equal at the next comparison'),
+    (re.compile(r'^FAIL  enemy (\w+) \S+ \(type \d+\) on the client(?: \d+)?, gone on the host'),
+     'an enemy the client still showed after the host removed it; gone at the next comparison'),
+]
+
+
+def settle(steps):
+    """Move the transient findings of every step that the next step no longer has into its `known` list
+    (with the reason) and count them in `settled`. The last step cannot be settled. steps: the list of
+    per-step dicts of campaign_bot.squad (changed in place and returned)."""
+    for i, s in enumerate(steps[:-1]):
+        later = ' '.join(steps[i + 1]['findings'])
+        keep, moved = [], 0
+        for line in s['findings']:
+            hit = next(((m.group(1), why) for pat, why in TRANSIENT for m in [pat.search(line)] if m), None)
+            if hit and f' {hit[0]} ' not in f' {later} ':
+                s['known'].append([line, 'transient: ' + hit[1]])
+                moved += 1
+            else:
+                keep.append(line)
+        s['findings'] = keep
+        if moved:
+            s['settled'] = s.get('settled', 0) + moved
+    return steps

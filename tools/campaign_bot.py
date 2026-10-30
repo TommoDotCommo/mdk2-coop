@@ -1713,6 +1713,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     gaps = {g.slot: round(math.dist(g.pos(), leader.pos()), 1) for g in followers}
     log(f'  followers\' distance from the leader at the end: {gaps}')
     followed = {k: v for k, v in result.items() if str(k).startswith(('follower_', 'role_', 'mutant'))}
+    cc.settle(steps)                  # a difference gone at the next comparison is transient
+    (folder / 'steps.json').write_text(json.dumps(steps, indent=1))
     findings = sorted({f for s in steps for f in s['findings']})
     known = sorted({k[0] for s in steps for k in s['known']})
     totals = lives.totals()
