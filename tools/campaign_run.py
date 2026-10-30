@@ -61,6 +61,20 @@ def segment(level, seg, players, owner, hook, out, god):
         b = subprocess.run(['bash', '-c', boot], env=env, capture_output=True, text=True, timeout=600)
         if b.returncode:
             return {'segment': seg, 'result': 'BOOT', 'detail': b.stderr[-300:]}
+        # the host loads the start checkpoint by itself a while after the title screen: wait for it
+        wait = ('import sys, time; sys.path.insert(0, sys.argv[1]); import campaign_bot as c\n'
+                'g = c.Game(sys.argv[2], 1); t0 = time.monotonic()\n'
+                'while time.monotonic() - t0 < 240:\n'
+                '    try:\n'
+                '        if g.note("lvl", "coop_note(\'lvl\', tostring(coop.level))").strip() == sys.argv[3]: break\n'
+                '    except Exception: pass\n'
+                '    time.sleep(3)\n'
+                'else: sys.exit("the start checkpoint did not load")\n'
+                'time.sleep(5)')
+        w = subprocess.run([sys.executable, '-c', wait, str(ROOT / 'tools'), wsl[0], str(level)],
+                           capture_output=True, text=True)
+        if w.returncode:
+            return {'segment': seg, 'result': 'BOOT', 'detail': (w.stderr or w.stdout)[-300:]}
         setup = 'coop.save_interval=999999' + (' God(1)' if god else '')
         subprocess.run([sys.executable, '-c', 'import sys; sys.path.insert(0, sys.argv[1]); import campaign_bot as c\n'
                         'for i, d in enumerate(sys.argv[3:], 1): c.Game(d, i).lua(sys.argv[2])',

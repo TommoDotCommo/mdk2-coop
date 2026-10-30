@@ -316,6 +316,15 @@ def walk(game, nav, goal, log, timeout=90):
             continue
         r = game.goto(*pt, radius=1.5 if i < len(pts) - 1 else 2.5, timeout=timeout, explore=0,
                       jump=int(climb and not flying), fly=int(flying), chute=int(nav.chute and rise < -6))
+        fell = r.get('state') != 'arrived' and game.pos()[2] < min(pt[2], pts[i - 1][2]) - 6
+        if fell and nav.fly:
+            # off the edge into a pit (level 2 room 6: the shaft's open top, down onto its locked
+            # hatch): fly back up to the waypoint and go on
+            ok, p = jet_to(game, pt[2], pt[:2])
+            log(f'    fell to {[round(v, 1) for v in p] if not ok else "?"}: flew back up to waypoint {i}: '
+                f'{"yes" if ok else "no"}')
+            if ok:
+                r = game.goto(*pt, radius=1.5 if i < len(pts) - 1 else 2.5, timeout=timeout, explore=0)
         if r.get('state') != 'arrived':
             log(f'    waypoint {i}/{len(pts) - 1} {pt}: {r.get("state")} at {r.get("pos")}')
             return r.get('pos', here), r.get('state')
@@ -636,6 +645,29 @@ def destroy(game, objs, toward, log, seconds=20):
     return None
 
 
+def jet_to(game, stand_z, xy, seconds=12):
+    """One held burn of Max's jetpack: straight up until above stand_z, then over to xy and down onto
+    it. (landed there, position)"""
+    game.lua(f'coop.pilot=nil coop_press(57, {seconds * 1000})')
+    t0, best, best_t = time.monotonic(), -1e9, time.monotonic()
+    while time.monotonic() - t0 < seconds + 1:
+        p = game.pos()
+        if p[2] > best + 0.3:
+            best, best_t = p[2], time.monotonic()
+        if p[2] > stand_z + 2.5:
+            game.lua(f'local p=coop.real_player() coop.Face(p,{xy[0]}-p.position.x,{xy[1]}-p.position.y,0) '
+                     f'coop_press(17,200)')
+            if math.dist(p[:2], xy) < 1.5:
+                break
+        elif time.monotonic() - best_t > 3:
+            break                           # out of fuel, or under a ceiling
+        time.sleep(.1)
+    game.lua('coop_press(57, 0)')
+    time.sleep(1.5)
+    p = game.pos()
+    return abs(p[2] - stand_z) < 2.5, p
+
+
 def hop(game, landing, log, rise_s=4.0, rest_s=6.0):
     """One jetpack hop onto a lip above, the way a player does it (the owner: Max kept catching under
     the lips): rise straight up where he stands (the scan found that column clear) until a little above
@@ -792,8 +824,13 @@ def bay_climb(game, level, shaft, goal, log, max_trips=8):
             return False
         if not shut:
             ok, p = burn(goal[2], goal[:2])
+            if ok:
+                p = nudge(game, goal[:2], tol=3)     # the burn lets go within a couple of units
             log(f'    shaft: burn to the top: {"there" if ok else "short"} at {[round(v, 1) for v in p]}')
-            return ok
+            if ok:
+                return True
+            descend()
+            continue
         i, door = shut[0]
         if i == 0:
             log(f'    shaft: {door["name"]} is locked with no hatch under it to stand on')
