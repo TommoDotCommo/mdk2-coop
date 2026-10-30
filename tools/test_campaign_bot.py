@@ -242,4 +242,64 @@ if lv4file.exists():
     below = [1137.0, -348.0, -102.0]
     check('a hero below every room box is planned from the nearest room, not a crash',
           lv4.room_of(below) is None and lv4.path(below, [1117.0, -545.0, 252.0])[1])
+# Co-op (tools/campaign_coop.py): the world comparison's tolerance table, lives, revives and roles.
+import campaign_coop as cc
+report = """warn  enemy 1f l2_r6gen00 (type 511) not bound on the client yet
+FAIL  enemy 2a l2_r4manta01 is 131.2 apart on the client
+FAIL  enemy 2b l2_r5turret03 (type 220, hp 40) deleted on the client
+state: 2 fail, 1 warn, 30 enemies compared"""
+c = cc.classify(report)
+check('a flying enemy apart is known, an enemy deleted on the client only is a finding',
+      [k[0][:30] for k in c['known']] == ['FAIL  enemy 2a l2_r4manta01 is'] and len(c['findings']) == 1
+      and 'deleted on the client' in c['findings'][0] and len(c['warn']) == 1 and c['summary'].startswith('state:'))
+check('a ground enemy apart is a finding, not known drift',
+      len(cc.classify('FAIL  enemy 3 l2_r5grunt is 40.0 apart on the client')['findings']) == 1)
+lives = cc.Lives([1, 2])
+for slot, life in ((2, 1), (2, 0), (2, 1), (2, 2), (2, 3), (2, 0), (1, 1), (1, 1)):
+    lives.update(slot, life)
+t = lives.totals()
+check('downs, revives, deaths and returns are counted from life readings',
+      (t['downs'], t['revives'], t['deaths'], t['returns']) == (3, 1, 1, 1) and t['per_player'][1]['downs'] == 1)
+check('the nearest standing teammate revives; nobody when all are down',
+      cc.reviver({1: (0, 0, 0), 2: (5, 0, 0), 3: (50, 0, 0)}, {1: 1, 2: 0, 3: 0}, 1) == 2
+      and cc.reviver({1: (0, 0, 0), 2: (5, 0, 0)}, {1: 1, 2: 1}, 1) is None
+      and cc.reviver({1: (0, 0, 0), 2: (5, 0, 0), 3: (1, 0, 0)}, {1: 1, 2: 0, 3: 3}, 1) == 2)
+picks = [{'name': 'a', 'type': 'OBJ_DOUBLEA', 'pos': [10, 0, 0]}, {'name': 'u', 'type': 'OBJ_UZI', 'pos': [1, 0, 0]},
+         {'name': 'b', 'type': 'OBJ_CARBATTERY', 'pos': [30, 0, 0]}]
+check('low health goes for the nearest health pickup not tried yet, within reach',
+      cc.health_target(picks, (0, 0, 0), set())['name'] == 'a' and cc.health_target(picks, (0, 0, 0), {'a'})['name'] == 'b'
+      and cc.health_target(picks, (0, 0, 0), {'a'}, radius=20) is None)
+gens = [{'name': 'g2'}, {'name': 'g1'}]
+check('roles: the second player takes the objective after the leader\'s, the rest none',
+      cc.split(gens, 2) == {2: gens[1]} and cc.split(gens, 4) == {2: gens[1]} and cc.split(gens[:1], 3) == {})
+check('regrouped only when everyone is at the portal',
+      cc.regrouped({1: (0, 0, 0), 2: (10, 0, 0)}, (0, 0, 0)) and not cc.regrouped({1: (0, 0, 0), 2: (20, 0, 0)}, (0, 0, 0)))
+
+t = cc.Lives([1, 2])
+t.update(2, cc.DOWNED)
+check('revive mutant: down and not revived is not ok', not cc.down_check(t.totals(), 2)['ok'])
+t.update(2, cc.ALIVE)
+check('revive mutant: down then revived is ok', cc.down_check(t.totals(), 2)['ok'])
+t = cc.Lives([1, 2])
+t.update(2, cc.DOWNED)
+t.update(2, cc.DEAD)
+check('revive mutant: down then dead is reported', cc.down_check(t.totals(), 2)['died']
+      and not cc.down_check(t.totals(), 2)['ok'] and not cc.down_check(cc.Lives([1, 2]).totals(), 2)['down_seen'])
+
+# Crash detection in campaign_run.py: a new dump in a watched copy's crash folder fails the segment.
+import os, subprocess, tempfile
+import campaign_run as cr
+with tempfile.TemporaryDirectory() as tmp:
+    game = Path(tmp) / 'game'
+    crash = game / 'profile' / 'MDK2HD' / 'crash'
+    crash.mkdir(parents=True)
+    (crash / 'dump0000.dmp').write_bytes(b'old')
+    state = str(Path(tmp) / 'state.json')
+    subprocess.run([sys.executable, str(Path(__file__).with_name('crashwatch.py')), 'begin', '--state', state,
+                    '--crash-dir', str(crash), '--dir', str(game)], check=True)
+    env = dict(os.environ, MDK2_CRASH_STATE=state, MDK2_CRASH_DIALOGS='0')
+    check('no crash, no CRASH line', not [l for l in cr.crash_lines(env) if l.startswith('CRASH')])
+    (crash / 'dump0001.dmp').write_bytes(b'MDMP not really')
+    lines = [l for l in cr.crash_lines(env) if l.startswith('CRASH')]
+    check('a new dump%04i.dmp of a copy is a CRASH with its path', len(lines) == 1 and 'dump0001.dmp' in lines[0])
 print("all checks passed")
