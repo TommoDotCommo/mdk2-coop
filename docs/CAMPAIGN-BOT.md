@@ -128,6 +128,27 @@ refuel trip per bay, then 252 s on one tank). A checkpoint start past a refuelle
 (`coop.FuelGrantTick`: a refueller hidden under the hero for six seconds), like the key items: from
 checkpoint 9 an empty tank could not reach room 9's first lift.
 
+- **Moving lifts** (level 2 room 9's `r9_platform*`): the platforms swing on their own, 21 units in a 20 second
+  period, the neighbours in anti-phase, whatever the player does (read from the objects' heights in the game:
+  `r9_platform` 239 to 260, `r9_platform_s` 280 to 259, the others likewise). The owner boarded each at the
+  bottom of its swing; the follower used to arrive when it was overhead and hover under it. Now a flight that
+  lands on a lift (`plan_boardings`) leaves the ground when the platform is coming down to the boarding height,
+  holds 8 units out from its edge (not under it) for the last stretch until it is down, and keeps two units above
+  the platform's current height as it rises (`coop.pilot.track`); the points between the last flown one and the
+  first standing on the lift are flown too (`extend_to_lifts`: a hero let go early fell off the edge). A hop from
+  one lift straight to the next is not waited for: the lifts are in step. Shown live: the lifts 0 to 5 are
+  ridden first try (`local/dev1` traces: `rode to 257.1 / 277.3 / 294.8 / 318.1 / 337.0 (recorded 258.2 / 277.7 /
+  295.7 / 318.9 / 338.3)`).
+- **Carrying on**: the follower takes the earliest of the next 80 points that is nearly (1.5 units) as near as the
+  nearest (`nearest_ahead`); the nearest alone sent a hero hovering at a pump to a later point at the same height
+  that was not flown, and he let go of the jetpack and fell 200 units. Points the recording spent hovering by a
+  hanging pump are flown too (`hover_points`).
+- **Fuel assist** (`campaign_run.py --fuel-assist`, a test crutch, off by default and named in the report's mode):
+  a refueller kept under each hero (`coop.fuel_assist`), so a recorded flight is not lost to one tank. Without it
+  the follower spends about three times the person's thrust on room 9 (the person: 3.6 s of held jump up to the
+  first pump; the follower hovers while it waits for lifts and spends a round trip with the game on every point),
+  and runs dry at lift 2. Results are reported with and without it.
+
 ## Speed
 
 - Navigation is scanned, not explored by walking, and scans are cached per checkpoint.
