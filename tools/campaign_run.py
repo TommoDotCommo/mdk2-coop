@@ -140,7 +140,18 @@ def segment(level, seg, players, owner, hook, out, god, limit=1500, need_build=N
                     args += ['--record', f'seg_{level}_{start}_{end}']
             else:
                 args += ['--scratch', str(folder / 'nav.json')]
-            run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=limit)
+            if os.environ.get('CAMPAIGN_IDLE'):
+                # a start checkpoint left to a person or a script: the copies' folders are listed, and the
+                # games stay up until <segment folder>/stop exists (or the limit passes)
+                (folder / 'dirs.txt').write_text('\n'.join(wsl) + '\n')
+                log.write('idle: games left to a driver\n')
+                log.flush()
+                t_idle = time.monotonic()
+                while not (folder / 'stop').exists() and time.monotonic() - t_idle < limit:
+                    time.sleep(5)
+                run = subprocess.CompletedProcess(args, 1)
+            else:
+                run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=limit)
         name = f'seg_{level}_{start}_{end}.route'
         made = Path(wsl[0]) / 'coop' / name
         if run.returncode == 0 and made.exists() and not (ROOT / 'local/routes' / name).exists():
