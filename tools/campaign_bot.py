@@ -1402,7 +1402,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
             # a door opens as the hero comes near, after the scan saw it shut: push on straight toward
             # the target for a few seconds, then look again --
             if stalls == 1:
-                r = game.goto(*target, radius=4, timeout=6, explore=0)
+                r = game.goto(*target, radius=4, timeout=6, explore=0, chute=1 if chute else 0)
                 moved = best - math.dist(game.pos()[:2], target[:2])
                 best = min(best, math.dist(game.pos()[:2], target[:2]))
                 log(f'    pushed toward the target: {moved:+.1f} past the best')
