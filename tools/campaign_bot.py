@@ -712,7 +712,10 @@ def kill_objective(game, nav, obj, log, seconds=25, sniper=False):
                  f'coop_press(256, 600)')
         time.sleep(.5)
     log(f'    {obj["name"]}: still alive after {seconds}s of fire')
-    if sniper and snipe(game, obj['name'], log):
+    # a window can take several rounds (level 4's l4_r1shatter lived through one): again while they hit
+    for _ in range(6):
+        if not (sniper and snipe(game, obj['name'], log)):
+            break
         time.sleep(1)
         if not alive(game, obj['name']):
             log(f'    killed {obj["name"]} with sniper rounds')

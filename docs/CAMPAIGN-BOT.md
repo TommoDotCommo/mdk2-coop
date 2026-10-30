@@ -44,7 +44,19 @@ authoritative source is the installed game itself:
   which damage types they check. When stuck, the bot kills the live prerequisites of an opener near it
   (level 1 room 4: three enemies enable the lock) and triggers the opener with its damage type
   (`DAMAGE_SNIPER`: a sniper round; known shortcut: launched along Kurt's aim by `coop_test_sniper`,
-  as sniper mode's camera is not steered yet).
+  as sniper mode's camera is not steered yet). Openers that switch something on near the way
+  (level 4's sniper locks that raise platforms or start fans) count as well; each is set off once,
+  the nearest first, and one enabled by standing somewhere (`OnCollision`) is never shot at.
+- **Pickups are not objectives**: an item with an `OnDie` handler (level 3's BFB) is carried, not
+  shot; it had filled every stall of level 3. On Kurt's levels an objective the chaingun does not
+  break gets sniper rounds.
+- **Moved by the level**: when a script carries the hero off the planned room route (level 3 starts
+  with Doc moved 165 units after the intro), the route is planned again from where he is.
+- **Kurt's fans** (level 4's updrafts, `fan_ride`): when the way on is well above Kurt and a fan
+  (`OBJ_BLOWERCYLINDER`) stands below it, the bot snipes the lock that switches the fan on (a mined
+  `deps` opener whose handler `enables` it), walks to the column's edge, steps in with jump held so
+  the chute opens in the draft, keeps over the column's centre while rising and steers to the target
+  once above it.
 - **Kurt's chute and Max's jetpack**: drop links to landings far below (jump held in the air opens the
   chute); a fuelled jetpack lifts Max 38 units in 3 s of held jump, so fly links reach up to 34 units
   from under the open column's ceiling, and the bot picks up the jetpack and refuels first. Only a
@@ -117,6 +129,10 @@ checkpoint 9 an empty tank could not reach room 9's first lift.
 - Background test games read `command.lua` every other frame (the driver's round trip), and a
   viewpoint search is one call in the game rather than one per candidate.
 - `tools/campaign_run.py` runs checkpoint-to-checkpoint segments in parallel, one pair of copies each.
+  A crash fails a segment (`tools/crashwatch.py` through `mdk.sh`'s guard: a new `dump%04i.dmp`, a
+  `coop/logs/*.crash` marker or the error dialog, which is closed and recorded every 20 s);
+  `--build overhaul` refuses copies of another build; `--timeout` caps each segment; each run writes
+  `report.md` with the build, the copies' save folder, where the leader stopped and its last words.
 - `tools/test_campaign_bot.py` checks the planner without the game (walking rules, landings,
   reachability, portal route).
 - Ideas not yet built: record a person's
