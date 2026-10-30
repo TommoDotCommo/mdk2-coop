@@ -139,6 +139,14 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
   segment's `results.json`. Mutant: `campaign_run.py --mutant desync` deletes a living enemy in the
   client's game only after the first step. Shown live (level 2, 5 to 6, x2): the next step reported
   `enemy 20003 sod101 (type 230, hp 150) deleted on the client` as a finding.
+- **Transient differences** (`campaign_coop.settle`, run at the end of a squad): a health that differs on a
+  client, or an enemy only on the client, is moved to `known` only if the next comparison no longer has
+  that enemy; the last comparison and everything else stay findings (a deleted-on-the-client enemy, the
+  desync mutant, is never tolerated). Evidence from every recorded squad run (7 runs, 156 findings):
+  38 of 38 client-lower health lines (turrets, SAM missiles, a spawner's grunts) and 104 of 104
+  client-only enemies (types 230, 201, 217, 511, 200) were gone at the next comparison; 8 findings are
+  left, the mutant's and puppet-distance lines after a checkpoint reload (a hero moved 170 to 190 units
+  while its puppet lagged one step).
 - **Crashes fail a segment** (`campaign_run.py`): the segment keeps `tools/mdk.sh`'s crash guard
   (`tools/crashwatch.py`) from before the boot to the end. Every 10 s the Overhaul build's error
   dialog ("Jinkies!") is closed and recorded and the game processes are checked; a game gone ends the
@@ -176,6 +184,34 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
     x1 passes (815 s, 0 findings, `.../20261031-081607`), so the cause is playing without God mode;
     which part of it (knockback, a blocked door, damage slowing the hero) is unknown.
   - 5 to 6 was not run: its recording and its own play fail at the tip with God mode too (flight code).
+  - **Survival layer (round 4)**. The host's state dump says which enemy targets which player
+    (`ai_target <id> <type> @pN`, the engine's own AI target); `campaign_coop.host_threats` turns it into
+    threats per player, `pick_focus` picks what each hero shoots first (a missile within 25 units, else the
+    weakest within reach; the Lua gunner takes it as `coop.GunnerFocus`), `hold` stands and finishes a
+    shooter, `cover` walks to the nearest place no shooter sees (`coop.NavCover`, the engine's line of
+    sight) and waits. The gunner now aims up and down (it had always aimed flat, so the turrets 20 to 40
+    units above the hero in room 3 were never hit), and a gunner that fired at something far away kept
+    the revive key from registering (the gunner is paused while reviving). A follower rewinds to the
+    nearest earlier route point after a checkpoint reload (it pushed at walls 100 to 390 units short of
+    a point it had already passed). `squad --tactic fight` is this layer; `--tactic run` sprints and
+    shoots only what is within 6 units, plus missiles within 25.
+  - Tactic result at x1, two players, no God mode, recording. **8 to 9: run passes, three runs of three**
+    (146, 118 and 118 s of play, 0 downs, 0 deaths, 0 world findings;
+    `local/campaign/runs/20261031-100949/run{1,2,3}/2-8-9`; run 1 before the missile focus, 2 and 3
+    after). A first single run passed too (181 s, 1 down, 1 revive, `.../20261031-100541`). The fight
+    tactic fails 8 to 9 (lost at point 45 under the room's spawner at 916, 940: grunts keep dropping on the
+    hero, who stands and shoots; `.../20261031-093548`). So what stopped 8 to 9 without God mode was
+    standing to fight a spawner's endless grunts; sprinting through it is how it is played.
+  - **3 to 4 is not solved.** Room 3 is a gauntlet: three wall turrets, three SAM generators (homing
+    missiles, 30 hp) and eight grunt spawn groups (97 hp each; the bot's bullets do 6). Fight tactic
+    (`.../20261031-091932`: 5 downs, 4 revives, 0 deaths, 639 s; `.../20261031-093106`: 3 downs, lost
+    at point 66; both heroes at 200 hp after each wipe reload but never past y 520): holding the ground
+    kills about 35 grunts and still loses, and cover does not help since nothing heals (room 3 has no
+    health pickup; a revive gives half health). Run tactic (`.../20261031-101120`, killed for the quota
+    stop): the first pass went from hp 200 to 3 and got to y 750 of a goal a few units further, died, and
+    the wipe reload started it again. No full pass of 3 to 4 without God mode yet; the margin is thin
+    (hp 3 at the end), so it is a matter of a few more luck-or-damage points, not of a missing capability.
+    Roughly 190 hp of damage is taken between y 330 and 750 by sprinting.
 - **Roles** (`--roles`): when a step has several objectives at the goal's height (level 2, 3 to 4: eight
   alerts, a door lock and walls; 5 to 6: two generators), the leader keeps its route and the next
   players each take another objective (aimed fire), then everyone regroups within 15 units of the
@@ -246,9 +282,8 @@ combat damage to the hero.
 Co-op checks at the branch tip (all on level 2, Overhaul build, x1): the per-step comparison and its
 desync mutant, the crash watch and its crash mutant, the no-God care on 7 to 8 (three runs), the revive
 with its mutants (down passes, down-stay fails), and roles with three and four players on 3 to 4 (both
-PASS, regroup checked) are shown live. The no-God series fails on 3 to 4 and 8 to 9 (see the Co-op
-section: the bot cannot yet survive room 3's turrets, and 8 to 9 loses its route without God mode for an
-unknown reason); 5 to 6 still fails with God mode too (the flight code is another job's). The 3 and 4
+PASS, regroup checked) are shown live. The no-God series passes on 8 to 9 with the run tactic (three of three) and
+fails on 3 to 4 (room 3's gauntlet; the sprint reaches the goal's last stretch at hp 3, see the Co-op section); 5 to 6 still fails with God mode too (the flight code is another job's). The 3 and 4
 player runs are on 3 to 4, which has eight objectives at the goal's height (alerts, a door lock, walls),
 because 5 to 6 does not pass. Found and fixed on the way: the care loop could not read the leader's
 position while the leader's pilot held the command file, so a downed player got no reviver for 30 s and
