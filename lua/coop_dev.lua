@@ -1293,8 +1293,12 @@ function coop.GunnerTick()
             gn.target = nil
             return
         end
-        -- Max tips onto his side when pointed up or down (the owner saw it): he only turns --
-        coop.Face(p, e.position.x - p.position.x, e.position.y - p.position.y, 0)
+        -- aim up or down at it (the quaternion keeps Max upright, unlike mdkGobPointToXYZ): turrets on
+        -- the walls sit 20-40 units above the hero, and a flat shot never touches them --
+        local dz = e.position.z - p.position.z
+        if (dz > 60) then dz = 60 end
+        if (dz < -60) then dz = -60 end
+        coop.Face(p, e.position.x - p.position.x, e.position.y - p.position.y, dz)
         coop_press(256, 150)
         gn.shots = gn.shots + 1
         gn.busy = now + 300
