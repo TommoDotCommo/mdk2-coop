@@ -194,15 +194,16 @@ stretches the person flew or glided; flying those airborne points at their recor
 newest change and is not yet tested. On its own, without a recording, the bot passes 3→4, 5→6
 (252 s), 7→8 and 8→9.
 
-Levels 3 and 4 on the bot's own, second run (eight segments): 3:2→3 and 4:9→10 pass as well; 4:5→6 rides the
-vortex fan (a lift of 218 units) and then falls out; 4:8→9 got to 61 units from its checkpoint when the time ran out;
-4:2→3 now has blind chute drops (walk off a rim toward a landing the scan cannot see), not yet run live; 4:4→5 and
-4:10→11 are held up by fans and sniper locks whose chains are long (the lock under 4:10→11's pit shows only from the
-pit's ring). Earlier partial run (stopped after four segments): 3:1→2, 4:1→2 (the window broken) and 4:3→4 pass; 4:2→3 stops on the second window,
-which took more than one sniper round (now sniped again while rounds hit; not yet rerun). The fan
-ride and the switch-on chain openers are built and tested without the game, not yet live. Most of
-level 3 needs Doc's items (leaf blower, duct tape, ladders, magnet), the fish minigame or the
-spacewalk, so it needs a person's recording; on level 4 the theatre's '?' doors, the dance on the
-stage and the bouncing sniper shells do too. The owner's level 3 journals hold no play (the hero
-stands still), so they give no routes. Not yet: levels 5 to 12, Doc's items, bosses, minigames,
+Levels 3 and 4 on the bot's own, third run (full table in the run's `report.md`; Overhaul build, two players,
+God on): passing are 3:1→2, 3:2→3, 3:3→4 (the plane scan), 3:4→5 (timing dependent), 3:10→11 (trivial),
+4:1→2, 4:2→3 (362 s: the tunnel plug sniped, the tunnel walked, the 175 unit shaft dropped with the chute
+held, the room's generator killed), 4:3→4, 4:6→7 (131 s), 4:8→9 (1069 s, needs a 1200 s limit) and 4:9→10.
+Worlds matched at the end of every one of them (L3 13 enemies, L4 48 to 53 compared). Held up by something
+the bot does not do yet: 3:5→6 (the elevator at (17,34) is not entered), 3:6→16 to 3:9→10 (walkway, slide,
+Doc's items, the spacewalk; the plane scan only gives a rough map there), 4:4→5 (the neck is passed, then the
+platforms: the lock chain l4_blowlock02 → blower02 is sniped from the pit and misses), 4:5→6 (the vortex:
+the three spheres are hit, the fans lift Kurt 17 units at a time, the target is 138 higher), 4:7→8 (the exit
+door of the arena does not open), 4:10→11 (the pit's lock hit without a draft) and 4:11→14 (a generator no
+reachable place sees). The owner's level 3 journals hold no play (the hero stands still), so they give no
+routes. Not yet: levels 5 to 12, Doc's items, bosses, minigames,
 movies, combat damage to the hero.
