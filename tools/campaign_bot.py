@@ -1337,43 +1337,55 @@ def load_route(path):
     return frames
 
 
-def journal_segments(folder, out, log=print, jump=40.0):
+def journal_segments(folder, out, log=print, jump=40.0, reach=12.0):
     """A person's play journals (coop/journal/L<level>_cp<cp>_<time>.route, [test] journal=1) as segment
-    routes for campaign_run.py: each file covers one checkpoint until the next one started, so it becomes
-    seg_<level>_<cp>_<next cp>.route, the next cp read from the following file of that level. Deaths and
-    reloads jump the hero back: only the last attempt (after the last jump) is kept. An existing segment
-    route is replaced only by a shorter one."""
-    files = sorted(Path(folder).glob('L*_cp*_*.route'), key=lambda f: f.name.split('_')[-1])
+    routes for campaign_run.py, seg_<level>_<from>_<to>.route for consecutive launcher checkpoints
+    (tools/checkpoints.txt). The game does not report every checkpoint passed (level 2 played from 6 to
+    its end came as one file), so a file is cut where the hero first comes within reach of each next
+    checkpoint's position (local/campaign/level<N>.json). Deaths and reloads jump the hero back: a
+    segment keeps only its last attempt. An existing segment route is replaced only by a shorter one."""
+    root = Path(__file__).resolve().parents[1]
+    order = [tuple(int(v) for v in t.split('-')) for t in (root / 'tools/checkpoints.txt').read_text().split()]
     made = []
-    for i, f in enumerate(files):
-        level, cp = (int(v) for v in f.name[1:].split('_cp')[0:1] + f.name.split('_cp')[1].split('_')[:1])
-        nxt = next((g for g in files[i + 1:] if g.name.startswith(f'L{level}_cp')), None)
-        if not nxt:
+    for f in sorted(Path(folder).glob('L*_cp*_*.route'), key=lambda f: f.name.split('_')[-1]):
+        level = int(f.name[1:].split('_')[0])
+        cp = int(f.name.split('_cp')[1].split('_')[0])
+        if (level, cp) not in order:
             continue
-        end = int(nxt.name.split('_cp')[1].split('_')[0])
-        if end == cp:
-            continue
+        model = root / f'local/campaign/level{level}.json'
+        cps = json.loads(model.read_text())['checkpoints'] if model.exists() else {}
         lines = f.read_text().splitlines()
         head = [l for l in lines if l.startswith(('MDKROUTE', 'S '))]
         frames = [l for l in lines if l.startswith('F ')]
-        start = 0
-        for k in range(1, len(frames)):
-            a, b = frames[k - 1].split(), frames[k].split()
-            if math.dist([float(v) for v in a[9:12]], [float(v) for v in b[9:12]]) > jump:
-                start = k                       # died or reloaded: the last attempt is the one that got through
-        frames = frames[start:]
-        if len(frames) < 10:
-            continue
-        target = Path(out) / f'seg_{level}_{cp}_{end}.route'
-        old = [l for l in target.read_text().splitlines() if l.startswith('F ')] if target.exists() else None
-        if old and int(old[-1].split()[1]) - int(old[0].split()[1]) <= \
-                int(frames[-1].split()[1]) - int(frames[0].split()[1]):
-            continue
-        Path(out).mkdir(parents=True, exist_ok=True)
-        target.write_text('\n'.join(head + frames) + '\n')
-        secs = (int(frames[-1].split()[1]) - int(frames[0].split()[1])) / 1000
-        log(f'  {target.name}: {secs:.0f} s of play from {f.name}')
-        made.append(target)
+        pos = [[float(v) for v in l.split()[9:12]] for l in frames]
+        later = [c for (l, c) in order[order.index((level, cp)) + 1:] if l == level]
+        start, here = 0, cp
+        for nxt in later:
+            goal = cps.get(str(nxt), {}).get('pos')
+            if not goal:
+                break
+            hit = next((k for k in range(start, len(pos)) if math.dist(pos[k], goal) < reach), None)
+            if hit is None:
+                break
+            seg = list(range(start, hit + 1))
+            first = seg[0]
+            for k in seg[1:]:
+                if math.dist(pos[k - 1], pos[k]) > jump:
+                    first = k               # died or reloaded: the last attempt is the one that got through
+            part = frames[first:hit + 1]
+            start, prev, here = hit, here, nxt
+            if len(part) < 10:
+                continue
+            target = Path(out) / f'seg_{level}_{prev}_{nxt}.route'
+            secs = (int(part[-1].split()[1]) - int(part[0].split()[1])) / 1000
+            if target.exists():
+                old = [l for l in target.read_text().splitlines() if l.startswith('F ')]
+                if old and (int(old[-1].split()[1]) - int(old[0].split()[1])) / 1000 <= secs:
+                    continue
+            Path(out).mkdir(parents=True, exist_ok=True)
+            target.write_text('\n'.join(head + part) + '\n')
+            log(f'  {target.name}: {secs:.0f} s of play from {f.name}')
+            made.append(target)
     return made
 
 
