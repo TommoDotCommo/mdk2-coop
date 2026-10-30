@@ -127,8 +127,40 @@ checkpoint 9 an empty tank could not reach room 9's first lift.
 ## Co-op
 
 The goal is N copies where every player is a bot: a leader advances and the others follow, split
-up, take turns at objectives, revive each other, and each step ends with the worlds compared
-(`statecheck.py`, the desync check). Not built yet.
+up, take turns at objectives, revive each other, and each step ends with the worlds compared. The
+co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools/test_campaign_bot.py`.
+
+- **Worlds compared after every step** (`campaign_bot.py squad`): each time the leader has gone 25
+  units along the ground (`--step-units`), or every 45 s (a shaft climb), every game dumps its state
+  and `statecheck.py` compares the host's world with each client's (again 1.5 s later on a mismatch).
+  Lines are sorted by a tolerance table (`campaign_coop.KNOWN`): known differences (flying enemies
+  drifting on clients) are listed with their reason, every other FAIL is a finding. Per step:
+  `steps.json` and `squad.json` in the squad's evidence folder, and `steps` / `findings` in the
+  segment's `results.json`. Mutant: `campaign_run.py --mutant desync` deletes a living enemy in the
+  client's game only after the first step. Shown live (level 2, 5 to 6, x2): the next step reported
+  `enemy 20003 sod101 (type 230, hp 150) deleted on the client` as a finding.
+- **Crashes fail a segment** (`campaign_run.py`): the segment keeps `tools/mdk.sh`'s crash guard
+  (`tools/crashwatch.py`) from before the boot to the end. Every 10 s the Overhaul build's error
+  dialog ("Jinkies!") is closed and recorded and the game processes are checked; a game gone ends the
+  run. A new `dump%04i.dmp` of the segment's copies, a dialog, a `coop/logs/*.crash` marker or a gone
+  process turns the result into `CRASH`, with the dump's path and exception, and the dumps are moved
+  into the segment's `dumps/`. Mutant: `--mutant crash` crashes the last game (`coop_crash()`, test
+  builds only). Shown live (level 2, 7 to 8): `CRASH` with the dump (access violation writing 0x10),
+  the dialog, the marker and the gone process.
+- **Without God mode** (`--no-god`): a hero below 35 health goes for the nearest health pickup
+  (Double-A or car battery batteries) within 60 units, otherwise backs off along its way; a downed
+  player is revived by the nearest standing teammate, who walks to the body and holds R (the mod's
+  revive, `bridge/revive.c`, 3 s within 5 units, as `tools/qa_revive.sh` does); downs, revives, deaths
+  and returns are counted from each game's own `coop_life()` (`results.json` `lives`, `care`). The
+  gunner shoots the nearest enemy it sees, which is not necessarily the one attacking it. Built and
+  tested without a game; not yet shown live (see Status).
+- **Roles** (`--roles`): when a step has several objectives at the goal's height (level 2, 5 to 6: two
+  generators), the leader keeps its route and the next player takes another objective (aimed fire),
+  then everyone regroups within 15 units of the goal (`regroup_s`). With 3 or more players the squad
+  always waits for the regroup. Not yet shown live.
+- `--explore` plays a segment with the bot's own play instead of its recording; `--timescale 1`
+  confirms a finding at normal speed; `--repeat N` runs each segment N times. Each segment's
+  `results.json` lists every copy's build hash and `[test] save_dir` (every copy keeps its own saves).
 
 ## Findings so far (co-op, from the bot's world comparisons)
 
@@ -160,3 +192,9 @@ stretches the person flew or glided; flying those airborne points at their recor
 newest change and is not yet tested. On its own, without a recording, the bot passes 3→4, 5→6
 (252 s), 7→8 and 8→9. Not yet: levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies,
 combat damage to the hero.
+
+Co-op checks at the branch tip: the per-step comparison and its desync mutant, and the crash watch and
+its crash mutant, are shown live. Following the owner's recording of 5 to 6 fails at the tip (both
+players stop under the shaft, "flew back up short", since the airborne-point flying change); the bot's
+own play (`--explore`) is the 5 to 6 testbed until that is fixed. The `--no-god` series (5 to 6 and
+7 to 8, three times each at x1) and the 3 and 4 player `--roles` runs are still to be run.
