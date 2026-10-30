@@ -369,7 +369,7 @@ def walk(game, nav, goal, log, timeout=90):
             level = getattr(game, 'level', None)
             col = (level and level.shaft_near(game.pos())) or open_column(game, game.pos(), pt[2])
             # to the waypoint, else back where he last stood (a rim can be walled from above)
-            for back in (pt, pts[i - 1], here):
+            for back in (pts[i - 1], pt, here):
                 if col:
                     nudge(game, col, tol=1.5)
                 ok, p = jet_to(game, back[2], back[:2])
@@ -785,13 +785,19 @@ def jet_to(game, stand_z, xy, seconds=12, over=6.0):
     game.lua('coop.pilot=nil coop_press(57, 15000)')
     thrust = True
     t0, best, best_t = time.monotonic(), -1e9, time.monotonic()
+    near, near_t = 1e9, time.monotonic()
     while time.monotonic() - t0 < seconds:
         p = game.pos()
         if p[2] > best + 0.3:
             best, best_t = p[2], time.monotonic()
         if best > stand_z + over:
-            if math.dist(p[:2], xy) < 1.5:
+            d = math.dist(p[:2], xy)
+            if d < 1.5:
                 break
+            if d < near - 0.3:
+                near, near_t = d, time.monotonic()
+            elif time.monotonic() - near_t > 2:
+                break                       # held off (a wall above the rim): keep the fuel
             game.lua(f'local p=coop.real_player() coop.Face(p,{xy[0]}-p.position.x,{xy[1]}-p.position.y,0) '
                      f'coop_press(17,200)')
             if thrust and p[2] > stand_z + over + 3:
