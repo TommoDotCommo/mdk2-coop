@@ -375,10 +375,13 @@ def walk(game, nav, goal, log, timeout=90):
                 ok, p = jet_to(game, back[2], back[:2])
                 if ok:
                     break
-            log(f'    fell to {[round(v, 1) for v in p] if not ok else "?"}: flew back up to waypoint {i}: '
-                f'{"yes" if ok else "no"}')
-            if ok:
+            log(f'    fell over an edge: flew back up to '
+                f'{"waypoint " + str(i) if ok and back is pt else "where he was" if ok else "nowhere"}, '
+                f'now {[round(v, 1) for v in p]}')
+            if ok and back is pt:
                 r = game.goto(*pt, radius=1.5 if i < len(pts) - 1 else 2.5, timeout=timeout, explore=0)
+            else:
+                return game.pos(), 'fell'           # a new plan, around the edge just blocked
         if r.get('state') != 'arrived':
             key = (Nav.spot(pt), Nav.spot(game.pos()))
             Nav.fails[key] = Nav.fails.get(key, 0) + 1
