@@ -1671,7 +1671,7 @@ def jet_used(game):
         return 0
 
 
-def turrets_to_clear(objects, here, radius=45.0, dz=10.0):
+def turrets_to_clear(objects, here, radius=45.0, dz=16.0):
     """Names of the turrets near the hero, on his floor or hovering level with them: the ones a bay's
     hatch waits for. The recording fired at them (level 2's bays) and went on only when they were dead."""
     return [o['name'] for o in objects if o['type'] == 'OBJ_TURRET'

@@ -253,7 +253,7 @@ mutants = {
     'a hovered pump is not flown': dict(hover_points=lambda pts, pads, reach=6.0: set()),
     'every flown point keeps above the platform': dict(tracked_points=lambda boards: {k: bd['lift']['name'] for bd in boards
                                                                                       for k in range(bd['start'], bd['last'] + 1)}),
-    'every turret counts, wherever it is': dict(turrets_to_clear=lambda objects, here, radius=45.0, dz=10.0:
+    'every turret counts, wherever it is': dict(turrets_to_clear=lambda objects, here, radius=45.0, dz=16.0:
                                                 [o['name'] for o in objects if o['type'] == 'OBJ_TURRET']),
     'no flight lands on a lift': dict(plan_boardings=lambda pts, fly, lifts, standoff=8.0, base=None: []),
     'every lift is the nearest, however far': dict(boarding=lambda pts, fly, i, lifts, reach=9.0:
