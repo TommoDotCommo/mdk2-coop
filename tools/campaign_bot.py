@@ -277,9 +277,13 @@ def scan(game, out, timeout=900, fly=False, chute=False):
     """Scan the hero's surroundings (coop.NavStart) and save the cells."""
     for old in game.coop.glob('note_nav_*.txt'):
         old.unlink()
+    # not falling (the same height a moment later): it may stand on an object the line of sight misses
     x, y, z = game.pos()
+    time.sleep(.4)
+    standing = abs(game.pos()[2] - z) < 0.05
     # flying opens up every floor above; a room and its shaft fit in 12000 cells
-    game.lua(f'coop.NavStart({x},{y},{z},2,{12000 if fly else 40000},4,6,{36 if fly else 0},{300 if chute else 0})')
+    game.lua(f'coop.NavStart({x},{y},{z},2,{12000 if fly else 40000},4,6,{36 if fly else 0},'
+             f'{300 if chute else 0},{1 if standing else "nil"})')
     deadline = time.monotonic() + timeout
     state = game.coop / 'note_nav_state.txt'
     while time.monotonic() < deadline:

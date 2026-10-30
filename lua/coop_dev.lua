@@ -1081,12 +1081,15 @@ function coop.NavView(tx, ty, tz, pts, dzs)
     end
     coop_note("view", "none")
 end
-function coop.NavStart(x, y, z, cell, maxcells, up, down, fly, drop)
+function coop.NavStart(x, y, z, cell, maxcells, up, down, fly, drop, standing)
     local n = { cell = cell or 2, max = maxcells or 20000, up = up or 2.5, down = down or 6, head = 1, tail = 1, fly = fly,
                 drop = drop,
                 q = {}, seen = {}, out = {}, batch = 0, count = 0, edges = 0 }
     local i, j = floor(x / n.cell + 0.5), floor(y / n.cell + 0.5)
     local f = coop.NavFloor(i * n.cell, j * n.cell, z + 3, z - 3)
+    -- standing on an object (a platform up level 2's shaft) the line of sight does not see: the hero's
+    -- own height is the floor, when it is not falling (the caller checks) --
+    if (not f and standing) then f = z end
     if (not f) then coop_note("nav_state", "nofloor") return end
     -- the hero's own body blocks the probes' line of sight: links next to where it stands are not
     -- tested (the scan from the middle of level 2's arena saw a wall 2 units south of the hero) --
