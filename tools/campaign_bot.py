@@ -1856,8 +1856,18 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             if tur:
                 retries[('bay', round(here[2] / 12))] = 1
                 t1 = time.monotonic()
-                while time.monotonic() - t1 < 30 and live_count(game, tur):
-                    time.sleep(.7)
+                # (the gunner does not take turrets: they were all alive after 30 s) fire held, the hero turned
+                # on each in turn with a little pitch, as bay_climb does from a hatch
+                objs = {o['name']: o for o in level.m['objects']}
+                game.lua('coop.gunner=nil coop_press(256, 60000)')
+                for name in tur:
+                    t2 = time.monotonic()
+                    while alive(game, name) and time.monotonic() - t2 < 12 and time.monotonic() - t1 < 45:
+                        x, y, z = objs[name]['pos']
+                        game.lua(f'local p=coop.real_player() coop.Face(p,{x}-p.position.x,{y}-p.position.y,'
+                                 f'{z}-p.position.z-3)')
+                        time.sleep(.3)
+                game.lua('coop_press(256, 0) coop.GunnerOn(60)')
                 log(f'    turrets near {[round(v) for v in here]}: {live_count(game, tur)} of {len(tur)} left after '
                     f'{time.monotonic() - t1:.0f}s')
         for code in p['keys']:
