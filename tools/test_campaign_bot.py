@@ -107,4 +107,8 @@ bay1.OnCreate = function(gob)
 end
 '''
 check('a hatch locked by its bay\'s turrets is mined with them', mine.enemy_locks(script) == {'hatch1': ['turret1', 'turret2']})
-print('13 passed, 0 failed')
+# A waypoint the hero failed to reach twice is planned around.
+bot.Nav.blocked.add(bot.Nav.spot(nav.cells[nav.key(4, 0, 0)][:3]))
+check('a blocked cell is not reachable', nav.key(4, 0, 0) not in bot.reachable(nav, [0, 0, 0], safe=False))
+bot.Nav.blocked.clear()
+print('14 passed, 0 failed')

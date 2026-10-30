@@ -217,8 +217,19 @@ class Nav:
             self._flat[k] = len(level) >= 2
         return self._flat[k]
 
+    # cells the hero failed to reach twice from the same place (a link the scan saw but the body cannot
+    # take: level 2's arena pit, a 6 unit step out), for every later plan in this run
+    blocked = set()
+    fails = {}
+
+    @staticmethod
+    def spot(p):
+        return (round(p[0] / 2), round(p[1] / 2), round(p[2] / 2))
+
     def step_cost(self, k, n):
         a, b = self.cells[k], self.cells[n]
+        if Nav.spot(b) in Nav.blocked:
+            return None
         rise = b[2] - a[2]
         base = math.dist(a[:3], b[:3])
         if -6 <= rise <= self.WALK_RISE:
@@ -326,6 +337,11 @@ def walk(game, nav, goal, log, timeout=90):
             if ok:
                 r = game.goto(*pt, radius=1.5 if i < len(pts) - 1 else 2.5, timeout=timeout, explore=0)
         if r.get('state') != 'arrived':
+            key = (Nav.spot(pt), Nav.spot(game.pos()))
+            Nav.fails[key] = Nav.fails.get(key, 0) + 1
+            if Nav.fails[key] >= 2 and Nav.spot(pt) not in Nav.blocked:
+                Nav.blocked.add(Nav.spot(pt))
+                log(f'    waypoint {pt} failed twice from here: planning without it')
             log(f'    waypoint {i}/{len(pts) - 1} {pt}: {r.get("state")} at {r.get("pos")}')
             return r.get('pos', here), r.get('state')
     return game.pos(), 'arrived'
@@ -611,8 +627,10 @@ def kill_objective(game, nav, obj, log, seconds=25):
         spot = tuple(nav.cells[cells[int(view[0]) - 1]][:3])
         aim = z + float(view[1])
     if not spot:
-        log(f'    {obj["name"]}: no reachable place sees it')
-        return False
+        # an object inside another's body (level 2's door locks sit at the door's centre, shown on its
+        # face): the line of sight misses it, but bullets hit its face from in front. Try spots around
+        # it and keep the first whose bursts the game reports as hits on it.
+        return circle_kill(game, nav, obj, log, seconds)
     walk(game, nav, spot, log)
     t0 = time.monotonic()
     while time.monotonic() - t0 < seconds:
@@ -623,6 +641,54 @@ def kill_objective(game, nav, obj, log, seconds=25):
                  f'coop_press(256, 600)')
         time.sleep(.5)
     log(f'    {obj["name"]}: still alive after {seconds}s of fire')
+    return False
+
+
+def circle_kill(game, nav, obj, log, seconds=25, max_spots=12):
+    """Shoot obj from reachable spots on rings 6, 12 and 20 units around it (eight bearings), short
+    bursts at a few heights, until a burst hits it (bridge.log); then keep that aim until it is gone.
+    For what the line of sight misses: a lock inside its door's body (shown on the door's face), a
+    target high in an alcove (level 2 room 2's teleporters behind glass)."""
+    x, y, z = obj['pos']
+    if math.dist(game.pos(), obj['pos']) > 60:
+        log(f'    {obj["name"]}: no reachable place sees it')
+        return False
+    cells = list(reachable(nav, game.pos()))
+    tried = []
+    for ring in (6, 12, 20):
+        near = [c for c in cells if ring - 3 < math.dist(nav.cells[c][:2], (x, y)) < ring + 3
+                and abs(nav.cells[c][2] - z) < 25]
+        for k in range(8):
+            if not near or len(tried) >= max_spots:
+                break
+            a = math.radians(k * 45)
+            want = (x + ring * math.cos(a), y + ring * math.sin(a))
+            c = min(near, key=lambda c: math.dist(nav.cells[c][:2], want))
+            spot = tuple(nav.cells[c][:3])
+            if math.dist(spot[:2], want) > ring or any(math.dist(spot, t) < 4 for t in tried):
+                continue
+            tried.append(spot)
+            walk(game, nav, spot, log, timeout=30)
+            offset = hits_since(game, 0)[1]
+            for dz in (0, 1.5, 3, 4.5, -1.5):
+                game.lua(f'local p=coop.real_player() coop.Face(p, {x}-p.position.x, {y}-p.position.y, '
+                         f'{z + dz}-p.position.z-3) coop_press(256, 700)')
+                time.sleep(.8)
+                names, offset = hits_since(game, offset)
+                if obj['name'] not in names:
+                    continue
+                t0 = time.monotonic()
+                while alive(game, obj['name']) and time.monotonic() - t0 < seconds:
+                    game.lua(f'local p=coop.real_player() coop.Face(p, {x}-p.position.x, {y}-p.position.y, '
+                             f'{z + dz}-p.position.z-3) coop_press(256, 600)')
+                    time.sleep(.5)
+                game.lua('local p=coop.real_player() coop.Face(p, 1, 0, 0)')
+                dead = not alive(game, obj['name'])
+                log(f'    {obj["name"]}: {"killed" if dead else "hit but alive"} from '
+                    f'{[round(v, 1) for v in spot]} (aim {dz:+})')
+                return dead
+    game.lua('local p=coop.real_player() coop.Face(p, 1, 0, 0)')
+    log(f'    {obj["name"]}: no hit from {len(tried)} spots around it')
     return False
 
 
