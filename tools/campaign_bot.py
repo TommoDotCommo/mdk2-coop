@@ -370,9 +370,10 @@ def walk(game, nav, goal, log, timeout=90):
             col = (level and level.shaft_near(game.pos())) or open_column(game, game.pos(), pt[2])
             # to the waypoint, else back where he last stood (a rim can be walled from above)
             for back in (pts[i - 1], pt, here):
-                if col:
-                    nudge(game, col, tol=1.5)
+                at = nudge(game, col, tol=1.5) if col else game.pos()
                 ok, p = jet_to(game, back[2], back[:2])
+                log(f'      rise at {[round(v, 1) for v in at]} for {[round(v, 1) for v in back]}: '
+                    f'{"landed" if ok else "no"}, now {[round(v, 1) for v in p]}')
                 if ok:
                     break
             log(f'    fell over an edge: flew back up to '
