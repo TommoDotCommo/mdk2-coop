@@ -670,6 +670,58 @@ def hop(game, landing, log, rise_s=4.0, rest_s=6.0):
     return ok
 
 
+def find_shaft(level, pos, goal):
+    """A vertical shaft between pos and goal: room boxes stacked one on another with the same footprint
+    (level 2's room 5 exit tubes, 19.4 units a level). Returns (centre x, y, level floors) or None."""
+    stack = [r for n, r in level.rooms.items()
+             if r['min'][0] - 2 <= goal[0] <= r['max'][0] + 2 and r['min'][1] - 2 <= goal[1] <= r['max'][1] + 2
+             and pos[2] - 5 <= r['min'][2] <= goal[2] + 5]
+    by_box = {}
+    for r in stack:
+        key = (round(r['min'][0]), round(r['min'][1]), round(r['max'][0]), round(r['max'][1]))
+        by_box.setdefault(key, []).append(r)
+    best = max(by_box.values(), key=len, default=[])
+    if len(best) < 2:
+        return None
+    floors = sorted(r['min'][2] for r in best)
+    cx = (best[0]['min'][0] + best[0]['max'][0]) / 2
+    cy = (best[0]['min'][1] + best[0]['max'][1]) / 2
+    return cx, cy, floors
+
+
+def shaft_climb(game, shaft, ring, goal_z, log, rest_s=7.0, max_levels=12):
+    """Climb a shaft of ring lips the way a player does (the owner: Max kept catching under the lips):
+    on each lip rest to refill the jetpack, rise while moving into the open centre, keep rising to just
+    above the next lip, then move back out over the ring and come down onto it."""
+    cx, cy, floors = shaft
+    for _ in range(max_levels):
+        here = game.pos()
+        if here[2] >= goal_z - 2:
+            return True
+        above = [f for f in floors if f > here[2] + 2] + [goal_z]
+        nxt = min(above)
+        game.lua('coop.pilot=nil coop.gunner=nil')
+        time.sleep(rest_s)
+        game.lua('coop_press(57, 7000)')
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 6:
+            p = game.pos()
+            target = (cx, cy) if p[2] < nxt + 2.5 else ring
+            if math.dist(p[:2], target) > 1.2:
+                game.lua(f'local p=coop.real_player() coop.Face(p,{target[0]}-p.position.x,{target[1]}-p.position.y,0) '
+                         f'coop_press(17,200)')
+            if p[2] >= nxt + 2.5 and math.dist(p[:2], ring) < 3:
+                break
+            time.sleep(.15)
+        game.lua('coop_press(57, 0) coop.GunnerOn(60)')
+        time.sleep(1.5)
+        now = game.pos()
+        log(f'    shaft: lip at {nxt:.1f}, landed at {[round(v, 1) for v in now]}')
+        if now[2] < nxt - 2:
+            return False
+    return game.pos()[2] >= goal_z - 2
+
+
 def climb(game, target, seconds=9):
     """A powered climb with Max's jetpack: one continuous hold of jump, the hero turned to the goal and
     walking at it. Returns the highest z reached."""
@@ -802,6 +854,12 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 # fuel first (anything on the way burns it), then what works by hand: one long hold of
                 # jump while turning to and walking at the goal
                 prepare_flight(game, level, nav, log)
+                shaft = find_shaft(level, game.pos(), target)
+                if shaft:
+                    log(f'    shaft at {shaft[0]:.0f}, {shaft[1]:.0f}, lips {[round(f, 1) for f in shaft[2]]}')
+                    if shaft_climb(game, shaft, target[:2], target[2], log):
+                        stalls = 0
+                        continue
                 log(f'    climbing with the jetpack to {[round(v) for v in target]}')
                 z0 = game.pos()[2]
                 top = climb(game, target)
