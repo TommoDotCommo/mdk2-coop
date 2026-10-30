@@ -1600,7 +1600,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
         result['mutant'] = dict(result.get('mutant', {}), **cc.down_check(totals, (result.get('mutant') or {}).get('downed')))
         followed['mutant'] = result['mutant']
         log(f'  mutant {mutant}: {result["mutant"]}')
-    stats = {'leader': result['leader'][1], 'world_ok': end['ok'], 'gaps': gaps, 'steps': len(steps),
+    stats = {'leader': result['leader'][1], 'world_ok': not end['findings'],      # known drift (flyers) is not a difference 'gaps': gaps, 'steps': len(steps),
              'findings': findings, 'known': len(known), 'lives': totals, 'care': care,
              'regroup_s': regroup, **followed}
     (folder / 'squad.json').write_text(json.dumps({'ok': result['leader'][0], **stats, 'known_lines': known,
