@@ -1308,6 +1308,14 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     stop = threading.Event()
 
     def lead():
+        try:
+            run_lead()
+        except Exception as e:           # a crash ends the squad instead of hanging it
+            log(f'[1] crashed: {e!r}')
+            result['leader'] = (False, {'crash': repr(e)})
+        stop.set()
+
+    def run_lead():
         if record:
             leader.lua(f'coop_route("record", "{record}")')
         if route:
@@ -1318,9 +1326,22 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                                        lambda m: log('[1] ' + m), fly=fly, chute=chute)
         if record:
             leader.lua(f'coop_route("stop", "{record}")')
-        stop.set()
 
     def keep_up(g):
+        try:
+            if route:
+                # every player plays the recording itself (Max's flights cannot be chased on foot);
+                # a player stuck on it walks on toward the leader
+                ok, stats = follow(g, route, lambda m: log(f'[{g.slot}] ' + m), level=level,
+                                   scratch=str(Path(folder) / f'nav_{g.slot}.json'))
+                result[f'follower_{g.slot}'] = stats
+                if ok:
+                    return
+            chase(g)
+        except Exception as e:
+            log(f'[{g.slot}] crashed: {e!r}')
+
+    def chase(g):
         g.lua('coop.GunnerOn(60)')
         far = 0
         while not stop.is_set():
@@ -1344,7 +1365,9 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     ok_world, _ = compare_worlds(games, folder, 'end', log)
     gaps = {g.slot: round(math.dist(g.pos(), leader.pos()), 1) for g in followers}
     log(f'  followers\' distance from the leader at the end: {gaps}')
-    return result['leader'][0] and ok_world, {'leader': result['leader'][1], 'world_ok': ok_world, 'gaps': gaps}
+    followed = {k: v for k, v in result.items() if str(k).startswith('follower_')}
+    return result['leader'][0] and ok_world, {'leader': result['leader'][1], 'world_ok': ok_world, 'gaps': gaps,
+                                              **followed}
 
 
 # Keys that move or turn the hero: the pilot does that itself when following a recording.
