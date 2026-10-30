@@ -368,9 +368,13 @@ def walk(game, nav, goal, log, timeout=90):
             # misses); elsewhere the nearest column the line of sight finds open
             level = getattr(game, 'level', None)
             col = (level and level.shaft_near(game.pos())) or open_column(game, game.pos(), pt[2])
-            if col:
-                nudge(game, col, tol=1.5)
-            ok, p = jet_to(game, pt[2], pt[:2])
+            # to the waypoint, else back where he last stood (a rim can be walled from above)
+            for back in (pt, pts[i - 1], here):
+                if col:
+                    nudge(game, col, tol=1.5)
+                ok, p = jet_to(game, back[2], back[:2])
+                if ok:
+                    break
             log(f'    fell to {[round(v, 1) for v in p] if not ok else "?"}: flew back up to waypoint {i}: '
                 f'{"yes" if ok else "no"}')
             if ok:
@@ -772,7 +776,7 @@ def open_column(game, here, top, reach=14):
     return pts[n - 1] if n > 0 else None
 
 
-def jet_to(game, stand_z, xy, seconds=12):
+def jet_to(game, stand_z, xy, seconds=12, over=6.0):
     """Max's jetpack: up until above stand_z, then over to xy holding that height (thrust off above the
     band, on below it, so the tank lasts), and down onto it. (landed there, position)"""
     game.lua('coop.pilot=nil coop_press(57, 15000)')
@@ -782,15 +786,15 @@ def jet_to(game, stand_z, xy, seconds=12):
         p = game.pos()
         if p[2] > best + 0.3:
             best, best_t = p[2], time.monotonic()
-        if best > stand_z + 2.5:
+        if best > stand_z + over:
             if math.dist(p[:2], xy) < 1.5:
                 break
             game.lua(f'local p=coop.real_player() coop.Face(p,{xy[0]}-p.position.x,{xy[1]}-p.position.y,0) '
                      f'coop_press(17,200)')
-            if thrust and p[2] > stand_z + 5:
+            if thrust and p[2] > stand_z + over + 3:
                 game.lua('coop_press(57, 0)')
                 thrust = False
-            elif not thrust and p[2] < stand_z + 3:
+            elif not thrust and p[2] < stand_z + over:
                 game.lua('coop_press(57, 15000)')
                 thrust = True
         elif time.monotonic() - best_t > 3:
