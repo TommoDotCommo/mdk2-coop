@@ -81,6 +81,24 @@ class Lives:
                                    'returns': self.returns[s]} for s in self.last}}
 
 
+def bridge_lives(logs):
+    """What the mod itself logged ('life: ...' lines of each game's bridge.log, a list of texts) as counts:
+    downs, revives by a teammate, and new levels (a wipe: the squad reloaded at its checkpoint, which
+    Lives cannot tell from a revive)."""
+    out = {'downs': 0, 'revived_by_teammate': 0, 'new_level': 0, 'bled_out': 0}
+    for text in logs:
+        for line in text.splitlines():
+            if 'life: alive -> downed' in line:
+                out['downs'] += 1
+            elif 'life: downed -> alive (revived by' in line:
+                out['revived_by_teammate'] += 1
+            elif 'life: alive (new level)' in line:
+                out['new_level'] += 1
+            elif 'bled out' in line and 'life:' in line:
+                out['bled_out'] += 1
+    return out
+
+
 def reviver(positions, lives, downed):
     """The standing teammate nearest the downed player, or None. positions/lives: {slot: ...}."""
     here = positions.get(downed)

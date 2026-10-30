@@ -318,6 +318,11 @@ t.update(2, cc.DEAD)
 check('revive mutant: down then dead is reported', cc.down_check(t.totals(), 2)['died']
       and not cc.down_check(t.totals(), 2)['ok'] and not cc.down_check(cc.Lives([1, 2]).totals(), 2)['down_seen'])
 
+bl = cc.bridge_lives(['life: alive -> downed (lethal hit)\nlife: downed -> alive (revived by player 2)\n',
+                      'life: alive -> downed (lethal hit)\nlife: alive (new level)\nlife: alive (new level)\n'])
+check('the mod\'s life log tells a revive by a teammate from a wipe reload',
+      bl == {'downs': 2, 'revived_by_teammate': 1, 'new_level': 2, 'bled_out': 0})
+
 # Crash detection in campaign_run.py: a new dump in a watched copy's crash folder fails the segment.
 import os, subprocess, tempfile
 import campaign_run as cr

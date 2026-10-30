@@ -1860,10 +1860,12 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             if cc.regrouped({g.slot: g.pos() for g in games}, goal):
                 regroup = round(time.monotonic() - t1)
                 break
-            for g in followers:
+            for g in games:         # the leader too: its route may end a few steps short of the portal
                 if math.dist(g.pos(), goal) > 15:
                     g.goto(*goal, radius=6, timeout=10, explore=1)
         log(f'  regrouped at the goal: {"in %ss" % regroup if regroup is not None else "no"}')
+        if regroup is None:
+            log('  not at the goal (units): ' + str({g.slot: round(math.dist(g.pos(), goal), 1) for g in games}))
     end = compare_step(games, folder, 'end', log)
     end.update(step='end', t=round(time.monotonic() - t_start))
     steps.append(end)
@@ -1878,7 +1880,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
         result['mutant'] = dict(result.get('mutant', {}), **cc.down_check(totals, (result.get('mutant') or {}).get('downed')))
         followed['mutant'] = result['mutant']
         log(f'  mutant {mutant}: {result["mutant"]}')
-    stats = {'leader': result['leader'][1], 'world_ok': end['ok'], 'gaps': gaps, 'steps': len(steps),
+    stats = {'leader': result['leader'][1], 'world_ok': not end['findings'],      # known drift (flyers) is not a difference 'gaps': gaps, 'steps': len(steps),
              'findings': findings, 'known': len(known), 'lives': totals, 'care': care,
              'regroup_s': regroup, **followed}
     (folder / 'squad.json').write_text(json.dumps({'ok': result['leader'][0], **stats, 'known_lines': known,
