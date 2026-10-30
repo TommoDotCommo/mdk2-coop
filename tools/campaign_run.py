@@ -160,6 +160,8 @@ def segment(level, seg, players, owner, hook, out, god, opts=None):
             for k in ('no_god', 'roles'):
                 if opts.get(k) and cmd == 'squad':
                     args.append('--' + k.replace('_', '-'))
+            if opts.get('tactic') and cmd == 'squad':
+                args += ['--tactic', opts['tactic']]
             if opts.get('mutant') in ('desync', 'down', 'down-stay') and cmd == 'squad':
                 args += ['--mutant', opts['mutant']]
             run = watched(args, log, env, wsl, opts, timeout=1500)
@@ -284,6 +286,7 @@ def main(argv=None):
     ap.add_argument('--players', type=int, default=2)
     ap.add_argument('--resources')
     ap.add_argument('--no-god', action='store_true', help='play without invulnerability: heroes revive each other')
+    ap.add_argument('--tactic', choices=('fight', 'run'), default=None, help='no-God play style (see campaign_bot.py squad)')
     ap.add_argument('--roles', action='store_true', help="split a step's objectives between the players")
     ap.add_argument('--timescale', type=float, help='game clock factor (MDK2_TIMESCALE); 1 to confirm findings')
     ap.add_argument('--explore', action='store_true', help='the bot plays on its own, ignoring recorded routes')
@@ -309,7 +312,7 @@ def main(argv=None):
     out = ROOT / 'local/campaign/runs' / time.strftime('%Y%m%d-%H%M%S')
     out.mkdir(parents=True, exist_ok=True)
     with concurrent.futures.ThreadPoolExecutor(a.shards) as pool:
-        opts = {'no_god': a.no_god, 'roles': a.roles, 'timescale': a.timescale, 'mutant': a.mutant, 'explore': a.explore}
+        opts = {'no_god': a.no_god, 'roles': a.roles, 'timescale': a.timescale, 'mutant': a.mutant, 'explore': a.explore, 'tactic': a.tactic}
         runs = [(seg, k) for seg in a.segments for k in range(a.repeat)]
         jobs = {pool.submit(segment, a.level, seg, a.players, f'{base}-seg{i}', hook, out / f'run{k + 1}'
                             if a.repeat > 1 else out, not a.no_god, opts): seg

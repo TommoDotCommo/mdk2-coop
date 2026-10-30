@@ -25,6 +25,7 @@ class Game:
         self.coop = Path(folder) / 'coop'
         self.slot = slot
         self.serial = 0
+        self.gun_range = 60            # how far the gunner shoots (a squad's tactic may shorten it)
         # one command.lua per game: threads (a squad's leader and its followers) take turns
         self.lock = threading.RLock()
 
@@ -512,7 +513,7 @@ def fire_sweep(game, wanted, log, pitches=(0, -20, 20, -40, 40), steps=16, snipe
                 break
         if found:
             break
-    game.lua('coop.GunnerOn(60)')
+    game.lua(f'coop.GunnerOn({game.gun_range})')
     if not found:
         log(f'    {"sniper" if sniper else "fire"} sweep hit none of {sorted(wanted)[:6]}')
         return None
@@ -524,7 +525,7 @@ def fire_sweep(game, wanted, log, pitches=(0, -20, 20, -40, 40), steps=16, snipe
         game.lua(face(ang, elev) + (' coop_test_sniper()' if sniper else ' coop_press(256, 600)'))
         time.sleep(.5)
         game.lua(face(ang, 0))
-    game.lua('coop.GunnerOn(60)')
+    game.lua(f'coop.GunnerOn({game.gun_range})')
     if alive(game, name) and not sniper:
         log(f'    fire sweep: {name} still alive after 30 s')
         return None
@@ -587,7 +588,7 @@ def aimed_kill(game, name, log, seconds=60):
             if misses >= 2 and close > 4:
                 close = max(4, close - 4)
                 misses = 0
-    game.lua('coop.GunnerOn(60)')
+    game.lua(f'coop.GunnerOn({game.gun_range})')
     gone = not alive(game, name)
     log(f'    {"killed" if gone else "could not kill"} {name} by aimed fire in {time.monotonic() - t0:.0f}s'
         f' (from {close} units)')
@@ -1083,7 +1084,7 @@ def prepare_flight(game, level, nav, log):
 
 def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
     """Get the hero to goal: portal by portal, scanning, walking, and breaking scripted walls."""
-    game.lua('coop.GunnerOn(60)')
+    game.lua(f'coop.GunnerOn({game.gun_range})')
     here = game.pos()
     _, portals = level.path(list(here), list(goal))
     # the room boxes have no vertical links (level 2's shaft from room 5 up to room 6): when the goal is
@@ -1340,7 +1341,7 @@ def desync_mutant(games, log):
 
 
 def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, record=None,
-          no_god=False, step_units=25.0, step_seconds=45.0, mutant=None, roles=False):
+          no_god=False, step_units=25.0, step_seconds=45.0, mutant=None, roles=False, tactic='fight'):
     """Every game is a bot: player 1 leads to the goal; each other player follows the leader with its
     own pilot and gunner. The worlds are compared after every step of the leader's progress (each
     step_units along the ground, or step_seconds) and at the end. Without God mode (no_god) each hero looks after
@@ -1350,6 +1351,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     import threading
     import campaign_coop as cc
     leader, followers = games[0], games[1:]
+    for g in games:
+        g.gun_range = 14 if tactic == 'run' else 60      # run: shoot only what is close, keep moving
     result = {}
     stop = threading.Event()
     t_start = time.monotonic()
@@ -1419,7 +1422,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
         g.goto(*goal, radius=6, timeout=40, explore=1)     # regroup at the portal
 
     def chase(g):
-        g.lua('coop.GunnerOn(60)')
+        g.lua(f'coop.GunnerOn({g.gun_range})')
         far = 0
         while not stop.is_set():
             target = leader.pos()
@@ -1598,7 +1601,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
         here = spot_of(g.slot)
         if not here:
             return
-        focus = cc.pick_focus(mine, here)
+        focus = cc.pick_focus(mine, here, reach=g.gun_range - 5 if tactic == 'run' else 55.0)
         name = focus['name'] if focus else ''
         if name != focus_set.get(g.slot):
             focus_set[g.slot] = name
@@ -1610,7 +1613,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             if focus:
                 log(f'[{g.slot}] shot at by {len(mine)}: focus {name} (type {focus["type"]}, hp {focus["hp"]}, '
                     f'{math.dist(focus["pos"], here):.0f} away), own hp {t["hp"]}')
-        if g.slot in busy_with or g.slot in reviving or t['life'] != cc.ALIVE:
+        if g.slot in busy_with or g.slot in reviving or t['life'] != cc.ALIVE or tactic == 'run':
             return
         near_fire = [x for x in mine if math.dist(x['pos'], here) < 45]
         if 0 < t['hp'] <= cc.COVER_HP and near_fire and now_s() - last_heal.get(('cover', g.slot), -99) > 12:
@@ -1838,7 +1841,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     unlike replaying the inputs by the clock."""
     pts = route_waypoints(load_route(path))
     log(f'  following {len(pts)} points of {path}')
-    game.lua('coop.GunnerOn(60)')
+    game.lua(f'coop.GunnerOn({game.gun_range})')
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
     helped, aimed, flybacks, fuelled_at = set(), set(), {}, {}
     while i < len(pts):
@@ -1913,7 +1916,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             for o in near:
                 aimed.add(o['name'])
                 aimed_kill(game, o['name'], log, seconds=30)
-                game.lua('coop.GunnerOn(60)')
+                game.lua(f'coop.GunnerOn({game.gun_range})')
         for code in p['keys']:
             game.lua(f'coop_press({code if code < 256 else code}, 450)')
         rise = p['pos'][2] - here[2]
@@ -2001,6 +2004,8 @@ def main(argv=None):
     sq.add_argument('--record', help="record the leader's play under this name (kept by the game in coop/)")
     sq.add_argument('--evidence', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/runs'))
     sq.add_argument('--no-god', action='store_true', help='heroes mind their health and revive each other')
+    sq.add_argument('--tactic', choices=('fight', 'run'), default='fight',
+                    help='no-God play: fight (hold the ground, cover) or run (shoot only what is close)')
     sq.add_argument('--roles', action='store_true', help='split a step\'s objectives between the players')
     sq.add_argument('--step-units', type=float, default=25.0, help='compare the worlds after this much progress')
     sq.add_argument('--mutant', choices=['desync', 'down', 'down-stay'],
@@ -2064,7 +2069,7 @@ def main(argv=None):
         folder = Path(a.evidence) / time.strftime('%Y%m%d-%H%M%S')
         ok, stats = squad(games, Level(a.level), a.to, folder, lambda m: print(m, flush=True), fly=a.fly,
                           chute=a.chute, route=a.route, record=a.record, no_god=a.no_god, roles=a.roles,
-                          step_units=a.step_units, mutant=a.mutant)
+                          step_units=a.step_units, mutant=a.mutant, tactic=a.tactic)
         print(f'{"RESULT: PASS" if ok else "RESULT: FAIL"} in {time.monotonic() - t0:.0f}s: {stats}; evidence {folder}')
         return 0 if ok else 1
     if a.cmd == 'advance':
