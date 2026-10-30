@@ -143,6 +143,12 @@ checkpoint 9 an empty tank could not reach room 9's first lift.
   nearest (`nearest_ahead`); the nearest alone sent a hero hovering at a pump to a later point at the same height
   that was not flown, and he let go of the jetpack and fell 200 units. Points the recording spent hovering by a
   hanging pump are flown too (`hover_points`).
+- **Bays**: where the recording fired at the turrets of a bay (level 2's hatched shafts: rooms 5 and 9 climb through
+  them), the follower stays, the gunner having the aim, until the turrets near it (`turrets_to_clear`: within 45
+  units, up to 16 above or below, since a bay's turrets sit 13 above its floor) are dead or 30 s have passed. Without
+  it the follower climbs on at once and meets a hatch that is still locked. Hovering with jump held after a climb
+  (the owner shot the bay's turrets from the air) counts as flown. Not yet shown live: the runs of this round
+  stalled at exactly these hatches (room 5 at 58 units, room 9 at 455).
 - **Fuel assist** (`campaign_run.py --fuel-assist`, a test crutch, off by default and named in the report's mode):
   a refueller kept under each hero (`coop.fuel_assist`), so a recorded flight is not lost to one tank. Without it
   the follower spends about three times the person's thrust on room 9 (the person: 3.6 s of held jump up to the
@@ -162,7 +168,7 @@ checkpoint 9 an empty tank could not reach room 9's first lift.
   normally at k = 2 (walls broken, enemies fought, doors opened).
 - Background test games read `command.lua` every other frame (the driver's round trip), and a
   viewpoint search is one call in the game rather than one per candidate.
-- `tools/campaign_run.py` runs checkpoint-to-checkpoint segments in parallel, one pair of copies each.
+- `tools/campaign_run.py` runs checkpoint-to-checkpoint segments in parallel (flight segments at the game's own speed: the tank is per frame), one pair of copies each.
 - `tools/test_campaign_bot.py` checks the planner without the game (walking rules, landings,
   reachability, portal route).
 - Ideas not yet built: record a person's
