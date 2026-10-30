@@ -600,47 +600,66 @@ def live_pos(game, name):
     return None if t.startswith('none') else tuple(float(v) for v in t.split())
 
 
+# openers this run has set off (a sniper lock lives on after its shot: once is enough)
+chain_done = set()
+
+
+def chain_openers(level, pos, target, done=(), reach=80):
+    """The scripted openers a player sets off (not OnCreate/OnUpdate/OnTimer) whose handler opens or
+    switches on something within reach of the hero or the target (a door; level 4's sniper locks that
+    raise platforms and start fans), nearest the hero first, minus those already done."""
+    where = {o['name']: o['pos'] for o in level.m['objects']}
+    rooms = set(level.rooms)
+    out = []
+    for opener, events in level.m.get('deps', {}).items():
+        if opener in rooms or opener == 'Level' or opener in done:
+            continue
+        for event, info in events.items():
+            if event in ('OnCreate', 'OnUpdate', 'OnTimer', 'OnAnimLoop'):
+                continue     # not something a player sets off
+            near = [t for t in info['opens'] + info['enables'] if t in where
+                    and min(math.dist(where[t], pos), math.dist(where[t], target)) < reach]
+            if near:
+                out.append((math.dist(where.get(opener, where[near[0]]), pos), opener, event, info))
+    return [(o, e, i) for _, o, e, i in sorted(out, key=lambda r: r[0])]
+
+
 def chain_step(game, level, nav, pos, target, log, chute=False):
     """The level scripts' own dependency chains (campaign_mine.py 'deps'): something near the hero or the
     target is opened by a handler on another object (a sniper lock opening a door); that opener may first
     need enabling by other objects' deaths (three enemies). Kill the live prerequisites, then trigger the
     opener with the damage it checks for. True if something was done."""
     deps = level.m.get('deps', {})
-    where = {o['name']: o['pos'] for o in level.m['objects']}
-    rooms = set(level.rooms)
-    for opener, events in deps.items():
-        if opener in rooms or opener == 'Level':
+    for opener, event, info in chain_openers(level, pos, target, chain_done):
+        if not alive(game, opener):
             continue
-        for event, info in events.items():
-            if event in ('OnCreate', 'OnUpdate', 'OnTimer', 'OnAnimLoop'):
-                continue     # not something a player sets off
-            if not any(t in where and min(math.dist(where[t], pos), math.dist(where[t], target)) < 80
-                       for t in info['opens']):
+        # enabled by other objects' deaths (an OnDie handler): kill those first; an opener enabled by
+        # standing somewhere (level 4's platforms, OnCollision) is not shot at
+        prereq = [o for o, evs in deps.items() if 'OnDie' in evs and opener in evs['OnDie']['enables']
+                  and alive(game, o)]
+        for o in prereq:
+            at = live_pos(game, o)
+            if not at:
                 continue
-            if not alive(game, opener):
-                continue
-            prereq = [o for o, evs in deps.items() if any(opener in i['enables'] for i in evs.values())
-                      and alive(game, o)]
-            for o in prereq:
-                at = live_pos(game, o)
-                if not at:
-                    continue
-                spot = reachable_toward(nav, game.pos(), at)
-                log(f'    {opener} needs {o} dead first: going near it')
-                walk(game, nav, spot, log, timeout=30)
-                t0 = time.monotonic()
-                while time.monotonic() - t0 < 30 and alive(game, o):
-                    time.sleep(1)
-                if alive(game, o):
-                    gone = fire_sweep(game, {o}, log, pitches=(0, -20, 20))
-                    log(f'    {o}: {"killed" if gone else "still alive"}')
-            sniper = 'DAMAGE_SNIPER' in info['damage']
-            log(f'    trigger {opener}.{event} ({"sniper" if sniper else "shots"}) to open {info["opens"]}')
-            if sniper:
-                snipe(game, opener, log)
-            else:
-                fire_sweep(game, {opener}, log, pitches=(0, -20, 20, -40))
-            return True
+            spot = reachable_toward(nav, game.pos(), at)
+            log(f'    {opener} needs {o} dead first: going near it')
+            walk(game, nav, spot, log, timeout=30)
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 30 and alive(game, o):
+                time.sleep(1)
+            if alive(game, o):
+                gone = fire_sweep(game, {o}, log, pitches=(0, -20, 20))
+                log(f'    {o}: {"killed" if gone else "still alive"}')
+        sniper = 'DAMAGE_SNIPER' in info['damage']
+        log(f'    trigger {opener}.{event} ({"sniper" if sniper else "shots"}) to open '
+            f'{info["opens"] + info["enables"]}')
+        if sniper:
+            hit = snipe(game, opener, log)
+        else:
+            hit = fire_sweep(game, {opener}, log, pitches=(0, -20, 20, -40))
+        if hit:
+            chain_done.add(opener)
+        return True
     return False
 
 
