@@ -158,10 +158,39 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
   revive it; shown live, player 1 walked to the body and revived it after 3.1 s of R
   (`local/live/dn78b_bot.log`); `--mutant down-stay` leaves it unrevived and the segment FAILs with
   `revive: player 2 down seen True, revived False, died True` (the 30 s bleed-out; `local/campaign/runs/20261030-234947`).
-- **Roles** (`--roles`): when a step has several objectives at the goal's height (level 2, 5 to 6: two
-  generators), the leader keeps its route and the next player takes another objective (aimed fire),
-  then everyone regroups within 15 units of the goal (`regroup_s`). With 3 or more players the squad
-  always waits for the regroup. Not yet shown live.
+  `results.json` also has `bridge_lives`, the mod's own `life:` log lines counted per segment (downs,
+  revives by a teammate, wipe reloads `new_level`, bled out), because the bot's life readings cannot tell a
+  revive from a checkpoint reload after a wipe (`Lives` counts both as a revive).
+  The down mutant was re-run after the care-loop fix: player 1 revived player 2 in 3.4 s of R, PASS
+  (`local/campaign/runs/20261031-071759`); down-stay failed again as required
+  (`.../20261031-072417`). The no-God series on other segments, at x1, two players:
+  - 3 to 4 (recording), three runs: all fail. The SAM spawn and turret room shoots the heroes faster than
+    the bot (which only backs off and fires aimed shots) can clear it. Run 1: 7 downs, 3 revived by a
+    teammate, 4 wipe reloads, 595 s, `.../20261031-071820/run1`. Run 2: 12 downs, 4 revived by a
+    teammate, 8 wipe reloads, 1 bled out, TIMEOUT at 1542 s, `.../run2`. Run 3: 5 downs, 3 bled out
+    (the reviver arrived 0.8 units from the body but was itself downed first: nobody revives under fire),
+    4 wipe reloads, 609 s, `.../run3`. The mod's wipe (`revive: everyone is down: reloading the
+    checkpoint`) worked every time.
+  - 8 to 9 (recording), three runs: all fail, the leader is lost on the route at point 120, 46 and 48 of
+    187 with no downs in the first two (run 3: 2 downs, 1 bled out). The same segment with God mode at
+    x1 passes (815 s, 0 findings, `.../20261031-081607`), so the cause is playing without God mode;
+    which part of it (knockback, a blocked door, damage slowing the hero) is unknown.
+  - 5 to 6 was not run: its recording and its own play fail at the tip with God mode too (flight code).
+- **Roles** (`--roles`): when a step has several objectives at the goal's height (level 2, 3 to 4: eight
+  alerts, a door lock and walls; 5 to 6: two generators), the leader keeps its route and the next
+  players each take another objective (aimed fire), then everyone regroups within 15 units of the
+  goal (`regroup_s`). With 3 or more players the squad always waits for the regroup. Shown live on
+  3 to 4 at x1: three players (PASS, 470 s, 26 steps, followers 9.6 and 9.8 units from the leader at the
+  end; `local/campaign/runs/20261031-065804/2-3-4`) and four players (PASS, 513 s, 24 steps, followers
+  13.5, 13.2 and 13.2 units; `local/campaign/runs/20261031-070742/2-3-4`). Roles taken: player 2
+  `l2_alert09`, player 3 `l2_alert08`, player 4 `l2_r3doorlock`. The alert objectives are not always
+  killed by aimed fire (a tunnel wall is in the line), which is the bot's aim, not co-op.
+  The regroup is a check: a roles or 3+ player segment whose players are not all within 15 units of the
+  goal after 60 s fails with `regroup: the players did not all reach the goal in 60 s`. It caught a bug
+  in the bot on its first live run (four players, the leader's route ended 17.7 units short of the portal
+  and only the followers were sent; `local/campaign/runs/20261031-081843`); with the leader sent too,
+  four players regrouped (followers 0.5 to 1.1 units from the leader, PASS, 458 s,
+  `local/campaign/runs/20261031-083108`).
 - `--explore` plays a segment with the bot's own play instead of its recording; `--timescale 1`
   confirms a finding at normal speed; `--repeat N` runs each segment N times. Each segment's
   `results.json` lists every copy's build hash and `[test] save_dir` (every copy keeps its own saves).
@@ -187,6 +216,22 @@ later):
 - **A one-sided face in level 2's arena** blocks the engine's line of sight going south (not north);
   heroes walk across it both ways, so this is only a quirk for line-of-sight users (enemy AI included).
 
+Seen by the per-step comparison of this round (level 2, 3 to 4, 3 and 4 players with roles, x1):
+
+- **Enemy health differs on clients while clients fight**: a turret or SAM spawn's hp is lower on every
+  client than on the host (host 38, clients 32 and 26; host 34, clients 16, 16 and 4; host 14, clients 8, 8
+  and 0; host 32, clients 20, 20 and 8). It appears in single steps (the next step compares equal),
+  and only in runs where the players fired at objectives (`--roles`): damage dealt on a client reaches
+  the client's copy first and the host's later. A client showing 0 for an enemy the host still has at 14
+  is the extreme. Each is reported as a finding (the tolerance table has no entry for it) and is gone
+  by the next step: transient, not a lasting difference.
+- **A spawned enemy only on clients**: `ne003d` / `na0407` (type 201), present on every client and gone
+  on the host, at one step each (both runs with roles). Not seen again at the next step.
+- **Revive under fire fails** (no-God 3 to 4, run 3): the reviver reached the body but was downed before
+  the 3 s of R, and the downed player bled out. The mod works as designed; this is what a player sees.
+- No world difference lasted to a segment's end in any 3 or 4 player run besides the known flying-enemy
+  drift (mantas 17 to 36 units apart on the clients at the end of the last 4 player run).
+
 ## Status
 
 Level 2 on the Overhaul build, God mode on. The owner played all of level 2 with the journal on, and
@@ -197,13 +242,14 @@ newest change and is not yet tested. On its own, without a recording, the bot pa
 (252 s), 7→8 and 8→9. Not yet: levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies,
 combat damage to the hero.
 
-Co-op checks at the branch tip: the per-step comparison and its desync mutant, the crash watch and
-its crash mutant, the no-God care on 7 to 8 (three runs at x1) and the revive with its mutants are shown
-live. Following the owner's recording of 5 to 6 fails at the tip (both players stop under the shaft,
-"flew back up short"), and the bot's own play of 5 to 6 failed at x1 (the leader gave up on the
-generators and the shaft climb after 1290 s; `local/campaign/runs/20261030-233117/run1/2-5-6`), so the
-no-God series on 5 to 6 and the 3 and 4 player `--roles` runs are still to be run (the flight code is
-another job's). Level 2's 3 to 4 passes from its recording and has eight objectives at the goal's
-height (alerts, a door lock, walls), so it is the testbed to try roles on first. Found and fixed on
-the way: the care loop could not read the leader's position while the leader's pilot held the command
-file, so a downed player got no reviver for 30 s and bled out; it now keeps each game's last reading.
+Co-op checks at the branch tip (all on level 2, Overhaul build, x1): the per-step comparison and its
+desync mutant, the crash watch and its crash mutant, the no-God care on 7 to 8 (three runs), the revive
+with its mutants (down passes, down-stay fails), and roles with three and four players on 3 to 4 (both
+PASS, regroup checked) are shown live. The no-God series fails on 3 to 4 and 8 to 9 (see the Co-op
+section: the bot cannot yet survive room 3's turrets, and 8 to 9 loses its route without God mode for an
+unknown reason); 5 to 6 still fails with God mode too (the flight code is another job's). The 3 and 4
+player runs are on 3 to 4, which has eight objectives at the goal's height (alerts, a door lock, walls),
+because 5 to 6 does not pass. Found and fixed on the way: the care loop could not read the leader's
+position while the leader's pilot held the command file, so a downed player got no reviver for 30 s and
+bled out (it keeps each game's last reading); the regroup did not send the leader; `world_ok` at a
+segment's end counted known flying-enemy drift as a difference.
