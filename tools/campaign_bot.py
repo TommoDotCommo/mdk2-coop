@@ -1293,7 +1293,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             leader.lua(f'coop_route("stop", "{record}")')
         stop.set()
 
-    def follow(g):
+    def keep_up(g):
         g.lua('coop.GunnerOn(60)')
         far = 0
         while not stop.is_set():
@@ -1309,7 +1309,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 time.sleep(.5)
         result[g.slot] = far
 
-    threads = [threading.Thread(target=lead)] + [threading.Thread(target=follow, args=(g,)) for g in followers]
+    threads = [threading.Thread(target=lead)] + [threading.Thread(target=keep_up, args=(g,)) for g in followers]
     for t in threads:
         t.start()
     for t in threads:
