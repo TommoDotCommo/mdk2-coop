@@ -381,3 +381,11 @@ the game-free gates and a short live smoke (see the last section).
 - The no-God series on 5→6; 5→6 itself at x1.
 - Levels 5 to 12 beyond the survey, Doc's items, sniper locks that need long chains, bosses,
   minigames, movies, combat damage to the hero.
+
+**Integrated-tree smoke (second merge round, Overhaul build, x1, God on, two players)**
+- `campaign_run.py --level 2 --segments 3-4`: PASS in 401 s (244 of 244 points, worlds equal, no findings, no crash).
+- `tools/qa_hpsync.sh`: 4 passed (players 405 units apart); with `MUTANT=nosync` it fails (client keeps hp 97
+  against the host's 33 and 61).
+- `tools/qa_flyers.sh`: 3 passed, flyer drift at most 5.5 units.
+- Game-free: `tools/test_campaign_bot.py`, `tools/test_lua31.sh`, `tests/flyers_check_test.py` and
+  `qa_all.py offline` pass.
