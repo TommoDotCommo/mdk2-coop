@@ -1138,6 +1138,10 @@ def blind_drop(game, nav, target, log, seconds=14):
     here = game.pos()
     for rim in drop_rims(nav, here, target):
         walk(game, nav, rim, log, timeout=60)
+        if math.dist(game.pos()[:2], rim[:2]) > 8:
+            # something stands in the way (a wall the level breaks, a door): not a rim to drop from
+            log(f'    blind drop: could not reach the rim at {[round(v) for v in rim]}')
+            continue
         z0 = game.pos()[2]
         game.goto(*target, radius=4, timeout=seconds, explore=0, chute=1)
         log(f'    blind drop from {[round(v) for v in rim]}: {z0 - game.pos()[2]:+.0f} down, now {[round(v, 1) for v in game.pos()]}')
