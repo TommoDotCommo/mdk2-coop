@@ -943,21 +943,33 @@ def bay_climb(game, level, shaft, goal, log, max_trips=8):
     locks = level.m.get('locks', {})
 
     def burn(stand_z, xy):
-        """Up on one full tank; once above stand_z, over to xy and down onto it."""
-        nudge(game, ring)
+        """Up to just above stand_z, then over to xy and down onto it, the way the owner climbs (one tank
+        does the whole shaft): from the floor up the open ring and then the centre column, from a hatch
+        straight to the centre column; thrust off once high enough, drifting across, and on again only
+        if sinking below the landing."""
+        if game.pos()[2] < clear_z:
+            nudge(game, ring)
         game.lua('coop.pilot=nil coop.gunner=nil coop_press(57, 12000)')
+        thrust = True
         t0, best, best_t = time.monotonic(), -1e9, time.monotonic()
         while time.monotonic() - t0 < 13:
             p = game.pos()
             if p[2] > best + 0.3:
                 best, best_t = p[2], time.monotonic()
-            above = p[2] > stand_z + 2.5
+            above = best > stand_z + 2.5
             to = xy if above else ((cx, cy) if p[2] > clear_z else ring)
             game.lua(f'local p=coop.real_player() coop.Face(p,{to[0]}-p.position.x,{to[1]}-p.position.y,0) '
                      f'coop_press(17,200)')
-            if above and math.dist(p[:2], xy) < 2:
-                break
-            if not above and time.monotonic() - best_t > 3:
+            if above:
+                if math.dist(p[:2], xy) < 2:
+                    break
+                if thrust and p[2] > stand_z + 2.5:
+                    game.lua('coop_press(57, 0)')
+                    thrust = False
+                elif not thrust and p[2] < stand_z + 1:
+                    game.lua('coop_press(57, 12000)')
+                    thrust = True
+            elif time.monotonic() - best_t > 3:
                 break                       # out of fuel, or held under a hatch that stays shut
             time.sleep(.1)
         game.lua('coop_press(57, 0)')
@@ -971,16 +983,19 @@ def bay_climb(game, level, shaft, goal, log, max_trips=8):
         nudge(game, ring, tol=1.5)          # off the light's top to the floor
         time.sleep(2)
 
-    if here[2] > pad['pos'][2] + 3:
-        descend()                           # up in the column already (a trip before): down to the pad
-    elif here[2] < pad['pos'][2] - 6:
+    if here[2] < pad['pos'][2] - 6:
         nudge(game, (cx, cy), tol=1.5)      # below the pad's floor (fell in a pit): up the open centre line
         ok, p = jet_to(game, pad['pos'][2], pad['pos'][:2])
         log(f'    shaft: up out of the pit to the pad: {"yes" if ok else "no"} at {[round(v, 1) for v in p]}')
+    fuelled = False
     for _ in range(max_trips):
         shut = [(i, d) for i, d in enumerate(doors) if any(alive(game, e) for e in locks.get(d['name'], []))]
-        if not mount_refueller(game, pad, log):
-            return False
+        if not fuelled:
+            if game.pos()[2] > pad['pos'][2] + 3:
+                descend()
+            if not mount_refueller(game, pad, log):
+                return False
+            fuelled = True
         if not shut:
             ok, p = burn(goal[2], goal[:2])
             if ok:
@@ -988,7 +1003,7 @@ def bay_climb(game, level, shaft, goal, log, max_trips=8):
             log(f'    shaft: burn to the top: {"there" if ok else "short"} at {[round(v, 1) for v in p]}')
             if ok:
                 return True
-            descend()
+            fuelled = False
             continue
         i, door = shut[0]
         if i == 0:
@@ -997,18 +1012,22 @@ def bay_climb(game, level, shaft, goal, log, max_trips=8):
         floor = doors[i - 1]['pos'][2] + HATCH_TOP
         ok, p = burn(floor, land_xy)
         log(f'    shaft: up to the bay under {door["name"]}: {"landed" if ok else "missed"} at {[round(v, 1) for v in p]}')
-        if ok:
-            for e in locks[door['name']]:
-                o = next((o for o in level.m['objects'] if o['name'] == e), None)
-                t0 = time.monotonic()
-                while o and alive(game, e) and time.monotonic() - t0 < 40:
-                    x, y, z = o['pos']
-                    game.lua(f'local p=coop.real_player() coop.Face(p,{x}-p.position.x,{y}-p.position.y,'
-                             f'{z}-p.position.z-3) coop_press(256,500)')
-                    time.sleep(.5)
-                log(f'    shaft: {e} {"dead" if not alive(game, e) else "still alive"} after {time.monotonic() - t0:.0f}s')
-            game.lua('local p=coop.real_player() coop.Face(p,1,0,0)')
-        descend()
+        if not ok:
+            fuelled = False                 # short of fuel (or knocked off): down, refuel, again
+            continue
+        # the turrets from the hatch, fire held (the owner killed a bay's four in about five seconds
+        # with every arm firing)
+        game.lua('coop_press(256, 60000)')
+        for e in locks[door['name']]:
+            o = next((o for o in level.m['objects'] if o['name'] == e), None)
+            t0 = time.monotonic()
+            while o and alive(game, e) and time.monotonic() - t0 < 40:
+                x, y, z = o['pos']
+                game.lua(f'local p=coop.real_player() coop.Face(p,{x}-p.position.x,{y}-p.position.y,'
+                         f'{z}-p.position.z-3)')
+                time.sleep(.3)
+            log(f'    shaft: {e} {"dead" if not alive(game, e) else "still alive"} after {time.monotonic() - t0:.0f}s')
+        game.lua('coop_press(256, 0) local p=coop.real_player() coop.Face(p,1,0,0)')
     return False
 
 
@@ -1399,10 +1418,15 @@ def route_waypoints(frames, step_ms=400, step_units=3.0):
         # its held keys (firing at a wall) go with the next point
         moved = math.dist(pos, last[1]) if last else step_units
         if last is None or moved >= step_units or (moved >= 0.5 and ms - last[0] >= 5 * step_ms):
-            out.append({'ms': ms, 'pos': pos, 'keys': sorted(held), 'level': level, 'cp': cp})
+            # a lift ride (level 2 room 9's rising platforms): height changed, the hero stood still and
+            # held no jump; the follower waits there for the lift instead of walking on
+            ride = bool(last) and math.dist(pos[:2], last[1][:2]) < 1.0 and abs(pos[2] - last[1][2]) >= 2 \
+                and 57 not in held
+            out.append({'ms': ms, 'pos': pos, 'keys': sorted(held), 'level': level, 'cp': cp, 'ride': ride})
             held, last = set(), (ms, pos)
     if frames and (not out or out[-1]['pos'] != frames[-1][4]):
-        out.append({'ms': frames[-1][0], 'pos': frames[-1][4], 'keys': [], 'level': frames[-1][2], 'cp': frames[-1][3]})
+        out.append({'ms': frames[-1][0], 'pos': frames[-1][4], 'keys': [], 'level': frames[-1][2], 'cp': frames[-1][3],
+                    'ride': False})
     return out
 
 
@@ -1422,6 +1446,14 @@ def follow(game, path, log, radius=2.5, lost_after=120):
         if j > i:
             i = j
         p = pts[i]
+        if p.get('ride'):
+            # on a lift: stand still until it brings the hero to the recorded height
+            t1 = time.monotonic()
+            while abs(game.pos()[2] - p['pos'][2]) > 1.5 and time.monotonic() - t1 < 40:
+                time.sleep(.3)
+            i += 1
+            last_progress, best = time.monotonic(), None
+            continue
         for code in p['keys']:
             game.lua(f'coop_press({code if code < 256 else code}, 450)')
         rise = p['pos'][2] - here[2]

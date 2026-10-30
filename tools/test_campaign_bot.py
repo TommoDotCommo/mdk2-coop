@@ -111,4 +111,10 @@ check('a hatch locked by its bay\'s turrets is mined with them', mine.enemy_lock
 bot.Nav.blocked.add(bot.Nav.spot(nav.cells[nav.key(4, 0, 0)][:3]))
 check('a blocked cell is not reachable', nav.key(4, 0, 0) not in bot.reachable(nav, [0, 0, 0], safe=False))
 bot.Nav.blocked.clear()
-print('14 passed, 0 failed')
+# A lift ride (level 2 room 9): standing still while the platform rises, no jump held.
+frames = [(i * 100, set(), 2, 9, (0.0, 0.0, 0.2 * i)) for i in range(60)]
+frames += [(6000 + i * 100, {17}, 2, 9, (0.3 * i, 0.0, 11.8)) for i in range(30)]
+pts = bot.route_waypoints(frames)
+check('a lift ride is followed by waiting, the walk after it is not',
+      any(p['ride'] for p in pts if p['pos'][2] < 11) and not any(p['ride'] for p in pts if p['pos'][0] > 1))
+print('15 passed, 0 failed')
