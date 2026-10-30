@@ -239,6 +239,15 @@ class Nav:
             self._flat[k] = len(level) >= 2
         return self._flat[k]
 
+    def lip(self, n, k):
+        """A curb: the cell n a short step (2 units or less) above k that is itself no landing, being a
+        slope, but leads on up to flat ground (a tunnel's mouth: 58.9, 60.6, then 61.7 level)."""
+        c = self.cells[n]
+        if c[2] - self.cells[k][2] > 2.0:
+            return False
+        return any(m != k and m in self.cells and 0 <= self.cells[m][2] - c[2] <= 1.2 and self.flat(m)
+                   for m in c[3])
+
     # cells the hero failed to reach twice from the same place (a link the scan saw but the body cannot
     # take: level 2's arena pit, a 6 unit step out), for every later plan in this run
     blocked = set()
@@ -264,7 +273,7 @@ class Nav:
             # Max's jetpack slows the fall, but the way back up costs fuel that only a refueller gives
             # (level 2 room 6: the shaft's open top beside the path): only when there is no other way
             return base * 40
-        if 0 < rise <= self.JUMP_RISE and self.flat(n):
+        if 0 < rise <= self.JUMP_RISE and (self.flat(n) or self.lip(n, k)):
             return base * 4
         if self.fly and rise <= self.FLY_RISE and self.flat(n):
             return base * 6
