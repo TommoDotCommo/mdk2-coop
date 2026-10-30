@@ -1479,11 +1479,25 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             i = j
         p = pts[i]
         if p.get('ride'):
-            # on a lift: stand still until it brings the hero to the recorded height
-            t1 = time.monotonic()
-            while abs(game.pos()[2] - p['pos'][2]) > 1.5 and time.monotonic() - t1 < 40:
+            # on a lift: stand still until it brings the hero to the height the ride ended at; give up
+            # waiting when the hero's height stops changing (not on the lift, or it is the wrong way)
+            j = i
+            while j + 1 < len(pts) and pts[j + 1].get('ride'):
+                j += 1
+            want = pts[j]['pos'][2]
+            t1 = moved_t = time.monotonic()
+            z0 = game.pos()[2]
+            while abs(game.pos()[2] - want) > 1.5 and time.monotonic() - t1 < 45:
+                z = game.pos()[2]
+                if abs(z - z0) > 0.3:
+                    z0, moved_t = z, time.monotonic()
+                elif time.monotonic() - moved_t > 6:
+                    break
                 time.sleep(.3)
-            i += 1
+            z = game.pos()[2]
+            log(f'  lift ride at points {i}-{j}: {"rode to" if abs(z - want) <= 1.5 else "stopped at"} '
+                f'{z:.1f} (recorded {want:.1f})')
+            i = j + 1
             last_progress, best = time.monotonic(), None
             continue
         if here[2] < p['pos'][2] - 6 and (57 in p['keys'] or any(57 in q['keys'] for q in pts[max(0, i - 8):i])):
