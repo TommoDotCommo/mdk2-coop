@@ -1443,8 +1443,21 @@ def route_waypoints(frames, step_ms=400, step_units=3.0):
     """Points every step_ms or step_units along the recording, each with the action keys (not movement)
     held on the way to it, and the checkpoint the recording was at."""
     out, held, last = [], set(), None
+    ground, steady, prev_z, jumped = None, 0, None, False
     for ms, keys, level, cp, pos in frames:
         held |= keys - MOVE_KEYS
+        # airborne: above the last ground stood on (a few steady frames without jump) after a jump --
+        # flights and glides the follower must fly, not walk
+        if prev_z is not None and abs(pos[2] - prev_z) < 0.02 and 57 not in keys:
+            steady += 1
+            if steady >= 8:
+                ground, jumped = pos[2], False
+        else:
+            steady = 0
+        if 57 in keys:
+            jumped = True
+        prev_z = pos[2]
+        air = jumped and ground is not None and pos[2] > ground + 2
         # a point per step_units moved (or a little movement over a while); standing still adds none,
         # its held keys (firing at a wall) go with the next point
         moved = math.dist(pos, last[1]) if last else step_units
@@ -1453,11 +1466,12 @@ def route_waypoints(frames, step_ms=400, step_units=3.0):
             # held no jump; the follower waits there for the lift instead of walking on
             ride = bool(last) and math.dist(pos[:2], last[1][:2]) < 1.0 and abs(pos[2] - last[1][2]) >= 2 \
                 and 57 not in held
-            out.append({'ms': ms, 'pos': pos, 'keys': sorted(held), 'level': level, 'cp': cp, 'ride': ride})
+            out.append({'ms': ms, 'pos': pos, 'keys': sorted(held), 'level': level, 'cp': cp, 'ride': ride,
+                        'air': air and not ride})
             held, last = set(), (ms, pos)
     if frames and (not out or out[-1]['pos'] != frames[-1][4]):
         out.append({'ms': frames[-1][0], 'pos': frames[-1][4], 'keys': [], 'level': frames[-1][2], 'cp': frames[-1][3],
-                    'ride': False})
+                    'ride': False, 'air': False})
     return out
 
 
@@ -1524,6 +1538,14 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 fuelled_at[pad['name']] = i
                 ok = mount_refueller(game, pad, log)
                 log(f'  refuelled at {pad["name"]} as the recording did: {"yes" if ok else "no"}')
+        if p.get('air'):
+            # the recording was in the air here (a flight, or a glide over a gap): fly to the point at
+            # its height instead of walking off an edge
+            ok, at = jet_to(game, p['pos'][2], p['pos'][:2], seconds=6, over=0.5)
+            if ok or math.dist(at, p['pos']) < radius + 1:
+                i += 1
+                last_progress, best = time.monotonic(), None
+                continue
         if 256 in p['keys'] and level:
             # the recording was shooting here: what it shot is most likely the nearest living scripted
             # objective (the arena's generators: one left at 16 hp kept its exit shut), so aim at it
