@@ -1380,7 +1380,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     log(f'  followers\' distance from the leader at the end: {gaps}')
     followed = {k: v for k, v in result.items() if str(k).startswith('follower_')}
     # passing is getting through; a world that differs is a co-op finding, reported beside it
-    return result['leader'][0], {'leader': result['leader'][1], 'world_ok': ok_world, 'gaps': gaps, **followed}
+    return squad_ok(result['leader'][0], gaps), {'leader': result['leader'][1], 'world_ok': ok_world, 'gaps': gaps, **followed}
 
 
 # Keys that move or turn the hero: the pilot does that itself when following a recording.
@@ -1676,6 +1676,12 @@ def climb_out(rise, stuck, jetpack, wall=4.0, after=8.0):
     pit: level 2 room 4's generator sits 6 below the floor) flies up with the jetpack: no jump the recording
     made, so nothing else would lift him."""
     return bool(jetpack and rise > wall and stuck > after)
+
+
+def squad_ok(leader_ok, gaps, limit=40.0):
+    """A segment passes when the leader got through and every other player stands near him at the end
+    (a follower left in a pit 330 units behind was reported as a pass)."""
+    return bool(leader_ok and all(g <= limit for g in gaps.values()))
 
 
 def aimable(o, here, reach=30.0):
