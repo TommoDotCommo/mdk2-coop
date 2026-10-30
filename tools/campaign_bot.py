@@ -1821,8 +1821,10 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         if 256 in p['keys'] and level:
             # the recording was shooting here: what it shot is most likely the nearest living scripted
             # objective (the arena's generators: one left at 16 hp kept its exit shut), so aim at it
+            # (within reach on the same floor: the walk to a generator 37 units off took a hero off the
+            # ledge and down a shaft)
             near = [o for o in objectives(level, here, None, radius=50)
-                    if o['name'] not in aimed and math.dist(o['pos'], here) < 50]
+                    if o['name'] not in aimed and math.dist(o['pos'], here) < 30 and abs(o['pos'][2] - here[2]) < 12]
             near = [o for o in near if alive(game, o['name'])][:1]
             for o in near:
                 aimed.add(o['name'])
