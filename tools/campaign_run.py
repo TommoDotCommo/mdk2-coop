@@ -94,7 +94,7 @@ def segment(level, seg, players, owner, hook, out, god, opts=None):
     folder = out / f'{level}-{seg}'
     seg = f'{level}:{seg}'
     folder.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, MDK2_QA_OWNER=owner, LAB_OWNER=owner)
+    env = dict(os.environ, MDK2_QA_OWNER=owner)
     # the lab queues fairly and answers BUSY at once while another lease is ahead: try again for a while
     deadline = time.monotonic() + 1800
     while True:
@@ -398,9 +398,7 @@ def main(argv=None):
     if not a.segments or (not a.level and any(':' not in s for s in a.segments)):
         ap.error('give --segments with --level, level:start-end segments, or --campaign')
     hook = hook_path(a.resources)
-    base = os.environ.get('LAB_OWNER') or os.environ.get('MDK2_QA_OWNER')
-    if not base:
-        raise SystemExit('set LAB_OWNER (a unique identity for this run)')
+    base = os.environ.get('MDK2_QA_OWNER') or f'campaign-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'
     out = ROOT / 'local/campaign/runs' / time.strftime('%Y%m%d-%H%M%S')
     out.mkdir(parents=True, exist_ok=True)
     if a.chain:
