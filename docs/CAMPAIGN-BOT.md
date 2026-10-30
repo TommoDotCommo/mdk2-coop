@@ -239,36 +239,53 @@ failed hops cannot repeat it on one fill.
 
 ## Status
 
-Level 2 on the Overhaul build, God mode on. The owner played all of level 2 with the journal on, and
-the bot follows those routes in two-player squads: 1→2, 3→4, 5→6 (55 s), 7→8 and 8→9 pass, and 4→5 is
-traversed (worlds differ only by the known flying-enemy drift). 2→3, 6→7 and 9→10 still fail on
-stretches the person flew or glided. The pilot's height hold (`fly=2`) is shown live to hover within
-about 1.5 units of a height, but the follower has not yet passed 6→7 or 9→10 with it: in room 9 the one
-tank given at the checkpoint start runs out on failed hops between the lifts (no refueller below the
-hanging pumps), and a jetpack fuel readout, which would let the bot plan its burns, is not found yet. On its own, without a recording, the bot passes 3→4, 5→6
-(252 s), 7→8 and 8→9. Not yet: levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies,
-combat damage to the hero.
+This file is the integrated status of four worker branches (flight and chaining, levels 3 and 4,
+co-op checks, flying-enemy drift) merged onto the campaign-bot branch. Evidence paths below are
+under `local/` (ignored), from each branch's own runs; the integrated tree has been checked with
+the game-free gates and a short live smoke (see the last section).
 
-Levels 3 and 4 on the bot's own, second run (eight segments): 3:2→3 and 4:9→10 pass as well; 4:5→6 rides the
-vortex fan (a lift of 218 units) and then falls out; 4:8→9 got to 61 units from its checkpoint when the time ran out;
-4:2→3 now has blind chute drops (walk off a rim toward a landing the scan cannot see), not yet run live; 4:4→5 and
-4:10→11 are held up by fans and sniper locks whose chains are long (the lock under 4:10→11's pit shows only from the
-pit's ring). Earlier partial run (stopped after four segments): 3:1→2, 4:1→2 (the window broken) and 4:3→4 pass; 4:2→3 stops on the second window,
-which took more than one sniper round (now sniped again while rounds hit; not yet rerun). The fan
-ride and the switch-on chain openers are built and tested without the game, not yet live. Most of
-level 3 needs Doc's items (leaf blower, duct tape, ladders, magnet), the fish minigame or the
-spacewalk, so it needs a person's recording; on level 4 the theatre's '?' doors, the dance on the
-stage and the bouncing sniper shells do too. The owner's level 3 journals hold no play (the hero
-stands still), so they give no routes. Not yet: levels 5 to 12, Doc's items, bosses, minigames,
-movies, combat damage to the hero.
+**What exists**
+- The bot, the planner and the pilot/follower (see the sections above), `tools/campaign_run.py`
+  (parallel segments, `--chain` to play consecutive segments in one pair of games, `--timeout`,
+  `--build overhaul`, `--explore` (alias `--no-routes`), `--no-god`, `--roles`, `--timescale`,
+  `--repeat`, `--mutant desync|crash|down|down-stay`, `CAMPAIGN_IDLE`), crash fail-through
+  (`tools/crashwatch.py`), `report.md` per run, `tools/record_level.sh` (record a person's play of a
+  level), `tools/campaign_coop.py` (per-step world comparison, lives, care, roles), and
+  `tools/qa_flyers.sh` with `tools/flyers_check.py` (the flying-enemy gate, with its `MUTANT=attached`).
+- The client no longer keeps mirrored flying enemies on their parent's bone (see
+  `docs/RELEASE-NOTES-flying-enemies.md`): the "flying enemies drift on clients" finding below
+  predates that fix. `campaign_coop.KNOWN` still lists flyer drift as known, so a regression of the
+  fix would not be reported by the bot's comparison; `tools/qa_flyers.sh` is the gate for it.
 
-Co-op checks at the branch tip: the per-step comparison and its desync mutant, the crash watch and
-its crash mutant, the no-God care on 7 to 8 (three runs at x1) and the revive with its mutants are shown
-live. Following the owner's recording of 5 to 6 fails at the tip (both players stop under the shaft,
-"flew back up short"), and the bot's own play of 5 to 6 failed at x1 (the leader gave up on the
-generators and the shaft climb after 1290 s; `local/campaign/runs/20261030-233117/run1/2-5-6`), so the
-no-God series on 5 to 6 and the 3 and 4 player `--roles` runs are still to be run (the flight code is
-another job's). Level 2's 3 to 4 passes from its recording and has eight objectives at the goal's
-height (alerts, a door lock, walls), so it is the testbed to try roles on first. Found and fixed on
-the way: the care loop could not read the leader's position while the leader's pilot held the command
-file, so a downed player got no reviver for 30 s and bled out; it now keeps each game's last reading.
+**Proven live (God mode, Overhaul build)**
+- Level 2, following the owner's recordings, two-player squads: 1→2, 3→4, 5→6 (55 s), 7→8 and 8→9
+  pass; 4→5 is traversed (worlds differ only by flyer drift, measured before the drift fix).
+  2→3, 6→7 and 9→10 fail on stretches the person flew or glided. The pilot's height hold (`fly=2`)
+  hovers within about 1.5 units of a height. The follower has not passed 6→7 or 9→10 with it: in
+  room 9 the one tank given at the checkpoint start runs out on failed hops between the lifts, and
+  no jetpack fuel readout is found yet. A later change (the hold lets go of the jump key when
+  thrust does not move the hero, a ledge landing needs a new press) is from the branch that found
+  the 5→6 stall.
+- Level 2, the bot's own play: 3→4, 5→6 (252 s), 7→8 and 8→9. At the co-op branch's tip the owner's
+  recording of 5→6 fails (both players stop under the shaft) and the bot's own 5→6 failed at x1
+  (`local/campaign/runs/20261030-233117/run1/2-5-6`).
+- Levels 3 and 4 on the bot's own, second run (eight segments): 3:2→3 and 4:9→10 pass; 3:1→2,
+  4:1→2 (the window broken) and 4:3→4 passed in an earlier partial run. 4:5→6 rides the vortex fan
+  (a lift of 218 units) and then falls out; 4:8→9 got to 61 units from its checkpoint when the
+  time ran out; 4:2→3 now has blind chute drops, not yet run live; 4:4→5 and 4:10→11 are held up
+  by fans and sniper locks whose chains are long. The fan ride and the switch-on chain openers are
+  built and unit-tested, not yet live. Most of level 3 needs Doc's items, the fish minigame or the
+  spacewalk, and level 4 needs the theatre's '?' doors, the stage dance and bouncing sniper shells,
+  so these need a person's recording; the owner's level 3 journals hold no play.
+- Co-op: the per-step comparison and its desync mutant (level 2, 5→6, x2), the crash watch and its
+  crash mutant (level 2, 7→8), the no-God care on 7→8 (three runs at x1) and the revive with the
+  `down` / `down-stay` mutants (`local/campaign/runs/20261030-234947`). The care loop keeps each
+  game's last reading, so a busy leader no longer stops a revive.
+- Flying enemies on clients: `tools/qa_flyers.sh` measured at most 97.0 units of drift with the old
+  behaviour (mutant `attached`) and at most 3.3 with the fix (91.8 and 9.0 at x2).
+
+**Not yet**
+- `--roles` live; 3 and 4 player runs; the no-God series on 5→6.
+- Levels 5 to 12 beyond the survey, Doc's items, sniper locks that need long chains, bosses,
+  minigames, movies, combat damage to the hero.
+
