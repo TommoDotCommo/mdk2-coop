@@ -161,6 +161,30 @@ def flight_rules(b, quiet=False):
                 b.needs_fuel(5000, climb, cfly, 1) and not b.needs_fuel(0, climb, cfly, 1)))
     out.append(('a refueller on the way counts as the end of a climb',
                 not b.needs_fuel(5000, climb, cfly, 1, pads=[(0.0, 0.0, 30.0)])))
+    # moving lifts (room 9's platforms swing on their own): the flight that lands on one waits for it
+    # to come down, holds beside it for the last points, and hovers above the landing
+    lift = {'name': 'plat', 'pos': [9.0, 0.0, 6.0]}
+    far = {'name': 'far', 'pos': [60.0, 0.0, 6.0]}
+    out.append(('the flight landing on a lift is planned with that lift, not a far one',
+                [bd['lift']['name'] for bd in b.plan_boardings(pts, fly, [far, lift])] == ['plat']
+                and not b.plan_boardings(pts, fly, [far])))
+    plan = b.plan_boardings(pts, fly, [lift])
+    out.append(('a boarding holds beside the lift a few points before the landing, from the ground',
+                len(plan) == 1 and plan[0]['wait_at'] is not None and plan[0]['wait_at'] <= plan[0]['last']
+                and not plan[0]['from_ride']))
+    # a hop from a ride to the next lift is not waited for (the lifts are in step; the first one would go down)
+    rides = [{'pos': (0.0, 0.0, 3.0 * k), 'keys': [], 'air': False, 'ride': True} for k in range(4)]
+    hop2 = [{'pos': (1.0 * k, 0.0, 12.0 + k), 'keys': [57], 'air': True, 'ride': False} for k in range(4)]
+    stand2 = [{'pos': (4.0, 0.0, 16.0), 'keys': [], 'air': False, 'ride': True}] * 3
+    p2 = rides + hop2 + stand2
+    f2 = set(range(4, 8))
+    plan2 = b.plan_boardings(p2, f2, [{'name': 'next', 'pos': [4.0, 0.0, 16.0]}])
+    out.append(('a hop from one lift to the next is flagged as leaving a ride', len(plan2) == 1 and plan2[0]['from_ride']))
+    out.append(('a lift coming down to the boarding height is the moment to go',
+                b.lift_ready(243.0, -3.0, 239.3) and b.lift_ready(240.5, -1.0, 239.3)))
+    out.append(('a lift going up, far above, or already past the height is not',
+                not b.lift_ready(243.0, 3.0, 239.3) and not b.lift_ready(255.0, -3.0, 239.3)
+                and not b.lift_ready(238.0, -1.0, 239.3)))
     return out
 
 
@@ -170,7 +194,8 @@ for label, ok in results:
 
 # mutants: each must make at least one check fail
 import types
-real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED')}
+real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED', 'lift_ready',
+                                    'boarding', 'plan_boardings')}
 mutants = {
     'only "air" points are flown (the hop onto a lift is walked)':
         dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
@@ -181,6 +206,12 @@ mutants = {
     'refuellers on the way are ignored':
         dict(needs_fuel=lambda used, pts, fly, i, pads=(), **k: real['needs_fuel'](used, pts, fly, i)),
     'a failed flight is retried from where it failed': dict(stretch_start=lambda pts, fly, i: i),
+    'the lift is boarded whatever way it moves': dict(lift_ready=lambda z, vz, bz, high=4.0: True),
+    'the lift is boarded only when it is already at the bottom':
+        dict(lift_ready=lambda z, vz, bz, high=4.0: abs(z - bz) < 0.5),
+    'no flight lands on a lift': dict(plan_boardings=lambda pts, fly, lifts, approach=3: []),
+    'every lift is the nearest, however far': dict(boarding=lambda pts, fly, i, lifts, reach=7.0:
+                                                    real['boarding'](pts, fly, i, lifts, reach=1e9)),
 }
 for name, patch in mutants.items():
     for n, v in patch.items():

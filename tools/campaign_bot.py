@@ -1544,6 +1544,73 @@ def needs_fuel(used_ms, pts, fly, i, pads=(), tank_ms=TANK_MS, climb=JET_CLIMB):
     return used_ms + up / climb * 1000 + 1500 > tank_ms
 
 
+LIFT_STAND = 0.2       # a hero standing on a lift platform is this high above the platform's origin (measured)
+
+
+def boarding(pts, fly, i, lifts, reach=7.0):
+    """The lift that the flight starting at point i lands on: (lift, hero height at the landing), or None.
+    A lift is a moving platform object (room 9's r9_platform*); the flight is the run of flown points from
+    i, and it boards a lift when its last flown point is within reach of one and a ride follows it."""
+    k = i
+    while k < len(pts) and k in fly:
+        k += 1
+    if k == i or not any(q.get('ride') for q in pts[k:k + 6]):
+        return None
+    land = pts[k - 1]['pos']
+    near = [(math.dist(l['pos'][:2], land[:2]), l) for l in lifts if abs(l['pos'][2] - land[2]) < 30]
+    near = [n for n in near if n[0] < reach]
+    return (min(near, key=lambda n: n[0])[1], land[2]) if near else None
+
+
+def plan_boardings(pts, fly, lifts, approach=3):
+    """The flights that land on a lift: for each, the first flown point (`start`), the last (`last`), the
+    lift, the landing height and `wait_at`, the point to hold at beside the lift until it comes down
+    (`approach` points before the landing; None when the flight is shorter than that)."""
+    out = []
+    for i in range(1, len(pts)):
+        if i in fly and i - 1 not in fly:
+            b = boarding(pts, fly, i, lifts)
+            if b:
+                k = i
+                while k in fly:
+                    k += 1
+                a = max(i, k - 1 - approach)
+                out.append({'start': i, 'last': k - 1, 'lift': b[0], 'z': b[1], 'wait_at': a + 1 if a + 1 < k else None,
+                            'from_ride': any(q.get('ride') for q in pts[max(0, i - 5):i])})
+    return out
+
+
+# the hero hovers this far above the spot where the person landed on a lift: the platform is solid, and
+# one rising through the hero's height under him carries him, but one met from below pushes him out
+BOARD_OVER = 2.0
+
+
+def lift_ready(z, vz, board_z, high=4.0):
+    """Whether to go for a lift platform at height z moving at vz (units a second): it is coming down
+    towards the boarding height (the hero's, less LIFT_STAND) and is within `high` units above it. The
+    lifts of level 2 room 9 swing 21 units in about 20 s on their own, anti-phase to their neighbours."""
+    want = board_z - LIFT_STAND
+    return vz < -0.3 and want + 0.8 <= z <= want + high
+
+
+def lift_wait(game, lift, board_z, log, high=4.0, timeout=45):
+    """Wait until a moving lift is coming down to the boarding height (see lift_ready)."""
+    def read():
+        return float(game.note('lz', f'coop_note("lz", tostring({lift["name"]}.position.z))').strip())
+    t0 = time.monotonic()
+    z0, t_prev = read(), time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        time.sleep(0.2)
+        z, t = read(), time.monotonic()
+        vz = (z - z0) / max(t - t_prev, 0.05)
+        z0, t_prev = z, t
+        if lift_ready(z, vz, board_z, high):
+            log(f'    lift {lift["name"]} at {z:.1f} moving {vz:.1f}/s for boarding height {board_z:.1f}: go')
+            return True
+    log(f'    lift {lift["name"]} never came to {board_z:.1f} in {timeout}s: going anyway')
+    return False
+
+
 def hover_refuel(game, pad, log, seconds=6):
     """Fill up beside a refueller hanging in the air: hold a height just above it, over it, a while."""
     x, y, z = pad['pos']
@@ -1572,6 +1639,9 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     # without a jetpack (level 2 before checkpoint 5) the recording's air is jumps: walked, with a jump
     fly = flown(pts) if jetpack else set()
     pads = [o for o in level.m['objects'] if o['type'] == 'OBJ_REFUELLER'] if level else []
+    lifts = [o for o in level.m['objects'] if o['type'] == 'OBJ_SCENERY' and 'platform' in o['name']] if level else []
+    boards = plan_boardings(pts, fly, lifts)
+    over = {bd['last'] for bd in boards}
     log(f'  following {len(pts)} points of {path} ({len(fly)} flown at their height)')
     # a checkpoint start past a refueller has a full tank (coop.FuelGrantTick); count thrust from here
     game.lua('coop.GunnerOn(60) coop.jet_ms=0')
@@ -1651,9 +1721,21 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 if near:
                     refuel(min(near, key=lambda o: math.dist(o['pos'], here)), 'low before a flight')
                     game.goto(*pts[max(0, i - 1)]['pos'], radius=2, timeout=15, explore=1)
+            # a moving lift to board (room 9's platforms swing up and down on their own): leave the
+            # ground as the platform comes down, then hold beside it for the last stretch until it is
+            # down at the landing, rather than arriving under it
+            for bd in boards:
+                if i == bd['start'] and i - 1 not in fly and not bd['from_ride']:
+                    lift_wait(game, bd['lift'], bd['z'], log, high=9.0 if bd['wait_at'] else 4.0)
+                if i == bd['wait_at'] and not bd['from_ride'] and ('hold', i) not in retries:
+                    retries[('hold', i)] = 1
+                    lift_wait(game, bd['lift'], bd['z'], log, high=3.5, timeout=8)
             # fly to the point holding its recorded height (the pilot's height hold), not walking off
             # an edge or sinking under a lip
-            r = game.goto(*p['pos'], radius=1.5, timeout=6, explore=0, fly=2)
+            tgt = list(p['pos'])
+            if i in over:
+                tgt[2] += BOARD_OVER
+            r = game.goto(*tgt, radius=1.5, timeout=6, explore=0, fly=2)
             at = game.pos()
             if r.get('state') == 'arrived' or (math.dist(at[:2], p['pos'][:2]) < radius
                                                and abs(at[2] - p['pos'][2]) < 2.5):
