@@ -1671,6 +1671,13 @@ def jet_used(game):
         return 0
 
 
+def climb_out(rise, stuck, jetpack, wall=4.0, after=8.0):
+    """A hero held up well below the next point of a walked stretch (an aimed kill took him down into a
+    pit: level 2 room 4's generator sits 6 below the floor) flies up with the jetpack: no jump the recording
+    made, so nothing else would lift him."""
+    return bool(jetpack and rise > wall and stuck > after)
+
+
 def aimable(o, here, reach=30.0):
     """A scripted objective the recording's shooting may have been aimed at: within reach in 3D, whatever
     the floor (a generator hangs above the ledge it is shot from)."""
@@ -1880,7 +1887,8 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         # Kurt: a drop the recording made with jump held is a glide (the chute opens on a held jump)
         r = game.goto(*p['pos'], radius=radius, timeout=6, explore=0,
                       jump=int(0.7 < rise <= 3.5 or (not jetpack and 57 in p['keys'] and rise > -1)),
-                      fly=int(57 in p['keys'] and rise > 3.5), chute=int(57 in p['keys'] and rise < -4))
+                      fly=int((57 in p['keys'] and rise > 3.5) or climb_out(rise, time.monotonic() - last_progress, jetpack)),
+                      chute=int(57 in p['keys'] and rise < -4))
         if r.get('state') == 'arrived' or math.dist(game.pos(), p['pos']) < radius + 1:
             i += 1
             pinned = False

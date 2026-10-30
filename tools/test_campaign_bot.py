@@ -212,6 +212,9 @@ def flight_rules(b, quiet=False):
     gen = {'pos': (916.0, 940.0, 246.0)}
     out.append(('a generator 20 above the ledge is aimed at, one 37 units off is not',
                 b.aimable(gen, (910.0, 945.0, 226.0)) and not b.aimable(gen, (916.0, 940.0, 209.0))))
+    out.append(('a jetpack hero held up 6 below the point flies up; a walker, or one just arrived, does not',
+                b.climb_out(6.2, 10.0, True) and not b.climb_out(6.2, 10.0, False) and not b.climb_out(6.2, 1.0, True)
+                and not b.climb_out(2.0, 10.0, True)))
     out.append(('the gunner is given turret names as a Lua table', b.lua_names(['a', 'b']) == '{"a", "b"}'))
     # the Lua gunner must list the targets it was given (a bay's turrets are not actors)
     lua = open(os.path.join(os.path.dirname(__file__), '..', 'lua', 'coop_dev.lua')).read()
@@ -240,7 +243,7 @@ for label, ok in results:
 # mutants: each must make at least one check fail
 import types
 real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED', 'lift_ready',
-                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear', 'aimable')}
+                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear', 'aimable', 'climb_out')}
 mutants = {
     'only "air" points are flown (the hop onto a lift is walked)':
         dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
@@ -264,6 +267,7 @@ mutants = {
     'every turret counts, wherever it is': dict(turrets_to_clear=lambda objects, here, radius=45.0, dz=16.0:
                                                 [o['name'] for o in objects if o['type'] == 'OBJ_TURRET']),
     'aim only at objectives on the hero\'s own floor': dict(aimable=lambda o, here, reach=30.0: math.dist(o['pos'], here) < reach and abs(o['pos'][2] - here[2]) < 12),
+    'a hero in a pit is never flown out': dict(climb_out=lambda rise, stuck, jetpack, wall=4.0, after=8.0: False),
     'no flight lands on a lift': dict(plan_boardings=lambda pts, fly, lifts, standoff=8.0, base=None: []),
     'every lift is the nearest, however far': dict(boarding=lambda pts, fly, i, lifts, reach=9.0:
                                                     real['boarding'](pts, fly, i, lifts, reach=1e9)),
