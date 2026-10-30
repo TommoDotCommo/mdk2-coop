@@ -81,6 +81,54 @@ void bot_level_loaded(int level)
         finish(BOT_FAIL, "checkpoint reloaded during route");
 }
 
+/* Play journal ([test] journal=1): a person's whole session recorded hands-free for the campaign bot,
+ * in the route format, one file per level and checkpoint (coop\\journal\\L<level>_cp<cp>_<time>.route).
+ * Unlike a route recording it never stops on its own: paused, menu or down frames are just left out,
+ * and a checkpoint change starts the next file. Flushed every second, so a crash keeps what was played. */
+static FILE *journal;
+static int journal_level = -1, journal_cp = -1;
+static ULONGLONG journal_start;
+static unsigned int journal_frames;
+
+static void journal_close(void)
+{
+    if (!journal) return;
+    fprintf(journal, "END %u\n", (unsigned int)(now_ms() - journal_start));
+    fclose(journal);
+    journal = NULL;
+}
+
+static void journal_tick(const struct route_input *input)
+{
+    struct route_frame v;
+    if (!have_state || blocked || observed.level < 1 || revive_life() != LIFE_ALIVE) return;
+    if (!journal || observed.level != journal_level || observed.cp != journal_cp) {
+        char dir[MAX_PATH], path[MAX_PATH];
+        SYSTEMTIME t;
+        journal_close();
+        GetLocalTime(&t);
+        snprintf(dir, sizeof(dir), "%s\\journal", coop_dir);
+        CreateDirectoryA(dir, NULL);
+        snprintf(path, sizeof(path), "%s\\L%d_cp%d_%04d%02d%02d-%02d%02d%02d.route", dir, observed.level,
+                 observed.cp, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+        journal_level = observed.level;
+        journal_cp = observed.cp;
+        if (!(journal = fopen(path, "w")) || !route_write_header(journal, &observed)) {
+            if (journal) fclose(journal);
+            journal = NULL;
+            return;
+        }
+        logmsg("journal: recording level %d checkpoint %d", observed.level, observed.cp);
+        journal_start = now_ms();
+        journal_frames = 0;
+    }
+    v.ms = (unsigned int)(now_ms() - journal_start);
+    v.input = *input;
+    v.state = observed;
+    if (!route_write_frame(journal, &v)) { journal_close(); return; }
+    if (++journal_frames % 60 == 0) fflush(journal);
+}
+
 /* coop_route_tick(player, level, checkpoint, blocked): after the normal co-op tick. */
 static void tick(void)
 {
@@ -121,6 +169,7 @@ static void tick(void)
             if (result > 0) { finish(BOT_PASS, "recorded progression and endpoint reached"); return; }
         }
     }
+    if (test_journal) journal_tick(&input);
     if ((test_background || mode != BOT_IDLE) && now_ms() - status_at > 250) status();
 }
 

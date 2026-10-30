@@ -459,6 +459,7 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part);
 /* ---- input.c ---- */
 
 extern int test_background;
+extern int test_journal;      /* [test] journal=1: record the player's session for the campaign bot (bot.c) */
 extern int couch_active;
 int input_couch(int *slot, int *count);
 void input_pad_frame(void);

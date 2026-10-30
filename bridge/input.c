@@ -20,6 +20,7 @@
 #include <dinput.h>
 
 int test_background;
+int test_journal;
 int couch_active;               /* [couch] in coop.ini: one of several local players on this PC */
 static int synth;               /* devices are ours (scripted presses or gamepad), not the real ones */
 static struct { int slot, count, pad, x, y, w, h; float look; } couch;
@@ -800,6 +801,7 @@ void input_init(void)
     patch_import("gdi32.dll", "SwapBuffers", (void *)hook_SwapBuffers);
     patch_import("user32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA);
     test_background = GetPrivateProfileIntA("test", "background", 0, ini);
+    test_journal = GetPrivateProfileIntA("test", "journal", 0, ini);
     /* [couch]: this game is player slot+1 of count on one screen, window at x, y of w x h, played
      * with gamepad `pad` (default slot); see pad.c and dist/mdk2-couch.ps1 */
     couch.slot = GetPrivateProfileIntA("couch", "slot", -1, ini);

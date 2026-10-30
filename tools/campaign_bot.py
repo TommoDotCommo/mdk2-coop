@@ -1314,6 +1314,46 @@ def load_route(path):
     return frames
 
 
+def journal_segments(folder, out, log=print, jump=40.0):
+    """A person's play journals (coop/journal/L<level>_cp<cp>_<time>.route, [test] journal=1) as segment
+    routes for campaign_run.py: each file covers one checkpoint until the next one started, so it becomes
+    seg_<level>_<cp>_<next cp>.route, the next cp read from the following file of that level. Deaths and
+    reloads jump the hero back: only the last attempt (after the last jump) is kept. An existing segment
+    route is replaced only by a shorter one."""
+    files = sorted(Path(folder).glob('L*_cp*_*.route'), key=lambda f: f.name.split('_')[-1])
+    made = []
+    for i, f in enumerate(files):
+        level, cp = (int(v) for v in f.name[1:].split('_cp')[0:1] + f.name.split('_cp')[1].split('_')[:1])
+        nxt = next((g for g in files[i + 1:] if g.name.startswith(f'L{level}_cp')), None)
+        if not nxt:
+            continue
+        end = int(nxt.name.split('_cp')[1].split('_')[0])
+        if end == cp:
+            continue
+        lines = f.read_text().splitlines()
+        head = [l for l in lines if l.startswith(('MDKROUTE', 'S '))]
+        frames = [l for l in lines if l.startswith('F ')]
+        start = 0
+        for k in range(1, len(frames)):
+            a, b = frames[k - 1].split(), frames[k].split()
+            if math.dist([float(v) for v in a[9:12]], [float(v) for v in b[9:12]]) > jump:
+                start = k                       # died or reloaded: the last attempt is the one that got through
+        frames = frames[start:]
+        if len(frames) < 10:
+            continue
+        target = Path(out) / f'seg_{level}_{cp}_{end}.route'
+        old = [l for l in target.read_text().splitlines() if l.startswith('F ')] if target.exists() else None
+        if old and int(old[-1].split()[1]) - int(old[0].split()[1]) <= \
+                int(frames[-1].split()[1]) - int(frames[0].split()[1]):
+            continue
+        Path(out).mkdir(parents=True, exist_ok=True)
+        target.write_text('\n'.join(head + frames) + '\n')
+        secs = (int(frames[-1].split()[1]) - int(frames[0].split()[1])) / 1000
+        log(f'  {target.name}: {secs:.0f} s of play from {f.name}')
+        made.append(target)
+    return made
+
+
 def route_waypoints(frames, step_ms=400, step_units=3.0):
     """Points every step_ms or step_units along the recording, each with the action keys (not movement)
     held on the way to it, and the checkpoint the recording was at."""
@@ -1416,7 +1456,14 @@ def main(argv=None):
     fo.add_argument('--dirs', nargs='+', required=True)
     fo.add_argument('--player', type=int, default=1)
     fo.add_argument('--route', required=True)
+    jo = sub.add_parser('journal', help="turn a person's play journals into segment routes")
+    jo.add_argument('folder', help='a game copy\'s coop/journal folder (or a copy of it)')
+    jo.add_argument('--out', default=str(Path(__file__).resolve().parents[1] / 'local/routes'))
     a = ap.parse_args(argv)
+    if a.cmd == 'journal':
+        made = journal_segments(a.folder, a.out)
+        print(f'{len(made)} segment routes written to {a.out}')
+        return 0
     games = [Game(d, i + 1) for i, d in enumerate(a.dirs)]
     if a.cmd == 'goto':
         trail = []
