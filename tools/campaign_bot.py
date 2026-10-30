@@ -1283,6 +1283,8 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
             for attempt in range(5):
                 nav, state = scan(game, out, fly=fly, chute=chute)
                 stats['scans'] += 1
+                if len(nav.cells) < 30:
+                    log(f'    scan of {len(nav.cells)} cells ({state.strip()}) at {[round(v, 1) for v in game.pos()]}')
                 if nav.cells:
                     break
                 log(f'    scan found no floor under the hero ({state.strip()}): waiting')
