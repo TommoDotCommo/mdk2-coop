@@ -346,7 +346,7 @@ def read_note(path):
     return best[1] if best else None
 
 
-def scan(game, out, timeout=900, fly=False, chute=False):
+def scan(game, out, timeout=900, fly=False, chute=False, plane=False):
     """Scan the hero's surroundings (coop.NavStart) and save the cells."""
     for old in game.coop.glob('note_nav_*.txt'):
         old.unlink()
@@ -355,8 +355,8 @@ def scan(game, out, timeout=900, fly=False, chute=False):
     time.sleep(.4)
     standing = abs(game.pos()[2] - z) < 0.05
     # flying opens up every floor above; a room and its shaft fit in 12000 cells
-    game.lua(f'coop.NavStart({x},{y},{z},2,{12000 if fly else 40000},4,6,{36 if fly else 0},'
-             f'{300 if chute else 0},{1 if standing else "nil"})')
+    game.lua(f'coop.NavStart({x},{y},{z},2,{6000 if plane else 12000 if fly else 40000},4,6,{36 if fly else 0},'
+             f'{300 if chute else 0},{1 if standing else "nil"},{1 if plane else "nil"})')
     deadline = time.monotonic() + timeout
     state = game.coop / 'note_nav_state.txt'
     while time.monotonic() < deadline:
@@ -1314,6 +1314,12 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 stats['scans'] += 1
                 if len(nav.cells) < 30:
                     log(f'    scan of {len(nav.cells)} cells ({state.strip()}) at {[round(v, 1) for v in game.pos()]}')
+                    # almost nothing is seen: the floor is an object the line of sight misses (level 3's
+                    # rooms). Take the hero's height as the floor, and let the walls limit the scan
+                    nav2, state2 = scan(game, out, fly=fly, chute=chute, plane=True)
+                    log(f'    plane scan of {len(nav2.cells)} cells ({state2.strip()})')
+                    if len(nav2.cells) > len(nav.cells):
+                        nav = nav2
                 if nav.cells:
                     break
                 log(f'    scan found no floor under the hero ({state.strip()}): waiting')
