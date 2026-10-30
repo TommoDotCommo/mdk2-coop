@@ -1075,6 +1075,42 @@ def fans_toward(level, here, target, reach=80):
     return sorted(fans, key=lambda o: math.dist(o['pos'][:2], target[:2]))
 
 
+def drop_rims(nav, start, target, count=4, apart=12.0):
+    """Kurt's blind drops: reachable cells with an open side (no scanned neighbour that way: a ledge,
+    or a wall) that are flat, nearest the target in the plane, a few places apart. The landing far below
+    is not in the scan (an object the line of sight misses: level 4's ships, or just beyond 300 units),
+    so the way down is to walk off the rim toward the target with the chute."""
+    out = []
+    cells = reachable(nav, start)
+    for k in sorted(cells, key=lambda k: math.dist(nav.cells[k][:2], target[:2])):
+        if not nav.flat(k):
+            continue
+        sides = {(n[0] - k[0], n[1] - k[1]) for n in nav.cells[k][3]}
+        if len([d for d in sides if d in ((1, 0), (-1, 0), (0, 1), (0, -1))]) >= 4 and \
+                all(abs(nav.cells[n][2] - nav.cells[k][2]) <= 6 for n in nav.cells[k][3] if n in nav.cells):
+            continue
+        p = nav.cells[k][:3]
+        if all(math.dist(p[:2], q[:2]) >= apart for q in out):
+            out.append(p)
+            if len(out) >= count:
+                break
+    return out
+
+
+def blind_drop(game, nav, target, log, seconds=14):
+    """Walk to the rims nearest a target well below and off them toward it with the chute; True once the
+    hero is 20 or more units lower (the caller scans again from the landing)."""
+    here = game.pos()
+    for rim in drop_rims(nav, here, target):
+        walk(game, nav, rim, log, timeout=60)
+        z0 = game.pos()[2]
+        game.goto(*target, radius=4, timeout=seconds, explore=0, chute=1)
+        log(f'    blind drop from {[round(v) for v in rim]}: {z0 - game.pos()[2]:+.0f} down, now {[round(v, 1) for v in game.pos()]}')
+        if z0 - game.pos()[2] >= 20:
+            return True
+    return False
+
+
 def fan_ride(game, level, nav, target, log, done=set(), seconds=14):
     """Ride a fan's updraft with Kurt's chute up to a target above (level 4: fans switched on by a
     sniper shot at the lock under them). Walks to the edge of the column, steps in with jump held (the
@@ -1307,6 +1343,11 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                     continue
             # Kurt: a target well above, a fan near it (level 4's updrafts) -- ride it with the chute
             if chute and target[2] - here[2] > 8 and fan_ride(game, level, nav, target, log):
+                stalls = 0
+                continue
+            # Kurt: the target far below and nothing scanned leads down (a landing the line of sight
+            # misses): off a rim toward it with the chute, then scan again from the landing
+            if chute and here[2] - target[2] > 25 and stalls <= 2 and blind_drop(game, nav, target, log):
                 stalls = 0
                 continue
             if fly and stalls == 1 and prepare_flight(game, level, nav, log):

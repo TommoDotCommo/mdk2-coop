@@ -153,4 +153,14 @@ lv.m['deps'] = {'lock0': {'OnDamage': dict(sn, enables=['plat0'])}, 'lock1': {'O
 check('sniper locks that switch on platforms near the way are set off, nearest first, once',
       [o for o, _, _ in bot.chain_openers(lv, [0, 0, 0], [50, 0, 0])] == ['lock1', 'lock0']
       and [o for o, _, _ in bot.chain_openers(lv, [0, 0, 0], [50, 0, 0], {'lock1'})] == ['lock0'])
-print('20 passed, 0 failed')
+# Kurt's blind drops: a plateau 11 by 11 cells; the landing far below is not scanned. The rims are its
+# edge cells (never the middle, even when the target is straight under it), nearest the target first.
+pl = grid({(i, j): 60.0 for i in range(11) for j in range(11)})
+rims = bot.drop_rims(pl, [10, 10, 60], [40, 10, -73])
+check('blind drops start at the plateau edge nearest the target, a few cells apart',
+      rims and abs(rims[0][0] - 20.0) < 1e-6 and all(r[0] in (0.0, 20.0) or r[1] in (0.0, 20.0) for r in rims)
+      and all(math.dist(a[:2], b[:2]) >= 12 for a in rims for b in rims if a is not b))
+under = bot.drop_rims(pl, [10, 10, 60], [10, 10, -73])
+check('a target straight under the plateau drops off its edge, not from the middle',
+      under and all(r[0] in (0.0, 20.0) or r[1] in (0.0, 20.0) for r in under))
+print('22 passed, 0 failed')
