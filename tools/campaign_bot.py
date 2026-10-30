@@ -1353,7 +1353,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     result = {}
     stop = threading.Event()
     t_start = time.monotonic()
-    steps, care = [], {'heals': 0, 'retreats': 0, 'revive_tries': 0, 'revive_ok': 0}
+    steps, care = [], {'heals': 0, 'retreats': 0, 'revive_tries': 0, 'revive_ok': 0, 'covers': 0, 'cover_s': 0,
+                'holds': 0, 'hold_s': 0, 'focus_changes': 0}
     lives = cc.Lives([g.slot for g in games])
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
@@ -1502,8 +1503,16 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             finally:
                 reviving.discard(d.slot)
 
+    snap = {'t': 0.0, 'host': {'players': {}, 'threats': {}}}
+    busy_with = {}                     # slot -> 'cover' | 'hold' while a defence thread drives that hero
+    ignored = {}                       # enemy id -> time until which holding for it is pointless
+
+    def spot_of(slot):
+        p = snap['host']['players']
+        return p.get('me' if slot == 1 else slot)
+
     def heal(g, hp):
-        """Low on health: the nearest health pickup if one is near, otherwise back off along the way it came."""
+        """Low on health: the nearest health pickup if one is near (cover is the defence's job)."""
         with g.lock:
             here = g.pos()
             o = cc.health_target(level.m.get('pickups', []), here, taken)
@@ -1512,11 +1521,107 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 g.goto(*o['pos'], radius=1.5, timeout=20, explore=1)
                 care['heals'] += 1
                 log(f'[{g.slot}] hp {hp}: went for {o["name"]} ({o["type"]}), hp now {g.telemetry()["hp"]}')
-            elif trail[g.slot]:
-                back = trail[g.slot][0]
-                g.goto(*back, radius=2, timeout=6, explore=1)
-                care['retreats'] += 1
-                log(f'[{g.slot}] hp {hp}: no health near, backed off to {[round(v) for v in back]}')
+
+    def lualist(vals):
+        return '{' + ', '.join(f'{v:.2f}' for p in vals for v in p) + '}'
+
+    def cover(g, hp):
+        """Being shot at with little health: out of every shooter's sight (a place the hero came from, or one
+        around it that the engine's line of sight says is hidden), and wait there for the shooting to stop."""
+        try:
+            with g.lock:
+                g.lua('coop.PilotStop()')
+                here = g.pos()
+                thr = [t['pos'] for t in snap['host']['threats'].get(g.slot, []) if math.dist(t['pos'], here) < 150]
+                cands = cc.cover_candidates(here, trail[g.slot])[:24]
+                if not thr or not cands:
+                    return
+                n = g.note('cover', f'coop.NavCover({lualist(cands)}, {lualist(thr)})').strip()
+                if n == 'none':
+                    log(f'[{g.slot}] hp {hp}: no cover found among {len(cands)} places from {len(thr)} shooters')
+                    return
+                spot = cands[int(n) - 1]
+                r = g.goto(*spot, radius=1.5, timeout=8, explore=0)
+                care['covers'] += 1
+                t0 = time.monotonic()
+                log(f'[{g.slot}] hp {hp}: took cover at {[round(v) for v in spot]} ({r.get("state")}), '
+                    f'{math.dist(spot, here):.0f} units away')
+                while time.monotonic() - t0 < 10 and not stop.is_set():
+                    time.sleep(1)
+                    if not [t for t in snap['host']['threats'].get(g.slot, [])
+                            if math.dist(t['pos'], spot) < 90]:
+                        break
+                care['cover_s'] += round(time.monotonic() - t0)
+        except (TimeoutError, OSError, ValueError) as e:
+            log(f'[{g.slot}] cover: {e!r}')
+        finally:
+            busy_with.pop(g.slot, None)
+
+    def hold(g, target):
+        """A shooter at the hero within reach: stop walking and shoot it until it is dead, the hero's health
+        calls for cover, or 12 s pass; a target that loses no health in 5 s is not worth holding for."""
+        try:
+            with g.lock:
+                g.lua('coop.PilotStop()')
+                t0 = last_hp_t = time.monotonic()
+                hp0 = target['hp']
+                care['holds'] += 1
+                while time.monotonic() - t0 < 12 and not stop.is_set():
+                    time.sleep(.5)
+                    mine = {t['id']: t for t in snap['host']['threats'].get(g.slot, [])}
+                    cur = mine.get(target['id'])
+                    if cur is None:
+                        break                                   # dead, or no longer after this hero
+                    if cur['hp'] < hp0:
+                        hp0, last_hp_t = cur['hp'], time.monotonic()
+                    elif time.monotonic() - last_hp_t > 5:
+                        ignored[target['id']] = time.monotonic() + 40
+                        log(f'[{g.slot}] hold: {target["name"]} loses no health, not holding for it')
+                        break
+                    tel = known_life.get(g.slot)
+                    if tel and 0 < tel['hp'] <= cc.COVER_HP:
+                        break
+                care['hold_s'] += round(time.monotonic() - t0)
+        except (TimeoutError, OSError) as e:
+            log(f'[{g.slot}] hold: {e!r}')
+        finally:
+            busy_with.pop(g.slot, None)
+
+    def defend(g, t):
+        """Read what is shooting this hero from the host's state; shoot the most urgent first; hold the ground
+        to finish it, or take cover when health is low."""
+        mine = snap['host']['threats'].get(g.slot, [])
+        here = spot_of(g.slot)
+        if not here:
+            return
+        focus = cc.pick_focus(mine, here)
+        name = focus['name'] if focus else ''
+        if name != focus_set.get(g.slot):
+            focus_set[g.slot] = name
+            care['focus_changes'] += 1
+            try:
+                g.lua(f'coop.GunnerFocus({json.dumps(name) if name else "nil"})')
+            except (TimeoutError, OSError):
+                pass
+            if focus:
+                log(f'[{g.slot}] shot at by {len(mine)}: focus {name} (type {focus["type"]}, hp {focus["hp"]}, '
+                    f'{math.dist(focus["pos"], here):.0f} away), own hp {t["hp"]}')
+        if g.slot in busy_with or g.slot in reviving or t['life'] != cc.ALIVE:
+            return
+        if 0 < t['hp'] <= cc.COVER_HP and focus and now_s() - last_heal.get(('cover', g.slot), -99) > 6:
+            last_heal[('cover', g.slot)] = now_s()
+            busy_with[g.slot] = 'cover'
+            threading.Thread(target=cover, args=(g, t['hp']), daemon=True).start()
+        elif focus and ignored.get(focus['id'], 0) < time.monotonic() and t['hp'] > cc.COVER_HP \
+                and math.dist(focus['pos'], here) < 70 and now_s() - last_heal.get(('hold', g.slot), -99) > 15:
+            last_heal[('hold', g.slot)] = now_s()
+            busy_with[g.slot] = 'hold'
+            threading.Thread(target=hold, args=(g, focus), daemon=True).start()
+
+    focus_set = {}
+
+    def now_s():
+        return time.monotonic() - t_start
 
     def look_after():
         while not stop.wait(1.0):
@@ -1544,6 +1649,11 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 if pos.get(g.slot) is None and g.slot in known_pos:
                     pos[g.slot] = known_pos[g.slot]
             known_life.update({s: v for s, v in seen.items()})
+            try:
+                snap['host'] = cc.host_threats(leader.state())
+                snap['t'] = now
+            except (TimeoutError, OSError, ValueError):
+                pass
             for g in games:
                 t = seen.get(g.slot)
                 if not t:
@@ -1559,9 +1669,11 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                         helper = next(x for x in games if x.slot == who)
                         log(f'  player {g.slot} is down: player {who} goes to revive it')
                         threading.Thread(target=revive, args=(helper, g), daemon=True).start()
-                elif t['life'] == cc.ALIVE and 0 < t['hp'] < cc.LOW_HP and now - last_heal.get(g.slot, -99) > 20:
-                    last_heal[g.slot] = now
-                    threading.Thread(target=heal, args=(g, t['hp']), daemon=True).start()
+                elif t['life'] == cc.ALIVE:
+                    defend(g, t)
+                    if 0 < t['hp'] <= cc.COVER_HP and g.slot not in busy_with and now - last_heal.get(g.slot, -99) > 20:
+                        last_heal[g.slot] = now
+                        threading.Thread(target=heal, args=(g, t['hp']), daemon=True).start()
 
     threads = [threading.Thread(target=lead)] + [threading.Thread(target=keep_up, args=(g,)) for g in followers]
     helpers = [threading.Thread(target=watch, daemon=True), threading.Thread(target=look_after, daemon=True)]
@@ -1600,7 +1712,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
         result['mutant'] = dict(result.get('mutant', {}), **cc.down_check(totals, (result.get('mutant') or {}).get('downed')))
         followed['mutant'] = result['mutant']
         log(f'  mutant {mutant}: {result["mutant"]}')
-    stats = {'leader': result['leader'][1], 'world_ok': not end['findings'],      # known drift (flyers) is not a difference 'gaps': gaps, 'steps': len(steps),
+    stats = {'leader': result['leader'][1], 'world_ok': not end['findings'],      # known drift (flyers) is not a difference
+             'gaps': gaps, 'steps': len(steps),
              'findings': findings, 'known': len(known), 'lives': totals, 'care': care,
              'regroup_s': regroup, **followed}
     (folder / 'squad.json').write_text(json.dumps({'ok': result['leader'][0], **stats, 'known_lines': known,

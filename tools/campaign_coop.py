@@ -140,3 +140,57 @@ def down_check(totals, slot):
     me = totals.get('per_player', {}).get(slot, {})
     seen, rev, died = me.get('downs', 0) > 0, me.get('revives', 0) > 0, me.get('deaths', 0) > 0
     return {'down_seen': seen, 'revived': rev, 'died': died, 'ok': seen and rev and not died}
+
+
+# ---- reading threats from the host's state dump (no-God survival) ----
+COVER_HP = 60       # at or below this a hero that is being shot at takes cover
+MISSILE = 201       # homing missiles of a SAM generator (hp 30), shot down first when near
+GENERATOR = 511     # spawners do not shoot; they are objectives, not threats
+
+
+def host_threats(rows):
+    """The host's state dump (Game.state() rows) -> {'players': {slot: (x, y, z)}, 'threats': {slot: [enemy]}}.
+    An enemy is a threat to player N when the engine's own AI target of it (`ai_target <id> <type> @pN`)
+    is that player. Each enemy: {id, type, hp, pos, name, target}."""
+    ents, targets, players = {}, {}, {}
+    for r in rows:
+        try:
+            if r[0] == 'ent' and len(r) >= 8:
+                ents[r[1]] = {'id': r[1], 'type': int(r[2]), 'hp': int(r[3]),
+                              'pos': (float(r[4]), float(r[5]), float(r[6])), 'name': r[7]}
+            elif r[0] == 'ai_target' and len(r) >= 4 and r[3].startswith('@p'):
+                targets[r[1]] = int(r[3][2:])
+            elif r[0] == 'player' and len(r) >= 6:
+                players['me'] = (float(r[3]), float(r[4]), float(r[5]))
+            elif r[0] == 'puppet' and len(r) >= 5:
+                players[int(r[1])] = (float(r[2]), float(r[3]), float(r[4]))
+        except (ValueError, IndexError):
+            continue
+    out = {}
+    for eid, slot in targets.items():
+        e = ents.get(eid)
+        if e and e['hp'] > 0 and e['type'] != GENERATOR:
+            out.setdefault(slot, []).append(dict(e, target=slot))
+    return {'players': players, 'threats': out}
+
+
+def pick_focus(threats, here, reach=90.0):
+    """What a hero shoots first among the enemies targeting it: a missile within 25 units (it is about to
+    hit), otherwise the one that dies soonest (lowest health), the nearer on a tie. None if nothing is in reach."""
+    near = [(math.dist(t['pos'], here), t) for t in threats]
+    near = [(d, t) for d, t in near if d <= reach]
+    if not near:
+        return None
+    missiles = [(d, t) for d, t in near if t['type'] == MISSILE and d <= 25]
+    pool = missiles or near
+    return min(pool, key=lambda x: (x[1]['hp'], x[0]))[1]
+
+
+def cover_candidates(here, trail, radii=(5.0, 9.0, 14.0, 20.0), spokes=8):
+    """Places to try for cover, nearest first: where the hero came from, then rings around it."""
+    pts = [tuple(p) for p in trail if math.dist(p, here) > 3]
+    for r in radii:
+        for k in range(spokes):
+            a = 2 * math.pi * k / spokes
+            pts.append((here[0] + r * math.cos(a), here[1] + r * math.sin(a), here[2]))
+    return sorted(pts, key=lambda p: math.dist(p, here))

@@ -1230,6 +1230,28 @@ end
 -- range is faced and shot with the fire button; the pilot waits meanwhile. Counts shots and targets.
 coop.gunner = nil
 function coop.GunnerOn(range) coop.gunner = { range = range or 60, shots = 0, engaged = 0, next_ms = 0, skip = {}, kills = 0 } end
+function coop.GunnerFocus(name)
+    if (coop.gunner) then coop.gunner.focus = name end
+end
+-- Cover from threats: among the places pts ({x, y, z, ...}, nearest first), the first that no threat
+-- (thr: {x, y, z, ...}) sees at chest height; coop_note("cover", "<place index>") or "none".
+function coop.NavCover(pts, thr)
+    local i = 1
+    while (pts[i]) do
+        local seen = nil
+        local j = 1
+        while (thr[j] and not seen) do
+            if (coop.NavClear(thr[j], thr[j + 1], thr[j + 2] + 1, pts[i], pts[i + 1], pts[i + 2] + 3)) then seen = 1 end
+            j = j + 3
+        end
+        if (not seen) then
+            coop_note("cover", format("%d", (i + 2) / 3))
+            return
+        end
+        i = i + 3
+    end
+    coop_note("cover", "none")
+end
 function coop.GunnerTick()
     local gn = coop.gunner
     if (not gn) then return end
@@ -1238,6 +1260,14 @@ function coop.GunnerTick()
     if (not p or now < gn.next_ms) then return end
     gn.next_ms = now + 100
     local e, k = nil, 1
+    -- the focus (what is shooting the hero, chosen by the bot from the host's state) comes first --
+    if (gn.focus) then
+        local f = coop.FindGob(gn.focus)
+        if (f and (coop_hp(f) or 0) > 0 and not gn.skip[f] and mdkAILineOfSight(p, f, 6.3, 150) == 1) then
+            e = f
+            k = 9
+        end
+    end
     while (k <= 8 and not e) do
         local c = coop_nearest_enemy(p.position.x, p.position.y, p.position.z, gn.range, k)
         if (not c) then
