@@ -43,8 +43,7 @@ authoritative source is the installed game itself:
   (door animations, door locks released, stasis left, deletions), what they enable (`ANIM_ENABLED`) and
   which damage types they check. When stuck, the bot kills the live prerequisites of an opener near it
   (level 1 room 4: three enemies enable the lock) and triggers the opener with its damage type
-  (`DAMAGE_SNIPER`: a sniper round; known shortcut: launched along Kurt's aim by `coop_test_sniper`,
-  as sniper mode's camera is not steered yet). Openers that switch something on near the way
+  (`DAMAGE_SNIPER`: a sniper round, aimed through the camera, see below). Openers that switch something on near the way
   (level 4's sniper locks that raise platforms or start fans) count as well; each is set off once,
   the nearest first, and one enabled by standing somewhere (`OnCollision`) is never shot at.
 - **Pickups are not objectives**: an item with an `OnDie` handler (level 3's BFB) is carried, not
@@ -52,6 +51,34 @@ authoritative source is the installed game itself:
   break gets sniper rounds.
 - **Moved by the level**: when a script carries the hero off the planned room route (level 3 starts
   with Doc moved 165 units after the intro), the route is planned again from where he is.
+- **Sniper rounds through the camera** (`sniper_aim`): sniper mode is switched on (the left trigger of a faked
+  pad, `coop_pad_fake`; in it the camera sits at the hero's eye), then the camera is turned by mouse look (the
+  right stick) until its own orientation (`coop_pose` of `mdkGetCameraGob()`) points at the target, and the
+  fire trigger is pressed. `coop.Look` holds the stick for an exact number of frames, so a turn does not
+  depend on how soon the driver's next command arrives (a half stick turns 0.43 degrees a frame, a full one
+  2.83; pitch 0.17 / 0.70 / 2.05). The loop measures again after each turn and fires inside 0.8 degrees; the
+  hit comes from the bridge's damage log. Rounds that hit something else (no line of sight from here) are given
+  up after three, and the old launched round (`coop_test_sniper`, along the hero's facing) is the fallback
+  (`--shortcut-sniper` uses it alone). Shown live: level 4's tunnel plug `l4_r1shatter` is broken with the
+  camera aim. A lock the level watches (`omAnimIsPlaying(lock, ANIM_ENABLED)`) is still only hit from where
+  the line of sight reaches it: level 4's fan locks hang under a ledge and are seen from the air or from the far
+  side of the pit, not from anything the scan walks to (the grid of seeing points for `l4_blowlock02` was all
+  at y > -26, the ledge at y -61).
+- **Elevators** (`take_lift`; `campaign_mine.py` `lifts` from `Level.InitElevDoor(top, bottom, mover, cab, ...)`):
+  when the goal is a floor or more away in height and an elevator's far end is at the goal's height, near the
+  goal's column, the bot walks to the door at its own height, steps into the cab (the door opens inside 10
+  units while the mover is not locked, the cab ride starts on touching `EL_CENTER`), waits until the height
+  has been steady a few seconds, and plans again from the new place. Followers ride it too. A lift the level
+  keeps locked behind a puzzle (level 3's walkway lift, `l3_elev00`, opens after Kermit has eaten the aliens
+  and been given the toaster) is left alone, or opened with `--assist lift` (`Level.UnlockElevDoor`: a script
+  shortcut, named in the run's results as `assist`). The follower's own copy had the lift locked as well, so
+  the unlock is not carried by the host's puzzle in this test.
+- **Doc's items** (not built; what was found): a launcher start at level 3's checkpoint 6 gives Doc an empty
+  inventory (`mdkDocHasItem` false for tape, pipes, cord), so the walkway's puzzle (tape at the crack, cord,
+  ladder at the ladder spots) cannot be played from it; `mdkDocGiveItem(doc, OBJ_x, 1)` fills it. Items are
+  chosen by the hand keys (`Q`/`E` in the Modern preset: each press moves one step along that hand's list,
+  empty, item, item...) and used or combined with the fire button, but a press every so often is lost (about
+  half of 200 ms presses changed anything), so a frame-exact press (`coop.Look`'s way) is the next step.
 - **Kurt's fans** (level 4's updrafts, `fan_ride`): when the way on is well above Kurt and a fan
   (`OBJ_BLOWERCYLINDER`) stands below it, the bot snipes the lock that switches the fan on (a mined
   `deps` opener whose handler `enables` it), walks to the column's edge, steps in with jump held so
@@ -153,10 +180,9 @@ checkpoint 9 an empty tank could not reach room 9's first lift.
   `report.md` with the build, the copies' save folder, where the leader stopped and its last words.
 - `tools/test_campaign_bot.py` checks the planner without the game (walking rules, landings,
   reachability, portal route).
-- Ideas not yet built: record a person's
-  playthrough with the route recorder and follow its positions closed-loop (robust to drift, unlike
-  timed replay); decode the room meshes (`.mod`) for an offline navigation mesh; sniper aim through
-  mouse look calibrated against the camera.
+- Ideas not yet built: decode the room meshes (`.mod`) for an offline navigation mesh; viewpoints for locks that
+  only the air sees (jump off a rim with the chute and fire while falling); frame-exact key presses for Doc's
+  hands.
 
 ## Co-op
 
