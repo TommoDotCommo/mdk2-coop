@@ -1334,7 +1334,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
           no_god=False, step_units=25.0, step_seconds=45.0, mutant=None, roles=False):
     """Every game is a bot: player 1 leads to the goal; each other player follows the leader with its
     own pilot and gunner. The worlds are compared after every step of the leader's progress (each
-    step_units of way, or step_seconds) and at the end. Without God mode (no_god) each hero looks after
+    step_units along the ground, or step_seconds) and at the end. Without God mode (no_god) each hero looks after
     its health, a standing teammate revives a downed one (holding R beside it, bridge/revive.c) and
     downs, revives and deaths are counted. With roles, a step with several objectives is split: each
     player after the leader takes a different one, then all regroup at the goal."""
@@ -1436,7 +1436,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 continue
             if last_pos is None:
                 last_pos = here
-            if math.dist(here, last_pos) < step_units and time.monotonic() - last_t < step_seconds:
+            # progress along the ground (a shaft climb is compared by time only)
+            if math.dist(here[:2], last_pos[:2]) < step_units and time.monotonic() - last_t < step_seconds:
                 continue
             n += 1
             s = compare_step(games, folder, f'step{n:02d}', log)
