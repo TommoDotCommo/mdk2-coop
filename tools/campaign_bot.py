@@ -416,7 +416,7 @@ def fire_sweep(game, wanted, log, pitches=(0, -20, 20, -40, 40), steps=16, snipe
 
     def face(ang, elev):
         a, e = math.radians(ang), math.radians(elev)
-        return (f'local p=coop.real_player() mdkGobPointToXYZ(p, {math.cos(a):.4f}, {math.sin(a):.4f}, '
+        return (f'local p=coop.real_player() coop.Face(p, {math.cos(a):.4f}, {math.sin(a):.4f}, '
                 f'{math.tan(e):.4f})')
     for elev in pitches:
         for k in range(steps):
@@ -457,11 +457,11 @@ def snipe(game, name, log):
     script's reaction and its replication to the other games are the game's own."""
     off = hits_since(game, 0)[1]
     for dz in (0, 1, -1, 2, -2, 3):
-        game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then mdkGobPointToXYZ(p, '
+        game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then coop.Face(p, '
                  f't.position.x-p.position.x, t.position.y-p.position.y, t.position.z+{dz}-p.position.z-1) '
                  f'coop_test_sniper() end')
         time.sleep(1)
-        game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then mdkGobPointToXYZ(p, '
+        game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then coop.Face(p, '
                  f't.position.x-p.position.x, t.position.y-p.position.y, 0) end')
         names, off = hits_since(game, off)
         if name in names:
@@ -487,13 +487,13 @@ def aimed_kill(game, name, log, seconds=60):
             if nav.cells:
                 walk(game, nav, rim_toward(nav, game.pos(), at), log, timeout=40)
         for dz in (2, 0, 4):
-            game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then mdkGobPointToXYZ(p, '
+            game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then coop.Face(p, '
                      f't.position.x-p.position.x, t.position.y-p.position.y, t.position.z+{dz}-p.position.z-3) '
                      f'coop_press(256, 300) end')
             time.sleep(.45)
             # upright again, same bearing (pointing up or down tips Max onto his side)
             game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then '
-                     f'mdkGobPointToXYZ(p, t.position.x-p.position.x, t.position.y-p.position.y, 0) end')
+                     f'coop.Face(p, t.position.x-p.position.x, t.position.y-p.position.y, 0) end')
         names, off = hits_since(game, off)
         at = live_pos(game, name)
         here = game.pos()
@@ -601,7 +601,7 @@ def kill_objective(game, nav, obj, log, seconds=25):
         if not alive(game, obj['name']):
             log(f'    killed {obj["name"]} ({obj["type"]}) in {time.monotonic() - t0:.1f}s')
             return True
-        game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {x}-p.position.x, {y}-p.position.y, {aim}-p.position.z-3) '
+        game.lua(f'local p=coop.real_player() coop.Face(p, {x}-p.position.x, {y}-p.position.y, {aim}-p.position.z-3) '
                  f'coop_press(256, 600)')
         time.sleep(.5)
     log(f'    {obj["name"]}: still alive after {seconds}s of fire')
@@ -621,7 +621,7 @@ def destroy(game, objs, toward, log, seconds=20):
         if gone:
             log(f'    destroyed {gone[0]["name"]} in {time.monotonic() - t0:.1f}s')
             return gone[0]
-        game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {toward[0]}-p.position.x, {toward[1]}-p.position.y, 0) '
+        game.lua(f'local p=coop.real_player() coop.Face(p, {toward[0]}-p.position.x, {toward[1]}-p.position.y, 0) '
                  f'coop_press(256, 600)')
         time.sleep(.5)
     return None
@@ -637,7 +637,7 @@ def climb(game, target, seconds=9):
         top = max(top, p[2])
         if p[2] >= target[2] + 1:
             break
-        game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p,{target[0]}-p.position.x,'
+        game.lua(f'local p=coop.real_player() coop.Face(p,{target[0]}-p.position.x,'
                  f'{target[1]}-p.position.y,0) coop_press(17,250)')
         time.sleep(.3)
     game.lua('coop_press(57, 0)')
@@ -986,7 +986,7 @@ def follow(game, path, log, radius=2.5, lost_after=120):
         # held up where the recording was shooting (a scripted wall in the way): fire along the way
         if any(256 in q['keys'] for q in pts[max(0, i - 3):i + 3]):
             for _ in range(6):
-                game.lua(f'local p=coop.real_player() mdkGobPointToXYZ(p, {p["pos"][0]}-p.position.x, '
+                game.lua(f'local p=coop.real_player() coop.Face(p, {p["pos"][0]}-p.position.x, '
                          f'{p["pos"][1]}-p.position.y, 0) coop_press(256, 600)')
                 time.sleep(.5)
         if time.monotonic() - last_progress > lost_after:

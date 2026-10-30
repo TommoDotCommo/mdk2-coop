@@ -981,6 +981,17 @@ end
 -- coop.pilot.state: "go", "arrived", "stuck"; coop.pilot.trail counts the samples written to
 -- coop/pilot.txt (time, position, distance) for the run's evidence.
 -- ---------------------------------------------------------------------------------------
+-- Face a direction upright: the orientation is written whole, a turn about the vertical (identity faces
+-- +y) then, for aiming only, a pitch about the hero's side. mdkGobPointToXYZ turns from the current
+-- orientation and leaves the hero rolled (facing -y it is upside down): the owner watched Max tip over a
+-- little with every turn until he lay upside down. --
+function coop.Face(g, dx, dy, dz)
+    if (not g or (dx * dx + dy * dy) < 0.0001) then return end
+    local t = atan2(dy, dx) - 90
+    local f = atan2(dz or 0, sqrt(dx * dx + dy * dy))
+    local cz, sz, cx, sx = cos(t / 2), sin(t / 2), cos(f / 2), sin(f / 2)
+    coop_set_quat(g, cz * cx, cz * sx, sz * sx, sz * cx)
+end
 coop.pilot = nil
 coop.pilot_keys = { forward = 17, back = 31, left = 30, right = 32, jump = 57 }
 function coop.PilotGo(x, y, z, radius, flat, explore)
@@ -1222,7 +1233,7 @@ function coop.GunnerTick()
             return
         end
         -- Max tips onto his side when pointed up or down (the owner saw it): he only turns --
-        mdkGobPointToXYZ(p, e.position.x - p.position.x, e.position.y - p.position.y, 0)
+        coop.Face(p, e.position.x - p.position.x, e.position.y - p.position.y, 0)
         coop_press(256, 150)
         gn.shots = gn.shots + 1
         gn.busy = now + 300
@@ -1288,7 +1299,7 @@ function coop.PilotTick()
         -- far off course: do not run the wrong way meanwhile --
         if (e > 100 or e < -100) then pl.h = nil return end
     elseif (dx * dx + dy * dy > 0.01) then
-        mdkGobPointToXYZ(p, dx, dy, 0)
+        coop.Face(p, dx, dy, 0)
     end
     coop_press(coop.pilot_keys.forward, 120)
     -- Kurt dropping to a landing far below: hold jump in the air, which opens the chute --

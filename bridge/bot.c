@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 
 enum { BOT_IDLE, BOT_RECORD, BOT_REPLAY, BOT_PASS, BOT_FAIL };
 static int mode, have_state, blocked;
@@ -241,8 +242,36 @@ static void nearest_enemy(void)
     push_gob(n >= k ? list[k - 1] : NULL);
 }
 
+/* coop_quat(gob) -> w, x, y, z: a gob's orientation. coop_set_quat(gob, w, x, y, z): set it whole, so
+ * the campaign bot can face an exact bearing upright (mdkGobPointToXYZ turns from the current
+ * orientation, and its small rolls built up until Max lay on his side, then upside down). */
+static void quat_get(void)
+{
+    BYTE *g = tolua_getusertype(1, NULL);
+    float *q;
+    int i;
+    if (!gob_alive(g)) return;
+    q = (float *)(g + GOB_ORIENTATION);
+    for (i = 0; i < 4; i++) lua_pushnumber(q[i]);
+}
+
+static void quat_set(void)
+{
+    BYTE *g = tolua_getusertype(1, NULL);
+    float *q, v[4], n;
+    int i;
+    if (!gob_alive(g)) return;
+    for (i = 0; i < 4; i++) v[i] = (float)number(i + 2);
+    n = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]);
+    if (n < 0.5f) return;
+    q = (float *)(g + GOB_ORIENTATION);
+    for (i = 0; i < 4; i++) q[i] = v[i] / n;
+}
+
 void bot_lua_init(void)
 {
+    tolua_function(NULL, "coop_quat", quat_get);
+    tolua_function(NULL, "coop_set_quat", quat_set);
     tolua_function(NULL, "coop_nearest_enemy", nearest_enemy);
     tolua_function(NULL, "coop_note", note);
     tolua_function(NULL, "coop_route", command);
