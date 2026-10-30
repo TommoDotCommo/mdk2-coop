@@ -174,5 +174,14 @@ the bot follows those routes in two-player squads: 1→2, 3→4, 5→6 (55 s), 7
 traversed (worlds differ only by the known flying-enemy drift). 2→3, 6→7 and 9→10 still fail on
 stretches the person flew or glided; flying those airborne points at their recorded height is the
 newest change and is not yet tested. On its own, without a recording, the bot passes 3→4, 5→6
-(252 s), 7→8 and 8→9. Not yet: levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies,
-combat damage to the hero.
+(252 s), 7→8 and 8→9.
+
+Levels 3 and 4 on the bot's own (two players, Overhaul, God on, clock x2; a partial run, stopped after
+four segments): 3:1→2, 4:1→2 (the window broken) and 4:3→4 pass; 4:2→3 stops on the second window,
+which took more than one sniper round (now sniped again while rounds hit; not yet rerun). The fan
+ride and the switch-on chain openers are built and tested without the game, not yet live. Most of
+level 3 needs Doc's items (leaf blower, duct tape, ladders, magnet), the fish minigame or the
+spacewalk, so it needs a person's recording; on level 4 the theatre's '?' doors, the dance on the
+stage and the bouncing sniper shells do too. The owner's level 3 journals hold no play (the hero
+stands still), so they give no routes. Not yet: levels 5 to 12, Doc's items, bosses, minigames,
+movies, combat damage to the hero.
