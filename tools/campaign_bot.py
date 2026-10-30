@@ -1607,7 +1607,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             focus_set[g.slot] = name
             care['focus_changes'] += 1
             try:
-                g.lua(f'coop.GunnerFocus({json.dumps(name) if name else "nil"})')
+                g.lua(f'coop.GunnerFocus({json.dumps(name) if name else "nil"}, {g.gun_range if tactic != "run" else 25})')
             except (TimeoutError, OSError):
                 pass
             if focus:

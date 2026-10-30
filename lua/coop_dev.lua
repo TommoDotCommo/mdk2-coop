@@ -1230,8 +1230,11 @@ end
 -- range is faced and shot with the fire button; the pilot waits meanwhile. Counts shots and targets.
 coop.gunner = nil
 function coop.GunnerOn(range) coop.gunner = { range = range or 60, shots = 0, engaged = 0, next_ms = 0, skip = {}, kills = 0 } end
-function coop.GunnerFocus(name)
-    if (coop.gunner) then coop.gunner.focus = name end
+function coop.GunnerFocus(name, range)
+    if (coop.gunner) then
+        coop.gunner.focus = name
+        coop.gunner.frange = range
+    end
 end
 -- Cover from threats: among the places pts ({x, y, z, ...}, nearest first), the first that no threat
 -- (thr: {x, y, z, ...}) sees at chest height; coop_note("cover", "<place index>") or "none".
@@ -1263,7 +1266,7 @@ function coop.GunnerTick()
     -- the focus (what is shooting the hero, chosen by the bot from the host's state) comes first --
     if (gn.focus) then
         local f = coop.FindGob(gn.focus)
-        if (f and (coop_hp(f) or 0) > 0 and not gn.skip[f] and mdkAILineOfSight(p, f, 6.3, gn.range) == 1) then
+        if (f and (coop_hp(f) or 0) > 0 and not gn.skip[f] and mdkAILineOfSight(p, f, 6.3, gn.frange or gn.range) == 1) then
             e = f
             k = 9
         end
