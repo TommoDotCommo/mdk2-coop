@@ -695,7 +695,8 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
         target = portals[index]['to']
         stalls = 0
         best = math.dist(game.pos()[:2], target[:2])
-        while math.dist(game.pos()[:2], target[:2]) > 4:
+        # arrived: near in the plane and in height (the shaft's goal is straight above its floor)
+        while math.dist(game.pos()[:2], target[:2]) > 4 or abs(game.pos()[2] - target[2]) > 6:
             # already further along (carried, or walked through): go on from the latest portal whose
             # room the hero is in, instead of walking back --
             room = level.room_of(list(game.pos()))
