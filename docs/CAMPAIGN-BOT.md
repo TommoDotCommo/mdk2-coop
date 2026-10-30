@@ -147,8 +147,9 @@ checkpoint 9 an empty tank could not reach room 9's first lift.
   them), the follower stays, the gunner having the aim, until the turrets near it (`turrets_to_clear`: within 45
   units, up to 16 above or below, since a bay's turrets sit 13 above its floor) are dead or 30 s have passed. Without
   it the follower climbs on at once and meets a hatch that is still locked. Hovering with jump held after a climb
-  (the owner shot the bay's turrets from the air) counts as flown. Not yet shown live: the runs of this round
-  stalled at exactly these hatches (room 5 at 58 units, room 9 at 455).
+  (the owner shot the bay's turrets from the air) counts as flown. The gunner does not take turrets (all four alive
+  after 30 s), so the follower fires with the key held and turns the hero on each in turn, as `bay_climb` does.
+  Shown live: 5→6 passes at game speed without the fuel assist (979 s).
 - **Fuel assist** (`campaign_run.py --fuel-assist`, a test crutch, off by default and named in the report's mode):
   a refueller kept under each hero (`coop.fuel_assist`), so a recorded flight is not lost to one tank. Without it
   the follower spends about three times the person's thrust on room 9 (the person: 3.6 s of held jump up to the
@@ -229,7 +230,7 @@ all)**. The others stop at:
 | 9→10 | 240 of 276, twice | past the lifts and pumps, then the upper bays (their turret fights came in the fix that made 5→6 pass); the hero ends at the floor of the shaft |
 
 Room 9's lifts are ridden first try (see Moving lifts), a flight that was lost to them in earlier rounds. The bay
-fix covers only the bay the hero stands in when the recording fires on foot; flown stretches that fire (room 9's
-bays, 5→6's second and third bays) still skip the wait. Not done: the whole level chained in one run, the bot
+wait runs only at points walked (the hero standing on the bay's floor); stretches the recording fires on while
+flown (room 9's bays) skip it, which is where 9→10 ends. Not done: the whole level chained in one run, the bot
 without a recording (autonomous), levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies, combat
 damage to the hero.
