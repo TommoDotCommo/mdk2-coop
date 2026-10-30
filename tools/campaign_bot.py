@@ -355,6 +355,12 @@ def walk(game, nav, goal, log, timeout=90):
         r = game.goto(*pt, radius=1.5 if i < len(pts) - 1 else 2.5, timeout=timeout, explore=0,
                       jump=int(climb and not flying), fly=int(flying), chute=int(nav.chute and rise < -6))
         fell = r.get('state') != 'arrived' and game.pos()[2] < min(pt[2], pts[i - 1][2]) - 6
+        if fell:
+            # keep later plans off the edge he went over: the cells above where he landed
+            low = game.pos()
+            for c in nav.cells.values():
+                if c[2] > low[2] + 6 and math.dist(c[:2], low[:2]) < 4:
+                    Nav.blocked.add(Nav.spot(c))
         if fell and nav.fly:
             # off the edge into a pit (level 2 room 6: the shaft's open top, down onto its locked
             # hatch): to where the way up is open, fly back up to the waypoint and go on
@@ -954,7 +960,8 @@ def bay_climb(game, level, shaft, goal, log, max_trips=8):
     if here[2] > pad['pos'][2] + 3:
         descend()                           # up in the column already (a trip before): down to the pad
     elif here[2] < pad['pos'][2] - 6:
-        ok, p = jet_to(game, pad['pos'][2], pad['pos'][:2])     # below the pad's floor (fell in a pit)
+        nudge(game, (cx, cy), tol=1.5)      # below the pad's floor (fell in a pit): up the open centre line
+        ok, p = jet_to(game, pad['pos'][2], pad['pos'][:2])
         log(f'    shaft: up out of the pit to the pad: {"yes" if ok else "no"} at {[round(v, 1) for v in p]}')
     for _ in range(max_trips):
         shut = [(i, d) for i, d in enumerate(doors) if any(alive(game, e) for e in locks.get(d['name'], []))]
