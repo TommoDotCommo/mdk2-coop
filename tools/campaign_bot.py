@@ -1539,10 +1539,12 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         rise = p['pos'][2] - here[2]
         r = game.goto(*p['pos'], radius=radius, timeout=6, explore=0, jump=int(0.7 < rise <= 3.5),
                       fly=int(57 in p['keys'] and rise > 3.5))
-        if r.get('state') == 'arrived':
+        if r.get('state') == 'arrived' or math.dist(game.pos(), p['pos']) < radius + 1:
             i += 1
             last_progress, best = time.monotonic(), None
             continue
+        # the pilot would not move (within its own idea of arrival, or turned away): a few plain steps
+        nudge(game, p['pos'][:2], tol=radius, tries=6)
         # nearer the point than ever before counts as progress (a fight or a wall can take a while)
         d = math.dist(game.pos(), p['pos'])
         if best is None or d < best - 1:
@@ -1613,6 +1615,7 @@ def main(argv=None):
     fo.add_argument('--dirs', nargs='+', required=True)
     fo.add_argument('--player', type=int, default=1)
     fo.add_argument('--route', required=True)
+    fo.add_argument('--level', help='mined model: objective killing and refuellers while following')
     jo = sub.add_parser('journal', help="turn a person's play journals into segment routes")
     jo.add_argument('folder', help='a game copy\'s coop/journal folder (or a copy of it)')
     jo.add_argument('--out', default=str(Path(__file__).resolve().parents[1] / 'local/routes'))
@@ -1655,7 +1658,9 @@ def main(argv=None):
         print(f'arrived in {time.monotonic() - t0:.1f}s at {game.pos()}')
         return 0
     if a.cmd == 'follow':
-        ok, stats = follow(games[a.player - 1], a.route, lambda m: print(m, flush=True))
+        ok, stats = follow(games[a.player - 1], a.route, lambda m: print(m, flush=True),
+                           level=Level(a.level) if a.level else None,
+                           scratch=str(Path(a.route).with_suffix('.nav.json')) if a.level else None)
         stats['telemetry'] = games[a.player - 1].telemetry()
         print(f'{"ARRIVED" if ok else "FAILED"}: {stats}')
         return 0 if ok else 1
