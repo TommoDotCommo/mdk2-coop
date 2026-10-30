@@ -124,6 +124,19 @@ class Level:
         for a, b, point, how in self.m['portals']:
             self.edges.setdefault(a, []).append((b, point, how))
             self.edges.setdefault(b, []).append((a, point, how))
+        # vertical shafts: three or more room boxes stacked on one footprint (level 2's bays)
+        stacks = {}
+        for r in self.rooms.values():
+            key = tuple(round(v) for v in (r['min'][0], r['min'][1], r['max'][0], r['max'][1]))
+            stacks.setdefault(key, []).append(r)
+        self.shafts = [((k[0] + k[2]) / 2, (k[1] + k[3]) / 2, min(r['min'][2] for r in v), max(r['max'][2] for r in v))
+                       for k, v in stacks.items() if len(v) >= 3]
+
+    def shaft_near(self, p, reach=25):
+        """The centre (x, y) of a shaft whose column p is in or beside, or None."""
+        near = [(math.dist(p[:2], s[:2]), s) for s in self.shafts
+                if s[2] - 25 <= p[2] <= s[3] + 5 and math.dist(p[:2], s[:2]) < reach]
+        return min(near)[1][:2] if near else None
 
     def room_of(self, p):
         """The smallest room box holding p (rooms nest: tunnels inside sections)."""
@@ -233,7 +246,9 @@ class Nav:
         rise = b[2] - a[2]
         base = math.dist(a[:3], b[:3])
         if -6 <= rise <= self.WALK_RISE:
-            return base
+            # Max without Kurt's chute: keep off the rim of a drop (the pilot cuts corners, and the way
+            # back up costs fuel)
+            return base * 4 if self.fly and not self.chute and self.rim(n) else base
         if rise < -6 and self.chute:                    # Kurt's chute
             return base * 2
         if rise < -6 and self.fly:
@@ -245,6 +260,14 @@ class Nav:
         if self.fly and rise <= self.FLY_RISE and self.flat(n):
             return base * 6
         return None          # too steep, or a long fall without Kurt's chute
+
+    def rim(self, k):
+        """A cell beside a drop of more than 6 units."""
+        cache = self.__dict__.setdefault('_rim', {})
+        if k not in cache:
+            z = self.cells[k][2]
+            cache[k] = any(n in self.cells and self.cells[n][2] < z - 6 for n in self.cells[k][3])
+        return cache[k]
 
     def nearest(self, p):
         return min(self.cells, key=lambda k: math.dist(self.cells[k][:3], p))
@@ -334,7 +357,13 @@ def walk(game, nav, goal, log, timeout=90):
         fell = r.get('state') != 'arrived' and game.pos()[2] < min(pt[2], pts[i - 1][2]) - 6
         if fell and nav.fly:
             # off the edge into a pit (level 2 room 6: the shaft's open top, down onto its locked
-            # hatch): fly back up to the waypoint and go on
+            # hatch): to where the way up is open, fly back up to the waypoint and go on
+            # a shaft's centre line is open (its overhangs are object geometry the line of sight
+            # misses); elsewhere the nearest column the line of sight finds open
+            level = getattr(game, 'level', None)
+            col = (level and level.shaft_near(game.pos())) or open_column(game, game.pos(), pt[2])
+            if col:
+                nudge(game, col, tol=1.5)
             ok, p = jet_to(game, pt[2], pt[:2])
             log(f'    fell to {[round(v, 1) for v in p] if not ok else "?"}: flew back up to waypoint {i}: '
                 f'{"yes" if ok else "no"}')
@@ -715,25 +744,60 @@ def destroy(game, objs, toward, log, seconds=20):
     return None
 
 
+def open_column(game, here, top, reach=14):
+    """The nearest point around here (rings to reach units) with a clear way straight up to top, by the
+    engine's line of sight both ways; None if there is none. (Level 2: fallen into the top bay of room 5's
+    shaft, under the overhang of room 6's floor, the way out is the open middle.)"""
+    pts = [(here[0], here[1])]
+    for r in range(3, reach + 1, 3):
+        for k in range(8):
+            a = math.radians(k * 45)
+            pts.append((here[0] + r * math.cos(a), here[1] + r * math.sin(a)))
+    flat = ','.join(f'{x:.2f},{y:.2f}' for x, y in pts)
+    lo, hi = here[2] + 2, top + 3
+    code = (f'local t={{{flat}}} local i=1 local hit=0 '
+            f'while (i < {2 * len(pts)} and hit == 0) do '
+            f'if (coop.NavClear(t[i],t[i+1],{lo},t[i],t[i+1],{hi}) and coop.NavClear(t[i],t[i+1],{hi},t[i],t[i+1],{lo})) '
+            f'then hit = (i + 1) / 2 end i = i + 2 end coop_note("col", tostring(hit))')
+    try:
+        n = int(float(game.note('col', code).strip()))
+    except (ValueError, TimeoutError):
+        return None
+    return pts[n - 1] if n > 0 else None
+
+
 def jet_to(game, stand_z, xy, seconds=12):
-    """One held burn of Max's jetpack: straight up until above stand_z, then over to xy and down onto
-    it. (landed there, position)"""
-    game.lua(f'coop.pilot=nil coop_press(57, {seconds * 1000})')
+    """Max's jetpack: up until above stand_z, then over to xy holding that height (thrust off above the
+    band, on below it, so the tank lasts), and down onto it. (landed there, position)"""
+    game.lua('coop.pilot=nil coop_press(57, 15000)')
+    thrust = True
     t0, best, best_t = time.monotonic(), -1e9, time.monotonic()
-    while time.monotonic() - t0 < seconds + 1:
+    while time.monotonic() - t0 < seconds:
         p = game.pos()
         if p[2] > best + 0.3:
             best, best_t = p[2], time.monotonic()
-        if p[2] > stand_z + 2.5:
-            game.lua(f'local p=coop.real_player() coop.Face(p,{xy[0]}-p.position.x,{xy[1]}-p.position.y,0) '
-                     f'coop_press(17,200)')
+        if best > stand_z + 2.5:
             if math.dist(p[:2], xy) < 1.5:
                 break
+            game.lua(f'local p=coop.real_player() coop.Face(p,{xy[0]}-p.position.x,{xy[1]}-p.position.y,0) '
+                     f'coop_press(17,200)')
+            if thrust and p[2] > stand_z + 5:
+                game.lua('coop_press(57, 0)')
+                thrust = False
+            elif not thrust and p[2] < stand_z + 3:
+                game.lua('coop_press(57, 15000)')
+                thrust = True
         elif time.monotonic() - best_t > 3:
             break                           # out of fuel, or under a ceiling
         time.sleep(.1)
     game.lua('coop_press(57, 0)')
-    time.sleep(1.5)
+    last = None
+    for _ in range(30):                     # down and settled
+        time.sleep(.2)
+        p = game.pos()
+        if last and abs(p[2] - last[2]) < 0.05:
+            break
+        last = p
     p = game.pos()
     return abs(p[2] - stand_z) < 2.5, p
 
@@ -840,18 +904,19 @@ def bay_climb(game, level, shaft, goal, log, max_trips=8):
     as he passes), drift off-centre over the hatch below the locked one so it shuts under him, land on it
     and shoot that bay's turrets; then walk back to the centre, drop through the hatches and refuel. Once
     every hatch is unlocked, one burn takes him to the top."""
-    cx, cy, _ = shaft
+    cx, cy, floors = shaft
     ring = goal[:2]
     here = game.pos()
+    base = floors[0]                    # the shaft's first level: its pad is in the room below that
     side = (ring[0] - cx, ring[1] - cy)
     n = math.hypot(*side) or 1
     land_xy = (cx + side[0] / n * 16, cy + side[1] / n * 16)
-    pads = [o for o in level.m['objects'] if o['type'] == 'OBJ_REFUELLER' and o['pos'][2] < here[2] + 5
+    pads = [o for o in level.m['objects'] if o['type'] == 'OBJ_REFUELLER' and base - 45 < o['pos'][2] < base
             and math.dist(o['pos'][:2], (cx, cy)) < 60]
     if not pads:
         return False
-    pad = min(pads, key=lambda o: (round(o['pos'][2] - here[2]) < -40, math.dist(o['pos'][:2], (cx, cy))))
-    doors = shaft_doors(level, shaft, pad['pos'][2] + 5, goal[2])
+    pad = min(pads, key=lambda o: math.dist(o['pos'][:2], (cx, cy)))
+    doors = shaft_doors(level, shaft, base - 20, goal[2])
     if not doors:
         return False
     clear_z = doors[0]['pos'][2] - 8.5      # below this the centre is roofed (room 5's light), the ring open
@@ -888,6 +953,9 @@ def bay_climb(game, level, shaft, goal, log, max_trips=8):
 
     if here[2] > pad['pos'][2] + 3:
         descend()                           # up in the column already (a trip before): down to the pad
+    elif here[2] < pad['pos'][2] - 6:
+        ok, p = jet_to(game, pad['pos'][2], pad['pos'][:2])     # below the pad's floor (fell in a pit)
+        log(f'    shaft: up out of the pit to the pad: {"yes" if ok else "no"} at {[round(v, 1) for v in p]}')
     for _ in range(max_trips):
         shut = [(i, d) for i, d in enumerate(doors) if any(alive(game, e) for e in locks.get(d['name'], []))]
         if not mount_refueller(game, pad, log):
@@ -982,6 +1050,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
         log(f'  room route leads away (via {portals[0]["room"]}): straight for the goal instead')
         portals = [{'to': list(goal), 'room': level.room_of(list(goal)), 'via': 'goal'}]
     stats = {'scans': 0, 'walks': 0, 'destroyed': [], 'rounds': 0, 'skipped': 0}
+    game.level = level
     tried_from = {}
     if level.m.get('level') in (2, 5, 8, 11):
         max_arm(game, log)
