@@ -96,8 +96,8 @@ class Game:
         f = [int(v) for v in t.split()]
         return dict(zip(('level', 'cp', 'hp', 'shots', 'targets', 'life'), f))
 
-    def goto(self, x, y, z, radius=2.5, timeout=60, trail=None, explore=1, jump=0, fly=0, chute=0):
-        self.lua(f'coop.PilotGo({x},{y},{z},{radius},1,{explore}) coop.pilot.max_stuck=40 coop.pilot.jump={jump} '
+    def goto(self, x, y, z, radius=2.5, timeout=60, trail=None, explore=1, jump=0, fly=0, chute=0, flat=1):
+        self.lua(f'coop.PilotGo({x},{y},{z},{radius},{flat},{explore}) coop.pilot.max_stuck=40 coop.pilot.jump={jump} '
                  f'coop.pilot.fly={fly} coop.pilot.chute={chute}')
         deadline = time.monotonic() + timeout
         while True:
@@ -732,6 +732,15 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 stalls = 0
                 continue
             stalls += 1
+            # the goal straight above (level 2's shaft, 118 up): a powered climb, jump held while steering
+            here = game.pos()
+            if fly and target[2] - here[2] > 10 and math.dist(here[:2], target[:2]) < 40:
+                log(f'    climbing with the jetpack to {[round(v) for v in target]}')
+                r = game.goto(*target, radius=4, timeout=25, explore=0, fly=1, flat=0)
+                log(f'    climb: {r.get("state")} at {[round(v, 1) for v in game.pos()]}')
+                if r.get('state') == 'arrived' or game.pos()[2] > here[2] + 10:
+                    stalls = 0
+                    continue
             if fly and stalls == 1 and prepare_flight(game, level, nav, log):
                 continue
             # a door opens as the hero comes near, after the scan saw it shut: push on straight toward
