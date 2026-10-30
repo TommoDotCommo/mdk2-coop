@@ -309,6 +309,11 @@ def walk(game, nav, goal, log, timeout=90):
         rise = pt[2] - pts[i - 1][2]
         climb = rise > Nav.WALK_RISE
         flying = nav.fly and rise > Nav.JUMP_RISE
+        if flying:
+            # straight up first, then across (moving while rising caught Max under the lips)
+            if not hop(game, pt, log):
+                return game.pos(), 'hop'
+            continue
         r = game.goto(*pt, radius=1.5 if i < len(pts) - 1 else 2.5, timeout=timeout, explore=0,
                       jump=int(climb and not flying), fly=int(flying), chute=int(nav.chute and rise < -6))
         if r.get('state') != 'arrived':
@@ -629,6 +634,38 @@ def destroy(game, objs, toward, log, seconds=20):
                  f'coop_press(256, 600)')
         time.sleep(.5)
     return None
+
+
+def hop(game, landing, log, rise_s=4.0):
+    """One jetpack hop onto a lip above, the way a player does it (the owner: Max kept catching under
+    the lips): rise straight up where he stands (the scan found that column clear) until a little above
+    the lip, let go, then step across onto it. Fuel is spent only on the height needed."""
+    game.lua('coop.pilot=nil')
+    want = landing[2] + 2.5
+    game.lua('coop_press(57, 6000)')
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < rise_s and game.pos()[2] < want:
+        time.sleep(.1)
+    game.lua('coop_press(57, 0)')
+    peak = game.pos()[2]
+    if peak < landing[2]:
+        log(f'    hop: rose only to {peak:.1f} for a lip at {landing[2]:.1f} (fuel?)')
+        return False
+    # across onto the lip while still above it
+    for _ in range(12):
+        p = game.pos()
+        if math.dist(p[:2], landing[:2]) < 1.5:
+            break
+        game.lua(f'local p=coop.real_player() coop.Face(p,{landing[0]}-p.position.x,{landing[1]}-p.position.y,0) '
+                 f'coop_press(17,200)')
+        if p[2] < landing[2] + 0.5:
+            game.lua('coop_press(57, 250)')       # a touch more lift if sinking below the lip
+        time.sleep(.2)
+    time.sleep(.8)
+    p = game.pos()
+    ok = abs(p[2] - landing[2]) < 1.5
+    log(f'    hop to {[round(v, 1) for v in landing]}: {"landed" if ok else "missed"} at {[round(v, 1) for v in p]}')
+    return ok
 
 
 def climb(game, target, seconds=9):
