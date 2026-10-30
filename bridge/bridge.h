@@ -140,6 +140,8 @@ enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, 
 #define EV_NAME 32
 /* FIRE part: 0 replays create_object arguments; 1 restores a launched class 5 shot. */
 #define FIRE_LAUNCHED 1
+/* APPLY part: the event only carries the target's hp (no damage, no OnDamage on the mirror) */
+#define HPSYNC_PART (-2)
 
 struct event {
     unsigned int id;
@@ -221,6 +223,7 @@ void event_send(const struct event *e, int to);
 void event_relay(const struct event *e, int from);
 void event_queue(int kind, const char *name, int damage, int type, int part);
 void event_queue_from(int to, int kind, const char *name, BYTE *from, int damage, int type, int part);
+void event_queue_hpsync(const char *name, int hp);
 void event_queue_applied(const char *name, BYTE *from, int damage, int type, int part, int hp);
 void event_queue_spawn(int to, int kind, unsigned int netid, int objtype, int hp, const float *pos, const char *name);
 int event_next(struct event *out, int *from);
@@ -271,6 +274,7 @@ BYTE *ent_gob(unsigned int netid);
 int ent_count(void);
 void ents_reset(void);
 void ents_resend(int to);
+void ent_hp_told(BYTE *gob);
 int ent_is_synced(BYTE *gob);
 void ents_keep_spawner(BYTE *gob);
 void ents_dump(FILE *f);

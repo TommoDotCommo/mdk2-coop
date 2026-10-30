@@ -265,7 +265,9 @@ later):
 - **Flying enemies drift on clients**, on four levels: mantas up to 231 units from the host's
   positions (levels 2, 4, 8), level 1's flyers up to 53, level 8's ship turret 50.
 - **An enemy dead only on the client**: level 4's `l4_r5grunt` with 60 hp on the host and 0 on the
-  client (two segments).
+  client (two segments). A replication gap, fixed: the host had brought the grunt back to 60 hp
+  without a hit and clients were only told hp in SPAWN and in the APPLY of a hit. The host now sends
+  an hp-only APPLY when an enemy's hp differs from what clients were told (`tools/qa_hpsync.sh`).
 - **Pickup counts differ** on the final levels (11 and 12): 7 against 4, 3 against 2.
 - **A puppet left behind**: on level 3 the client showed the host's puppet 997 units from the host.
 - **A client crash** on level 8 (checkpoint 6 to 7): access violation at `mdk2hd.exe+0x2a95` reading
@@ -287,19 +289,29 @@ failed hops cannot repeat it on one fill.
 
 Seen by the per-step comparison of this round (level 2, 3 to 4, 3 and 4 players with roles, x1):
 
-- **Enemy health differs on clients while clients fight**: a turret or SAM spawn's hp is lower on every
-  client than on the host (host 38, clients 32 and 26; host 34, clients 16, 16 and 4; host 14, clients 8, 8
-  and 0; host 32, clients 20, 20 and 8). It appears in single steps (the next step compares equal),
-  and only in runs where the players fired at objectives (`--roles`): damage dealt on a client reaches
-  the client's copy first and the host's later. A client showing 0 for an enemy the host still has at 14
-  is the extreme. Each is reported as a finding (the tolerance table has no entry for it) and is gone
-  by the next step: transient, not a lasting difference.
-- **A spawned enemy only on clients**: `ne003d` / `na0407` (type 201), present on every client and gone
-  on the host, at one step each (both runs with roles). Not seen again at the next step.
+- **Enemy health and extra enemies on clients** seen in single steps of these runs (a turret or SAM spawn's hp
+  lower on every client; type 201 enemies only on clients) were dump skew, explained below.
 - **Revive under fire fails** (no-God 3 to 4, run 3): the reviver reached the body but was downed before
   the 3 s of R, and the downed player bled out. The mod works as designed; this is what a player sees.
 - No world difference lasted to a segment's end in any 3 or 4 player run besides the known flying-enemy
   drift (mantas 17 to 36 units apart on the clients at the end of the last 4 player run).
+
+### Level 2 (3 to 4) per-step mismatches: dump skew, not co-op bugs
+
+The bot's per-step comparison reported `type 201` / `217` enemies "on the client, gone on the host" and
+turrets / SAM spawns with a lower hp on the clients (host 14 against 0; 34 against 16, 16, 4). Cause,
+from the bridge logs of runs 20261031-065804, -081843, -083108 and -084429: the games dump one after
+another (host first, then each client, hundreds of ms apart), and a fight or a spawner moves the host's world in
+between.
+- hp: client 4's own log in run -083108 holds the host's hp sequence for the SAM spawn exactly
+  (44, 38, 34, 28, 24, 18, 14, 8, 4, 0); the host dumped at 14, the clients' dumps came 2 to 3 hits later (8, 8, 0), after the retry's host dump too. The client is
+  always the lower one because it dumps last (client <= host in all 27 per-step hp findings of the 2026-10-31 runs).
+- extra enemy: the host's `ent spawn` line comes after its own dump in all of -065804 (`e003d`), -081843 (`a0407`),
+  -083108 (`c040d`); the clients bound it before their dump. In -084429 (`103fc`) the host's dump read `ent 103fc gone`
+  (corpse removed, DESPAWN sent at the next tick, 100 ms later) while the client's dump came before the DESPAWN arrived.
+- fix: `statecheck.py --after` takes a second host dump written once the clients' are; a client value only fails
+  outside what the host held in between (hp between the two, position on the path, enemy made or removed in between).
+  `campaign_bot.compare_worlds` dumps the host again after the clients. A client stuck at 0 while the host holds 60 still fails.
 
 ## Status
 
