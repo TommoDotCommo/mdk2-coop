@@ -110,6 +110,8 @@ def segment(level, seg, players, owner, hook, out, god):
         tail = (folder / 'bot.log').read_text().strip().splitlines()[-1:]
         result = {'segment': seg, 'result': 'PASS' if run.returncode == 0 else 'FAIL',
                   'seconds': round(time.monotonic() - t0), 'last': tail[0] if tail else ''}
+        if "'world_ok': False" in result['last']:
+            result['coop_finding'] = 'worlds differ (see statecheck_end_*.txt)'
     except subprocess.TimeoutExpired as e:
         result = {'segment': seg, 'result': 'TIMEOUT', 'seconds': round(time.monotonic() - t0), 'detail': str(e)[:200]}
     finally:

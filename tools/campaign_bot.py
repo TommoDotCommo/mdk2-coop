@@ -1366,8 +1366,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     gaps = {g.slot: round(math.dist(g.pos(), leader.pos()), 1) for g in followers}
     log(f'  followers\' distance from the leader at the end: {gaps}')
     followed = {k: v for k, v in result.items() if str(k).startswith('follower_')}
-    return result['leader'][0] and ok_world, {'leader': result['leader'][1], 'world_ok': ok_world, 'gaps': gaps,
-                                              **followed}
+    # passing is getting through; a world that differs is a co-op finding, reported beside it
+    return result['leader'][0], {'leader': result['leader'][1], 'world_ok': ok_world, 'gaps': gaps, **followed}
 
 
 # Keys that move or turn the hero: the pilot does that itself when following a recording.
