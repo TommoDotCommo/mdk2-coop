@@ -234,8 +234,12 @@ class Nav:
         base = math.dist(a[:3], b[:3])
         if -6 <= rise <= self.WALK_RISE:
             return base
-        if rise < -6 and (self.chute or self.fly):     # Kurt's chute, or Max's jetpack to slow the fall
+        if rise < -6 and self.chute:                    # Kurt's chute
             return base * 2
+        if rise < -6 and self.fly:
+            # Max's jetpack slows the fall, but the way back up costs fuel that only a refueller gives
+            # (level 2 room 6: the shaft's open top beside the path): only when there is no other way
+            return base * 40
         if 0 < rise <= self.JUMP_RISE and self.flat(n):
             return base * 4
         if self.fly and rise <= self.FLY_RISE and self.flat(n):
@@ -978,6 +982,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
         log(f'  room route leads away (via {portals[0]["room"]}): straight for the goal instead')
         portals = [{'to': list(goal), 'room': level.room_of(list(goal)), 'via': 'goal'}]
     stats = {'scans': 0, 'walks': 0, 'destroyed': [], 'rounds': 0, 'skipped': 0}
+    tried_from = {}
     if level.m.get('level') in (2, 5, 8, 11):
         max_arm(game, log)
     if fly:
@@ -1088,7 +1093,10 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
             # a view of (the arena's exit opens when its three generators are gone) --
             done = False
             for obj in objectives(level, pos, target):
-                if obj['name'] in stats['destroyed'] or obj['name'] in stats.setdefault('gave_up', []):
+                # given up from somewhere else: worth another try from here (room 1's door lock is out of
+                # view from the room, plain from in front of the door)
+                where = tried_from.get(obj['name'])
+                if obj['name'] in stats['destroyed'] or (where and math.dist(where, pos) < 15):
                     continue
                 if not alive(game, obj['name']):
                     continue
@@ -1096,7 +1104,9 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                     stats['destroyed'].append(obj['name'])
                     done = True
                     break
-                stats['gave_up'].append(obj['name'])
+                tried_from[obj['name']] = tuple(pos)
+                if obj['name'] not in stats.setdefault('gave_up', []):
+                    stats['gave_up'].append(obj['name'])
             if not done:
                 # nothing seen from known positions: shoot around and see what is hit
                 near = [o for o in objectives(level, pos, target, radius=250) if alive(game, o['name'])]
