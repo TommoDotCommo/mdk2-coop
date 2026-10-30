@@ -68,7 +68,10 @@ typedef void (*lua_CFunction)(void);
 #define GOB_ORIENTATION     0x24    /* float quaternion w, x, y, z; engine setter copies it raw */
 #define GOB_ANIM            0x60    /* anim controller: +0x24 states, +0x28/+0x2c current/previous */
 #define GOB_INFO            0x84    /* -> game object: short type +0, damage filter +0x10, hp +0x12 */
-#define GOB_TARGET          0x88    /* generation-checked target handle (actor AI / shots) */
+#define GOB_TARGET          0x88    /* generation-checked target handle (actor AI / shots); also the scene-graph parent */
+#define GOB_FLAGS           0xa6    /* u16 */
+#define GOB_BONE_ATTACHED   0x20    /* GOB_FLAGS: put on bone GOB_BONE_SLOT of the parent GOB_TARGET every frame (0x449a20) */
+#define GOB_BONE_SLOT       0x8c
 #define INFO_CLASS          0xb4    /* game object field; & 0x3f = index into CLASS_TABLE */
 #define CLASS_TABLE         ((BYTE **)ADDR.class_table)
 #define CLASS_SLOTS         14

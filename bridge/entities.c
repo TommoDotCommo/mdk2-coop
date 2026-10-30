@@ -52,6 +52,8 @@ static int replicated_object(BYTE *gob)
     return gob && (gob_is_actor(gob) || gob_type(gob) == 511);
 }
 
+int test_keep_attached;         /* coop.ini [test] keep_attached=1 (background test mode): the old bug, for tools/qa_flyers.sh's MUTANT=attached */
+
 static struct ent ents[MAX_ENTS];
 static int nents;
 
@@ -181,6 +183,12 @@ static void fire_ondie_hook(BYTE *gob)
 
 void ents_init(void)
 {
+    char ini[MAX_PATH];
+
+    snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
+    test_keep_attached = test_background && GetPrivateProfileIntA("test", "keep_attached", 0, ini) != 0;
+    if (test_keep_attached)
+        logmsg("ents: mirrored enemies stay on their parent's bone ([test] keep_attached=1)");
     fire_ondie_orig = hook_code((BYTE *)FIRE_ONDIE_ADDR, fire_ondie_prologue, sizeof(fire_ondie_prologue),
                                 fire_ondie_hook);
     logmsg("death script hook %s", fire_ondie_orig ? "installed" : "NOT installed");
@@ -337,6 +345,21 @@ void ent_bind(unsigned int netid, BYTE *gob)
 
 int test_no_ondie;              /* coop_test_noondie(1) (background test mode): the old bug, for tools/qa_sign.sh's MUTANT=noondie */
 
+/* Flying enemies (OBJ_TURRET with the 'manta' model; level 8's ship turret) are registered on a bone of an
+ * animated scenery model (a flock flying its loop, a ship), and while attached the engine puts them on that
+ * bone every frame, over the position the snapshots give. On the host their AI takes them off the flock to
+ * attack; a mirror never runs that AI, so it stayed on the client's own flock, up to 230 units from the host's.
+ * A mirror is placed by the host's snapshots alone: drop the attachment, keep the parent link. */
+static void ent_detach(BYTE *gob)
+{
+    WORD *flags = (WORD *)(gob + GOB_FLAGS);
+
+    if (test_keep_attached || !(*flags & GOB_BONE_ATTACHED))
+        return;
+    *flags &= (WORD)~GOB_BONE_ATTACHED;
+    logmsg("ent %s let go of its parent's bone %d", gob_name(gob), *(int *)(gob + GOB_BONE_SLOT));
+}
+
 void ent_despawn(unsigned int netid, int died)
 {
     struct ent *e = ent_find(netid);
@@ -396,6 +419,7 @@ void ents_client_frame(void)
         }
         if (!gob || !e->track.n)
             continue;
+        ent_detach(gob);
         track_update(&e->track, host_clock_offset());
         gob_set_position(gob, e->track.view.pos[0], e->track.view.pos[1], e->track.view.pos[2]);
         memcpy(gob + GOB_ORIENTATION, e->track.view.quat, sizeof(e->track.view.quat));
