@@ -1137,7 +1137,7 @@ def blind_drop(game, nav, target, log, seconds=14):
     hero is 20 or more units lower (the caller scans again from the landing)."""
     here = game.pos()
     for rim in drop_rims(nav, here, target):
-        walk(game, nav, rim, log, timeout=60)
+        walk(game, nav, rim, log, timeout=25)
         if math.dist(game.pos()[:2], rim[:2]) > 8:
             # something stands in the way (a wall the level breaks, a door): not a rim to drop from
             log(f'    blind drop: could not reach the rim at {[round(v) for v in rim]}')
