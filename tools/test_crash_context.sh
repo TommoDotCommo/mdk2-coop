@@ -13,6 +13,8 @@ variants = {
     'baseline': source,
     'missing-registers': source.replace('if (!c) return;', 'if (c) return;\n    if (!c) return;'),
     'model-as-index': source.replace('c->Esp + 0x2c, &index', 'c->Esp + 0x28, &index'),
+  'sight-target-offset': source.replace('c->Edi - GOB_POSITION', 'c->Edi'),
+    'sight-wrong-site': source.replace('c->Eip == 0x402a95', 'c->Eip == 0x402a96'),
 }
 for name, text in variants.items():
     header = out/(name+'.h')
