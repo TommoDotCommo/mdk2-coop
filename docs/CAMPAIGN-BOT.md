@@ -190,7 +190,8 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
   in the bot on its first live run (four players, the leader's route ended 17.7 units short of the portal
   and only the followers were sent; `local/campaign/runs/20261031-081843`); with the leader sent too,
   four players regrouped (followers 0.5 to 1.1 units from the leader, PASS, 458 s,
-  `local/campaign/runs/20261031-083108`).
+  `local/campaign/runs/20261031-083108`). Three players again with the final code: PASS, 477 s, regroup
+  checked, `world_ok` true (`local/campaign/runs/20261031-084429`).
 - `--explore` plays a segment with the bot's own play instead of its recording; `--timescale 1`
   confirms a finding at normal speed; `--repeat N` runs each segment N times. Each segment's
   `results.json` lists every copy's build hash and `[test] save_dir` (every copy keeps its own saves).
