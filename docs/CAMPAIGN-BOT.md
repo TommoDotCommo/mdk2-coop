@@ -214,12 +214,21 @@ failed hops cannot repeat it on one fill.
 
 ## Status
 
-Level 2 on the Overhaul build, God mode on. The owner played all of level 2 with the journal on, and
-the bot follows those routes in two-player squads: 1→2, 3→4, 5→6 (55 s), 7→8 and 8→9 pass, and 4→5 is
-traversed (worlds differ only by the known flying-enemy drift). 2→3, 6→7 and 9→10 still fail on
-stretches the person flew or glided. The pilot's height hold (`fly=2`) is shown live to hover within
-about 1.5 units of a height, but the follower has not yet passed 6→7 or 9→10 with it: in room 9 the one
-tank given at the checkpoint start runs out on failed hops between the lifts (no refueller below the
-hanging pumps), and a jetpack fuel readout, which would let the bot plan its burns, is not found yet. On its own, without a recording, the bot passes 3→4, 5→6
-(252 s), 7→8 and 8→9. Not yet: levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies,
-combat damage to the hero.
+Level 2 on the Overhaul build, God mode on, two players, the owner's recordings, flights at the game's own speed
+(`campaign_run.py` forces `timescale` 1 for flight segments). Last full run (2026-10-31, with the fuel assist named
+above on every segment): **1→2 (186 s), 3→4 (412 s) and 7→8 (155 s) pass**, and the worlds compared at their ends
+differ in nothing. The others stop at:
+
+| segment | reached | where it stops |
+|---|---|---|
+| 2→3 | 81 of 236 | room 1: the alarm `l2_alert03` sits behind the wall `l2_r1_90tun01`, which absorbs the aimed shots; the leader is sent back by the objective logic |
+| 4→5 | 201 of 286 | both heroes land 6 units below the recording at (419, 998) and cannot get back; the worlds differ only in the flying mantas (46 and 53 units apart) |
+| 5→6 | 47 of 115 | the bay at 46: its turrets were never shot (the gunner does not take turrets: all alive after 30 s); with fire held and the hero turned on each, three to four of four die in 45 s, but the climb that follows still fails at the hatch |
+| 6→7 | 78 of 326 | the pad refill ran Max off the ledge (fixed after the run: `mount_refueller` uses the pilot), then the first hops; not rerun on the fix |
+| 8→9 | 46 of 187 for the leader | the leader stopped 18 units short of point 46 with nothing logged; the other player followed all 187 points |
+| 9→10 | 240 of 276 | past the lifts and pumps, then the hatches of the upper bays; the fixes for the bays came after the run |
+
+Room 9's lifts are now ridden first try (see Moving lifts), a flight that was lost to them in earlier rounds.
+Not done this round: the whole level chained in one run, the bot without a recording (autonomous), levels 3 to 12,
+Doc's items, sniper locks, bosses, minigames, movies, combat damage to the hero. The one tank still cannot repeat
+the person's flights without the assist.
