@@ -909,9 +909,10 @@ def mount_refueller(game, pad, log):
         if math.dist(p[:2], (x, y)) < 2 and p[2] > z - 0.6:
             time.sleep(2)
             return True
-        game.lua(f'local p=coop.real_player() coop.Face(p,{x}-p.position.x,{y}-p.position.y,0) '
-                 f'coop_press(57,250) coop_press(17,450)')
-        time.sleep(1.2)
+        # the pilot steers by the heading the hero actually moves in (body facing and camera differ: coop.Face
+        # and forward ran Max off room 6's ledge, away from the pad)
+        game.goto(x, y, z, radius=1.5, timeout=4, explore=0, jump=1)
+        time.sleep(0.5)
     log(f'    could not get onto {pad["name"]}')
     return False
 
