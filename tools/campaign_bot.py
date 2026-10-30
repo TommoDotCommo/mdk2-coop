@@ -148,9 +148,15 @@ class Level:
                     best = (vol, name)
         return best[1] if best else None
 
+    def nearest_room(self, p):
+        """The room whose box is nearest p (a hero dropped out of every box: below level 4's vortex)."""
+        def gap(r):
+            return math.dist(p, [min(max(p[i], r['min'][i]), r['max'][i]) for i in range(3)])
+        return min(self.rooms, key=lambda n: (gap(self.rooms[n]), n))
+
     def path(self, start, goal):
         """Portal points from start's room to goal's room (Dijkstra on distance), then the goal."""
-        a, b = self.room_of(start), self.room_of(goal)
+        a, b = self.room_of(start) or self.nearest_room(start), self.room_of(goal) or self.nearest_room(goal)
         if a is None or b is None:
             raise ValueError(f'no room holds {"start" if a is None else "goal"}')
         import heapq

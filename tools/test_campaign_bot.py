@@ -163,4 +163,10 @@ check('blind drops start at the plateau edge nearest the target, a few cells apa
 under = bot.drop_rims(pl, [10, 10, 60], [10, 10, -73])
 check('a target straight under the plateau drops off its edge, not from the middle',
       under and all(r[0] in (0.0, 20.0) or r[1] in (0.0, 20.0) for r in under))
-print('22 passed, 0 failed')
+lv4file = Path(__file__).resolve().parents[1] / 'local' / 'campaign' / 'level4.json'
+if lv4file.exists():
+    lv4 = bot.Level(lv4file)
+    below = [1137.0, -348.0, -102.0]
+    check('a hero below every room box is planned from the nearest room, not a crash',
+          lv4.room_of(below) is None and lv4.path(below, [1117.0, -545.0, 252.0])[1])
+print('23 passed, 0 failed')
