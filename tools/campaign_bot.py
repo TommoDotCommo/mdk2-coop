@@ -1472,6 +1472,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             g.lock.release()
 
     reviving, last_heal, trail = set(), {}, {g.slot: [] for g in games}
+    known_pos, known_life = {}, {}
     taken = set()
 
     def revive(g, d):
@@ -1535,12 +1536,24 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
             for s, p in pos.items():
                 if p:
                     trail[s] = (trail[s] + [p])[-10:]
+                    known_pos[s] = p
+            # a game that was busy this second (its pilot holds the command file) keeps its last reading
+            for g in games:
+                if g.slot not in seen and g.slot in known_life:
+                    seen[g.slot] = known_life[g.slot]
+                if pos.get(g.slot) is None and g.slot in known_pos:
+                    pos[g.slot] = known_pos[g.slot]
+            known_life.update({s: v for s, v in seen.items()})
             for g in games:
                 t = seen.get(g.slot)
                 if not t:
                     continue
                 if t['life'] == cc.DOWNED and g.slot not in reviving and mutant != 'down-stay':
                     who = cc.reviver(pos, {s: v['life'] for s, v in seen.items()}, g.slot)
+                    if not who and now - last_heal.get(('why', g.slot), -99) > 5:
+                        last_heal[('why', g.slot)] = now
+                        log(f'  player {g.slot} is down: nobody to revive it (positions {pos}, lives '
+                            f'{ {s: v["life"] for s, v in seen.items()} })')
                     if who:
                         reviving.add(g.slot)
                         helper = next(x for x in games if x.slot == who)

@@ -152,8 +152,12 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
   player is revived by the nearest standing teammate, who walks to the body and holds R (the mod's
   revive, `bridge/revive.c`, 3 s within 5 units, as `tools/qa_revive.sh` does); downs, revives, deaths
   and returns are counted from each game's own `coop_life()` (`results.json` `lives`, `care`). The
-  gunner shoots the nearest enemy it sees, which is not necessarily the one attacking it. Built and
-  tested without a game; not yet shown live (see Status).
+  gunner shoots the nearest enemy it sees, which is not necessarily the one attacking it. Shown live
+  (level 2, 7 to 8, x1, three runs): all pass, nobody went down (lowest health 8, `care.retreats`
+  0 to 2). Mutants: `--mutant down` puts a client down with a lethal hit after step 2 and the squad must
+  revive it; shown live, player 1 walked to the body and revived it after 3.1 s of R
+  (`local/live/dn78b_bot.log`); `--mutant down-stay` leaves it unrevived and the segment FAILs with
+  `revive: player 2 down seen True, revived False, died True` (the 30 s bleed-out; `local/campaign/runs/20261030-234947`).
 - **Roles** (`--roles`): when a step has several objectives at the goal's height (level 2, 5 to 6: two
   generators), the leader keeps its route and the next player takes another objective (aimed fire),
   then everyone regroups within 15 units of the goal (`regroup_s`). With 3 or more players the squad
@@ -193,8 +197,13 @@ newest change and is not yet tested. On its own, without a recording, the bot pa
 (252 s), 7→8 and 8→9. Not yet: levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies,
 combat damage to the hero.
 
-Co-op checks at the branch tip: the per-step comparison and its desync mutant, and the crash watch and
-its crash mutant, are shown live. Following the owner's recording of 5 to 6 fails at the tip (both
-players stop under the shaft, "flew back up short", since the airborne-point flying change); the bot's
-own play (`--explore`) is the 5 to 6 testbed until that is fixed. The `--no-god` series (5 to 6 and
-7 to 8, three times each at x1) and the 3 and 4 player `--roles` runs are still to be run.
+Co-op checks at the branch tip: the per-step comparison and its desync mutant, the crash watch and
+its crash mutant, the no-God care on 7 to 8 (three runs at x1) and the revive with its mutants are shown
+live. Following the owner's recording of 5 to 6 fails at the tip (both players stop under the shaft,
+"flew back up short"), and the bot's own play of 5 to 6 failed at x1 (the leader gave up on the
+generators and the shaft climb after 1290 s; `local/campaign/runs/20261030-233117/run1/2-5-6`), so the
+no-God series on 5 to 6 and the 3 and 4 player `--roles` runs are still to be run (the flight code is
+another job's). Level 2's 3 to 4 passes from its recording and has eight objectives at the goal's
+height (alerts, a door lock, walls), so it is the testbed to try roles on first. Found and fixed on
+the way: the care loop could not read the leader's position while the leader's pilot held the command
+file, so a downed player got no reviver for 30 s and bled out; it now keeps each game's last reading.
