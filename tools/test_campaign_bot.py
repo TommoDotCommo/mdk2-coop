@@ -190,4 +190,56 @@ for name, patch in mutants.items():
         setattr(bot, n, v)
     check(f'mutant caught: {name}', bool(bad))
 
-print(f'{15 + len(results) + len(mutants)} passed, 0 failed')
+# Objectives: a pickup with an OnDie handler (level 3's BFB) is not something to shoot at.
+lv = bot.Level.__new__(bot.Level)
+lv.m = {'objects': [{'name': 'bfb', 'type': 'OBJ_BFB', 'pos': [5, 0, 0]},
+                    {'name': 'gen', 'type': 'OBJ_DOGANBOYGENERATOR', 'pos': [30, 0, 0]},
+                    {'name': 'wall', 'type': 'OBJ_DESTRUCTABLE', 'pos': [10, 0, 0]}],
+        'events': {'bfb': ['OnDie'], 'wall': ['OnDie']}, 'pickups': [{'name': 'bfb', 'type': 'OBJ_BFB'}]}
+check('a pickup is never an objective, the wall and the generator are',
+      [o['name'] for o in bot.objectives(lv, [0, 0, 0])] == ['wall', 'gen'])
+# Off the route: the level carried the hero away (level 3's start) against a walk along the route.
+check('a hero carried into a room off the route is replanned',
+      bot.off_route(level, [{'room': 'b'}, {'room': 'c'}], [2, 5, 1], [60, 50, 1]))
+check('a hero who walked along the route is not',
+      not bot.off_route(level, [{'room': 'b'}, {'room': 'c'}], [2, 5, 1], [28, 5, 1])
+      and not bot.off_route(level, [{'room': 'b'}], [2, 5, 1], [8, 5, 1]))
+# Kurt's fans: the one under the way up is chosen, not one off to the side or above the target.
+lv.m['objects'] = [{'name': 'fan_far', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [300, 0, 0]},
+                   {'name': 'fan_above', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [10, 0, 90]},
+                   {'name': 'fan_side', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [40, 30, 0]},
+                   {'name': 'fan_under', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [10, -25, -90]}]
+check('a fan below the target and near both ends is ridden, nearest the target first',
+      [o['name'] for o in bot.fans_toward(lv, [0, 0, 0], [10, -30, 60])] == ['fan_under', 'fan_side'])
+# Script chains: a sniper lock that raises a platform near the way on is an opener to set off; one
+# already set off, or a handler the level runs by itself, is not.
+lv.rooms = {}
+lv.m['objects'] = [{'name': 'lock0', 'type': 'OBJ_SNIPERDOOR1', 'pos': [20, 0, 0]},
+                   {'name': 'plat0', 'type': 'OBJ_SCENERY', 'pos': [30, 0, 0]},
+                   {'name': 'lock1', 'type': 'OBJ_SNIPERDOOR1', 'pos': [5, 0, 0]},
+                   {'name': 'plat1', 'type': 'OBJ_SCENERY', 'pos': [40, 0, 0]},
+                   {'name': 'far', 'type': 'OBJ_SNIPERDOOR1', 'pos': [500, 0, 0]},
+                   {'name': 'door', 'type': 'OBJ_PROXDOOR1', 'pos': [600, 0, 0]}]
+sn = {'opens': [], 'enables': [], 'damage': ['DAMAGE_SNIPER']}
+lv.m['deps'] = {'lock0': {'OnDamage': dict(sn, enables=['plat0'])}, 'lock1': {'OnDamage': dict(sn, enables=['plat1'])},
+                'far': {'OnDamage': dict(sn, opens=['door'])}, 'plat0': {'OnCreate': dict(sn, enables=['plat1'])}}
+check('sniper locks that switch on platforms near the way are set off, nearest first, once',
+      [o for o, _, _ in bot.chain_openers(lv, [0, 0, 0], [50, 0, 0])] == ['lock1', 'lock0']
+      and [o for o, _, _ in bot.chain_openers(lv, [0, 0, 0], [50, 0, 0], {'lock1'})] == ['lock0'])
+# Kurt's blind drops: a plateau 11 by 11 cells; the landing far below is not scanned. The rims are its
+# edge cells (never the middle, even when the target is straight under it), nearest the target first.
+pl = grid({(i, j): 60.0 for i in range(11) for j in range(11)})
+rims = bot.drop_rims(pl, [10, 10, 60], [40, 10, -73])
+check('blind drops start at the plateau edge nearest the target, a few cells apart',
+      rims and abs(rims[0][0] - 20.0) < 1e-6 and all(r[0] in (0.0, 20.0) or r[1] in (0.0, 20.0) for r in rims)
+      and all(math.dist(a[:2], b[:2]) >= 12 for a in rims for b in rims if a is not b))
+under = bot.drop_rims(pl, [10, 10, 60], [10, 10, -73])
+check('a target straight under the plateau drops off its edge, not from the middle',
+      under and all(r[0] in (0.0, 20.0) or r[1] in (0.0, 20.0) for r in under))
+lv4file = Path(__file__).resolve().parents[1] / 'local' / 'campaign' / 'level4.json'
+if lv4file.exists():
+    lv4 = bot.Level(lv4file)
+    below = [1137.0, -348.0, -102.0]
+    check('a hero below every room box is planned from the nearest room, not a crash',
+          lv4.room_of(below) is None and lv4.path(below, [1117.0, -545.0, 252.0])[1])
+print("all checks passed")
