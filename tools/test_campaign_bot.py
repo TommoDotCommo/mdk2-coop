@@ -201,4 +201,17 @@ with tempfile.TemporaryDirectory() as td:
     os.utime(tmp, ns=(1, 1))
     os.utime(txt, ns=(2, 2))
     check('an older .tmp is not', bot.read_note(txt) == 'running')
-print('30 passed, 0 failed')
+# elevators (mined `lifts`): a hero at one end whose goal is at the other end's height, near the cab, rides;
+# a goal on the hero's own height, in another column or at neither end's height does not
+lv.m['lifts'] = [{'top': {'name': 'doorT', 'pos': [-28, 38.5, 0.0]}, 'bottom': {'name': 'doorB', 'pos': [-28, 29.7, -90.0]},
+                  'mover': 'lift0', 'cab': {'name': 'cab0', 'pos': [-28, 34.1, -90.0]}, 'locked': True}]
+up = lv.lift_toward([-28, 45, 0.1], [-28, 21, -91])
+check('a goal 90 down is reached by the lift from its top door',
+      up and up[0]['mover'] == 'lift0' and up[1]['name'] == 'doorT' and up[2]['name'] == 'doorB')
+down = lv.lift_toward([-28, 25, -90.0], [-28, 40, 0.0])
+check('the same lift is taken back up from its bottom door', down and down[1]['name'] == 'doorB')
+check('a goal on the hero\'s height needs no lift', lv.lift_toward([-28, 45, 0.1], [-60, 45, 0.1]) is None)
+check('a goal at neither end\'s height needs no lift', lv.lift_toward([-28, 45, 0.1], [-28, 21, -45]) is None)
+check('a goal far from the cab\'s column needs no lift', lv.lift_toward([-28, 45, 0.1], [300, 21, -91]) is None)
+check('a hero not at an end\'s height does not use the lift', lv.lift_toward([-28, 45, -40], [-28, 21, -91]) is None)
+print('36 passed, 0 failed')

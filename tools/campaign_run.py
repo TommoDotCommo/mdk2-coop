@@ -46,7 +46,7 @@ def build_of(wsl_dir):
     return 'overhaul' if sha.startswith(OVERHAUL_SHA) else f'other:{sha[:8]}'
 
 
-def segment(level, seg, players, owner, hook, out, god, limit=1500, need_build=None):
+def segment(level, seg, players, owner, hook, out, god, limit=1500, need_build=None, assist=()):
     if ':' in seg:
         level, seg = int(seg.split(':')[0]), seg.split(':')[1]
     start, end = (int(v) for v in seg.split('-'))
@@ -128,6 +128,8 @@ def segment(level, seg, players, owner, hook, out, god, limit=1500, need_build=N
                 args.append('--fly')
             if level in (1, 4, 7, 10):
                 args.append('--chute')      # Kurt
+            if assist:
+                args += ['--assist', *assist]
             if cmd == 'squad':
                 args += ['--evidence', str(folder)]
                 # a segment solved before is followed from its recording; otherwise the bot explores and
@@ -158,7 +160,7 @@ def segment(level, seg, players, owner, hook, out, god, limit=1500, need_build=N
             (ROOT / 'local/routes').mkdir(parents=True, exist_ok=True)
             (ROOT / 'local/routes' / name).write_bytes(made.read_bytes())
         tail = (folder / 'bot.log').read_text().strip().splitlines()[-1:]
-        result = {'segment': seg, 'result': 'PASS' if run.returncode == 0 else 'FAIL',
+        result = {'segment': seg, 'assist': list(assist), 'result': 'PASS' if run.returncode == 0 else 'FAIL',
                   'seconds': round(time.monotonic() - t0), 'last': tail[0] if tail else '', 'build': build}
         if "'world_ok': False" in result['last']:
             result['coop_finding'] = 'worlds differ (see statecheck_end_*.txt)'
@@ -239,6 +241,9 @@ def main(argv=None):
     ap.add_argument('--resources')
     ap.add_argument('--no-god', action='store_true', help='play without invulnerability')
     ap.add_argument('--timeout', type=int, default=1500, help="seconds for a segment's bot before it is stopped")
+    ap.add_argument('--assist', nargs='*', default=[], choices=['lift'],
+                    help='script shortcuts for puzzles the bot cannot solve yet (reported as assisted): '
+                         'lift = unlock a locked elevator')
     ap.add_argument('--build', choices=('overhaul',), help='refuse copies that run another build')
     a = ap.parse_args(argv)
     if a.campaign:
@@ -256,7 +261,7 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     with concurrent.futures.ThreadPoolExecutor(a.shards) as pool:
         jobs = {pool.submit(segment, a.level, seg, a.players, f'{base}-seg{i}', hook, out, not a.no_god,
-                            a.timeout, a.build): seg
+                            a.timeout, a.build, a.assist): seg
                 for i, seg in enumerate(a.segments)}
         results = []
         for job in concurrent.futures.as_completed(jobs):

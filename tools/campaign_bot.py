@@ -151,6 +151,22 @@ class Level:
                     best = (vol, name)
         return best[1] if best else None
 
+    def lift_toward(self, here, goal, drop=25.0, near=40.0):
+        """The elevator (mined `lifts`) that carries a hero at one end to the goal's height at the other:
+        (lift, entry door, far door), or None. Its doors are at the two ends' heights; the goal must be
+        well off the hero's height, near the far end's height and within reach of the cab's column."""
+        best = None
+        for lf in self.m.get('lifts', []):
+            for a, b in ((lf['top'], lf['bottom']), (lf['bottom'], lf['top'])):
+                if abs(a['pos'][2] - here[2]) > 8 or abs(b['pos'][2] - goal[2]) > 15:
+                    continue
+                if abs(goal[2] - here[2]) < drop or math.dist(lf['cab']['pos'][:2], goal[:2]) > 100:
+                    continue
+                d = math.dist(a['pos'][:2], here[:2])
+                if best is None or d < best[0]:
+                    best = (d, lf, a, b)
+        return best[1:] if best else None
+
     def nearest_room(self, p):
         """The room whose box is nearest p (a hero dropped out of every box: below level 4's vortex)."""
         def gap(r):
@@ -1281,6 +1297,47 @@ def prepare_flight(game, level, nav, log):
     return ok
 
 
+def take_lift(game, level, lift, entry, far, out, log, assist=(), seconds=60):
+    """Ride an elevator (elevators.lua): walk to its door at the hero's height, step into the cab (the
+    door opens within 10 units while the elevator is not locked) and wait for the ride to end. A lift
+    the level keeps locked behind a puzzle is opened by script only when assisted ('lift'); otherwise it
+    is reported and left. Returns True when the hero ended up at the far end's height."""
+    mover = lift['mover']
+    locked = game.note('lift', f'coop_note("lift", tostring({mover}.locked))').strip()
+    if locked != 'nil':
+        if 'lift' not in assist:
+            log(f'    lift {mover} is locked (its level puzzle is not solved): not assisted')
+            return False
+        log(f'    lift {mover} is locked: opened by script (assist), the level\'s puzzle is skipped')
+        game.lua(f'Level.UnlockElevDoor({lift["top"]["name"]})')
+    ex, ey, ez = entry['pos']
+    cx, cy = lift['cab']['pos'][:2]
+    # in front of the door: the side of it away from the cab centre
+    dx, dy = ex - cx, ey - cy
+    n = math.hypot(dx, dy) or 1.0
+    front = [ex + 4 * dx / n, ey + 4 * dy / n, ez]
+    if math.dist(game.pos()[:2], front[:2]) > 5:
+        ok, _ = advance(game, level, front, out, log, max_rounds=10)
+        if not ok:
+            log(f'    lift {mover}: could not reach its door at {[round(v) for v in front]}')
+            return False
+    z0 = game.pos()[2]
+    log(f'    lift {mover}: boarding at {[round(v, 1) for v in game.pos()]}, far end {far["pos"][2]:.0f}')
+    game.goto(cx, cy, ez, radius=1.5, timeout=12, explore=0)
+    t0, last, still = time.monotonic(), z0, 0
+    while time.monotonic() - t0 < seconds:
+        z = game.pos()[2]
+        # the ride is over when the height has been steady for a few seconds away from where it began
+        still = still + 1 if abs(z - last) < 0.3 else 0
+        last = z
+        if still >= 4 and abs(z - z0) > 10:
+            break
+        time.sleep(1)
+    z = game.pos()[2]
+    log(f'    lift {mover}: ride {z0:.1f} -> {z:.1f}')
+    return abs(z - far['pos'][2]) < 8
+
+
 def off_route(level, ahead, planned_from, here, jump=40):
     """True when the hero is far from where the remaining room route was planned and in none of its
     rooms: carried or teleported by the level, not walked."""
@@ -1290,7 +1347,7 @@ def off_route(level, ahead, planned_from, here, jump=40):
     return level.room_of(list(here)) not in rooms
 
 
-def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
+def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False, assist=()):
     """Get the hero to goal: portal by portal, scanning, walking, and breaking scripted walls."""
     game.lua('coop.GunnerOn(60)')
     def route_from(here):
@@ -1314,7 +1371,17 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
         prepare_flight(game, level, scan(game, out, fly=True)[0], log)
     index = 0
     planned_from = game.pos()
+    lifts_tried = set()
     while index < len(portals):
+        # an elevator carries the hero to the goal's height (level 3's walkway, 90 units down)
+        ride = level.lift_toward(game.pos(), goal)
+        if ride and ride[0]['mover'] not in lifts_tried:
+            lifts_tried.add(ride[0]['mover'])
+            if take_lift(game, level, *ride, out, log, assist=assist):
+                planned_from = game.pos()
+                portals = route_from(planned_from)
+                index = 0
+                continue
         if off_route(level, portals[index:], planned_from, game.pos()):
             # a script moved the hero (level 3 starts with Doc carried 165 units on after the intro):
             # the room route from where he was is no use, plan again from here
@@ -1579,7 +1646,7 @@ def compare_worlds(games, folder, tag, log):
     return r.returncode == 0, r.stdout
 
 
-def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, record=None):
+def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, record=None, assist=()):
     """Every game is a bot: player 1 leads to the goal; each other player follows the leader with its
     own pilot and gunner. Worlds are compared at the end."""
     import threading
@@ -1603,7 +1670,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                                       scratch=str(Path(folder) / 'nav_1.json'))
         else:
             result['leader'] = advance(leader, level, goal, str(Path(folder) / 'nav_1.json'),
-                                       lambda m: log('[1] ' + m), fly=fly, chute=chute)
+                                       lambda m: log('[1] ' + m), fly=fly, chute=chute, assist=assist)
         if record:
             leader.lua(f'coop_route("stop", "{record}")')
 
@@ -1624,6 +1691,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     def chase(g):
         g.lua('coop.GunnerOn(60)')
         far = 0
+        lifts_tried = set()
         while not stop.is_set():
             target = leader.pos()
             here = g.pos()
@@ -1631,6 +1699,13 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 time.sleep(1)
                 continue
             if math.dist(here, target) > 10:
+                # the leader went down (or up) in an elevator: ride it too
+                ride = level.lift_toward(here, target)
+                if ride and ride[0]['mover'] not in lifts_tried:
+                    lifts_tried.add(ride[0]['mover'])
+                    take_lift(g, level, *ride, str(Path(folder) / f'nav_{g.slot}.json'),
+                              lambda m: log(f'[{g.slot}] ' + m), assist=assist)
+                    continue
                 r = g.goto(*target, radius=6, timeout=8, explore=1)
                 far = far + 1 if r.get('state') != 'arrived' else 0
             else:
@@ -1904,6 +1979,8 @@ def main(argv=None):
     ad.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
     ad.add_argument('--fly', action='store_true', help="Max's jetpack: refuel and fly")
     ad.add_argument('--chute', action='store_true', help="Kurt's chute: long drops")
+    ad.add_argument('--assist', nargs='*', default=[], choices=['lift'],
+                    help='script shortcuts for puzzles the bot cannot solve yet: lift = unlock a locked elevator')
     ad.add_argument('--scratch', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/nav/scratch.json'))
     sq = sub.add_parser('squad')
     sq.add_argument('--dirs', nargs='+', required=True)
@@ -1911,6 +1988,8 @@ def main(argv=None):
     sq.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
     sq.add_argument('--fly', action='store_true', help="Max's jetpack: refuel and fly")
     sq.add_argument('--chute', action='store_true', help="Kurt's chute: long drops")
+    sq.add_argument('--assist', nargs='*', default=[], choices=['lift'],
+                    help='script shortcuts for puzzles the bot cannot solve yet: lift = unlock a locked elevator')
     sq.add_argument('--route', help='follow this recording instead of exploring')
     sq.add_argument('--record', help="record the leader's play under this name (kept by the game in coop/)")
     sq.add_argument('--evidence', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/runs'))
@@ -1971,13 +2050,13 @@ def main(argv=None):
         t0 = time.monotonic()
         folder = Path(a.evidence) / time.strftime('%Y%m%d-%H%M%S')
         ok, stats = squad(games, Level(a.level), a.to, folder, lambda m: print(m, flush=True), fly=a.fly,
-                          chute=a.chute, route=a.route, record=a.record)
+                          chute=a.chute, route=a.route, record=a.record, assist=a.assist)
         print(f'{"RESULT: PASS" if ok else "RESULT: FAIL"} in {time.monotonic() - t0:.0f}s: {stats}; evidence {folder}')
         return 0 if ok else 1
     if a.cmd == 'advance':
         t0 = time.monotonic()
         ok, stats = advance(games[a.player - 1], Level(a.level), a.to, a.scratch, lambda m: print(m, flush=True), fly=a.fly,
-                            chute=a.chute)
+                            chute=a.chute, assist=a.assist)
         stats.setdefault('telemetry', games[a.player - 1].telemetry())
         print(f'{"ARRIVED" if ok else "FAILED"} in {time.monotonic() - t0:.0f}s: {stats}')
         return 0 if ok else 1
