@@ -1406,20 +1406,19 @@ function coop.PilotTick()
     if (pl.flat == 0) then d = sqrt(dx * dx + dy * dy + dz * dz) end
     pl.d = d
     if (pl.fly == 2 and d <= pl.r) then
-        -- over the point: arrived once at its height too; meanwhile hover without walking on (a point on the
-        -- way of a queued path is passed at once: hovering in place under an overhang never gets up)
-        if (pl.path and pl.pi < pl.path.n) or (dz < (pl.zr or 2) and dz > -(pl.zr or 2)) then
-            if (pl.path and pl.pi < pl.path.n) then
-                -- a stretch of a flight queued by coop.PilotPath: on to its next point at once, so the hero
-                -- does not hover (burning fuel) while the bot's next command is on its way
-                pl.pi = pl.pi + 1
-                local k = pl.pi * 5
-                pl.x, pl.y, pl.z, pl.r, pl.zr = pl.path[k - 4], pl.path[k - 3], pl.path[k - 2], pl.path[k - 1], pl.path[k]
-                pl.best, pl.best_ms = 1000000, now
-            else
-                pl.state = "arrived"
-                pl.ms = now - pl.t0
-            end
+        -- over the point: arrived once at its height too; meanwhile hover without walking on. A point on the way
+        -- of a queued path (coop.PilotPath) is passed once the hero is within 4 of the height the recording had
+        -- there (hovering in place under an overhang for the height ahead never got up; flying on at any height
+        -- ran into a shaft's wall)
+        local own = (pl.zp or pl.z) - p.position.z
+        if (pl.path and pl.pi < pl.path.n and own < 4 and own > -4) then
+            pl.pi = pl.pi + 1
+            local k = pl.pi * 6
+            pl.x, pl.y, pl.z, pl.r, pl.zr, pl.zp = pl.path[k - 5], pl.path[k - 4], pl.path[k - 3], pl.path[k - 2], pl.path[k - 1], pl.path[k]
+            pl.best, pl.best_ms = 1000000, now
+        elseif (not (pl.path and pl.pi < pl.path.n)) and dz < (pl.zr or 2) and dz > -(pl.zr or 2) then
+            pl.state = "arrived"
+            pl.ms = now - pl.t0
         elseif (now - pl.best_ms > 8000) then
             pl.state = "stuck"
         end

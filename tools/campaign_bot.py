@@ -124,7 +124,8 @@ class Game:
 
 
 def path_lua(then):
-    """The pilot's queued points (flat list of x, y, z, radius, height tolerance) as a Lua call."""
+    """The pilot's queued points (flat list of x, y, height to hold, radius, height tolerance, the recording's
+    own height) as a Lua call."""
     flat = ', '.join('%.2f' % v for pt in then for v in pt)
     return f'coop.PilotPath({{{flat}}}, {len(then)})'
 
@@ -2291,8 +2292,8 @@ def flight_targets(pts, i, k, first=None, lead=3):
     out = []
     for m in range(i + 1, k - 1):
         z = max(pts[j]['pos'][2] for j in range(m, min(k - 1, m + lead) + 1))
-        out.append((pts[m]['pos'][0], pts[m]['pos'][1], z, 3.0, 3.0))
-    out.append((*pts[k - 1]['pos'], 1.5, 2.0))
+        out.append((pts[m]['pos'][0], pts[m]['pos'][1], z, 3.0, 3.0, pts[m]['pos'][2]))
+    out.append((*pts[k - 1]['pos'], 1.5, 2.0, pts[k - 1]['pos'][2]))
     return out
 
 

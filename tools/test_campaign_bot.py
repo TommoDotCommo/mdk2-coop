@@ -268,8 +268,8 @@ def flight_rules(b, quiet=False):
     ft = [{'pos': (float(k), 0.0, z), 'keys': [57]} for k, z in enumerate([10, 12, 14, 13, 16, 20, 20, 18])]
     got = b.flight_targets(ft, 0, 8)
     out.append(('a climb holds the height of the next points, the last point is exact',
-                [t[2] for t in got] == [16, 20, 20, 20, 20, 20, 18] and got[-1][3:] == (1.5, 2.0)
-                and all(t[3:] == (3.0, 3.0) for t in got[:-1])))
+                [t[2] for t in got] == [16, 20, 20, 20, 20, 20, 18] and got[-1][3:5] == (1.5, 2.0)
+                and all(t[3:5] == (3.0, 3.0) for t in got[:-1]) and [t[5] for t in got] == [12, 14, 13, 16, 20, 20, 18]))
     up = [{'pos': (0.5 * (k % 2), 0.0, 10.0 + 3 * k), 'keys': [57]} for k in range(8)]
     out.append(('a climb straight up is not batched', b.flight_batch(up, set(range(8)), 0, set()) == 1))
     sk = [{'pos': (0.0, 0.0, 0.0), 'keys': [256] if k == 3 else []} for k in range(8)]
@@ -335,7 +335,7 @@ mutants = {
     'a recorded shot is always walked up to': dict(aim_mode=lambda tries, walk_ok=True: 'walk'),
     'a recorded shot is never walked up to': dict(aim_mode=lambda tries, walk_ok=True: 'stay'),
     'a glide is walked': dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
-    'a climb stops and goes at every point': dict(flight_targets=lambda pts, i, k, first=None, lead=3: [(*pts[m]['pos'], 3.0, 3.0) for m in range(i + 1, k - 1)] + [(*pts[k - 1]['pos'], 1.5, 2.0)]),
+    'a climb stops and goes at every point': dict(flight_targets=lambda pts, i, k, first=None, lead=3: [(*pts[m]['pos'], 3.0, 3.0, pts[m]['pos'][2]) for m in range(i + 1, k - 1)] + [(*pts[k - 1]['pos'], 1.5, 2.0, pts[k - 1]['pos'][2])]),
     'skipped shots are forgotten': dict(skipped_shots=lambda pts, i, j: False),
     'shots at a gate are skipped over': dict(first_shot_at_gate=lambda pts, i, j, gates, reach=45.0: None),
     'a climb straight up is batched too': dict(flight_batch=lambda pts, fly, i, apart, limit=14, span=8.0: real['flight_batch'](pts, fly, i, apart, limit, 0.0)),
