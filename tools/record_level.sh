@@ -25,9 +25,8 @@ case "$cp" in *[!0-9]*) echo "checkpoint must be a number" >&2; exit 2;; esac
 hook="${MDK2_QA_RESOURCES:-}"
 [ -n "$hook" ] || { [ -f "$here/local/qa_resources.py" ] && hook="$here/local/qa_resources.py"; }
 [ -n "$hook" ] || { echo "no resource hook: set MDK2_QA_RESOURCES (see docs/TESTING.md)" >&2; exit 1; }
-owner="${MDK2_QA_OWNER:-${LAB_OWNER:-}}"
-[ -n "$owner" ] || { echo "set LAB_OWNER or MDK2_QA_OWNER (a unique identity for this recording)" >&2; exit 1; }
-export MDK2_QA_OWNER="$owner" LAB_OWNER="$owner"
+# a unique identity for this recording (MDK2_QA_OWNER, or one generated here)
+export MDK2_QA_OWNER="${MDK2_QA_OWNER:-record-$(date +%Y%m%d-%H%M%S)-$$}"
 
 lease="$(python3 "$hook" acquire 1 "${MDK2_RECORD_TTL:-14400}")" || { echo "no game copy free now; try again later" >&2; exit 3; }
 release() { set +e; [ -n "${MDK2_DIR1:-}" ] && (source "$here/tools/mdk.sh" && mdk_kill) >/dev/null 2>&1

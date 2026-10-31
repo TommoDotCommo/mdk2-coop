@@ -49,18 +49,16 @@ class Game:
         with self.lock:
             path = self.coop / f'note_{key}.txt'
             path.unlink(missing_ok=True)
+            path.with_suffix('.tmp').unlink(missing_ok=True)
             self._lua(code, 12)
             deadline = time.monotonic() + timeout
-            while not path.exists():
+            while True:
+                text = read_note(path)
+                if text is not None:
+                    return text
                 if time.monotonic() > deadline:
                     raise TimeoutError(f'game {self.slot}: no note {key} (Lua error? see bridge.log)')
                 time.sleep(.03)
-            for _ in range(20):             # the game may still be renaming the file into place
-                try:
-                    return path.read_text()
-                except FileNotFoundError:
-                    time.sleep(.03)
-            return path.read_text()
 
     def state(self):
         self.serial += 1
@@ -157,9 +155,15 @@ class Level:
                     best = (vol, name)
         return best[1] if best else None
 
+    def nearest_room(self, p):
+        """The room whose box is nearest p (a hero dropped out of every box: below level 4's vortex)."""
+        def gap(r):
+            return math.dist(p, [min(max(p[i], r['min'][i]), r['max'][i]) for i in range(3)])
+        return min(self.rooms, key=lambda n: (gap(self.rooms[n]), n))
+
     def path(self, start, goal):
         """Portal points from start's room to goal's room (Dijkstra on distance), then the goal."""
-        a, b = self.room_of(start), self.room_of(goal)
+        a, b = self.room_of(start) or self.nearest_room(start), self.room_of(goal) or self.nearest_room(goal)
         if a is None or b is None:
             raise ValueError(f'no room holds {"start" if a is None else "goal"}')
         import heapq
@@ -239,6 +243,15 @@ class Nav:
             self._flat[k] = len(level) >= 2
         return self._flat[k]
 
+    def lip(self, n, k):
+        """A curb: the cell n a short step (2 units or less) above k that is itself no landing, being a
+        slope, but leads on up to flat ground (a tunnel's mouth: 58.9, 60.6, then 61.7 level)."""
+        c = self.cells[n]
+        if c[2] - self.cells[k][2] > 2.0:
+            return False
+        return any(m != k and m in self.cells and 0 <= self.cells[m][2] - c[2] <= 1.2 and self.flat(m)
+                   for m in c[3])
+
     # cells the hero failed to reach twice from the same place (a link the scan saw but the body cannot
     # take: level 2's arena pit, a 6 unit step out), for every later plan in this run
     blocked = set()
@@ -264,7 +277,7 @@ class Nav:
             # Max's jetpack slows the fall, but the way back up costs fuel that only a refueller gives
             # (level 2 room 6: the shaft's open top beside the path): only when there is no other way
             return base * 40
-        if 0 < rise <= self.JUMP_RISE and self.flat(n):
+        if 0 < rise <= self.JUMP_RISE and (self.flat(n) or self.lip(n, k)):
             return base * 4
         if self.fly and rise <= self.FLY_RISE and self.flat(n):
             return base * 6
@@ -320,7 +333,24 @@ class Nav:
         return out
 
 
-def scan(game, out, timeout=900, fly=False, chute=False):
+def read_note(path):
+    """The text of a coop_note file, or None. The game writes note_<key>.tmp and moves it over
+    note_<key>.txt; the move fails while a reader has the .txt open (the bot polling it), leaving the
+    newer text in the .tmp for good, so the newer of the two is the note."""
+    path = Path(path)
+    best = None
+    for p in (path, path.with_suffix('.tmp')):
+        try:
+            st = p.stat().st_mtime_ns
+            text = p.read_text()
+        except OSError:
+            continue
+        if best is None or st >= best[0]:
+            best = (st, text)
+    return best[1] if best else None
+
+
+def scan(game, out, timeout=900, fly=False, chute=False, plane=False):
     """Scan the hero's surroundings (coop.NavStart) and save the cells."""
     for old in game.coop.glob('note_nav_*.txt'):
         old.unlink()
@@ -329,12 +359,12 @@ def scan(game, out, timeout=900, fly=False, chute=False):
     time.sleep(.4)
     standing = abs(game.pos()[2] - z) < 0.05
     # flying opens up every floor above; a room and its shaft fit in 12000 cells
-    game.lua(f'coop.NavStart({x},{y},{z},2,{12000 if fly else 40000},4,6,{36 if fly else 0},'
-             f'{300 if chute else 0},{1 if standing else "nil"})')
+    game.lua(f'coop.NavStart({x},{y},{z},2,{6000 if plane else 12000 if fly else 40000},4,6,{36 if fly else 0},'
+             f'{300 if chute else 0},{1 if standing else "nil"},{1 if plane else "nil"})')
     deadline = time.monotonic() + timeout
     state = game.coop / 'note_nav_state.txt'
     while time.monotonic() < deadline:
-        text = state.read_text() if state.exists() else ''
+        text = read_note(state) or ''
         if text.startswith('done') or text.startswith('nofloor'):
             break
         time.sleep(1)
@@ -343,7 +373,7 @@ def scan(game, out, timeout=900, fly=False, chute=False):
         nav.add_lines(f.read_text())
     nav.fly, nav.chute = fly, chute
     nav.save(out)
-    return nav, (state.read_text() if state.exists() else 'timeout')
+    return nav, (read_note(state) or 'timeout')
 
 
 def walk(game, nav, goal, log, timeout=90):
@@ -611,47 +641,66 @@ def live_pos(game, name):
     return None if t.startswith('none') else tuple(float(v) for v in t.split())
 
 
+# openers this run has set off (a sniper lock lives on after its shot: once is enough)
+chain_done = set()
+
+
+def chain_openers(level, pos, target, done=(), reach=80):
+    """The scripted openers a player sets off (not OnCreate/OnUpdate/OnTimer) whose handler opens or
+    switches on something within reach of the hero or the target (a door; level 4's sniper locks that
+    raise platforms and start fans), nearest the hero first, minus those already done."""
+    where = {o['name']: o['pos'] for o in level.m['objects']}
+    rooms = set(level.rooms)
+    out = []
+    for opener, events in level.m.get('deps', {}).items():
+        if opener in rooms or opener == 'Level' or opener in done:
+            continue
+        for event, info in events.items():
+            if event in ('OnCreate', 'OnUpdate', 'OnTimer', 'OnAnimLoop'):
+                continue     # not something a player sets off
+            near = [t for t in info['opens'] + info['enables'] if t in where
+                    and min(math.dist(where[t], pos), math.dist(where[t], target)) < reach]
+            if near:
+                out.append((math.dist(where.get(opener, where[near[0]]), pos), opener, event, info))
+    return [(o, e, i) for _, o, e, i in sorted(out, key=lambda r: r[0])]
+
+
 def chain_step(game, level, nav, pos, target, log, chute=False):
     """The level scripts' own dependency chains (campaign_mine.py 'deps'): something near the hero or the
     target is opened by a handler on another object (a sniper lock opening a door); that opener may first
     need enabling by other objects' deaths (three enemies). Kill the live prerequisites, then trigger the
     opener with the damage it checks for. True if something was done."""
     deps = level.m.get('deps', {})
-    where = {o['name']: o['pos'] for o in level.m['objects']}
-    rooms = set(level.rooms)
-    for opener, events in deps.items():
-        if opener in rooms or opener == 'Level':
+    for opener, event, info in chain_openers(level, pos, target, chain_done):
+        if not alive(game, opener):
             continue
-        for event, info in events.items():
-            if event in ('OnCreate', 'OnUpdate', 'OnTimer', 'OnAnimLoop'):
-                continue     # not something a player sets off
-            if not any(t in where and min(math.dist(where[t], pos), math.dist(where[t], target)) < 80
-                       for t in info['opens']):
+        # enabled by other objects' deaths (an OnDie handler): kill those first; an opener enabled by
+        # standing somewhere (level 4's platforms, OnCollision) is not shot at
+        prereq = [o for o, evs in deps.items() if 'OnDie' in evs and opener in evs['OnDie']['enables']
+                  and alive(game, o)]
+        for o in prereq:
+            at = live_pos(game, o)
+            if not at:
                 continue
-            if not alive(game, opener):
-                continue
-            prereq = [o for o, evs in deps.items() if any(opener in i['enables'] for i in evs.values())
-                      and alive(game, o)]
-            for o in prereq:
-                at = live_pos(game, o)
-                if not at:
-                    continue
-                spot = reachable_toward(nav, game.pos(), at)
-                log(f'    {opener} needs {o} dead first: going near it')
-                walk(game, nav, spot, log, timeout=30)
-                t0 = time.monotonic()
-                while time.monotonic() - t0 < 30 and alive(game, o):
-                    time.sleep(1)
-                if alive(game, o):
-                    gone = fire_sweep(game, {o}, log, pitches=(0, -20, 20))
-                    log(f'    {o}: {"killed" if gone else "still alive"}')
-            sniper = 'DAMAGE_SNIPER' in info['damage']
-            log(f'    trigger {opener}.{event} ({"sniper" if sniper else "shots"}) to open {info["opens"]}')
-            if sniper:
-                snipe(game, opener, log)
-            else:
-                fire_sweep(game, {opener}, log, pitches=(0, -20, 20, -40))
-            return True
+            spot = reachable_toward(nav, game.pos(), at)
+            log(f'    {opener} needs {o} dead first: going near it')
+            walk(game, nav, spot, log, timeout=30)
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 30 and alive(game, o):
+                time.sleep(1)
+            if alive(game, o):
+                gone = fire_sweep(game, {o}, log, pitches=(0, -20, 20))
+                log(f'    {o}: {"killed" if gone else "still alive"}')
+        sniper = 'DAMAGE_SNIPER' in info['damage']
+        log(f'    trigger {opener}.{event} ({"sniper" if sniper else "shots"}) to open '
+            f'{info["opens"] + info["enables"]}')
+        if sniper:
+            hit = snipe(game, opener, log)
+        else:
+            hit = fire_sweep(game, {opener}, log, pitches=(0, -20, 20, -40))
+        if hit:
+            chain_done.add(opener)
+        return True
     return False
 
 
@@ -660,9 +709,12 @@ def objectives(level, pos, toward=None, radius=150):
     walls) within radius of the hero; those nearest the way on (toward) first, and among equals the ones
     the scripts react to before plain destructibles."""
     kinds = ('OBJ_DESTRUCTABLE', 'OBJ_DOGANBOYGENERATOR', 'OBJ_SAMSMITEGENERATOR')
+    # a pickup with an OnDie handler is an item to carry, not a blocker (level 3's BFB: shooting at it
+    # filled every stall of the level)
+    items = {o['name'] for o in level.m.get('pickups', [])}
     out = [o for o in level.m['objects']
            if (o['type'] in kinds or 'OnDie' in level.m['events'].get(o['name'], []))
-           and math.dist(o['pos'][:2], pos[:2]) < radius]
+           and o['name'] not in items and math.dist(o['pos'][:2], pos[:2]) < radius]
     ref = toward or pos
 
     def rank(o):
@@ -671,9 +723,10 @@ def objectives(level, pos, toward=None, radius=150):
     return sorted(out, key=rank)
 
 
-def kill_objective(game, nav, obj, log, seconds=25):
+def kill_objective(game, nav, obj, log, seconds=25, sniper=False):
     """Walk to a reachable cell that sees obj (engine line of sight), then shoot it, with pitch, until
-    the game says it is gone."""
+    the game says it is gone. With sniper (Kurt), what the chaingun does not break gets sniper rounds
+    (level 4's windows)."""
     x, y, z = obj['pos']
     cells = sorted(reachable(nav, game.pos()), key=lambda k: math.dist(nav.cells[k][:3], obj['pos']))[:40]
     # the line of sight ends inside the object's own body at its centre: look for a height on it that
@@ -688,7 +741,8 @@ def kill_objective(game, nav, obj, log, seconds=25):
         # an object inside another's body (level 2's door locks sit at the door's centre, shown on its
         # face): the line of sight misses it, but bullets hit its face from in front. Try spots around
         # it and keep the first whose bursts the game reports as hits on it.
-        return circle_kill(game, nav, obj, log, seconds)
+        return circle_kill(game, nav, obj, log, seconds) or (sniper and snipe(game, obj['name'], log)
+                                                             and not alive(game, obj['name']))
     walk(game, nav, spot, log)
     t0 = time.monotonic()
     while time.monotonic() - t0 < seconds:
@@ -699,6 +753,14 @@ def kill_objective(game, nav, obj, log, seconds=25):
                  f'coop_press(256, 600)')
         time.sleep(.5)
     log(f'    {obj["name"]}: still alive after {seconds}s of fire')
+    # a window can take several rounds (level 4's l4_r1shatter lived through one): again while they hit
+    for _ in range(6):
+        if not (sniper and snipe(game, obj['name'], log)):
+            break
+        time.sleep(1)
+        if not alive(game, obj['name']):
+            log(f'    killed {obj["name"]} with sniper rounds')
+            return True
     return False
 
 
@@ -754,16 +816,38 @@ def alive(game, name):
     return game.note('alive', f'local g=getglobal("{name}") coop_note("alive", (g and coop_alive(g)==1) and "1" or "0")').strip() == '1'
 
 
-def destroy(game, objs, toward, log, seconds=20):
+def destroy(game, objs, toward, log, seconds=20, sniper=False):
     """Fire along the way the hero wants to go (a blocker is what is in the way; a scripted wall's
     registered position is its pivot, not its face) until one of the nearby destructibles is gone."""
     t0 = time.monotonic()
+    rounds = 0
     while time.monotonic() - t0 < seconds:
         gone = [o for o in objs if not alive(game, o['name'])]
         if gone:
             log(f'    destroyed {gone[0]["name"]} in {time.monotonic() - t0:.1f}s')
             return gone[0]
-        game.lua(f'local p=coop.real_player() coop.Face(p, {toward[0]}-p.position.x, {toward[1]}-p.position.y, 0) '
+        # Kurt: a wall in his reach that the chaingun does not scratch (level 4's tunnel plug) takes two or
+        # three sniper rounds
+        if sniper and rounds < 4:
+            here = game.pos()
+            near = min(objs, key=lambda o: math.dist(o['pos'][:2], here[:2]))
+            if math.dist(near['pos'][:2], here[:2]) < 40:
+                rounds += 1
+                snipe(game, near['name'], log)
+                time.sleep(1.5)
+                continue
+        # at the wall itself when one stands close (level 4's tunnel mouth: the way on lies off to the side
+        # of it), otherwise along the way the hero wants to go
+        here = game.pos()
+        near = min(objs, key=lambda o: math.dist(o['pos'][:2], here[:2]))
+        close = math.dist(near['pos'][:2], here[:2]) < 40
+        # three ways in turn: along the way on, at the wall's pivot level, at the pivot with pitch (it is
+        # registered at a pivot that may sit well above the hero's feet; which one breaks it depends on
+        # where the hero stands)
+        step = int((time.monotonic() - t0) / .5) % 3 if close else 0
+        aim = near['pos'] if step else toward
+        rise = near['pos'][2] - here[2] - 3 if step == 2 else 0
+        game.lua(f'local p=coop.real_player() coop.Face(p, {aim[0]}-p.position.x, {aim[1]}-p.position.y, {rise:.1f}) '
                  f'coop_press(256, 600)')
         time.sleep(.5)
     return None
@@ -1046,6 +1130,117 @@ def bay_climb(game, level, shaft, goal, log, max_trips=8):
     return False
 
 
+def sniper_locks(level, here, reach=80, done=()):
+    """Sniper locks (OBJ_SNIPERDOOR1) near the hero that no handler in the model reacts to: the level's own
+    update loop watches them (level 4's three rising spheres under the vortex). Nearest first."""
+    deps = level.m.get('deps', {})
+    out = [o for o in level.m['objects'] if o['type'] == 'OBJ_SNIPERDOOR1' and o['name'] not in done
+           and math.dist(o['pos'], here) < reach
+           and not any(i['opens'] or i['enables'] for i in deps.get(o['name'], {}).values())]
+    return sorted(out, key=lambda o: math.dist(o['pos'], here))
+
+
+def fans_toward(level, here, target, reach=80):
+    """Kurt's lifts: the fans (OBJ_BLOWERCYLINDER) whose updraft could carry him from here up toward a
+    target above: near both in the plane and below the target; the one nearest the target first."""
+    fans = [o for o in level.m['objects'] if o['type'] == 'OBJ_BLOWERCYLINDER'
+            and math.dist(o['pos'][:2], here[:2]) < reach and math.dist(o['pos'][:2], target[:2]) < reach
+            and o['pos'][2] < target[2]]
+    return sorted(fans, key=lambda o: math.dist(o['pos'][:2], target[:2]))
+
+
+def drop_rims(nav, start, target, count=4, apart=12.0):
+    """Kurt's blind drops: reachable cells with an open side (no scanned neighbour that way: a ledge,
+    or a wall) that are flat, nearest the target in the plane, a few places apart. The landing far below
+    is not in the scan (an object the line of sight misses: level 4's ships, or just beyond 300 units),
+    so the way down is to walk off the rim toward the target with the chute."""
+    out = []
+    cells = reachable(nav, start)
+    for k in sorted(cells, key=lambda k: math.dist(nav.cells[k][:2], target[:2])):
+        if not nav.flat(k):
+            continue
+        sides = {(n[0] - k[0], n[1] - k[1]) for n in nav.cells[k][3]}
+        if len([d for d in sides if d in ((1, 0), (-1, 0), (0, 1), (0, -1))]) >= 4 and \
+                all(abs(nav.cells[n][2] - nav.cells[k][2]) <= 6 for n in nav.cells[k][3] if n in nav.cells):
+            continue
+        p = nav.cells[k][:3]
+        if all(math.dist(p[:2], q[:2]) >= apart for q in out):
+            out.append(p)
+            if len(out) >= count:
+                break
+    return out
+
+
+def blind_drop(game, nav, target, log, seconds=14):
+    """Walk to the rims nearest a target well below and off them toward it with the chute; True once the
+    hero is 20 or more units lower (the caller scans again from the landing)."""
+    here = game.pos()
+    for rim in drop_rims(nav, here, target):
+        walk(game, nav, rim, log, timeout=25)
+        if math.dist(game.pos()[:2], rim[:2]) > 8:
+            # something stands in the way (a wall the level breaks, a door): not a rim to drop from
+            log(f'    blind drop: could not reach the rim at {[round(v) for v in rim]}')
+            continue
+        z0 = game.pos()[2]
+        game.goto(*target, radius=4, timeout=seconds, explore=0, chute=1)
+        log(f'    blind drop from {[round(v) for v in rim]}: {z0 - game.pos()[2]:+.0f} down, now {[round(v, 1) for v in game.pos()]}')
+        if z0 - game.pos()[2] >= 20:
+            return True
+    return False
+
+
+def fan_ride(game, level, nav, target, log, done=set(), seconds=14):
+    """Ride a fan's updraft with Kurt's chute up to a target above (level 4: fans switched on by a
+    sniper shot at the lock under them). Walks to the edge of the column, steps in with jump held (the
+    chute opens in the air and the draft lifts it), keeps over the column's centre while rising, then
+    steers to the target once above it. True if the hero got higher by 10 units or more."""
+    here = game.pos()
+    deps = level.m.get('deps', {})
+    for fan in fans_toward(level, here, target):
+        # the lock that switches it on (OBJ_SNIPERDOOR1 'enables' the fan): one sniper shot, once
+        for opener, events in deps.items():
+            if any(fan['name'] in i['enables'] for i in events.values()) and opener not in done:
+                done.add(opener)
+                log(f'    {fan["name"]} is switched on by {opener}: sniping it')
+                snipe(game, opener, log)
+        fx, fy, fz = fan['pos']
+        cells = [k for k in reachable(nav, here) if nav.cells[k][2] >= fz - 2]
+        if not cells:
+            continue
+        edge = nav.cells[min(cells, key=lambda k: math.dist(nav.cells[k][:2], (fx, fy)))][:3]
+        if math.dist(edge[:2], (fx, fy)) > 30:
+            continue
+        log(f'    riding {fan["name"]} at {[round(v) for v in fan["pos"]]} from {[round(v) for v in edge]}')
+        walk(game, nav, edge, log, timeout=40)
+        z0 = game.pos()[2]
+        top, t0, over = z0, time.monotonic(), False
+        game.lua('coop.pilot=nil coop.gunner=nil')
+        game.lua(f'coop_press(57, {seconds * 1000})')
+        while time.monotonic() - t0 < seconds:
+            p = game.pos()
+            top = max(top, p[2])
+            over = over or p[2] >= target[2] + 2
+            # over the column's centre while rising; to the target once above it
+            aim = target if over else (fx, fy)
+            if math.dist(p[:2], aim[:2]) < (2.5 if over else 1.5):
+                if over:
+                    break
+            else:
+                game.lua(f'local p=coop.real_player() coop.Face(p,{aim[0]}-p.position.x,{aim[1]}-p.position.y,0) '
+                         f'coop_press(17,250)')
+            if time.monotonic() - t0 > 5 and top < z0 + 3:
+                break                       # no draft: the fan is off, or this is not its column
+            time.sleep(.3)
+        game.lua('coop_press(57, 0)')
+        time.sleep(1.5)
+        game.lua('coop.GunnerOn(60)')
+        now = game.pos()
+        log(f'    fan ride: up {top - z0:.1f} (top {top:.1f}), now {[round(v, 1) for v in now]}')
+        if now[2] > z0 + 10:
+            return True
+    return False
+
+
 def climb(game, target, seconds=9):
     """A powered climb with Max's jetpack: one continuous hold of jump, the hero turned to the goal and
     walking at it. Returns the highest z reached."""
@@ -1093,32 +1288,57 @@ def prepare_flight(game, level, nav, log):
     return ok
 
 
+def off_route(level, ahead, planned_from, here, jump=40):
+    """True when the hero is far from where the remaining room route was planned and in none of its
+    rooms: carried or teleported by the level, not walked."""
+    if math.dist(planned_from, here) < jump:
+        return False
+    rooms = {level.room_of(list(planned_from))} | {st['room'] for st in ahead}
+    return level.room_of(list(here)) not in rooms
+
+
 def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
     """Get the hero to goal: portal by portal, scanning, walking, and breaking scripted walls."""
     game.lua('coop.GunnerOn(60)')
-    here = game.pos()
-    _, portals = level.path(list(here), list(goal))
-    # the room boxes have no vertical links (level 2's shaft from room 5 up to room 6): when the goal is
-    # near and the room route starts by going away from it, head for the goal and let the scan find the way
-    if portals and math.dist(here, goal) < 200 and \
-            math.dist(portals[0]['to'], goal) > math.dist(here, goal) + 20:
-        log(f'  room route leads away (via {portals[0]["room"]}): straight for the goal instead')
-        portals = [{'to': list(goal), 'room': level.room_of(list(goal)), 'via': 'goal'}]
+    def route_from(here):
+        _, portals = level.path(list(here), list(goal))
+        # the room boxes have no vertical links (level 2's shaft from room 5 up to room 6): when the goal
+        # is near and the room route starts by going away from it, head for the goal and let the scan
+        # find the way
+        if portals and math.dist(here, goal) < 200 and \
+                math.dist(portals[0]['to'], goal) > math.dist(here, goal) + 20:
+            log(f'  room route leads away (via {portals[0]["room"]}): straight for the goal instead')
+            portals = [{'to': list(goal), 'room': level.room_of(list(goal)), 'via': 'goal'}]
+        return portals
+    portals = route_from(game.pos())
     stats = {'scans': 0, 'walks': 0, 'destroyed': [], 'rounds': 0, 'skipped': 0}
     game.level = level
     tried_from = {}
+    tried_walls = set()
     if level.m.get('level') in (2, 5, 8, 11):
         max_arm(game, log)
     if fly:
         prepare_flight(game, level, scan(game, out, fly=True)[0], log)
     index = 0
+    planned_from = game.pos()
     while index < len(portals):
+        if off_route(level, portals[index:], planned_from, game.pos()):
+            # a script moved the hero (level 3 starts with Doc carried 165 units on after the intro):
+            # the room route from where he was is no use, plan again from here
+            log(f'  moved off the route to {level.room_of(list(game.pos()))}: planning again')
+            planned_from = game.pos()
+            portals = route_from(planned_from)
+            index = 0
         target = portals[index]['to']
         stalls = 0
         best = math.dist(game.pos()[:2], target[:2])
         # arrived: near in the plane and in height (the shaft's goal is straight above its floor)
         final = index == len(portals) - 1    # portal points sit mid-height in a doorway: only the goal's height counts
+        replan = False
         while math.dist(game.pos()[:2], target[:2]) > 4 or (final and abs(game.pos()[2] - target[2]) > 6):
+            if off_route(level, portals[index:], planned_from, game.pos()):
+                replan = True
+                break
             # already further along (carried, or walked through): go on from the latest portal whose
             # room the hero is in, instead of walking back --
             room = level.room_of(list(game.pos()))
@@ -1136,9 +1356,20 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
             for attempt in range(5):
                 nav, state = scan(game, out, fly=fly, chute=chute)
                 stats['scans'] += 1
+                if len(nav.cells) < 30:
+                    log(f'    scan of {len(nav.cells)} cells ({state.strip()}) at {[round(v, 1) for v in game.pos()]}')
+                    # almost nothing is seen: the floor is an object the line of sight misses (level 3's
+                    # rooms). Take the hero's height as the floor, and let the walls limit the scan
+                    nav2, state2 = scan(game, out, fly=fly, chute=chute, plane=True)
+                    log(f'    plane scan of {len(nav2.cells)} cells ({state2.strip()})')
+                    if len(nav2.cells) > len(nav.cells):
+                        nav = nav2
                 if nav.cells:
                     break
                 log(f'    scan found no floor under the hero ({state.strip()}): waiting')
+                if chute:
+                    # falling (a shaft the push walked into): the chute stays open while jump is held
+                    game.lua('coop_press(57, 2500)')
                 time.sleep(2)
             else:
                 return False, stats
@@ -1200,12 +1431,51 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 if game.pos()[2] > z0 + 10:
                     stalls = 0
                     continue
+            # a scripted wall within a few strides is what the way on needs broken (level 4's tunnel mouth):
+            # once each, before any other idea
+            close_walls = [o for o in level.m['objects'] if o['type'] == 'OBJ_DESTRUCTABLE'
+                           and o['name'] not in tried_walls and math.dist(o['pos'][:2], here[:2]) < 40
+                           and abs(o['pos'][2] - here[2]) < 40 and alive(game, o['name'])]
+            if close_walls:
+                tried_walls.update(o['name'] for o in close_walls)
+                # from the reachable place nearest the wall in the plane (a tunnel plug is hit along the
+                # tunnel, not from beside its mouth)
+                wall = min(close_walls, key=lambda o: math.dist(o['pos'][:2], here[:2]))
+                cells = [k for k in reachable(nav, here) if abs(nav.cells[k][2] - here[2]) < 12]
+                if cells:
+                    k = min(cells, key=lambda k: math.dist(nav.cells[k][:2], wall['pos'][:2]))
+                    log(f'    to {[round(v) for v in nav.cells[k][:3]]} beside {wall["name"]}')
+                    walk(game, nav, nav.cells[k][:3], log, timeout=30)
+                broken = destroy(game, close_walls, target, log, sniper=chute)
+                if broken:
+                    stats['destroyed'].append(broken['name'])
+                    time.sleep(1.5)
+                    stalls = 0
+                    continue
+            # Kurt: sniper locks the level watches by itself (level 4's spheres under the vortex): one round each
+            if chute and target[2] - here[2] > 8:
+                balls = [o for o in sniper_locks(level, here, done=chain_done) if alive(game, o['name'])]
+                if balls:
+                    for o in balls:
+                        chain_done.add(o['name'])
+                        snipe(game, o['name'], log)
+                    stalls = 0
+                    continue
+            # Kurt: a target well above, a fan near it (level 4's updrafts) -- ride it with the chute
+            if chute and target[2] - here[2] > 8 and fan_ride(game, level, nav, target, log):
+                stalls = 0
+                continue
+            # Kurt: the target far below and nothing scanned leads down (a landing the line of sight
+            # misses): off a rim toward it with the chute, then scan again from the landing
+            if chute and here[2] - target[2] > 25 and stalls <= 2 and blind_drop(game, nav, target, log):
+                stalls = 0
+                continue
             if fly and stalls == 1 and prepare_flight(game, level, nav, log):
                 continue
             # a door opens as the hero comes near, after the scan saw it shut: push on straight toward
             # the target for a few seconds, then look again --
             if stalls == 1:
-                r = game.goto(*target, radius=4, timeout=6, explore=0)
+                r = game.goto(*target, radius=4, timeout=6, explore=0, chute=1 if chute else 0)
                 moved = best - math.dist(game.pos()[:2], target[:2])
                 best = min(best, math.dist(game.pos()[:2], target[:2]))
                 log(f'    pushed toward the target: {moved:+.1f} past the best')
@@ -1214,7 +1484,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                     continue
             walls = [o for o in level.m['objects'] if o['type'] == 'OBJ_DESTRUCTABLE'
                      and math.dist(o['pos'][:2], pos[:2]) < 150 and alive(game, o['name'])]
-            broken = walls and destroy(game, walls, target, log)
+            broken = walls and destroy(game, walls, target, log, sniper=chute)
             if broken:
                 stats['destroyed'].append(broken['name'])
                 time.sleep(1.5)
@@ -1233,7 +1503,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                     continue
                 if not alive(game, obj['name']):
                     continue
-                if kill_objective(game, nav, obj, log):
+                if kill_objective(game, nav, obj, log, sniper=chute):
                     stats['destroyed'].append(obj['name'])
                     done = True
                     break
@@ -1267,6 +1537,8 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
             if stalls >= 3:
                 log(f'  stalled toward {target}')
                 return False, stats
+        if replan:
+            continue
         index += 1
     stats['telemetry'] = game.telemetry()
     return True, stats
@@ -1302,8 +1574,12 @@ def compare_worlds(games, folder, tag, log):
     # a mismatch is looked at again 1.5 s later, as tools/replay.sh does: one sample can catch a fast
     # mover mid-interpolation; both results are kept
     for attempt in (1, 2):
-        dumps = [str(dump_state(g, folder, f'{tag}{"" if attempt == 1 else "_again"}')) for g in games]
-        r = subprocess.run([sys.executable, str(Path(__file__).with_name('statecheck.py')), *dumps],
+        name = f'{tag}{"" if attempt == 1 else "_again"}'
+        dumps = [str(dump_state(g, folder, name)) for g in games]
+        # the dumps are taken one game after another, and a fight or a spawn moves the world in between: the host
+        # dumps once more at the end, and statecheck.py fails a client only for what the host never held in between
+        post = str(dump_state(games[0], folder, f'{name}_post'))
+        r = subprocess.run([sys.executable, str(Path(__file__).with_name('statecheck.py')), *dumps, '--after', post],
                            capture_output=True, text=True)
         last = (r.stdout.strip().splitlines() or ['no output'])[-1]
         log(f'  worlds at {tag}{"" if attempt == 1 else " (again)"}: {last}')
@@ -1314,13 +1590,70 @@ def compare_worlds(games, folder, tag, log):
     return r.returncode == 0, r.stdout
 
 
-def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, record=None):
+def compare_step(games, folder, tag, log):
+    """compare_worlds, its last statecheck output sorted by the tolerance table (tools/campaign_coop.py)."""
+    import campaign_coop
+    try:
+        ok, text = compare_worlds(games, folder, tag, log)
+    except (TimeoutError, OSError) as e:      # a game that cannot dump (crashed, hung) is a finding too
+        return {'tag': tag, 'ok': False, 'findings': [f'FAIL  no state dump: {e}'], 'known': [], 'warn': [],
+                'summary': 'no dump'}
+    c = campaign_coop.classify(text)
+    return {'tag': tag, 'ok': ok, **c}
+
+
+def down_mutant(games, log):
+    """The revive's mutant: a lethal hit on the last game's hero (a client) puts it down at once, as
+    tools/qa_revive.sh does. The squad must revive it with ordinary controls (a teammate holding R)."""
+    client = games[-1]
+    client.lua('mdkDealDamage(nil, mdkGetPlayerGob(), 999, DAMAGE_BADGUY, -1)')
+    log(f'  MUTANT down: a lethal hit on player {client.slot}')
+    return {'downed': client.slot}
+
+
+def desync_mutant(games, log):
+    """The world comparison's mutant: delete a living enemy in one client's game only (it stays alive on
+    the host). The next step's comparison must report it as a finding."""
+    host, client = games[0], games[1]
+    rows = host.state()
+    for r in rows:
+        if r and r[0] == 'ent' and r[2] != 'gone' and int(r[3]) > 0:
+            gid = r[1]
+            name = ' '.join(r[7:])
+            client.lua(f'local g=coop_gob("n{gid}") if (g) then omGobDelete(g) end')
+            log(f'  MUTANT desync: deleted enemy {gid} {name} in game {client.slot} only')
+            return {'deleted': gid, 'name': name, 'game': client.slot}
+    log('  MUTANT desync: no living enemy to delete')
+    return {'deleted': None}
+
+
+def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, record=None,
+          no_god=False, step_units=25.0, step_seconds=45.0, mutant=None, roles=False):
     """Every game is a bot: player 1 leads to the goal; each other player follows the leader with its
-    own pilot and gunner. Worlds are compared at the end."""
+    own pilot and gunner. The worlds are compared after every step of the leader's progress (each
+    step_units along the ground, or step_seconds) and at the end. Without God mode (no_god) each hero looks after
+    its health, a standing teammate revives a downed one (holding R beside it, bridge/revive.c) and
+    downs, revives and deaths are counted. With roles, a step with several objectives is split: each
+    player after the leader takes a different one, then all regroup at the goal."""
     import threading
+    import campaign_coop as cc
     leader, followers = games[0], games[1:]
     result = {}
     stop = threading.Event()
+    t_start = time.monotonic()
+    steps, care = [], {'heals': 0, 'retreats': 0, 'revive_tries': 0, 'revive_ok': 0}
+    lives = cc.Lives([g.slot for g in games])
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    assigned = {}
+    if roles:
+        start = leader.pos()
+        top = [o for o in objectives(level, [(a + b) / 2 for a, b in zip(start, goal)], goal,
+                                     radius=math.dist(start[:2], goal[:2]) / 2 + 40)
+               if abs(o['pos'][2] - goal[2]) < 20 and alive(leader, o['name'])]
+        assigned = cc.split(top, len(games))
+        log(f'  roles: objectives {[o["name"] for o in top]}; '
+            f'{ {s: o["name"] for s, o in assigned.items()} or "nothing to split"}')
 
     def lead():
         try:
@@ -1351,10 +1684,26 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                                    scratch=str(Path(folder) / f'nav_{g.slot}.json'), jetpack=fly)
                 result[f'follower_{g.slot}'] = stats
                 if ok:
+                    take_role(g)
                     return
+            elif g.slot in assigned:
+                take_role(g)
             chase(g)
         except Exception as e:
             log(f'[{g.slot}] crashed: {e!r}')
+
+    def take_role(g):
+        obj = assigned.get(g.slot)
+        if obj is None:
+            return
+        if alive(g, obj['name']):
+            log(f'[{g.slot}] role: {obj["name"]} ({obj["type"]}), not the leader\'s')
+            done = aimed_kill(g, obj['name'], lambda m: log(f'[{g.slot}] ' + m), seconds=60)
+        else:
+            done = None
+        result[f'role_{g.slot}'] = {'objective': obj['name'], 'killed_by_me': done,
+                                    'alive_on_host': alive(leader, obj['name'])}
+        g.goto(*goal, radius=6, timeout=40, explore=1)     # regroup at the portal
 
     def chase(g):
         g.lua('coop.GunnerOn(60)')
@@ -1372,17 +1721,181 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 time.sleep(.5)
         result[g.slot] = far
 
+    def watch():
+        """A world comparison after every step of the leader's progress."""
+        last_pos, last_t, n = None, time.monotonic(), 0
+        while not stop.wait(1.0):
+            try:
+                here = leader.pos()
+            except (TimeoutError, OSError):
+                continue
+            if here is None:
+                continue
+            if last_pos is None:
+                last_pos = here
+            # progress along the ground (a shaft climb is compared by time only)
+            if math.dist(here[:2], last_pos[:2]) < step_units and time.monotonic() - last_t < step_seconds:
+                continue
+            n += 1
+            s = compare_step(games, folder, f'step{n:02d}', log)
+            s.update(step=n, t=round(time.monotonic() - t_start), leader=[round(v, 1) for v in here])
+            steps.append(s)
+            log(f'  step {n}: {len(s["findings"])} findings, {len(s["known"])} known, {len(s["warn"])} warn')
+            (folder / 'steps.json').write_text(json.dumps(steps, indent=1))
+            last_pos, last_t = here, time.monotonic()
+            if mutant == 'desync' and n == 1:
+                result['mutant'] = desync_mutant(games, log)
+            if mutant in ('down', 'down-stay') and n == 2:
+                result['mutant'] = down_mutant(games, log)
+
+    def peek(g, read=Game.telemetry):
+        """This game's hp and life (or another reading), or None while another thread drives it (a revive)."""
+        if not g.lock.acquire(blocking=False):
+            return None
+        try:
+            return read(g)
+        except (TimeoutError, OSError, ValueError):
+            return None
+        finally:
+            g.lock.release()
+
+    reviving, last_heal, trail = set(), {}, {g.slot: [] for g in games}
+    known_pos, known_life = {}, {}
+    taken = set()
+
+    def revive(g, d):
+        """g walks to the downed player d and holds R beside it (ordinary controls)."""
+        with g.lock:
+            try:
+                for attempt in range(3):
+                    care['revive_tries'] += 1
+                    body = d.pos()
+                    if body is None:
+                        break
+                    g.goto(*body, radius=2.5, timeout=25, explore=1)
+                    near = math.dist(g.pos(), body)
+                    log(f'[{g.slot}] revive {d.slot}: try {attempt + 1}, {near:.1f} from the body')
+                    if near > 4.5:
+                        continue
+                    g.lua('coop.PilotStop() coop_press(19, 4500)')
+                    t1 = time.monotonic()
+                    while time.monotonic() - t1 < 7:
+                        if d.telemetry()['life'] == cc.ALIVE:
+                            care['revive_ok'] += 1
+                            log(f'[{g.slot}] revived player {d.slot} in {time.monotonic() - t1:.1f}s of R')
+                            return
+                        time.sleep(.3)
+            except (TimeoutError, OSError) as e:
+                log(f'[{g.slot}] revive {d.slot}: {e!r}')
+            finally:
+                reviving.discard(d.slot)
+
+    def heal(g, hp):
+        """Low on health: the nearest health pickup if one is near, otherwise back off along the way it came."""
+        with g.lock:
+            here = g.pos()
+            o = cc.health_target(level.m.get('pickups', []), here, taken)
+            if o and alive(g, o['name']):
+                taken.add(o['name'])
+                g.goto(*o['pos'], radius=1.5, timeout=20, explore=1)
+                care['heals'] += 1
+                log(f'[{g.slot}] hp {hp}: went for {o["name"]} ({o["type"]}), hp now {g.telemetry()["hp"]}')
+            elif trail[g.slot]:
+                back = trail[g.slot][0]
+                g.goto(*back, radius=2, timeout=6, explore=1)
+                care['retreats'] += 1
+                log(f'[{g.slot}] hp {hp}: no health near, backed off to {[round(v) for v in back]}')
+
+    def look_after():
+        while not stop.wait(1.0):
+            now = time.monotonic() - t_start
+            seen = {}
+            for g in games:
+                t = peek(g)
+                if t is None:
+                    continue
+                seen[g.slot] = t
+                ev = lives.update(g.slot, t['life'], now)
+                if ev:
+                    log(f'  player {g.slot}: {ev} (hp {t["hp"]})')
+            if not no_god:
+                continue
+            pos = {g.slot: peek(g, Game.pos) for g in games if g.slot in seen}
+            for s, p in pos.items():
+                if p:
+                    trail[s] = (trail[s] + [p])[-10:]
+                    known_pos[s] = p
+            # a game that was busy this second (its pilot holds the command file) keeps its last reading
+            for g in games:
+                if g.slot not in seen and g.slot in known_life:
+                    seen[g.slot] = known_life[g.slot]
+                if pos.get(g.slot) is None and g.slot in known_pos:
+                    pos[g.slot] = known_pos[g.slot]
+            known_life.update({s: v for s, v in seen.items()})
+            for g in games:
+                t = seen.get(g.slot)
+                if not t:
+                    continue
+                if t['life'] == cc.DOWNED and g.slot not in reviving and mutant != 'down-stay':
+                    who = cc.reviver(pos, {s: v['life'] for s, v in seen.items()}, g.slot)
+                    if not who and now - last_heal.get(('why', g.slot), -99) > 5:
+                        last_heal[('why', g.slot)] = now
+                        log(f'  player {g.slot} is down: nobody to revive it (positions {pos}, lives '
+                            f'{ {s: v["life"] for s, v in seen.items()} })')
+                    if who:
+                        reviving.add(g.slot)
+                        helper = next(x for x in games if x.slot == who)
+                        log(f'  player {g.slot} is down: player {who} goes to revive it')
+                        threading.Thread(target=revive, args=(helper, g), daemon=True).start()
+                elif t['life'] == cc.ALIVE and 0 < t['hp'] < cc.LOW_HP and now - last_heal.get(g.slot, -99) > 20:
+                    last_heal[g.slot] = now
+                    threading.Thread(target=heal, args=(g, t['hp']), daemon=True).start()
+
     threads = [threading.Thread(target=lead)] + [threading.Thread(target=keep_up, args=(g,)) for g in followers]
-    for t in threads:
+    helpers = [threading.Thread(target=watch, daemon=True), threading.Thread(target=look_after, daemon=True)]
+    for t in threads + helpers:
         t.start()
     for t in threads:
         t.join()
-    ok_world, _ = compare_worlds(games, folder, 'end', log)
+    stop.set()
+    for t in helpers:
+        t.join(timeout=60)
+    regroup = None
+    if roles or len(games) > 2:
+        # regroup at the portal: everyone within 15 units of the goal
+        t1 = time.monotonic()
+        while time.monotonic() - t1 < 60:
+            if cc.regrouped({g.slot: g.pos() for g in games}, goal):
+                regroup = round(time.monotonic() - t1)
+                break
+            for g in games:         # the leader too: its route may end a few steps short of the portal
+                if math.dist(g.pos(), goal) > 15:
+                    g.goto(*goal, radius=6, timeout=10, explore=1)
+        log(f'  regrouped at the goal: {"in %ss" % regroup if regroup is not None else "no"}')
+        if regroup is None:
+            log('  not at the goal (units): ' + str({g.slot: round(math.dist(g.pos(), goal), 1) for g in games}))
+    end = compare_step(games, folder, 'end', log)
+    end.update(step='end', t=round(time.monotonic() - t_start))
+    steps.append(end)
+    (folder / 'steps.json').write_text(json.dumps(steps, indent=1))
     gaps = {g.slot: round(math.dist(g.pos(), leader.pos()), 1) for g in followers}
     log(f'  followers\' distance from the leader at the end: {gaps}')
-    followed = {k: v for k, v in result.items() if str(k).startswith('follower_')}
+    followed = {k: v for k, v in result.items() if str(k).startswith(('follower_', 'role_', 'mutant'))}
+    findings = sorted({f for s in steps for f in s['findings']})
+    known = sorted({k[0] for s in steps for k in s['known']})
+    totals = lives.totals()
+    if mutant in ('down', 'down-stay'):
+        result['mutant'] = dict(result.get('mutant', {}), **cc.down_check(totals, (result.get('mutant') or {}).get('downed')))
+        followed['mutant'] = result['mutant']
+        log(f'  mutant {mutant}: {result["mutant"]}')
+    stats = {'leader': result['leader'][1], 'world_ok': not end['findings'], 'gaps': gaps,   # known drift (flyers) is not a difference
+              'steps': len(steps),
+             'findings': findings, 'known': len(known), 'lives': totals, 'care': care,
+             'regroup_s': regroup, **followed}
+    (folder / 'squad.json').write_text(json.dumps({'ok': result['leader'][0], **stats, 'known_lines': known,
+                                                   'life_events': lives.events}, indent=1, default=str))
     # passing is getting through; a world that differs is a co-op finding, reported beside it
-    return squad_ok(result['leader'][0], gaps), {'leader': result['leader'][1], 'world_ok': ok_world, 'gaps': gaps, **followed}
+    return squad_ok(result['leader'][0], gaps), stats
 
 
 # Keys that move or turn the hero: the pilot does that itself when following a recording.
@@ -1686,7 +2199,7 @@ def squad_ok(leader_ok, gaps, limit=40.0):
     return bool(leader_ok and all(g <= limit for g in gaps.values()))
 
 
-def off_route(here, target, limit=15.0, below=4.0):
+def off_recording(here, target, limit=15.0, below=4.0):
     """Too far from the next point of a recording to walk to it in a straight line, or down in a pit
     below it (level 2 room 4's generators sit 6 below the floor; before the jetpack there is no flying out)."""
     return math.dist(here, target) > limit or target[2] - here[2] > below
@@ -1926,7 +2439,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             continue
         # taken far from the recording (an objective's kill walked the hero off into another room): back along
         # the scanned floor to the point, the pilot's straight steps cannot find the way round walls
-        if level and scratch and time.monotonic() - last_progress > 10 and off_route(here, p['pos']) \
+        if level and scratch and time.monotonic() - last_progress > 10 and off_recording(here, p['pos']) \
                 and ('back', Nav.spot(here)) not in helped:
             helped.add(('back', Nav.spot(here)))
             nav, _ = scan(game, scratch)
@@ -1986,6 +2499,12 @@ def main(argv=None):
     sq.add_argument('--route', help='follow this recording instead of exploring')
     sq.add_argument('--record', help="record the leader's play under this name (kept by the game in coop/)")
     sq.add_argument('--evidence', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/runs'))
+    sq.add_argument('--no-god', action='store_true', help='heroes mind their health and revive each other')
+    sq.add_argument('--roles', action='store_true', help='split a step\'s objectives between the players')
+    sq.add_argument('--step-units', type=float, default=25.0, help='compare the worlds after this much progress')
+    sq.add_argument('--mutant', choices=['desync', 'down', 'down-stay'],
+                    help='desync: delete an enemy in one client only (must be reported); down: a lethal hit on a client '
+                         '(must be revived); down-stay: the same without the revive (the player must be reported dead)')
     fo = sub.add_parser('follow', help='play a recorded route closed-loop')
     fo.add_argument('--dirs', nargs='+', required=True)
     fo.add_argument('--player', type=int, default=1)
@@ -2043,7 +2562,8 @@ def main(argv=None):
         t0 = time.monotonic()
         folder = Path(a.evidence) / time.strftime('%Y%m%d-%H%M%S')
         ok, stats = squad(games, Level(a.level), a.to, folder, lambda m: print(m, flush=True), fly=a.fly,
-                          chute=a.chute, route=a.route, record=a.record)
+                          chute=a.chute, route=a.route, record=a.record, no_god=a.no_god, roles=a.roles,
+                          step_units=a.step_units, mutant=a.mutant)
         print(f'{"RESULT: PASS" if ok else "RESULT: FAIL"} in {time.monotonic() - t0:.0f}s: {stats}; evidence {folder}')
         return 0 if ok else 1
     if a.cmd == 'advance':
