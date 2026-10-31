@@ -2323,6 +2323,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         game.lua('coop.fuel_assist=1')     # a test crutch (campaign_run.py --fuel-assist): the tank never runs dry
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
     helped, aimed, flybacks, fuelled_at, retries, pinned = set(), set(), {}, {}, {}, False
+    owed_shots = False
     stayed = {}         # objective -> (shots from a recording's spot without a kill, the point of the last)
 
     def walk_to(target, why):
@@ -2352,6 +2353,8 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         # skip on: the nearest of the next few points (not while going back to retry a flight or lift)
         j = nearest_ahead(here, pts, i)
         if j > i and not pinned:
+            # shots the recording fired on the stretch just skipped are owed: aimed from here instead
+            owed_shots = owed_shots or any(256 in pts[k]['keys'] for k in range(i, j))
             i = j
         p = pts[i]
         if p.get('ride'):
@@ -2465,7 +2468,8 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 game.goto(*pts[s]['pos'], radius=2, timeout=20, explore=1)
                 i, pinned = s, True
                 continue
-        if 256 in p['keys'] and level:
+        if (256 in p['keys'] or owed_shots) and level:
+            owed_shots = False
             # the recording was shooting here: what it shot is most likely the nearest living scripted
             # objective (the arena's generators: one left at 16 hp kept its exit shut), so aim at it
             # (within 30 units: the walk to a generator 37 units off took a hero off the ledge and down a
