@@ -107,7 +107,7 @@ def segment(level, seg, players, owner, hook, out, god, opts=None):
     folder = out / f'{level}-{seg}'
     seg = f'{level}:{seg}'
     folder.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, MDK2_QA_OWNER=owner, LAB_OWNER=owner)
+    env = dict(os.environ, MDK2_QA_OWNER=owner)
     # the jetpack's tank is spent per frame, so a flight is only repeatable at the game's own speed
     if flies(level, start) and 'MDK2_TIMESCALE' not in env:
         env['MDK2_TIMESCALE'] = '1'
