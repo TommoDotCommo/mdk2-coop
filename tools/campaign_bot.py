@@ -2299,9 +2299,20 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     helped, aimed, flybacks, fuelled_at, retries, pinned = set(), set(), {}, {}, {}, False
     stayed = {}         # objective -> (shots from a recording's spot without a kill, the point of the last)
 
+    def walk_to(target, why):
+        """Over the scanned floor to a spot more than a few steps off (the pilot's straight steps cannot find
+        the way round a bay's walls: 6-7's heroes never reached the refueller 50 units away)."""
+        if scratch and math.dist(game.pos()[:2], target[:2]) > 8 and abs(game.pos()[2] - target[2]) < 8:
+            nav, _ = scan(game, scratch)
+            if nav.cells:
+                log(f'    to {[round(v) for v in target]} over the scanned floor ({why})')
+                walk(game, nav, target, log, timeout=40)
+
     def refuel(pad, why):
         mode = refuel_mode(pts, pad) or ('hover' if pad['pos'][2] > game.pos()[2] + 2 else 'stand')
         fuelled_at[pad['name']] = i
+        if mode == 'stand':
+            walk_to(pad['pos'], 'refuel')
         ok = hover_refuel(game, pad, log) if mode == 'hover' else mount_refueller(game, pad, log)
         if ok:
             game.lua('coop.jet_ms=0')
@@ -2370,6 +2381,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 near = [o for o in pads if math.dist(o['pos'], here) < 60]
                 if near:
                     refuel(min(near, key=lambda o: math.dist(o['pos'], here)), 'low before a flight')
+                    walk_to(pts[max(0, i - 1)]['pos'], 'back to the flight')
                     game.goto(*pts[max(0, i - 1)]['pos'], radius=2, timeout=15, explore=1)
             # a moving lift to board (room 9's platforms swing up and down on their own): leave the
             # ground as the platform comes down, then hold beside it for the last stretch until it is
@@ -2421,6 +2433,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 near = [o for o in pads if math.dist(o['pos'], here) < 60]
                 if near:
                     refuel(min(near, key=lambda o: math.dist(o['pos'], here)), 'after a failed flight')
+                walk_to(pts[s]['pos'], 'back to the flight')
                 game.goto(*pts[s]['pos'], radius=2, timeout=20, explore=1)
                 i, pinned = s, True
                 continue
