@@ -502,16 +502,42 @@ all)**. The others stop at:
 | 8→9 | passes (225 s, 2 players, no assist, 0 world differences, gap 3.3) | the host had stood at (922, 942) shooting what room 8's generator `l2_r8gen00` (a spawner, so not an objective) spawned without end: the gunner holds the pilot while it fires. The gunner now rests 6 s after 10 s of fire while a recording is followed (`coop.gunner_cap`). |
 | 9→10 | 240 of 276, twice | past the lifts and pumps, then the upper bays (their turret fights came in the fix that made 5→6 pass); the hero ends at the floor of the shaft |
 
+The last full table of the level 2 branch (x1, two players, God on, shards 2; its tip as merged): 1→2 (120 s),
+7→8 (130 s), 8→9 (329 s) and 5→6 (1294 s) pass; 4→5 failed (the follower ended in the generator pit), 6→7 and 9→10
+stalled and were stopped, 2→3 had the leader at 236 of 236 points but the follower stopped at the closed door
+`l2_r2entrdoor` after the lock was killed on the client (gap 58.6, a possible co-op finding: the door's open
+state on the client; not confirmed).
+
 Room 9's lifts are ridden first try (see Moving lifts), a flight that was lost to them in earlier rounds. The bay
 wait runs only at points walked (the hero standing on the bay's floor); stretches the recording fires on while
 flown (room 9's bays) skip it, which is where 9→10 ends. Not done: the whole level chained in one run, the bot
 without a recording (autonomous), levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies, combat
 damage to the hero.
 
-This file is the integrated status of the worker branches (flight and chaining, levels 3 and 4,
-co-op checks, flying-enemy drift, the second host dump and the hp-only APPLY fix) merged onto the campaign-bot branch. Evidence paths below are
-under `local/` (ignored), from each branch's own runs; the integrated tree has been checked with
+This file is the one integrated status of the worker branches (flight and chaining, levels 3 and 4,
+co-op checks, flying-enemy drift, the second host dump and the hp-only APPLY fix, item-use replication, the
+AI-target guard, no-God tactics, Doc's items and hands, the level 2 flight and lift work). Evidence paths
+below are under `local/` (ignored), from each branch's own runs; the integrated tree has been checked with
 the game-free gates and a short live smoke (see the last section).
+
+### Without God mode, and the crash status (rounds 5)
+
+- **No God, two players:** 7→8 passes 3 of 3 (the fight tactic: 184, 209 and 163 s, downs 0/1/0, no deaths).
+  8→9 passes with the run tactic (3 of 3). 3→4 passed once in six runs: the gauntlet's missiles (SAM spawner
+  generators the follower stood under) wipe the squad, and the spawner-aim fix did not change that (0 of 3).
+- **No God, three players:** 8→9 passes 4 of 5 (the one failure was a follower thread's `IndexError` after a
+  wipe reload, now logged with a traceback and a chase fallback; the rerun is 3 of 3); 3→4 passed once (891 s).
+- **Crashes are failures** (`campaign_run.py` reports a `dump%04i.dmp`, the Jinkies dialog and a non-zero exit).
+  Every sighting so far is the client at `mdk2hd.exe+0x2a95` reading address 8, within seconds of an enemy
+  bind after a checkpoint reload or a despawn: level 8 once, 3→4 no-God once, level 4 5→6 twice. The cause is
+  an AI actor whose target gob has no info record. The bridge now guards that read (`e9e9935`) and the crash
+  log names the gob; `tools/qa_ai_target_guard.sh` plants such a target: 8 of 8 pass with the guard, and the
+  `noguard` mutant crashes with the same registers as the sightings. A 40 minute reload loop without the guard
+  (`tools/reload_loop.sh`, 92 reloads on 2→9) did not reproduce it, so the natural trigger is another actor type;
+  the guard is proven on the planted case only, not on a natural one. A host crash at `+0x570bd` (a tunnel piece
+  shot to pieces) is bot-side and fixed by the collateral limit.
+- **Item use:** Doc's item use is replicated to the other games (`EV_ITEMUSED`, `tools/qa_itemused.sh`, with a
+  mutant); see `docs/RELEASE-NOTES-item-use.md`.
 
 ### Round 4 (levels 3 and 4, elevators, camera-aimed sniper rounds)
 
