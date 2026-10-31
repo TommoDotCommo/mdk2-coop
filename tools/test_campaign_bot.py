@@ -500,4 +500,31 @@ check('collateral: the third round on one piece stops the aim', not bot.note_col
 c = {}
 check('collateral: one volley of three rounds on a piece stops it too', bot.note_collateral(['tun01', 'tun01', 'tun01'], 'gen', c))
 
+# a recording's keys at a point: held keys by time, Doc's hand keys once per press, for whole frames
+class KeyLog:
+    def __init__(self):
+        self.sent = []
+
+    def lua(self, code):
+        self.sent.append(code)
+
+
+orig_sleep = bot.time.sleep
+bot.time.sleep = lambda s: None
+try:
+    k, seen = KeyLog(), set()
+    bot.press_route_keys(k, [17, 18], [], (5, seen), True)
+    check('route keys: a walk key by time, a Doc hand key for frames', k.sent == ['coop_press(17, 450)', 'coop_press_frames(18, 4)'])
+    k.sent.clear()
+    bot.press_route_keys(k, [17, 18], [17, 18], (6, seen), True)
+    check('route keys: a hand key still held from the point before is not pressed again', k.sent == ['coop_press(17, 450)'])
+    k.sent.clear()
+    bot.press_route_keys(k, [18], [], (5, seen), True)
+    check('route keys: a point visited again does not press its hand key twice', k.sent == [])
+    k.sent.clear()
+    bot.press_route_keys(k, [18, 256], [], (9, set()), False)
+    check('route keys: outside Doc every key is held by time as before', k.sent == ['coop_press(18, 450)', 'coop_press(256, 450)'])
+finally:
+    bot.time.sleep = orig_sleep
+
 print('all checks passed')

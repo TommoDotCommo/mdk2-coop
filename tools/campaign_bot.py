@@ -2507,6 +2507,26 @@ def jet_used(game):
         return 0
 
 
+# Doc's hand keys and fire act once per press: a recording that held one for a few samples must not repeat it
+DOC_EDGE_KEYS = (16, 18, 33, 34, 256)
+
+
+def press_route_keys(game, keys, prev_keys, edge_state, doc):
+    """The keys a recording held at a point. Held keys are pressed for 450 ms (a walk, a jump). Doc's hand keys
+    and fire are pressed once, for whole frames, at the point where the recording started holding them
+    (edge_state = (point index, set of (point, key) already pressed): the loop may visit a point again)."""
+    index, done = edge_state
+    for code in keys:
+        if doc and code in DOC_EDGE_KEYS:
+            if code in prev_keys or (index, code) in done:
+                continue
+            done.add((index, code))
+            game.lua(f'coop_press_frames({code}, 4)')
+            time.sleep(.6)
+        else:
+            game.lua(f'coop_press({code}, 450)')
+
+
 def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None, jetpack=True):
     """Play a recording closed-loop: walk its positions with the pilot (skipping on when nearer a later
     point), pressing the action keys the recording held on each stretch. Robust to timing and drift,
@@ -2520,6 +2540,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     game.lua('coop.GunnerOn(60) coop.jet_ms=0')
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
     helped, aimed, flybacks, fuelled_at, retries, pinned = set(), set(), {}, {}, {}, False
+    doc, doc_edges = is_doc(game), set()
 
     def refuel(pad, why):
         mode = refuel_mode(pts, pad) or ('hover' if pad['pos'][2] > game.pos()[2] + 2 else 'stand')
@@ -2635,8 +2656,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 aimed.add(o['name'])
                 aimed_kill(game, o['name'], log, seconds=30)
                 game.lua('coop.GunnerOn(60)')
-        for code in p['keys']:
-            game.lua(f'coop_press({code if code < 256 else code}, 450)')
+        press_route_keys(game, p['keys'], pts[i - 1]['keys'] if i else (), (i, doc_edges), doc)
         rise = p['pos'][2] - here[2]
         # Kurt: a drop the recording made with jump held is a glide (the chute opens on a held jump)
         r = game.goto(*p['pos'], radius=radius, timeout=6, explore=0,
