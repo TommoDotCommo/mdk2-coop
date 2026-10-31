@@ -672,7 +672,13 @@ def doc_leak_puzzle(game, level, log):
                          'coop_note("cord", format("%.2f %.2f %.2f", p.x, p.y, p.z)) else coop_note("cord", "none") end')
         at = [float(v) for v in live.split()] if live != 'none' else cord
         game.goto(*at, radius=0.8, timeout=40, explore=0, jump=1)
-        for _ in range(8):
+        for _ in range(3):
+            if doc_has(game, 'OBJ_CORD'):
+                break
+            # the pilot stops short of a pickup lying beside a rib or a pipe: a few plain steps at it
+            game.lua(f'local p=coop.real_player() coop.Face(p, {at[0]}-p.position.x, {at[1]}-p.position.y, 0) coop_press(17, 700)')
+            time.sleep(1.2)
+        for _ in range(4):
             if doc_has(game, 'OBJ_CORD'):
                 break
             time.sleep(1)
