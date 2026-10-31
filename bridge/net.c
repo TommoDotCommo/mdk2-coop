@@ -707,6 +707,12 @@ void event_queue_applied(const char *name, BYTE *from, int damage, int type, int
     event_queue_hit(TO_ALL, EV_APPLY, name, from, damage, type, part, hp);
 }
 
+/* APPLY that carries only the target's hp (entities.c: the game changed it without a hit) */
+void event_queue_hpsync(const char *name, int hp)
+{
+    event_queue_hit(TO_ALL, EV_APPLY, name, NULL, 0, 0, HPSYNC_PART, hp);
+}
+
 /* SPAWN: an enemy with its current hp (a late joiner's copy starts fresh) */
 void event_queue_spawn(int to, int kind, unsigned int netid, int objtype, int hp, const float *pos, const char *name)
 {

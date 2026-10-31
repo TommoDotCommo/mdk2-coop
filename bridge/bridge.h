@@ -68,7 +68,10 @@ typedef void (*lua_CFunction)(void);
 #define GOB_ORIENTATION     0x24    /* float quaternion w, x, y, z; engine setter copies it raw */
 #define GOB_ANIM            0x60    /* anim controller: +0x24 states, +0x28/+0x2c current/previous */
 #define GOB_INFO            0x84    /* -> game object: short type +0, damage filter +0x10, hp +0x12 */
-#define GOB_TARGET          0x88    /* generation-checked target handle (actor AI / shots) */
+#define GOB_TARGET          0x88    /* generation-checked target handle (actor AI / shots); also the scene-graph parent */
+#define GOB_FLAGS           0xa6    /* u16 */
+#define GOB_BONE_ATTACHED   0x20    /* GOB_FLAGS: put on bone GOB_BONE_SLOT of the parent GOB_TARGET every frame (0x449a20) */
+#define GOB_BONE_SLOT       0x8c
 #define INFO_CLASS          0xb4    /* game object field; & 0x3f = index into CLASS_TABLE */
 #define CLASS_TABLE         ((BYTE **)ADDR.class_table)
 #define CLASS_SLOTS         14
@@ -137,6 +140,8 @@ enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, 
 #define EV_NAME 32
 /* FIRE part: 0 replays create_object arguments; 1 restores a launched class 5 shot. */
 #define FIRE_LAUNCHED 1
+/* APPLY part: the event only carries the target's hp (no damage, no OnDamage on the mirror) */
+#define HPSYNC_PART (-2)
 
 struct event {
     unsigned int id;
@@ -218,6 +223,7 @@ void event_send(const struct event *e, int to);
 void event_relay(const struct event *e, int from);
 void event_queue(int kind, const char *name, int damage, int type, int part);
 void event_queue_from(int to, int kind, const char *name, BYTE *from, int damage, int type, int part);
+void event_queue_hpsync(const char *name, int hp);
 void event_queue_applied(const char *name, BYTE *from, int damage, int type, int part, int hp);
 void event_queue_spawn(int to, int kind, unsigned int netid, int objtype, int hp, const float *pos, const char *name);
 int event_next(struct event *out, int *from);
@@ -268,6 +274,7 @@ BYTE *ent_gob(unsigned int netid);
 int ent_count(void);
 void ents_reset(void);
 void ents_resend(int to);
+void ent_hp_told(BYTE *gob);
 int ent_is_synced(BYTE *gob);
 void ents_keep_spawner(BYTE *gob);
 void ents_dump(FILE *f);

@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""statecheck.py <host state> <client state> [<client state> ...] [--tol units]
+"""statecheck.py <host state> <client state> [<client state> ...] [--tol units] [--after <host state>]
 
 Compares coop_state() dumps (see bridge/state.c), each client's world against the host's and
 every player against its puppet in every other game, and prints one line per problem:
   FAIL  the worlds disagree (level, enemy missing / extra / hp, item, player)
   warn  likely timing (positions a little apart, a door mid-swing, an enemy not bound yet)
+Dumps are taken one game after another, so a fight or a spawn moves the world between the host's and a
+client's. With --after (a second host dump taken once the clients' are written) a client's value only fails when it
+lies outside what the host held between the two: hp between the host's two hp values, a position within the
+tolerance of the host's path between its two positions, an enemy the host made after its first dump is not
+"extra", and one the host has already removed (its DESPAWN still on the way) is not either.
 Last line: "state: <n> fail, <n> warn, <n> enemies compared". Exit status 1 on any FAIL.
 """
 import math
@@ -73,12 +78,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dumps", nargs="+")
     parser.add_argument("--tol", type=float, default=4.0)
+    parser.add_argument("--after", help="the host's second dump, taken after the clients' (see the module doc)")
     args = parser.parse_args()
     tol = args.tol
     if len(args.dumps) < 2 or not math.isfinite(tol) or tol <= 0:
         parser.error("supply a host and at least one client, and a finite positive tolerance")
     try:
         dumps = [load(a) for a in args.dumps]
+        after = load(args.after) if args.after else None
+        if after and (after["role"] != "host" or after["level"] != dumps[0]["level"]):
+            raise ValueError(f"{args.after}: not the host's dump of the same level")
     except (OSError, ValueError, IndexError) as exc:
         print(f"FAIL  invalid state dump: {exc}")
         print("state: 1 fail, 0 warn, 0 enemies compared")
@@ -121,7 +130,7 @@ def main():
     compared = 0
     for c in clients:
         if c not in bad_level:
-            compared += compare_world(h, c, who(c), tol, fail, warn)
+            compared += compare_world(h, c, who(c), tol, fail, warn, after)
 
     nfail = sum(1 for l in out if l.startswith("FAIL"))
     for line in out:
@@ -130,8 +139,17 @@ def main():
     return 1 if nfail else 0
 
 
-def compare_world(h, c, cn, tol, fail, warn):
-    """enemies, items and doors of one client against the host's; returns enemies compared"""
+def dist_to_segment(p, a, b):
+    """distance from point p to the segment a-b"""
+    ab = [y - x for x, y in zip(a, b)]
+    n = sum(v * v for v in ab)
+    t = 0.0 if n == 0 else max(0.0, min(1.0, sum((q - x) * v for q, x, v in zip(p, a, ab)) / n))
+    return math.dist(p, [x + t * v for x, v in zip(a, ab)])
+
+
+def compare_world(h, c, cn, tol, fail, warn, after=None):
+    """enemies, items and doors of one client against the host's; returns enemies compared.
+    after: the host's dump taken once the client's was written (the world may move in between)."""
     # enemies: the host's are the truth
     compared = 0
     for nid, (t, hp, pos, name) in sorted(h["ent"].items()):
@@ -144,15 +162,27 @@ def compare_world(h, c, cn, tol, fail, warn):
             continue
         compared += 1
         ct, chp, cpos, cname = c["ent"][nid]
+        later = after["ent"].get(nid) if after else None
         if ct != t:
             fail(f"enemy {nid} {name}: type {t} on host, {ct} on {cn}")
         if chp != hp:
-            fail(f"enemy {nid} {name}: hp {hp} on host, {chp} on {cn}")
-        d = math.dist(pos, cpos)
+            if later and min(hp, later[1]) <= chp <= max(hp, later[1]):
+                warn(f"enemy {nid} {name}: hp {hp} on host, {chp} on {cn} (the host went on to {later[1]})")
+            else:
+                fail(f"enemy {nid} {name}: hp {hp} on host, {chp} on {cn}")
+        d = dist_to_segment(cpos, pos, later[2]) if later else math.dist(pos, cpos)
         if d > tol:
             (fail if d > 4 * tol else warn)(f"enemy {nid} {name} is {d:.1f} apart on the {cn}")
     for nid, (t, hp, pos, name) in sorted(c["ent"].items()):
-        if nid not in h["ent"]:
+        if nid in h["ent"]:
+            continue
+        if after and nid in after["ent"]:
+            warn(f"enemy {nid} {name} (type {t}) on the {cn}: the host made it after its first dump")
+        elif after and nid in h["gone"] and nid not in after["ent"] and nid not in after["gone"]:
+            warn(f"enemy {nid} {name} (type {t}) on the {cn}: the host removed it, its DESPAWN is on the way")
+        elif after and nid in h["gone"] and nid in after["gone"]:
+            fail(f"enemy {nid} {name} (type {t}) on the {cn}, gone on the host and still not removed")
+        else:
             fail(f"enemy {nid} {name} (type {t}) on the {cn}, gone on the host")
     for t, hp, pos, name in c["actor"]:
         warn(f"{cn} actor {name} (type {t}) not announced by the host (orphan?)")
