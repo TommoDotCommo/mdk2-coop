@@ -262,6 +262,8 @@ def flight_rules(b, quiet=False):
     got = b.hover_points(hp, [pump])
     out.append(('the points hovered by a hanging pump are flown, others are not',
                 got == {1, 3, 5} and not b.hover_points(hp, [floor])))
+    out.append(('an objective is aimed at from the recording\'s own spots four times before it is walked up to',
+                all(b.stay_first(n) for n in range(4)) and not b.stay_first(4) and not b.stay_first(9)))
     # a flight goes to the pilot in one command, up to a lift's boarding point or a ride
     fp = [{'pos': (0.0, 0.0, 10.0 + k), 'keys': [57]} for k in range(8)]
     fp[5]['ride'] = True
@@ -281,7 +283,7 @@ for label, ok in results:
 # mutants: each must make at least one check fail
 import types
 real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED', 'lift_ready',
-                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear', 'aimable', 'climb_out', 'squad_ok', 'off_recording', 'flight_batch')}
+                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear', 'aimable', 'climb_out', 'squad_ok', 'off_recording', 'flight_batch', 'stay_first')}
 mutants = {
     'only "air" points are flown (the hop onto a lift is walked)':
         dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
@@ -308,6 +310,8 @@ mutants = {
     'a hero in a pit is never flown out': dict(climb_out=lambda rise, stuck, jetpack, wall=4.0, after=8.0: False),
     'a squad passes when only the leader got through': dict(squad_ok=lambda ok, gaps, limit=40.0: bool(ok)),
     'no hero is ever off the recording': dict(off_recording=lambda here, target, limit=15.0, below=4.0: False),
+    'a recorded shot is always walked up to': dict(stay_first=lambda tries, limit=4: False),
+    'a recorded shot is never walked up to': dict(stay_first=lambda tries, limit=4: True),
     'a flight is sent point by point': dict(flight_batch=lambda pts, fly, i, apart, limit=14: i + 1),
     'a batch runs through boarding points and rides': dict(flight_batch=lambda pts, fly, i, apart, limit=14:
                                                            max([k for k in range(i + 1, len(pts) + 1) if all(m in fly for m in range(i, k))] or [i + 1])),

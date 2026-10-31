@@ -601,13 +601,13 @@ def snipe(game, name, log):
     return False
 
 
-def aimed_kill(game, name, log, seconds=60):
+def aimed_kill(game, name, log, seconds=60, stay=False):
     """Fire straight at an object whose registered position is where it is (a generator), facing it
     with pitch, until it is gone. The hit log says whether bursts connect; while they do not (a pit's rim
     in the way) the hero closes in further."""
     t0 = time.monotonic()
     game.lua('coop.gunner=nil')
-    close, misses = 12, 0
+    close, misses = (1e9 if stay else 12), 0       # stay: fire from where the hero stands (a recording's own spot)
     off = hits_since(game, 0)[1]
     while time.monotonic() - t0 < seconds and alive(game, name):
         at = live_pos(game, name)
@@ -636,7 +636,7 @@ def aimed_kill(game, name, log, seconds=60):
             if misses >= 2 and close > 4:
                 close = max(4, close - 4)
                 misses = 0
-            elif close <= 4 and misses >= 3:
+            elif (close <= 4 and misses >= 3) or (stay and misses >= 4):
                 break                        # as close as it gets and nothing hits it (a wall absorbs the shots)
     game.lua('coop.GunnerOn(60)')
     gone = not alive(game, name)
@@ -2215,6 +2215,12 @@ def off_recording(here, target, limit=15.0, below=4.0):
     return math.dist(here, target) > limit or target[2] - here[2] > below
 
 
+def stay_first(tries, limit=4):
+    """Whether an objective the recording was shooting at is aimed at from where the hero stands (a spot of
+    the recording itself) rather than walked up to: the first few times."""
+    return tries < limit
+
+
 def aimable(o, here, reach=30.0):
     """A scripted objective the recording's shooting may have been aimed at: within reach in 3D, whatever
     the floor (a generator hangs above the ledge it is shot from)."""
@@ -2286,6 +2292,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         game.lua('coop.fuel_assist=1')     # a test crutch (campaign_run.py --fuel-assist): the tank never runs dry
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
     helped, aimed, flybacks, fuelled_at, retries, pinned = set(), set(), {}, {}, {}, False
+    stayed = {}         # objective -> (shots from a recording's spot without a kill, the point of the last)
 
     def refuel(pad, why):
         mode = refuel_mode(pts, pad) or ('hover' if pad['pos'][2] > game.pos()[2] + 2 else 'stand')
@@ -2418,11 +2425,21 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             # (within 30 units: the walk to a generator 37 units off took a hero off the ledge and down a
             # shaft; but not only on his floor: room 8's generator hangs 20 above the ledge the recording
             # shot it from, and its exit stayed shut)
-            near = [o for o in objectives(level, here, None, radius=50) if o['name'] not in aimed and aimable(o, here)]
+            near = [o for o in objectives(level, here, None, radius=50) if o['name'] not in aimed and aimable(o, here)
+                    and i - stayed.get(o['name'], (0, -99))[1] >= 8]
             near = [o for o in near if alive(game, o['name'])][:1]
             for o in near:
-                aimed.add(o['name'])
-                aimed_kill(game, o['name'], log, seconds=30)
+                n_tries = stayed.get(o['name'], (0, 0))[0]
+                if stay_first(n_tries):
+                    # from the recording's own spot first (a target high on a wall, shot from the ledge the
+                    # person stood on, was missed from 4 units below it), then from further along the route
+                    aimed_kill(game, o['name'], log, seconds=12, stay=True)
+                    stayed[o['name']] = (n_tries + 1, i)
+                    if not alive(game, o['name']):
+                        aimed.add(o['name'])
+                else:
+                    aimed.add(o['name'])
+                    aimed_kill(game, o['name'], log, seconds=30)
                 game.lua('coop.GunnerOn(60)')
         if 256 in p['keys'] and level and jetpack and ('bay', round(here[2] / 12)) not in retries:
             # the recording fired at a bay's turrets here: stay (the gunner has the aim) until they are dead,
