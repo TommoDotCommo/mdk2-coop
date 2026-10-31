@@ -41,6 +41,7 @@ struct ent {
     short last_len;
     unsigned char quiet;        /* snapshots in a row that matched the last one */
     unsigned char died;         /* host: the game ran this actor's OnDie (it was killed, not just removed) */
+    short hp_told;              /* host: the hp the clients last heard (SPAWN, APPLY or HPSYNC) */
     double last_sent;
 };
 
@@ -51,6 +52,15 @@ static int replicated_object(BYTE *gob)
 {
     return gob && (gob_is_actor(gob) || gob_type(gob) == 511);
 }
+
+/* An enemy's hp reaches a client in SPAWN and in the APPLY of every hit the host's damage handler applies. The game
+ * also changes hp without a hit (a grunt at 0 that stands up again at 60, a script that tops a turret up), and
+ * nothing told the clients: they kept the old number until the next hit. A mirror at 0 hp is a corpse to the
+ * game's own checks. Each host tick compares the hp with what the clients were told and sends an APPLY that
+ * carries only the hp (HPSYNC_PART, damage 0) when they differ. */
+int test_no_hpsync;             /* coop.ini [test] no_hpsync=1 (background test mode): the old bug, for tools/qa_hpsync.sh's MUTANT=nosync */
+
+int test_keep_attached;         /* coop.ini [test] keep_attached=1 (background test mode): the old bug, for tools/qa_flyers.sh's MUTANT=attached */
 
 static struct ent ents[MAX_ENTS];
 static int nents;
@@ -181,6 +191,15 @@ static void fire_ondie_hook(BYTE *gob)
 
 void ents_init(void)
 {
+    char ini[MAX_PATH];
+
+    snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
+    test_keep_attached = test_background && GetPrivateProfileIntA("test", "keep_attached", 0, ini) != 0;
+    test_no_hpsync = test_background && GetPrivateProfileIntA("test", "no_hpsync", 0, ini) != 0;
+    if (test_no_hpsync)
+        logmsg("ents: hp changes without a hit are not sent ([test] no_hpsync=1)");
+    if (test_keep_attached)
+        logmsg("ents: mirrored enemies stay on their parent's bone ([test] keep_attached=1)");
     fire_ondie_orig = hook_code((BYTE *)FIRE_ONDIE_ADDR, fire_ondie_prologue, sizeof(fire_ondie_prologue),
                                 fire_ondie_hook);
     logmsg("death script hook %s", fire_ondie_orig ? "installed" : "NOT installed");
@@ -240,8 +259,23 @@ void ents_host_tick(void)
             gob_set_hp(gob, hp < 1 ? 1 : hp);
         }
         gob_netname(gob, name, sizeof(name));
+        e->hp_told = (short)gob_hp(gob);
         event_queue_spawn(TO_ALL, EV_SPAWN, id, gob_type(gob), gob_hp(gob), (float *)(gob + GOB_POSITION), name);
         logmsg("ent spawn %x %s type %d", id, name, gob_type(gob));
+    }
+
+    /* hp the game changed without a hit */
+    for (i = 0; i < nents; i++) {
+        struct ent *e = &ents[i];
+        char name[EV_NAME];
+        int hp;
+
+        if (test_no_hpsync || !gob_alive(e->gob) || !gob_is_actor(e->gob) || (hp = gob_hp(e->gob)) == e->hp_told)
+            continue;
+        gob_peername(e->gob, name, sizeof(name));
+        logmsg("ent %x hp %d -> %d without a hit: told to the clients", e->id, e->hp_told, hp);
+        e->hp_told = (short)hp;
+        event_queue_hpsync(name, hp);
     }
 
     /* snapshots: an enemy goes out when it changed, for ENT_SETTLE more ticks after that
@@ -287,6 +321,18 @@ void ents_host_tick(void)
     }
 }
 
+/* Host, lua.c: the clients were just told this enemy's hp in an APPLY */
+void ent_hp_told(BYTE *gob)
+{
+    int i;
+
+    for (i = 0; i < nents; i++)
+        if (ents[i].gob == gob) {
+            ents[i].hp_told = (short)gob_hp(gob);
+            return;
+        }
+}
+
 /* A player who has just joined: announce every enemy we already have */
 void ents_resend(int to)
 {
@@ -297,6 +343,7 @@ void ents_resend(int to)
         if (!gob_alive(ents[i].gob))
             continue;
         gob_netname(ents[i].gob, name, sizeof(name));
+        ents[i].hp_told = (short)gob_hp(ents[i].gob);
         event_queue_spawn(to, EV_SPAWN, ents[i].id, gob_type(ents[i].gob), gob_hp(ents[i].gob), (float *)(ents[i].gob + GOB_POSITION), name);
     }
     logmsg("ents: %d announced to player %d", nents, to + 1);
@@ -336,6 +383,21 @@ void ent_bind(unsigned int netid, BYTE *gob)
 }
 
 int test_no_ondie;              /* coop_test_noondie(1) (background test mode): the old bug, for tools/qa_sign.sh's MUTANT=noondie */
+
+/* Flying enemies (OBJ_TURRET with the 'manta' model; level 8's ship turret) are registered on a bone of an
+ * animated scenery model (a flock flying its loop, a ship), and while attached the engine puts them on that
+ * bone every frame, over the position the snapshots give. On the host their AI takes them off the flock to
+ * attack; a mirror never runs that AI, so it stayed on the client's own flock, up to 230 units from the host's.
+ * A mirror is placed by the host's snapshots alone: drop the attachment, keep the parent link. */
+static void ent_detach(BYTE *gob)
+{
+    WORD *flags = (WORD *)(gob + GOB_FLAGS);
+
+    if (test_keep_attached || !(*flags & GOB_BONE_ATTACHED))
+        return;
+    *flags &= (WORD)~GOB_BONE_ATTACHED;
+    logmsg("ent %s let go of its parent's bone %d", gob_name(gob), *(int *)(gob + GOB_BONE_SLOT));
+}
 
 void ent_despawn(unsigned int netid, int died)
 {
@@ -396,6 +458,7 @@ void ents_client_frame(void)
         }
         if (!gob || !e->track.n)
             continue;
+        ent_detach(gob);
         track_update(&e->track, host_clock_offset());
         gob_set_position(gob, e->track.view.pos[0], e->track.view.pos[1], e->track.view.pos[2]);
         memcpy(gob + GOB_ORIENTATION, e->track.view.quat, sizeof(e->track.view.quat));

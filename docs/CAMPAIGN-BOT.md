@@ -44,7 +44,19 @@ authoritative source is the installed game itself:
   which damage types they check. When stuck, the bot kills the live prerequisites of an opener near it
   (level 1 room 4: three enemies enable the lock) and triggers the opener with its damage type
   (`DAMAGE_SNIPER`: a sniper round; known shortcut: launched along Kurt's aim by `coop_test_sniper`,
-  as sniper mode's camera is not steered yet).
+  as sniper mode's camera is not steered yet). Openers that switch something on near the way
+  (level 4's sniper locks that raise platforms or start fans) count as well; each is set off once,
+  the nearest first, and one enabled by standing somewhere (`OnCollision`) is never shot at.
+- **Pickups are not objectives**: an item with an `OnDie` handler (level 3's BFB) is carried, not
+  shot; it had filled every stall of level 3. On Kurt's levels an objective the chaingun does not
+  break gets sniper rounds.
+- **Moved by the level**: when a script carries the hero off the planned room route (level 3 starts
+  with Doc moved 165 units after the intro), the route is planned again from where he is.
+- **Kurt's fans** (level 4's updrafts, `fan_ride`): when the way on is well above Kurt and a fan
+  (`OBJ_BLOWERCYLINDER`) stands below it, the bot snipes the lock that switches the fan on (a mined
+  `deps` opener whose handler `enables` it), walks to the column's edge, steps in with jump held so
+  the chute opens in the draft, keeps over the column's centre while rising and steers to the target
+  once above it.
 - **Kurt's chute and Max's jetpack**: drop links to landings far below (jump held in the air opens the
   chute); a fuelled jetpack lifts Max 38 units in 3 s of held jump, so fly links reach up to 34 units
   from under the open column's ceiling, and the bot picks up the jetpack and refuels first. Only a
@@ -59,6 +71,24 @@ authoritative source is the installed game itself:
   bay: refuel, burn up the open ring and then the centre column, drift 16 units off-centre so the
   hatch shuts under him, land, shoot the turrets, walk back to the centre to drop through the hatches,
   refuel. With every hatch unlocked one burn reaches the top (first pass: 342 s, 12 turrets).
+- **Kurt's blind drops** (`blind_drop`): when the way on lies far below and the scan shows no landing (an
+  object the line of sight misses, or beyond 300 units), the bot walks to the rims nearest the target
+  (reachable cells with an open side) and off them toward it with jump held, then scans again from the
+  landing. A rim the hero cannot reach (a wall in the way) is skipped, so the wall is broken instead. The
+  push toward the target holds the chute too: without it the hero walked off level 4's tunnel into a
+  175 unit shaft and died of the fall, in God mode.
+- **Curbs**: a step of up to 2 units onto a sloping cell that leads on to level ground counts as a jump
+  (`Nav.lip`; level 4's tunnel mouth, 58.9 then 60.6 then 61.7, was unreachable for the planner, and so
+  was the neck on the way to the fans), while a steady 40 degree slope is still not walked.
+- **Sniper locks the level watches itself** (`sniper_locks`): on Kurt's levels, locks with no handler in
+  the model (level 4's rising spheres under the vortex) get one sniper round each when the way on is above.
+- **A scan that finds almost nothing** (level 3's rooms have floors the line of sight does not see, so a
+  floor search from the hero's neighbours finds none) is repeated as a plane scan: the hero's height is
+  the floor and the walls are found by the chest-height probes (`coop.NavStart(..., plane)`, at most 6000
+  cells). It gives a rough map (20 cells became 98 on the walkway), not a reliable one.
+- **Notes the game could not move**: `coop_note` writes `note_<key>.tmp` and moves it over the `.txt`;
+  the move fails while the bot has the `.txt` open, leaving the newer text in the `.tmp` for good. A finished
+  scan then looked 'running' for the whole 15 minute scan timeout. `read_note` takes the newer of the two.
 - **Gunner** (`coop.GunnerOn`): the nearest enemy the hero can see is faced (with pitch) and shot;
   a target that loses no health in 3 s is left alone (out of reach, or line of sight through a gap the
   bullets do not pass).
@@ -95,6 +125,31 @@ What following a person's play needs beyond positions, learnt from the owner's l
   shaft's open centre line (at most three times per point).
 - **Every player plays the recording** in a squad, rather than chasing the leader on foot (Max's
   flights cannot be chased).
+- **Flights are flown at their recorded height**: points in the air, points risen to with jump held (a
+  jetpack hop onto room 9's first lift is only 2 units above the floor at its start, so it never counts
+  as air) and the landing after them go to the pilot's height hold (`coop.PilotGo` with `fly=2`:
+  thrust below the point's height, none above it, hovering over the point until level with it, also
+  while the gunner has the aim). A flight that fails (the hero fell, or stopped making progress) is
+  flown again from the last point walked, after refuelling at the nearest refueller in reach, at most
+  three times; a lift ride that leaves the hero on the floor goes back to the way onto the lift.
+- **Fuel**: the follower counts the jetpack's thrust (`coop.jet_ms`, reset at each refuel and at the
+  start, where a checkpoint past a refueller fills the tank) and refuels first when a flight's climb up
+  to its landing or the next refueller would run a part-used tank dry (about 10.5 s of thrust, some 15
+  units a second of climb). Refuellers the recording used are used the same way: stood on, or, for the
+  pumps hanging in room 9's shaft (the person tapped jump beside them), hovered by for six seconds.
+- **Falls are not lift rides**: a stretch with no jump held counts as a ride only at a lift's pace
+  (under 8 units a second); a fall down a shaft is several times faster.
+- **Kurt's glides**: a drop the recording made with jump held is walked with the chute (jump held in
+  the air); without Max's jetpack (level 2 before checkpoint 5) the recording's air is plain jumps.
+
+**Recording a level for the bot** (`tools/record_level.sh <level> [checkpoint]`): leases one game copy
+from the resource hook (like the test suites), installs the test build with the journal on, starts that
+checkpoint in front with sound for a person to play, waits until the game is closed, keeps the journal
+under `local/journal/<level>_<checkpoint>_<time>/` and turns it into `local/routes/seg_<level>_*.route`,
+then releases the copy (also when interrupted). Set `MDK2_BUILD=overhaul` and `MDK2_OVERHAUL_EXE` to
+record on the Overhaul build. Play on through as many checkpoints as you like; dying and reloading are
+fine (only the last attempt at each segment is kept). `tools/record_level.sh --convert <folder> [out]`
+only converts a journal folder.
 
 The owner's shaft climb also changed the bot's own play: one tank does a whole shaft when each level
 is landed on (the light's grate, then each closed hatch), thrust is cut once high enough and the hero
@@ -117,6 +172,10 @@ checkpoint 9 an empty tank could not reach room 9's first lift.
 - Background test games read `command.lua` every other frame (the driver's round trip), and a
   viewpoint search is one call in the game rather than one per candidate.
 - `tools/campaign_run.py` runs checkpoint-to-checkpoint segments in parallel, one pair of copies each.
+  A crash fails a segment (`tools/crashwatch.py` through `mdk.sh`'s guard: a new `dump%04i.dmp`, a
+  `coop/logs/*.crash` marker or the error dialog, which is closed and recorded every 20 s);
+  `--build overhaul` refuses copies of another build; `--timeout` caps each segment; each run writes
+  `report.md` with the build, the copies' save folder, where the leader stopped and its last words.
 - `tools/test_campaign_bot.py` checks the planner without the game (walking rules, landings,
   reachability, portal route).
 - Ideas not yet built: record a person's
@@ -242,7 +301,9 @@ later):
 - **Flying enemies drift on clients**, on four levels: mantas up to 231 units from the host's
   positions (levels 2, 4, 8), level 1's flyers up to 53, level 8's ship turret 50.
 - **An enemy dead only on the client**: level 4's `l4_r5grunt` with 60 hp on the host and 0 on the
-  client (two segments).
+  client (two segments). A replication gap, fixed: the host had brought the grunt back to 60 hp
+  without a hit and clients were only told hp in SPAWN and in the APPLY of a hit. The host now sends
+  an hp-only APPLY when an enemy's hp differs from what clients were told (`tools/qa_hpsync.sh`).
 - **Pickup counts differ** on the final levels (11 and 12): 7 against 4, 3 against 2.
 - **A puppet left behind**: on level 3 the client showed the host's puppet 997 units from the host.
 - **A client crash** on level 8 (checkpoint 6 to 7): access violation at `mdk2hd.exe+0x2a95` reading
@@ -253,39 +314,114 @@ later):
 - **A one-sided face in level 2's arena** blocks the engine's line of sight going south (not north);
   heroes walk across it both ways, so this is only a quirk for line-of-sight users (enemy AI included).
 
+**Jetpack findings (flight work in progress).** A full tank is about 10.5 s of thrust at `timescale` 1 but
+only about 5.5 s of game time at 2: fuel and climb are spent per frame, so flights are planned and tested
+at x1. Only a refueller within a few units fills the tank (measured away from one: no refill). A hero that
+lands on a ledge with the jump key still down does not take off again (the engine wants a new press): the
+pilot's height hold now lets go of the key for a tick when thrust does not move him. The follower's thrust
+estimate (`coop.jet_ms`) undercounts on a loaded machine (ticks are further apart than its 50 ms step); the
+owner's 5 to 6 recording uses 9.6 s of a 10.5 s tank, so a follower that wastes thrust on hovering or
+failed hops cannot repeat it on one fill.
+
 Seen by the per-step comparison of this round (level 2, 3 to 4, 3 and 4 players with roles, x1):
 
-- **Enemy health differs on clients while clients fight**: a turret or SAM spawn's hp is lower on every
-  client than on the host (host 38, clients 32 and 26; host 34, clients 16, 16 and 4; host 14, clients 8, 8
-  and 0; host 32, clients 20, 20 and 8). It appears in single steps (the next step compares equal),
-  and only in runs where the players fired at objectives (`--roles`): damage dealt on a client reaches
-  the client's copy first and the host's later. A client showing 0 for an enemy the host still has at 14
-  is the extreme. Each is reported as a finding (the tolerance table has no entry for it) and is gone
-  by the next step: transient, not a lasting difference.
-- **A spawned enemy only on clients**: `ne003d` / `na0407` (type 201), present on every client and gone
-  on the host, at one step each (both runs with roles). Not seen again at the next step.
+- **Enemy health and extra enemies on clients** seen in single steps of these runs (a turret or SAM spawn's hp
+  lower on every client; type 201 enemies only on clients) were dump skew, explained below.
 - **Revive under fire fails** (no-God 3 to 4, run 3): the reviver reached the body but was downed before
   the 3 s of R, and the downed player bled out. The mod works as designed; this is what a player sees.
 - No world difference lasted to a segment's end in any 3 or 4 player run besides the known flying-enemy
   drift (mantas 17 to 36 units apart on the clients at the end of the last 4 player run).
 
+### Level 2 (3 to 4) per-step mismatches: dump skew, not co-op bugs
+
+The bot's per-step comparison reported `type 201` / `217` enemies "on the client, gone on the host" and
+turrets / SAM spawns with a lower hp on the clients (host 14 against 0; 34 against 16, 16, 4). Cause,
+from the bridge logs of runs 20261031-065804, -081843, -083108 and -084429: the games dump one after
+another (host first, then each client, hundreds of ms apart), and a fight or a spawner moves the host's world in
+between.
+- hp: client 4's own log in run -083108 holds the host's hp sequence for the SAM spawn exactly
+  (44, 38, 34, 28, 24, 18, 14, 8, 4, 0); the host dumped at 14, the clients' dumps came 2 to 3 hits later (8, 8, 0), after the retry's host dump too. The client is
+  always the lower one because it dumps last (client <= host in all 27 per-step hp findings of the 2026-10-31 runs).
+- extra enemy: the host's `ent spawn` line comes after its own dump in all of -065804 (`e003d`), -081843 (`a0407`),
+  -083108 (`c040d`); the clients bound it before their dump. In -084429 (`103fc`) the host's dump read `ent 103fc gone`
+  (corpse removed, DESPAWN sent at the next tick, 100 ms later) while the client's dump came before the DESPAWN arrived.
+- fix: `statecheck.py --after` takes a second host dump written once the clients' are; a client value only fails
+  outside what the host held in between (hp between the two, position on the path, enemy made or removed in between).
+  `campaign_bot.compare_worlds` dumps the host again after the clients. A client stuck at 0 while the host holds 60 still fails.
+
 ## Status
 
-Level 2 on the Overhaul build, God mode on. The owner played all of level 2 with the journal on, and
-the bot follows those routes in two-player squads: 1→2, 3→4, 5→6 (55 s), 7→8 and 8→9 pass, and 4→5 is
-traversed (worlds differ only by the known flying-enemy drift). 2→3, 6→7 and 9→10 still fail on
-stretches the person flew or glided; flying those airborne points at their recorded height is the
-newest change and is not yet tested. On its own, without a recording, the bot passes 3→4, 5→6
-(252 s), 7→8 and 8→9. Not yet: levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies,
-combat damage to the hero.
+This file is the integrated status of the worker branches (flight and chaining, levels 3 and 4,
+co-op checks, flying-enemy drift, the second host dump and the hp-only APPLY fix) merged onto the campaign-bot branch. Evidence paths below are
+under `local/` (ignored), from each branch's own runs; the integrated tree has been checked with
+the game-free gates and a short live smoke (see the last section).
 
-Co-op checks at the branch tip (all on level 2, Overhaul build, x1): the per-step comparison and its
-desync mutant, the crash watch and its crash mutant, the no-God care on 7 to 8 (three runs), the revive
-with its mutants (down passes, down-stay fails), and roles with three and four players on 3 to 4 (both
-PASS, regroup checked) are shown live. The no-God series passes on 8 to 9 with the run tactic (three of three) and
-fails on 3 to 4 (room 3's gauntlet; the sprint reaches the goal's last stretch at hp 3, see the Co-op section); 5 to 6 still fails with God mode too (the flight code is another job's). The 3 and 4
-player runs are on 3 to 4, which has eight objectives at the goal's height (alerts, a door lock, walls),
-because 5 to 6 does not pass. Found and fixed on the way: the care loop could not read the leader's
-position while the leader's pilot held the command file, so a downed player got no reviver for 30 s and
-bled out (it keeps each game's last reading); the regroup did not send the leader; `world_ok` at a
-segment's end counted known flying-enemy drift as a difference.
+**What exists**
+- The bot, the planner and the pilot/follower (see the sections above), `tools/campaign_run.py`
+  (parallel segments, `--chain` to play consecutive segments in one pair of games, `--timeout`,
+  `--build overhaul`, `--explore` (alias `--no-routes`), `--no-god`, `--roles`, `--timescale`,
+  `--repeat`, `--mutant desync|crash|down|down-stay`, `CAMPAIGN_IDLE`), crash fail-through
+  (`tools/crashwatch.py`), `report.md` per run, `tools/record_level.sh` (record a person's play of a
+  level), `tools/campaign_coop.py` (per-step world comparison, lives, care, roles), and
+  `tools/qa_flyers.sh` with `tools/flyers_check.py` (the flying-enemy gate, with its `MUTANT=attached`).
+- The client no longer keeps mirrored flying enemies on their parent's bone (see
+  `docs/RELEASE-NOTES-flying-enemies.md`): the "flying enemies drift on clients" finding below
+  predates that fix. `campaign_coop.KNOWN` still lists flyer drift as known, so a regression of the
+  fix would not be reported by the bot's comparison; `tools/qa_flyers.sh` is the gate for it.
+
+**Proven live (God mode, Overhaul build)**
+- Level 2, following the owner's recordings, two-player squads: 1→2, 3→4, 5→6 (55 s), 7→8 and 8→9
+  pass; 4→5 is traversed (worlds differ only by flyer drift, measured before the drift fix).
+  2→3, 6→7 and 9→10 fail on stretches the person flew or glided. The pilot's height hold (`fly=2`)
+  hovers within about 1.5 units of a height. The follower has not passed 6→7 or 9→10 with it: in
+  room 9 the one tank given at the checkpoint start runs out on failed hops between the lifts, and
+  no jetpack fuel readout is found yet. A later change (the hold lets go of the jump key when
+  thrust does not move the hero, a ledge landing needs a new press) is from the branch that found
+  the 5→6 stall.
+- Level 2, the bot's own play: 3→4, 5→6 (252 s), 7→8 and 8→9. At the co-op branch's tip the owner's
+  recording of 5→6 fails (both players stop under the shaft) and the bot's own 5→6 failed at x1
+  (`local/campaign/runs/20261030-233117/run1/2-5-6`).
+- Levels 3 and 4 on the bot's own, third run (full table in the run's `report.md`; two players, God on):
+  passing are 3:1→2, 3:2→3, 3:3→4 (the plane scan), 3:4→5 (timing dependent), 3:10→11 (trivial),
+  4:1→2, 4:2→3 (362 s: the tunnel plug sniped, the tunnel walked, the 175 unit shaft dropped with the
+  chute held, the room's generator killed), 4:3→4, 4:6→7 (131 s), 4:8→9 (1069 s, needs a 1200 s
+  limit) and 4:9→10. Worlds matched at the end of every one (L3 13 enemies, L4 48 to 53 compared).
+  Held up by something the bot does not do yet: 3:5→6 (the elevator at (17,34) is not entered),
+  3:6→16 to 3:9→10 (walkway, slide, Doc's items, the spacewalk; the plane scan only gives a rough
+  map there), 4:4→5 (the neck is passed, then the platforms: the lock chain l4_blowlock02 → blower02
+  is sniped from the pit and misses), 4:5→6 (the vortex: the three spheres are hit, the fans lift
+  Kurt 17 units at a time, the target is 138 higher), 4:7→8 (the exit door of the arena does not
+  open), 4:10→11 (the pit's lock hit without a draft) and 4:11→14 (a generator no reachable place
+  sees). The owner's level 3 journals hold no play (the hero stands still), so they give no routes.
+- Co-op: the per-step comparison and its desync mutant (level 2, 5→6, x2), the crash watch and its
+  crash mutant (level 2, 7→8), the no-God care on 7→8 (three runs at x1) and the revive with the
+  `down` / `down-stay` mutants (`local/campaign/runs/20261030-234947`). The care loop keeps each
+  game's last reading, so a busy leader no longer stops a revive.
+- Flying enemies on clients: `tools/qa_flyers.sh` measured at most 97.0 units of drift with the old
+  behaviour (mutant `attached`) and at most 3.3 with the fix (91.8 and 9.0 at x2).
+
+- Roles with three and four players (level 2, 3→4, x1, Overhaul build): both PASS with the regroup
+  checked. 3→4 was used because 5→6 does not pass; it has eight objectives at the goal's height
+  (alerts, a door lock, walls). The no-God series fails on 3→4 (the bot cannot yet survive room 3's
+  turrets) and 8→9 (the route is lost without God mode, reason unknown); 5→6 still fails with God.
+- Fixed on the way: the care loop could not read the leader's position while the leader's pilot held
+  the command file, so a downed player got no reviver for 30 s and bled out (it keeps each game's last
+  reading); the regroup did not send the leader; `world_ok` at a segment's end counted known
+  flying-enemy drift as a difference.
+- World comparison against a second host dump (`statecheck.py --after`, taken once the clients' are
+  written): hp, position and spawn differences that the host's own world passed through in between are
+  dump skew, not co-op bugs; `tools/qa_hpsync.sh` (with its `nosync` mutant) gates the hp-only APPLY fix
+  for the silent host hp refill. See the per-step mismatches section above.
+
+**Not yet**
+- The no-God series on 3→4 (the sprint reaches the last stretch at hp 3) and 5→6; 5→6 itself at x1.
+- Levels 5 to 12 beyond the survey, Doc's items, sniper locks that need long chains, bosses,
+  minigames, movies, combat damage to the hero.
+
+**Integrated-tree smoke (second merge round, Overhaul build, x1, God on, two players)**
+- `campaign_run.py --level 2 --segments 3-4`: PASS in 401 s (244 of 244 points, worlds equal, no findings, no crash).
+- `tools/qa_hpsync.sh`: 4 passed (players 405 units apart); with `MUTANT=nosync` it fails (client keeps hp 97
+  against the host's 33 and 61).
+- `tools/qa_flyers.sh`: 3 passed, flyer drift at most 5.5 units.
+- Game-free: `tools/test_campaign_bot.py`, `tools/test_lua31.sh`, `tests/flyers_check_test.py` and
+  `qa_all.py offline` pass.

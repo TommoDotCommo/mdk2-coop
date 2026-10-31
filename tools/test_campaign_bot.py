@@ -118,6 +118,162 @@ pts = bot.route_waypoints(frames)
 check('a lift ride is followed by waiting, the walk after it is not',
       any(p['ride'] for p in pts if p['pos'][2] < 11) and not any(p['ride'] for p in pts if p['pos'][0] > 1))
 
+
+# Following flights (level 2 rooms 6 and 9, from the owner's recordings). Each rule below has a mutant,
+# a broken copy of the rule that the same checks must catch.
+def flight_rules(b, quiet=False):
+    """The flight-following rules' checks against module b: [(label, ok)]."""
+    out = []
+    # room 9: walk to a lift platform 6 units above the floor, a jetpack hop onto it (jump held, never
+    # 2 units above the last ground: not "air"), stand, ride it up slowly, then a 20 unit fall back down
+    fr = [(k * 100, {17}, 2, 9, (0.3 * k, 0.0, 0.0)) for k in range(20)]
+    fr += [(2000 + k * 100, {17, 57}, 2, 9, (6.0 + 0.3 * k, 0.0, min(1.9, 0.4 * k) + max(0, k - 5) * 0.8))
+           for k in range(10)]
+    fr += [(3000 + k * 100, set(), 2, 9, (9.0, 0.0, 6.0)) for k in range(20)]
+    fr += [(5000 + k * 100, set(), 2, 9, (9.0, 0.0, 6.0 + 0.4 * k)) for k in range(50)]
+    fr += [(10000 + k * 100, set(), 2, 9, (9.0, 0.0, 26.0 - 2.5 * min(k, 8))) for k in range(20)]
+    fr += [(12000 + k * 100, {17}, 2, 9, (9.0 + 0.3 * k, 0.0, 6.0)) for k in range(40)]
+    pts = b.route_waypoints(fr)
+    fly = b.flown(pts)
+    hop = [k for k, p in enumerate(pts) if 57 in p['keys'] and p['pos'][2] > 1]
+    land = next(k for k, p in enumerate(pts) if p['pos'][2] >= 5.9 and k not in hop)
+    out.append(('a jetpack hop onto a lift is flown at its height, landing included',
+                hop and all(k in fly for k in hop) and land in fly))
+    out.append(('the walk to the hop is not flown', not any(k in fly for k, p in enumerate(pts) if p['pos'][0] < 5.5)))
+    out.append(('the walk after a landing is not flown', not any(k in fly for k, p in enumerate(pts) if p['pos'][0] > 11)))
+    out.append(('a slow lift ride is a ride, a fall down the shaft is not',
+                any(p['ride'] for p in pts if 6.5 < p['pos'][2] < 25.5 and p['ms'] < 10000)
+                and not any(p['ride'] for p in pts if 10000 < p['ms'] < 12000)))
+    out.append(('a failed flight is tried again from the last point walked',
+                b.stretch_start(pts, fly, max(hop)) == min(hop) - 1))
+    # refuellers: one on a floor stood on, one hanging in a shaft hovered beside (jump tapped)
+    floor = {'name': 'f', 'pos': [0.0, 0.0, 0.0]}
+    pump = {'name': 'p', 'pos': [0.0, 0.0, 50.0]}
+    stand = [{'pos': (0.5, 0.0, 0.0), 'keys': [], 'air': False}]
+    hover = [{'pos': (1.0, 0.0, 52.0 + k % 3), 'keys': [57] if k % 2 else [], 'air': bool(k % 2)} for k in range(6)]
+    out.append(('a refueller on a floor is stood on, a pump in a shaft is hovered by',
+                b.refuel_mode(stand, floor) == 'stand' and b.refuel_mode(hover, pump) == 'hover'
+                and b.refuel_mode(stand, pump) is None))
+    # fuel: a 120 unit climb (8 s of thrust) after 5 s used runs dry; a fresh tank goes; a pump on the way
+    climb = [{'pos': (0.0, 0.0, 3.0 * k), 'keys': [57], 'air': k > 0} for k in range(41)]
+    cfly = set(range(1, 41))
+    out.append(('a long climb on a part-used tank refuels first, a fresh tank goes',
+                b.needs_fuel(5000, climb, cfly, 1) and not b.needs_fuel(0, climb, cfly, 1)))
+    out.append(('a refueller on the way counts as the end of a climb',
+                not b.needs_fuel(5000, climb, cfly, 1, pads=[(0.0, 0.0, 30.0)])))
+    return out
+
+
+results = flight_rules(bot)
+for label, ok in results:
+    check(label, ok)
+
+# mutants: each must make at least one check fail
+import types
+real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED')}
+mutants = {
+    'only "air" points are flown (the hop onto a lift is walked)':
+        dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
+    'every point after a landing counts as the landing':
+        dict(flown=lambda pts: (lambda f: f | {k for k in range(min(f, default=len(pts)), len(pts))})(real['flown'](pts))),
+    'falls count as lift rides (no speed limit)': dict(LIFT_SPEED=1e9),
+    'every refueller is stood on': dict(refuel_mode=lambda pts, pad, reach=5.0: 'stand'),
+    'refuellers on the way are ignored':
+        dict(needs_fuel=lambda used, pts, fly, i, pads=(), **k: real['needs_fuel'](used, pts, fly, i)),
+    'a failed flight is retried from where it failed': dict(stretch_start=lambda pts, fly, i: i),
+}
+for name, patch in mutants.items():
+    for n, v in patch.items():
+        setattr(bot, n, v)
+    bad = [label for label, ok in flight_rules(bot) if not ok]
+    for n, v in real.items():
+        setattr(bot, n, v)
+    check(f'mutant caught: {name}', bool(bad))
+
+# Objectives: a pickup with an OnDie handler (level 3's BFB) is not something to shoot at.
+lv = bot.Level.__new__(bot.Level)
+lv.m = {'objects': [{'name': 'bfb', 'type': 'OBJ_BFB', 'pos': [5, 0, 0]},
+                    {'name': 'gen', 'type': 'OBJ_DOGANBOYGENERATOR', 'pos': [30, 0, 0]},
+                    {'name': 'wall', 'type': 'OBJ_DESTRUCTABLE', 'pos': [10, 0, 0]}],
+        'events': {'bfb': ['OnDie'], 'wall': ['OnDie']}, 'pickups': [{'name': 'bfb', 'type': 'OBJ_BFB'}]}
+check('a pickup is never an objective, the wall and the generator are',
+      [o['name'] for o in bot.objectives(lv, [0, 0, 0])] == ['wall', 'gen'])
+# Off the route: the level carried the hero away (level 3's start) against a walk along the route.
+check('a hero carried into a room off the route is replanned',
+      bot.off_route(level, [{'room': 'b'}, {'room': 'c'}], [2, 5, 1], [60, 50, 1]))
+check('a hero who walked along the route is not',
+      not bot.off_route(level, [{'room': 'b'}, {'room': 'c'}], [2, 5, 1], [28, 5, 1])
+      and not bot.off_route(level, [{'room': 'b'}], [2, 5, 1], [8, 5, 1]))
+# Kurt's fans: the one under the way up is chosen, not one off to the side or above the target.
+lv.m['objects'] = [{'name': 'fan_far', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [300, 0, 0]},
+                   {'name': 'fan_above', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [10, 0, 90]},
+                   {'name': 'fan_side', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [40, 30, 0]},
+                   {'name': 'fan_under', 'type': 'OBJ_BLOWERCYLINDER', 'pos': [10, -25, -90]}]
+check('a fan below the target and near both ends is ridden, nearest the target first',
+      [o['name'] for o in bot.fans_toward(lv, [0, 0, 0], [10, -30, 60])] == ['fan_under', 'fan_side'])
+# Script chains: a sniper lock that raises a platform near the way on is an opener to set off; one
+# already set off, or a handler the level runs by itself, is not.
+lv.rooms = {}
+lv.m['objects'] = [{'name': 'lock0', 'type': 'OBJ_SNIPERDOOR1', 'pos': [20, 0, 0]},
+                   {'name': 'plat0', 'type': 'OBJ_SCENERY', 'pos': [30, 0, 0]},
+                   {'name': 'lock1', 'type': 'OBJ_SNIPERDOOR1', 'pos': [5, 0, 0]},
+                   {'name': 'plat1', 'type': 'OBJ_SCENERY', 'pos': [40, 0, 0]},
+                   {'name': 'far', 'type': 'OBJ_SNIPERDOOR1', 'pos': [500, 0, 0]},
+                   {'name': 'door', 'type': 'OBJ_PROXDOOR1', 'pos': [600, 0, 0]}]
+sn = {'opens': [], 'enables': [], 'damage': ['DAMAGE_SNIPER']}
+lv.m['deps'] = {'lock0': {'OnDamage': dict(sn, enables=['plat0'])}, 'lock1': {'OnDamage': dict(sn, enables=['plat1'])},
+                'far': {'OnDamage': dict(sn, opens=['door'])}, 'plat0': {'OnCreate': dict(sn, enables=['plat1'])}}
+check('sniper locks that switch on platforms near the way are set off, nearest first, once',
+      [o for o, _, _ in bot.chain_openers(lv, [0, 0, 0], [50, 0, 0])] == ['lock1', 'lock0']
+      and [o for o, _, _ in bot.chain_openers(lv, [0, 0, 0], [50, 0, 0], {'lock1'})] == ['lock0'])
+# Kurt's blind drops: a plateau 11 by 11 cells; the landing far below is not scanned. The rims are its
+# edge cells (never the middle, even when the target is straight under it), nearest the target first.
+pl = grid({(i, j): 60.0 for i in range(11) for j in range(11)})
+rims = bot.drop_rims(pl, [10, 10, 60], [40, 10, -73])
+check('blind drops start at the plateau edge nearest the target, a few cells apart',
+      rims and abs(rims[0][0] - 20.0) < 1e-6 and all(r[0] in (0.0, 20.0) or r[1] in (0.0, 20.0) for r in rims)
+      and all(math.dist(a[:2], b[:2]) >= 12 for a in rims for b in rims if a is not b))
+under = bot.drop_rims(pl, [10, 10, 60], [10, 10, -73])
+check('a target straight under the plateau drops off its edge, not from the middle',
+      under and all(r[0] in (0.0, 20.0) or r[1] in (0.0, 20.0) for r in under))
+lv4file = Path(__file__).resolve().parents[1] / 'local' / 'campaign' / 'level4.json'
+if lv4file.exists():
+    lv4 = bot.Level(lv4file)
+    below = [1137.0, -348.0, -102.0]
+    check('a hero below every room box is planned from the nearest room, not a crash',
+          lv4.room_of(below) is None and lv4.path(below, [1117.0, -545.0, 252.0])[1])
+# sniper locks nothing in the model reacts to (the vortex room's spheres), near the hero, once each
+lv.m['objects'] = [{'name': 'ball0', 'type': 'OBJ_SNIPERDOOR1', 'pos': [0, 0, -40]},
+                   {'name': 'ball1', 'type': 'OBJ_SNIPERDOOR1', 'pos': [30, 0, -40]},
+                   {'name': 'lockA', 'type': 'OBJ_SNIPERDOOR1', 'pos': [5, 0, -40]},
+                   {'name': 'farball', 'type': 'OBJ_SNIPERDOOR1', 'pos': [500, 0, -40]}]
+lv.m['deps'] = {'lockA': {'OnDamage': {'opens': ['door'], 'enables': [], 'damage': ['DAMAGE_SNIPER']}}}
+check('script-watched sniper locks near the hero are listed nearest first, not the ones with a chain or far off',
+      [o['name'] for o in bot.sniper_locks(lv, [0, 0, 0])] == ['ball0', 'ball1']
+      and [o['name'] for o in bot.sniper_locks(lv, [0, 0, 0], done={'ball0'})] == ['ball1'])
+# a tunnel's mouth: a 1.7 step onto a slope that leads on to level ground (level 4 room 1's tunnel was
+# the way to room 2 and the planner called it unreachable); a plain 1.7 step onto a slope with no level
+# ground beyond it, and a 3 unit rise onto a slope, are still not walked
+mouth = grid({(0, 0): 58.9, (1, 0): 58.9, (2, 0): 60.6, (3, 0): 61.7, (4, 0): 61.7, (5, 0): 61.7,
+              (0, 1): 58.9, (1, 1): 58.9, (2, 1): 60.8, (3, 1): 61.9, (4, 1): 61.7, (5, 1): 61.7})
+check('a curb onto a slope that leads to level ground is a jump', mouth.path([0, 0, 58.9], [10, 0, 61.7]) is not None)
+ramp = grid({(i, 0): 58.9 + 1.7 * max(0, i - 1) for i in range(6)} | {(i, 1): 58.9 + 1.7 * max(0, i - 1) for i in range(6)})
+check('a steady 40 degree slope is not walked', ramp.path([0, 0, 58.9], [10, 0, 66.0]) is None)
+# the game moves note_<key>.tmp over note_<key>.txt; the move fails while the bot has the .txt open, and
+# the newer text then stays in the .tmp (a scan 'done' that never showed: a 15 minute wait)
+import os
+import tempfile
+with tempfile.TemporaryDirectory() as td:
+    txt, tmp = Path(td) / 'note_nav_state.txt', Path(td) / 'note_nav_state.tmp'
+    check('a note not written yet reads as None', bot.read_note(txt) is None)
+    txt.write_text('running')
+    check('a note is its .txt', bot.read_note(txt) == 'running')
+    tmp.write_text('done 22849 115')
+    os.utime(txt, ns=(1, 1))
+    check('a newer .tmp left by a failed move is the note', bot.read_note(txt) == 'done 22849 115')
+    os.utime(tmp, ns=(1, 1))
+    os.utime(txt, ns=(2, 2))
+    check('an older .tmp is not', bot.read_note(txt) == 'running')
 # Co-op (tools/campaign_coop.py): the world comparison's tolerance table, lives, revives and roles.
 import campaign_coop as cc
 report = """warn  enemy 1f l2_r6gen00 (type 511) not bound on the client yet
@@ -228,4 +384,53 @@ with tempfile.TemporaryDirectory() as tmp:
     (crash / 'dump0001.dmp').write_bytes(b'MDMP not really')
     lines = [l for l in cr.crash_lines(env) if l.startswith('CRASH')]
     check('a new dump%04i.dmp of a copy is a CRASH with its path', len(lines) == 1 and 'dump0001.dmp' in lines[0])
-print('34 passed, 0 failed')
+# World comparison with a second host dump (tools/statecheck.py --after): dumps are taken one game after another, so a
+# fight or a spawn moves the host's world between the host's and a client's. Evidence: the campaign survey's level 2
+# runs showed the client lower on hp (the client dumped after more hits), an enemy "extra" on the client (the host made
+# it after its dump) and one the host had removed (its DESPAWN still on the way). Real mismatches must still fail.
+HEADER = 'role {role}\nlevel 2\nme {me}\nlife 0\n'
+
+
+def dump(role, ents, me=None):
+    text = HEADER.format(role=role, me=me or (1 if role == 'host' else 2))
+    # one hero each, far apart, and the other's puppet where that hero stands
+    text += 'player 1 100 0 0 0\npuppet 2 500 0 0\n' if role == 'host' else 'player 1 100 500 0 0\npuppet 1 0 0 0\n'
+    for nid, spec in ents.items():
+        text += f'ent {nid} {spec}\n' if spec == 'gone' else 'ent {} {} {} {} {} {} {}\n'.format(nid, *spec)
+    return text
+
+
+def statecheck(host, client, post=None):
+    with tempfile.TemporaryDirectory() as t:
+        names = []
+        for i, text in enumerate((host, client) + ((post,) if post else ())):
+            f = Path(t) / f'd{i}.txt'
+            f.write_text(text)
+            names.append(str(f))
+        args = names[:2] + (['--after', names[2]] if post else [])
+        r = subprocess.run([sys.executable, str(Path(__file__).with_name('statecheck.py')), *args], capture_output=True, text=True)
+        return r.returncode, r.stdout
+
+
+sam = lambda hp, x=0.0: (201, hp, x, 0.0, 0.0, 'sam')
+rc, out = statecheck(dump('host', {'a': sam(14)}), dump('client', {'a': sam(0)}))
+check('statecheck without --after: client hp 0 against 14 fails', rc == 1 and 'hp 14 on host, 0 on client' in out)
+rc, out = statecheck(dump('host', {'a': sam(14)}), dump('client', {'a': sam(0)}), dump('host', {'a': sam(0)}))
+check('statecheck --after: client hp the host reached in between passes', rc == 0 and 'went on to 0' in out)
+rc, out = statecheck(dump('host', {'a': sam(14)}), dump('client', {'a': sam(30)}), dump('host', {'a': sam(0)}))
+check('statecheck --after: client hp above what the host ever had fails', rc == 1)
+rc, out = statecheck(dump('host', {'a': sam(60)}), dump('client', {'a': sam(0)}), dump('host', {'a': sam(60)}))
+check('statecheck --after: a client stuck at 0 while the host stays at 60 fails (the silent refill)', rc == 1)
+rc, out = statecheck(dump('host', {}), dump('client', {'b': sam(50)}), dump('host', {'b': sam(50)}))
+check('statecheck --after: an enemy the host made after its first dump passes', rc == 0 and 'made it after' in out)
+rc, out = statecheck(dump('host', {}), dump('client', {'b': sam(50)}), dump('host', {}))
+check('statecheck --after: an enemy the host never had still fails', rc == 1)
+rc, out = statecheck(dump('host', {'c': 'gone'}), dump('client', {'c': sam(0)}), dump('host', {}))
+check('statecheck --after: a removed enemy whose DESPAWN is on the way passes', rc == 0 and 'DESPAWN is on the way' in out)
+rc, out = statecheck(dump('host', {'c': 'gone'}), dump('client', {'c': sam(0)}), dump('host', {'c': 'gone'}))
+check('statecheck --after: an enemy the host keeps "gone" without removing it fails', rc == 1)
+rc, out = statecheck(dump('host', {'m': sam(40, 0.0)}), dump('client', {'m': sam(40, 9.0)}), dump('host', {'m': sam(40, 10.0)}))
+check('statecheck --after: a mover on the host\'s path between the dumps passes', rc == 0 and 'apart' not in out)
+rc, out = statecheck(dump('host', {'m': sam(40, 0.0)}), dump('client', {'m': sam(40, 60.0)}), dump('host', {'m': sam(40, 10.0)}))
+check('statecheck --after: a mover off the host\'s path still fails', rc == 1)
+print('all checks passed')
