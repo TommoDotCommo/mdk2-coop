@@ -299,6 +299,10 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
     follower thread had died of an `IndexError` after a wipe reload (the traceback was not logged then; it
     is now, and the follower falls back to chasing the leader), leaving it 73 units from the goal
     (`.../20261031-133614/run1`).
+    Then three more runs with the traceback logging, all PASS (`.../20261031-134806/run{1,2,3}`:
+    185, 163 and 244 s wall, downs 0, 0 and 2, revives 0, 0 and 2, deaths 0, regroup in 3, 4 and 3 s,
+    0 world findings): three players on 8 to 9 pass 4 of 5 runs since the reviver fix, and the one
+    `IndexError` has not recurred (it came after a wipe reload; none of these runs had one).
 - **Roles** (`--roles`): when a step has several objectives at the goal's height (level 2, 3 to 4: eight
   alerts, a door lock and walls; 5 to 6: two generators), the leader keeps its route and the next
   players each take another objective (aimed fire), then everyone regroups within 15 units of the
@@ -460,7 +464,7 @@ the game-free gates and a short live smoke (see the last section).
 **Not yet**
 - The no-God series on 3→4 passed once in six runs (the gauntlet's missiles wipe the squad; see the Co-op
   section) and was not run on 5→6 (5→6 does not pass with God mode: the flight code). 7→8 (3 of 3) and 8→9
-  (run tactic, 3 of 3 with two players) pass without God mode; three players on 8→9 passed 1 of 2 (the regroup
+  (run tactic, 3 of 3 with two players) pass without God mode; three players on 8→9 passed 4 of 5 (the regroup
   failed once on a follower thread's `IndexError`, traceback now logged).
 - Levels 5 to 12 beyond the survey, Doc's items, sniper locks that need long chains, bosses,
   minigames, movies, combat damage to the hero.
