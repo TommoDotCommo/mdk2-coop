@@ -4,6 +4,8 @@
  * handler another player triggered has to be run here too:
  *   - a pickup: the other game removes its copy of the item, but the item's OnPickedUp (pickups.c) never ran
  *   - entering a room: the room's OnEnterRoom (rooms.c) ran for the player who entered, not for the others
+ *   - using an item: the room's OnItemUsed (coop.ItemUsedWrap) ran for the player who used it, so the puzzle it
+ *     advances (level 3's leak: water flag and the cord it spawns) never moved for the others
  * Lua (coop.HandlerTick) grants pickups locally before running their handlers for our player;
  * room handlers run with the other player's puppet as "the player"
  * (mdkGetPlayerGob), because some handlers act on the player. A handler that locks a door behind the one who
@@ -18,7 +20,7 @@
 static struct pending {
     char name[EV_NAME];
     char event[16];
-    int slot, arg, kill;
+    int slot, arg, arg2, kill;
 } pend[PEND];
 static unsigned int pend_head, pend_tail;
 static unsigned int puzzle_state;
@@ -29,6 +31,11 @@ static unsigned int puzzle_state;
 int test_no_remote;         /* coop_test_noremote(1) (background test mode): queue nothing: the old behaviour, for tools/qa_remote.sh */
 
 void remote_queue(const char *name, const char *event, int slot, int arg, int kill)
+{
+    remote_queue2(name, event, slot, arg, 0, kill);
+}
+
+void remote_queue2(const char *name, const char *event, int slot, int arg, int arg2, int kill)
 {
     struct pending *p;
 
@@ -49,13 +56,21 @@ void remote_queue(const char *name, const char *event, int slot, int arg, int ki
     snprintf(p->event, sizeof(p->event), "%s", event);
     p->slot = slot;
     p->arg = arg;
+    p->arg2 = arg2;
     p->kill = kill;
 }
+
+/* Host: the item uses of this level, for a player who joins later (the scripts' puzzle state is not synced) */
+#define MAX_USED 16
+static struct { char name[EV_NAME]; int left, right; } used[MAX_USED];
+static int nused;
+int test_no_itemused;       /* coop.ini [test] no_itemused=1 (background test mode): the old bug, for tools/qa_itemused.sh's MUTANT=noitemused */
 
 void remote_reset(void)
 {
     pend_head = pend_tail = 0;
     puzzle_state = 0;
+    nused = 0;
 }
 
 static double num_param_remote(int n)
@@ -88,9 +103,57 @@ static void l_coop_puzzle(void)
     puzzle_send(index, role_host ? TO_ALL : 0);
 }
 
+static void itemused_send(const char *name, int left, int right, int to)
+{
+    struct event e;
+    event_init(&e, EV_ITEMUSED);
+    snprintf(e.name, sizeof(e.name), "%s", name);
+    e.type = left;
+    e.damage = (short)right;
+    event_send(&e, to);
+}
+
+/* coop_itemused(name, left, right): our player used `left` on `right` (OBJ types) and the room/gob `name` has an
+ * OnItemUsed handler that just ran here; tell the others so theirs runs too */
+static void l_coop_itemused(void)
+{
+    long len;
+    const char *name = luaL_check_lstr(1, &len);
+    int left = (int)num_param_remote(2), right = (int)num_param_remote(3);
+
+    if (test_no_itemused || !have_remote)
+        return;
+    if (role_host && nused < MAX_USED) {
+        snprintf(used[nused].name, EV_NAME, "%s", name);
+        used[nused].left = left;
+        used[nused++].right = right;
+    }
+    itemused_send(name, left, right, role_host ? TO_ALL : 0);
+}
+
+void itemused_event(const struct event *e, int from)
+{
+    if (test_no_itemused)
+        return;
+    if (role_host) {
+        if (nused < MAX_USED) {
+            snprintf(used[nused].name, EV_NAME, "%s", e->name);
+            used[nused].left = e->type;
+            used[nused++].right = e->damage;
+        }
+        event_relay(e, from);
+    } else if (from != 0)
+        return;
+    logmsg("player %d used item %d on %d at %s: running its OnItemUsed here too", from + 1, e->type, e->damage, e->name);
+    remote_queue2(e->name, "OnItemUsed", from, e->type, e->damage, 0);
+}
+
 void puzzle_resend(int to)
 {
     int i;
+
+    for (i = 0; i < nused; i++)
+        itemused_send(used[i].name, used[i].left, used[i].right, to);
     if (role_host && (cur_level == 1 || cur_level == 2))
         for (i = 1; i <= 4; i++)
             if (puzzle_state & (1u << i))
@@ -112,7 +175,7 @@ void puzzle_event(const struct event *e, int from)
     remote_queue(name, "CoopDome", from, e->type, 3);
 }
 
-/* coop_next_handler() -> name, event, slot, arg, kill; nil when the queue is empty */
+/* coop_next_handler() -> name, event, slot, arg, kill, arg2; nil when the queue is empty */
 static void l_coop_next_handler(void)
 {
     struct pending *p;
@@ -127,6 +190,7 @@ static void l_coop_next_handler(void)
     lua_pushnumber(p->slot);
     lua_pushnumber(p->arg);
     lua_pushnumber(p->kill);
+    lua_pushnumber(p->arg2);
 }
 
 /* coop_pickup_finish(name): the handler has run: remove the item here */
@@ -157,6 +221,22 @@ static void l_coop_door_locked(void)
     BYTE *gob = tolua_getusertype(1, NULL);
 
     lua_pushnumber(gob_alive(gob) ? door_locked(gob) : -1);
+}
+
+/* coop_door_open(door) -> 1 if that proximity door is open (tests) */
+static void l_coop_door_open(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL);
+
+    lua_pushnumber(gob_alive(gob) ? door_is_open(gob) : -1);
+}
+
+/* coop_in_stasis(gob) -> 1 if the gob is in stasis (flag 0x8: nothing of it runs; omGobExitStasis clears it), -1 if gone */
+static void l_coop_in_stasis(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL);
+
+    lua_pushnumber(gob_alive(gob) ? (*(unsigned short *)(gob + GOB_FLAGS) & 0x8) != 0 : -1);
 }
 
 /* coop_notice(text): a line in everyone's chat area from the game itself (here: ours only) */
@@ -231,11 +311,20 @@ static void l_coop_test_noremote(void)
 
 void remote_lua_init(void)
 {
+    char ini[MAX_PATH];
+
+    snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
+    test_no_itemused = test_background && GetPrivateProfileIntA("test", "no_itemused", 0, ini) != 0;
+    if (test_no_itemused)
+        logmsg("remote: item uses are not sent ([test] no_itemused=1)");
+    tolua_function(NULL, "coop_itemused", l_coop_itemused);
     tolua_function(NULL, "coop_puzzle", l_coop_puzzle);
     tolua_function(NULL, "coop_next_handler", l_coop_next_handler);
     tolua_function(NULL, "coop_pickup_finish", l_coop_pickup_finish);
     tolua_function(NULL, "coop_stranded", l_coop_stranded);
     tolua_function(NULL, "coop_door_locked", l_coop_door_locked);
+    tolua_function(NULL, "coop_door_open", l_coop_door_open);
+    tolua_function(NULL, "coop_in_stasis", l_coop_in_stasis);
     tolua_function(NULL, "coop_notice", l_coop_notice);
     tolua_function(NULL, "coop_player_name", l_coop_player_name);
     tolua_function(NULL, "coop_near_type", l_coop_near_type);

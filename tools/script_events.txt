@@ -17,7 +17,7 @@
 13 | OnShotExploded | partial   | remote.c, coop_dev.lua | level 1 dome results replay through EV_PUZZLE; other explosion handlers remain unaudited
 14 | OnOutOfAmmo    | unaudited | -               |
 15 | OnPickedUp     | partial   | pickups.c, remote.c | shared item types, including unnamed rewards; world handlers run immediately; tutorial inventory handlers run after each recipient receives the reward (tools/qa_playtest.sh, tools/qa_remote.sh)
-16 | OnItemUsed     | unaudited | -               |
+16 | OnItemUsed     | partial   | remote.c, coop_dev.lua | the use is told to the others for the rooms listed in coop.itemused (level 3: l3_w_hub00, l3_bay) and their handler runs there with the user's puppet as the player (tools/qa_itemused.sh); l3_air00's handler dresses the user's own body (boots, fishbowl) and stays local until it is made puppet-safe
 17 | OnModeSwitch   | unaudited | -               |
 18 | OnItemEquiped  | unaudited | -               |
 -  | OnSpawnTrigger | unaudited | -               | not in the engine's 0-18 table: probably called by script code, so it runs where that script runs (unverified)

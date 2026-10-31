@@ -77,6 +77,9 @@ void state_dump(const char *tag)
             fprintf(f, " %s\n", gob_name(gob));
         } else if (t == OBJ_PROXDOOR1) {
             fprintf(f, "door %d %s\n", door_open(gob), gob_name(gob));
+            /* what keeps a door shut when nobody is at fault: locked by a script, or held in stasis (a lock
+             * that has not died yet); statecheck.py ignores this line, the campaign bot's evidence has it */
+            fprintf(f, "doorx %d %d %s\n", door_locked(gob), (*(unsigned short *)(gob + GOB_FLAGS) & 0x8) != 0, gob_name(gob));
         }
     }
     fclose(f);

@@ -30,6 +30,12 @@ static int door_open(BYTE *door)
     return state ? (int)state[0] : 0;
 }
 
+/* 1 if the door is open (tests) */
+int door_is_open(BYTE *door)
+{
+    return door_open(door);
+}
+
 /* 1 if the door is locked (mdkProxDoorLock), 0 if not or unknown */
 int door_locked(BYTE *door)
 {

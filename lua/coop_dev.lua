@@ -593,7 +593,7 @@ end
 coop.closed = {}
 coop.nclosed = 0
 
-function coop.RunHandler(name, event, slot, arg)
+function coop.RunHandler(name, event, slot, arg, arg2)
     local g = getglobal(name)
     if (type(g) == "userdata" and not coop_alive(g)) then g = nil end
     local h = nil
@@ -608,7 +608,7 @@ function coop.RunHandler(name, event, slot, arg)
     coop.ctxslot = slot
     coop.nclosed = 0
     local args = {}
-    args[1] = g args[2] = arg args.n = 2
+    args[1] = g args[2] = arg args[3] = arg2 args.n = 3
     call(h, args, "x")
     coop.ctx = nil
     coop.ctxslot = nil
@@ -848,7 +848,7 @@ end
 
 function coop.HandlerTick()
     local n = 0
-    local name, event, slot, arg, kill = coop_next_handler()
+    local name, event, slot, arg, kill, arg2 = coop_next_handler()
     while (name and n < 8) do
         if (kill == 3) then
             coop.dome_pending[name] = 1
@@ -857,11 +857,11 @@ function coop.HandlerTick()
         elseif (kill == 2) then
             coop.SharedPickup(name, arg)
         else
-            coop.RunHandler(name, event, slot, arg)
+            coop.RunHandler(name, event, slot, arg, arg2)
         end
         if (kill == 1) then coop_pickup_finish(name) end
         n = n + 1
-        name, event, slot, arg, kill = coop_next_handler()
+        name, event, slot, arg, kill, arg2 = coop_next_handler()
     end
     coop.DomeTick()
     coop.SharedPickupTick()
@@ -869,6 +869,43 @@ function coop.HandlerTick()
     if (coop.join) then coop.TryJoin() end
     coop.ProximityTick()
     coop.RearGateTick()
+    coop.ItemUsedTick()
+end
+
+-- A room's OnItemUsed runs in the game of the player who used the item and nowhere else, so the script state it
+-- moves (level 3's leak: the water flag, the cord it spawns for the pickup) never reached the others. These
+-- rooms' handlers are wrapped: a use here is told to the others (coop_itemused, bridge/remote.c), whose handler
+-- runs with our puppet as "the player" (RunHandler). Not listed on purpose: l3_air00's handler dresses the
+-- player's own body (boots, fishbowl) and a puppet is no Doc, so it stays local until it is made safe. --
+coop.itemused = { [3] = { "l3_w_hub00", "l3_bay" } }
+coop.itemwrapped = {}
+
+function coop.ItemUsedWrap(name, h)
+    return function(gob, left, right)
+        if (not coop.ctx) then coop_itemused(%name, left, right) end
+        local args = {}
+        args[1] = gob args[2] = left args[3] = right args.n = 3
+        return call(%h, args, "x")
+    end
+end
+
+function coop.ItemUsedTick()
+    coop.itemticks = (coop.itemticks or 0) + 1
+    if (coop.itemticks < 30 or not coop.level or coop_players() < 1) then return end
+    coop.itemticks = 0
+    local list = coop.itemused[coop.level]
+    if (not list) then return end
+    local i = 1
+    while (list[i]) do
+        local g = getglobal(list[i])
+        if (g and type(g.OnItemUsed) == "function" and not coop.itemwrapped[g.OnItemUsed]) then
+            local w = coop.ItemUsedWrap(list[i], g.OnItemUsed)
+            g.OnItemUsed = w
+            coop.itemwrapped[w] = 1
+            coop_log(format("item use: %s.OnItemUsed is told to the others", list[i]))
+        end
+        i = i + 1
+    end
 end
 
 -- Opening r9's entrance normally locks r8's exit behind the single player.

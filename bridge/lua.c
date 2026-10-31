@@ -305,6 +305,8 @@ static void l_coop_event(void)
             puzzle_event(&e, from);
         else if (e.kind == EV_PICKUP)
             pickups_event(&e, from);
+        else if (e.kind == EV_ITEMUSED)
+            itemused_event(&e, from);
         else if (e.kind == EV_REVIVE || e.kind == EV_RESPAWN || e.kind == EV_DIED)
             revive_event(&e, from);
         else
