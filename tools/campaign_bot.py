@@ -1793,6 +1793,15 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                             care['revive_ok'] += 1
                             log(f'[{g.slot}] revived player {d.slot} in {time.monotonic() - t1:.1f}s of R')
                             return
+                        # the reviver holds its game's lock, so the care loop cannot read it: publish its own
+                        # state here, so that a reviver that goes down under fire gets a reviver of its own
+                        # (3 players, 8 to 9: the host went down beside the body it was reviving and bled out
+                        # unseen) and stops holding a key that does nothing
+                        mine = g.telemetry()
+                        known_life[g.slot] = mine
+                        if mine['life'] != cc.ALIVE:
+                            log(f'[{g.slot}] revive {d.slot}: the reviver is down itself (hp {mine["hp"]})')
+                            return
                         time.sleep(.3)
             except (TimeoutError, OSError) as e:
                 log(f'[{g.slot}] revive {d.slot}: {e!r}')
