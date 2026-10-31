@@ -319,6 +319,9 @@ later):
 - **Item use by a script is not carried to the other player** (`OnItemUsed`, unaudited in
   `tools/script_events.txt`): the cord that level 3's leak puzzle spawns, and the drained water, exist only in the
   game of the Doc who used the tape (`FAIL item obj1: 1 on host, 0 on client`).
+- **God mode does not survive a checkpoint reload** (a hit of 20 after `mdkNewGame` took 60 hp to 40; `God(1)` put
+  it back). Every squad run since the start played on without it after the first death; the squad now sets it
+  again when a hero comes back.
 - **Line of sight is one-way** for scripted locks: `coop.NavView` takes a ray in either direction, and a lock
   such as level 4's `l4_r7lock` is clear from the lock outward to 568 of 588 cells of the ledge and from none of
   them inward. A viewpoint search for a projectile must test inward rays only.
