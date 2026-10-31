@@ -310,6 +310,19 @@ later):
   an hp-only APPLY when an enemy's hp differs from what clients were told (`tools/qa_hpsync.sh`).
 - **Pickup counts differ** on the final levels (11 and 12): 7 against 4, 3 against 2.
 - **A puppet left behind**: on level 3 the client showed the host's puppet 997 units from the host.
+- **A client crash at a checkpoint reload** (round 5, level 4 checkpoint 5 to 6, two runs out of two): the
+  client dies at `mdk2hd.exe+0x2a95` reading address 8 while it binds the host's enemies after the host's
+  checkpoint reload that follows a hero's death in the vortex. The same signature as the level 8 crash above,
+  which makes it the reload path, not a level.
+- **A host crash after a destroyed scenery piece** (round 5, 4:11 to 14): missed sniper rounds took
+  `l4_r7a_90tun01` from 100 to 0 hp and the host crashed on the next frame (`+0x570bd` reading 0x64). The bot
+  stops aiming at a piece after three misses on it (`note_collateral`).
+- **Item use by a script is not carried to the other player** (`OnItemUsed`, unaudited in
+  `tools/script_events.txt`): the cord that level 3's leak puzzle spawns, and the drained water, exist only in the
+  game of the Doc who used the tape (`FAIL item obj1: 1 on host, 0 on client`).
+- **Line of sight is one-way** for scripted locks: `coop.NavView` takes a ray in either direction, and a lock
+  such as level 4's `l4_r7lock` is clear from the lock outward to 568 of 588 cells of the ledge and from none of
+  them inward. A viewpoint search for a projectile must test inward rays only.
 - **A client crash** on level 8 (checkpoint 6 to 7): access violation at `mdk2hd.exe+0x2a95` reading
   address 8, while binding the host's enemies after the checkpoint load (last bound: a type 511
   generator); the same load gave the checkpoint's atomic jetpack. Not reproduced in four 5 minute
@@ -378,6 +391,17 @@ behind Kermit's puzzle) and camera-aimed sniper rounds (level 4's tunnel plug is
 walkway and everything after it need Doc's items (a launcher start at checkpoint 6 gives him none), and level 4's fan
 and pit locks (`l4_blowlock02`, `l4_r7lock`) are not seen from anything the bot walks to. Not yet: levels 5 to 12,
 Doc's items, bosses, minigames, movies, combat damage to the hero.
+
+### Round 5 (Doc's items and hands, ladder anchors)
+
+Doc's checkpoint inventory, frame-exact keys, Doc's hands and ladder anchors are built and proven live on
+level 3's walkway puzzle (see "Doc's items and hands" above): a launcher start at 3:6 gives Doc his items,
+the bot plugs the leak, picks up the cord and makes the ladder by pressing keys, and climbs with it; a start
+without the grant (`MDK2_CPITEMS=0`) fails the same check. No new segment passes: 3:6 to 16 stops after the ladder
+(the anchors beyond are reached from the walkway above, and the catwalk's mesh duct is mapped badly), 4:5 to 6
+crashed twice (client, checkpoint reload, finding above), 4:7 to 8 stalls at the arena door and 4:11 to 14 at a
+generator no reachable place sees (and once crashed the host after a tunnel piece was shot to pieces; fixed on
+the bot's side). The remaining level 3 and 4 stretches need a person's recording, listed in the run's report.
 
 ### Integrated state (merged branches)
 
