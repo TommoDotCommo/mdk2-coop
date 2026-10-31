@@ -96,7 +96,7 @@ adapter_mutants = {
     'wrong-level-target': ('!player_in_level(s)', '0'),
     'downed-target': ('(s == my_slot ? revive_life() : player_life(s)) != LIFE_ALIVE', '0'),
     'ignore-scripted-target': ('(fallback && fallback != local_player && puppet_slot(fallback) < 0)', '0'),
-    'infoless-target': ('if (!target || !*(BYTE **)(target + GOB_INFO)) {', 'if (!target) {'),
+    'infoless-target': ('if (ai_guard_on && (!target || !*(BYTE **)(target + GOB_INFO))) {', 'if (ai_guard_on && !target) {'),
     'aoe-evidence': ('caller == (void *)0x434dfb', '1'),
     'drop-client-receipt': ('local_direct_hits++;', 'local_direct_hits += 0;'),
 }
