@@ -38,6 +38,7 @@ else
     check "the game is still running"               mdk_alive "$(mdk_pid 1)"
     mdk_cmd "$(mdk_pid 1)" 'coop_note("scene", format("skipped %d", coop_scene_skipped()))'
     check "the guard stepped over the handle"       wait_for "note | grep -qE '^skipped [1-9]'" 10
+    check "the stale handle was reported with its number" wait_for "has 'scene guard: stale handle 7ffe0005 .*deleted by the bridge: no'" 10
     mdk_cmd "$(mdk_pid 1)" 'coop_test_stale_scene(0)'
     sleep 3
     check "the game runs on with the handle removed" mdk_alive "$(mdk_pid 1)"

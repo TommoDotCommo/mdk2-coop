@@ -111,6 +111,7 @@ void anim_trim_init(void);
 void setpos_guard_init(void);
 void scene_guard_init(void);
 void scene_guard_set(int on);
+void scene_guard_report(void);
 int scene_test_stale(int on);
 extern int scene_guard_on;
 extern int scene_stale_skipped; /* stale handles the scene pass guard stepped over */

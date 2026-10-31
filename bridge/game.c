@@ -288,6 +288,8 @@ void setpos_guard_init(void)
 #define SCENE_VEC_DATA      0x88
 int scene_guard_on;
 int scene_stale_skipped;        /* handles the guard stepped over (the cave increments it) */
+static DWORD scene_stale_last;  /* the last such handle (the cave stores it) */
+static int scene_stale_logged;
 static BYTE scene_orig[6];
 static BYTE scene_patch[6];
 
@@ -321,22 +323,45 @@ void scene_guard_init(void)
         logmsg("scene guard: NOT installed (unexpected code)");
         return;
     }
-    cave = VirtualAlloc(NULL, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    cave = VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!cave)
         return;
-    cave[0] = 0x83; cave[1] = 0xc4; cave[2] = 0x04;                         /* add esp,4 */
-    cave[3] = 0x85; cave[4] = 0xff;                                         /* test edi,edi */
-    cave[5] = 0x74; cave[6] = 0x08;                                         /* jz skip */
-    cave[7] = 0x8b; cave[8] = 0x47; cave[9] = 0x64;                         /* mov eax,[edi+0x64] */
-    cave[10] = 0xe9; *(DWORD *)(cave + 11) = (site + 6) - (DWORD)(cave + 15);   /* back to cmp [eax+0x60],0 */
-    cave[15] = 0xff; cave[16] = 0x05; *(DWORD *)(cave + 17) = (DWORD)&scene_stale_skipped;   /* inc [counter] */
-    cave[21] = 0xe9; *(DWORD *)(cave + 22) = 0x45710b - (DWORD)(cave + 26);  /* the loop's next handle */
+    cave[0] = 0x8b; cave[1] = 0x04; cave[2] = 0x24;                         /* mov eax,[esp]: the handle just looked up */
+    cave[3] = 0x83; cave[4] = 0xc4; cave[5] = 0x04;                         /* add esp,4 */
+    cave[6] = 0x85; cave[7] = 0xff;                                         /* test edi,edi */
+    cave[8] = 0x74; cave[9] = 0x08;                                         /* jz skip */
+    cave[10] = 0x8b; cave[11] = 0x47; cave[12] = 0x64;                      /* mov eax,[edi+0x64] */
+    cave[13] = 0xe9; *(DWORD *)(cave + 14) = (site + 6) - (DWORD)(cave + 18);   /* back to cmp [eax+0x60],0 */
+    cave[18] = 0xa3; *(DWORD *)(cave + 19) = (DWORD)&scene_stale_last;      /* mov [last],eax */
+    cave[23] = 0xff; cave[24] = 0x05; *(DWORD *)(cave + 25) = (DWORD)&scene_stale_skipped;   /* inc [counter] */
+    cave[29] = 0xe9; *(DWORD *)(cave + 30) = 0x45710b - (DWORD)(cave + 34);  /* the loop's next handle */
     memcpy(scene_orig, expect, 6);
     scene_patch[0] = 0xe9;
     *(DWORD *)(scene_patch + 1) = (DWORD)cave - (site + 5);
     scene_patch[5] = 0x90;
     scene_guard_set(1);
     logmsg("scene guard installed");
+}
+
+/* Once per frame: say when the scene pass met a stale handle, and whether the bridge deleted that gob (a natural
+ * occurrence is how the cause of the crash this guard covers will be found). */
+void scene_guard_report(void)
+{
+    static int seen;
+
+    if (scene_stale_skipped == seen)
+        return;
+    seen = scene_stale_skipped;
+    if (scene_stale_logged++ < 20) {
+        DWORD h = scene_stale_last;
+        int i, ours = 0;
+
+        for (i = 0; i < MAX_DOOMED && i < ndoomed; i++)
+            if (doomed[i].handle == h)
+                ours = 1;
+        logmsg("scene guard: stale handle %08lx (slot %lu) in the scene pass, %d so far; deleted by the bridge: %s", (unsigned long)h,
+               (unsigned long)(h & 0xffff), seen, ours ? "yes" : "no");
+    }
 }
 
 /* Test hook: plant a handle the gob table does not resolve at the end of the scene's handle vector (on), or put the
