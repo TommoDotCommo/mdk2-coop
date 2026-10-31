@@ -1406,8 +1406,9 @@ function coop.PilotTick()
     if (pl.flat == 0) then d = sqrt(dx * dx + dy * dy + dz * dz) end
     pl.d = d
     if (pl.fly == 2 and d <= pl.r) then
-        -- over the point: arrived once at its height too; meanwhile hover without walking on
-        if (dz < (pl.zr or 2) and dz > -(pl.zr or 2)) then
+        -- over the point: arrived once at its height too; meanwhile hover without walking on (a point on the
+        -- way of a queued path is passed at once: hovering in place under an overhang never gets up)
+        if (pl.path and pl.pi < pl.path.n) or (dz < (pl.zr or 2) and dz > -(pl.zr or 2)) then
             if (pl.path and pl.pi < pl.path.n) then
                 -- a stretch of a flight queued by coop.PilotPath: on to its next point at once, so the hero
                 -- does not hover (burning fuel) while the bot's next command is on its way
