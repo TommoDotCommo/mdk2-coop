@@ -2029,7 +2029,9 @@ def flown(pts):
         rise = p['pos'][2] - pts[k - 1]['pos'][2] if k else 0
         # (jump still held after a flown point is hovering, not standing: the owner hovered 15 s at a bay
         # shooting its turrets; walked, those points let the jetpack go and the hero fell the shaft)
-        was, up = up, bool(p.get('air') or (57 in p['keys'] and (rise > 0.7 or was) and not p.get('ride')))
+        # (a glide: jump held on the way down is the jetpack braking a drop, which the person aimed at a ledge;
+        # walked, the hero fell past 6-7's ledge to the hatch below)
+        was, up = up, bool(p.get('air') or (57 in p['keys'] and (rise > 0.7 or rise < -1.0 or was) and not p.get('ride')))
         if up or (was and not p.get('ride')):
             out.add(k)                      # in the air, or the landing just after
     return out
