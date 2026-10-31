@@ -384,6 +384,14 @@ with tempfile.TemporaryDirectory() as tmp:
     (crash / 'dump0001.dmp').write_bytes(b'MDMP not really')
     lines = [l for l in cr.crash_lines(env) if l.startswith('CRASH')]
     check('a new dump%04i.dmp of a copy is a CRASH with its path', len(lines) == 1 and 'dump0001.dmp' in lines[0])
+# The run tactic does not stand under fire to shoot a threat generator (3 to 4 without God mode: 34 s aimed at
+# l2r3samspawn01 from below, every round into the ceiling, in each run that wiped); blockers are still shot.
+gm = bot.Game.__new__(bot.Game)
+gm.aim_at_spawners = False
+objs = [{'name': 's', 'type': 'OBJ_SAMSMITEGENERATOR'}, {'name': 'l', 'type': 'OBJ_DESTRUCTABLE'}]
+check('run tactic: SAM generators are not aimed at, locks and walls are', [o['name'] for o in bot.aimable(gm, objs)] == ['l'])
+gm.aim_at_spawners = True
+check('fight tactic: every objective is aimable', [o['name'] for o in bot.aimable(gm, objs)] == ['s', 'l'])
 # World comparison with a second host dump (tools/statecheck.py --after): dumps are taken one game after another, so a
 # fight or a spawn moves the host's world between the host's and a client's. Evidence: the campaign survey's level 2
 # runs showed the client lower on hp (the client dumped after more hits), an enemy "extra" on the client (the host made

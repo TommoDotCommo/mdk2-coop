@@ -26,6 +26,7 @@ class Game:
         self.slot = slot
         self.serial = 0
         self.gun_range = 60            # how far the gunner shoots (a squad's tactic may shorten it)
+        self.aim_at_spawners = True    # the run tactic does not stand under fire to shoot a threat generator
         # one command.lua per game: threads (a squad's leader and its followers) take turns
         self.lock = threading.RLock()
 
@@ -719,6 +720,13 @@ def objectives(level, pos, toward=None, radius=150):
         scripted = 'OnDie' in level.m['events'].get(o['name'], []) or 'GENERATOR' in o['type']
         return math.dist(o['pos'][:2], ref[:2]) - (40 if scripted else 0)
     return sorted(out, key=rank)
+
+
+def aimable(game, objs):
+    """The objectives worth standing still for: a generator that only makes threats (level 2's SAM spawners,
+    out of reach of the fire from the floor) is not shot by a hero that is running the gauntlet; every
+    blocker (wall, lock, alert) still is. Evidence: 3 to 4 without God mode, docs/CAMPAIGN-BOT.md."""
+    return [o for o in objs if game.aim_at_spawners or o['type'] != 'OBJ_SAMSMITEGENERATOR']
 
 
 def kill_objective(game, nav, obj, log, seconds=25, sniper=False):
@@ -1637,6 +1645,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     leader, followers = games[0], games[1:]
     for g in games:
         g.gun_range = 6 if tactic == 'run' else 60       # run: shoot only what blocks the way, keep moving
+        g.aim_at_spawners = tactic != 'run'
     result = {}
     stop = threading.Event()
     t_start = time.monotonic()
@@ -2328,7 +2337,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         if 256 in p['keys'] and level:
             # the recording was shooting here: what it shot is most likely the nearest living scripted
             # objective (the arena's generators: one left at 16 hp kept its exit shut), so aim at it
-            near = [o for o in objectives(level, here, None, radius=50)
+            near = [o for o in aimable(game, objectives(level, here, None, radius=50))
                     if o['name'] not in aimed and math.dist(o['pos'], here) < 50]
             near = [o for o in near if alive(game, o['name'])][:1]
             for o in near:
