@@ -2296,12 +2296,16 @@ def flight_targets(pts, i, k, first=None, lead=3):
     return out
 
 
-def flight_batch(pts, fly, i, apart, limit=14):
+def flight_batch(pts, fly, i, apart, limit=14, span=8.0):
     """The end (exclusive) of the stretch of flown points starting at i that the pilot flies in one go: it
     stops before a point that needs the bot (a lift to board or hold by, a ride) and after `limit` points."""
     k = i + 1
     while k < len(pts) and k in fly and k not in apart and not pts[k].get('ride') and k - i < limit:
         k += 1
+    # a climb straight up (a shaft: 5-6) stays point by point: its points all lie within the arrival radius,
+    # so the pilot passed them at once and then waited at the last one for a height it was already flying to
+    if max(math.dist(pts[m]['pos'][:2], pts[i]['pos'][:2]) for m in range(i, k)) < span:
+        return i + 1
     return k
 
 

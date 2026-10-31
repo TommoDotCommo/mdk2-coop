@@ -270,6 +270,8 @@ def flight_rules(b, quiet=False):
     out.append(('a climb holds the height of the next points, the last point is exact',
                 [t[2] for t in got] == [16, 20, 20, 20, 20, 20, 18] and got[-1][3:] == (1.5, 2.0)
                 and all(t[3:] == (3.0, 3.0) for t in got[:-1])))
+    up = [{'pos': (0.5 * (k % 2), 0.0, 10.0 + 3 * k), 'keys': [57]} for k in range(8)]
+    out.append(('a climb straight up is not batched', b.flight_batch(up, set(range(8)), 0, set()) == 1))
     sk = [{'pos': (0.0, 0.0, 0.0), 'keys': [256] if k == 3 else []} for k in range(8)]
     out.append(('shots on skipped points are owed, others are not',
                 b.skipped_shots(sk, 1, 5) and not b.skipped_shots(sk, 4, 8) and not b.skipped_shots(sk, 2, 3)))
@@ -285,14 +287,14 @@ def flight_rules(b, quiet=False):
     out.append(('a fall that goes on after a flight is flown to the landing, and no further',
                 {4, 5, 6, 7, 8} <= b.flown(dr) and not {9, 10} & b.flown(dr)))
     # a flight goes to the pilot in one command, up to a lift's boarding point or a ride
-    fp = [{'pos': (0.0, 0.0, 10.0 + k), 'keys': [57]} for k in range(8)]
+    fp = [{'pos': (5.0 * k, 0.0, 10.0 + k), 'keys': [57]} for k in range(8)]
     fp[5]['ride'] = True
     out.append(('a flight is batched up to a ride, a boarding point, a walked point and the limit',
                 b.flight_batch(fp, set(range(8)), 0, set()) == 5
                 and b.flight_batch(fp, set(range(8)), 0, {3}) == 3
                 and b.flight_batch(fp, {0, 1, 2}, 0, set()) == 3
-                and b.flight_batch(fp, set(range(5)), 0, set(), limit=2) == 2
-                and b.flight_batch(fp, set(range(8)), 6, set()) == 8))
+                and b.flight_batch(fp, set(range(5)), 0, set(), limit=2, span=0.0) == 2
+                and b.flight_batch(fp, set(range(8)), 6, set(), span=0.0) == 8))
     return out
 
 
@@ -336,8 +338,9 @@ mutants = {
     'a climb stops and goes at every point': dict(flight_targets=lambda pts, i, k, first=None, lead=3: [(*pts[m]['pos'], 3.0, 3.0) for m in range(i + 1, k - 1)] + [(*pts[k - 1]['pos'], 1.5, 2.0)]),
     'skipped shots are forgotten': dict(skipped_shots=lambda pts, i, j: False),
     'shots at a gate are skipped over': dict(first_shot_at_gate=lambda pts, i, j, gates, reach=45.0: None),
-    'a flight is sent point by point': dict(flight_batch=lambda pts, fly, i, apart, limit=14: i + 1),
-    'a batch runs through boarding points and rides': dict(flight_batch=lambda pts, fly, i, apart, limit=14:
+    'a climb straight up is batched too': dict(flight_batch=lambda pts, fly, i, apart, limit=14, span=8.0: real['flight_batch'](pts, fly, i, apart, limit, 0.0)),
+    'a flight is sent point by point': dict(flight_batch=lambda pts, fly, i, apart, limit=14, span=8.0: i + 1),
+    'a batch runs through boarding points and rides': dict(flight_batch=lambda pts, fly, i, apart, limit=14, span=8.0:
                                                            max([k for k in range(i + 1, len(pts) + 1) if all(m in fly for m in range(i, k))] or [i + 1])),
     'no flight lands on a lift': dict(plan_boardings=lambda pts, fly, lifts, standoff=8.0, base=None: []),
     'every lift is the nearest, however far': dict(boarding=lambda pts, fly, i, lifts, reach=9.0:
