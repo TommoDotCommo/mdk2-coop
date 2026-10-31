@@ -1051,6 +1051,54 @@ static void l_coop_animguard(void)
     logmsg("animguard: guarded animation lookup %s", anim_guard_on ? "on" : "OFF (test)");
 }
 
+/* coop_setposguard(on): switch the position setter's null check off to prove a test needs it; background test mode only */
+static void l_coop_setposguard(void)
+{
+    if (!test_background) {
+        logmsg("coop_setposguard: only in background test mode");
+        return;
+    }
+    setpos_guard_on = lua_getnumber(lua_getparam(1)) != 0;
+    logmsg("setposguard: position setter null check %s", setpos_guard_on ? "on" : "OFF (test)");
+}
+
+/* coop_setpos_blocked(): how many position sets on a null gob the guard ignored */
+static void l_coop_setpos_blocked(void)
+{
+    lua_pushnumber(setpos_blocked);
+}
+
+/* coop_sceneguard(on): take the scene pass guard out to prove a test needs it; background test mode only */
+static void l_coop_sceneguard(void)
+{
+    if (!test_background) {
+        logmsg("coop_sceneguard: only in background test mode");
+        return;
+    }
+    scene_guard_set(lua_getnumber(lua_getparam(1)) != 0);
+    logmsg("sceneguard: scene pass guard %s", scene_guard_on ? "on" : "OFF (test)");
+}
+
+/* coop_test_stale_scene(on): plant (1) or remove (0) a stale handle in the scene's gob vector; background test mode only */
+static void l_coop_test_stale_scene(void)
+{
+    int ok;
+
+    if (!test_background) {
+        logmsg("coop_test_stale_scene: only in background test mode");
+        return;
+    }
+    ok = scene_test_stale(lua_getnumber(lua_getparam(1)) != 0);
+    logmsg("scene test: stale handle %s", ok ? "changed" : "not changed");
+    lua_pushnumber(ok);
+}
+
+/* coop_scene_skipped(): stale handles the scene pass guard stepped over; -1 if the guard is not installed */
+static void l_coop_scene_skipped(void)
+{
+    lua_pushnumber(scene_guard_on ? scene_stale_skipped : -1);
+}
+
 /* coop_test_noondie(on): clients stop running a dead enemy's OnDie (the bug fixed in entities.c); background test mode only */
 static void l_coop_test_noondie(void)
 {
@@ -1191,6 +1239,11 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_gob_ok", l_coop_gob_ok);
     tolua_function(NULL, "coop_animscan", l_coop_animscan);
     tolua_function(NULL, "coop_animguard", l_coop_animguard);
+    tolua_function(NULL, "coop_setposguard", l_coop_setposguard);
+    tolua_function(NULL, "coop_sceneguard", l_coop_sceneguard);
+    tolua_function(NULL, "coop_test_stale_scene", l_coop_test_stale_scene);
+    tolua_function(NULL, "coop_scene_skipped", l_coop_scene_skipped);
+    tolua_function(NULL, "coop_setpos_blocked", l_coop_setpos_blocked);
     tolua_function(NULL, "coop_animflood", l_coop_animflood);
     tolua_function(NULL, "coop_animtrim", l_coop_animtrim);
     tolua_function(NULL, "coop_diag_test", l_coop_diag_test);
@@ -1225,6 +1278,8 @@ void l_coop_init(void)
     shots_init();
     pickups_init();
     anim_trim_init();
+    setpos_guard_init();
+    scene_guard_init();
     ents_init();
     rooms_init();
     frame_init();

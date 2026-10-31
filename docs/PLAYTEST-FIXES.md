@@ -39,7 +39,9 @@ found two causes, both reproduced and covered by `tools/qa_animguard.sh`:
   the lookup, and on the Overhaul build an error dialog and a dump. Every lookup is guarded.
 
 Two other dumps came from test commands that moved a player gob which did not exist yet
-(the title screen); the game's own position setter does not check for a null gob.
+(the title screen); the game's own position setter does not check for a null gob. The bridge now ignores a position
+set on a null gob (`tools/qa_setpos_guard.sh`; a campaign run met the same crash at `+0xdda8` when a
+command arrived while the host sat at the title screen).
 
 A separate resume defect was reproduced on the prior build: native attack tasks
 lost their function reference after an instant load because the original native
