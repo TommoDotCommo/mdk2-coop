@@ -87,7 +87,9 @@ struct gear_kind {
 static const struct gear_kind gear_kinds[GEAR_KINDS] = {
     { "maxjetpack", "MAX_TORSO", { "jetpack", "jetpackatm" }, 62, 101 },
     { "docleafblower", "DR_TORSO", { "leafer", "leafer" }, 65, 102 },
+    { "chute", "", { "", "" }, 0, 100 },    /* Kurt's canopy exists from his constructor: only its shown bit is carried */
 };
+#define GEAR_SHOWN_ONLY 2
 #define GEAR_BUILT GEAR_KINDS
 
 static BYTE *gear_child(BYTE *body, int kind)
@@ -95,6 +97,7 @@ static BYTE *gear_child(BYTE *body, int kind)
     DWORD me;
     int s;
     if (!gob_alive(body)) return NULL;
+    if (kind == GEAR_SHOWN_ONLY) return canopy_gob(body);
     me = gob_handle(gob_slot(body));
     for (s = 0; s < GOB_SLOTS; s++) {
         BYTE *g = GOB_TABLE_AT(s);
@@ -119,6 +122,7 @@ void gear_capture(BYTE *body, struct gear_state *out)
         v->present = 1;
         v->hidden = (*(WORD *)(g + GOB_FLAGS) & 0x08) != 0;
         v->cur = v->prev = NO_ANIM;
+        if (k == GEAR_SHOWN_ONLY) continue;
         if (k == 0) {
             /* the jetpack's kind sits in the character's state: 1 jetpack, 2 atomic jetpack (0x422125) */
             BYTE *info = *(BYTE **)(body + GOB_INFO), *state = info ? *(BYTE **)(info + 0x40) : NULL;
@@ -140,9 +144,24 @@ void gear_capture(BYTE *body, struct gear_state *out)
     }
 }
 
+/* The gob flags this side left on each puppet's visual after the last apply (what the next render sees; the scene
+ * update that follows can set the room-stasis bit again, so a dump read before the apply says nothing about it) */
+static WORD gear_left[MAX_PLAYERS][GEAR_KINDS];
 static DWORD gear_owned[MAX_PLAYERS][GEAR_KINDS];       /* handles of the gobs this side built on each puppet */
 static DWORD gear_retry[MAX_PLAYERS][GEAR_KINDS];       /* tick before which a failed build is not repeated */
-static int no_gear;
+static int no_gear, no_shown;
+
+/* The item gob and the sub-gobs its model made (the blower's air puffs): deleting the item alone leaves them behind */
+static void gear_kill(BYTE *g)
+{
+    DWORD me = gob_handle(gob_slot(g));
+    int s;
+    for (s = 0; s < GOB_SLOTS; s++) {
+        BYTE *c = GOB_TABLE_AT(s);
+        if (c && c != g && gob_alive(c) && *(DWORD *)(c + GOB_TARGET) == me) gob_kill(c);
+    }
+    gob_kill(g);
+}
 
 static BYTE *gear_build(BYTE *body, int kind, int model)
 {
@@ -154,7 +173,7 @@ static BYTE *gear_build(BYTE *body, int kind, int model)
     bone = om_bone_find(body, k->bone);
     if (bone < 0) return NULL;
     if (!(g = om_gob_create(k->name))) return NULL;
-    if (!(ctl = om_model_new(k->model[model & 1]))) { gob_kill(g); return NULL; }
+    if (!(ctl = om_model_new(k->model[model & 1]))) { gear_kill(g); return NULL; }
     *(void **)(g + GOB_ANIM) = ctl;
     om_attach(0, body, g, bone);
     om_bone_place(body, bone, (float *)(g + GOB_POSITION), (float *)(g + GOB_ORIENTATION));
@@ -167,24 +186,35 @@ void gear_release(int slot)
     int k;
     if (slot < 0 || slot >= MAX_PLAYERS) return;
     for (k = 0; k < GEAR_KINDS; k++) {
-        BYTE *g = gob_by_handle(gear_owned[slot][k]);
-        if (g && gob_alive(g)) gob_kill(g);
+        BYTE *g = gear_owned[slot][k] ? gob_by_handle(gear_owned[slot][k]) : NULL;
+        if (g && gob_alive(g)) gear_kill(g);
         gear_owned[slot][k] = 0;
+        gear_left[slot][k] = 0;
     }
 }
 
 void gear_apply(int slot, BYTE *body, const struct gear_state *s)
 {
     int k;
-    if (slot < 0 || slot >= MAX_PLAYERS || no_gear || !gob_alive(body)) return;
+    if (slot < 0 || slot >= MAX_PLAYERS || !gob_alive(body)) return;
+    if (no_gear) { gear_release(slot); return; }     /* test switch: as if puppets never had the code */
     for (k = 0; k < GEAR_BUILT; k++) {
         const struct gear_visual *v = &s->v[k];
         BYTE *g, *ctl;
         int id, i;
         if (gob_type(body) != gear_kinds[k].owner) continue;
         g = gear_child(body, k);
+        if (k == GEAR_SHOWN_ONLY) {
+            /* Kurt's canopy is built with him and only shown or hidden by the game; on a puppet the room that holds
+             * it is not the room the puppet stands in, and the game's own stasis bit kept it from being drawn */
+            if (g && v->present && !no_shown) {
+                *(WORD *)(g + GOB_FLAGS) = (WORD)((*(WORD *)(g + GOB_FLAGS) & ~0x08) | (v->hidden ? 0x08 : 0));
+                gear_left[slot][k] = *(WORD *)(g + GOB_FLAGS);
+            }
+            continue;
+        }
         if (!v->present) {
-            if (g && g == gob_by_handle(gear_owned[slot][k])) { gob_kill(g); gear_owned[slot][k] = 0; }
+            if (g && gear_owned[slot][k] && g == gob_by_handle(gear_owned[slot][k])) { gear_kill(g); gear_owned[slot][k] = 0; }
             continue;
         }
         if (!g) {
@@ -207,6 +237,7 @@ void gear_apply(int slot, BYTE *body, const struct gear_state *s)
         *(DWORD *)(ctl + 0x28) = v->cur != NO_ANIM ? (DWORD)(uintptr_t)anim_state(g, v->cur) : 0;
         *(DWORD *)(ctl + 0x2c) = v->prev != NO_ANIM ? (DWORD)(uintptr_t)anim_state(g, v->prev) : 0;
         *(WORD *)(g + GOB_FLAGS) = (WORD)((*(WORD *)(g + GOB_FLAGS) & ~0x08) | (v->hidden ? 0x08 : 0));
+        gear_left[slot][k] = *(WORD *)(g + GOB_FLAGS);
     }
 }
 
@@ -636,6 +667,7 @@ static void l_presence_test(void)
     melee_only = (int)num_param(4);
     net_test_legacy((int)num_param(5));
     no_gear = (int)num_param(6);
+    no_shown = (int)num_param(7);
 }
 
 static void l_join_retry(void)
@@ -766,7 +798,7 @@ void presence_dump(FILE *f)
         struct gear_state gs;
         if (!gob_alive(body)) continue;
         gear_capture(body, &gs);
-        for (k = 0; k < GEAR_BUILT; k++) {
+        for (k = 0; k < GEAR_SHOWN_ONLY; k++) {
             BYTE *g = gear_child(body, k);
             float phase = 0;
             int j;
@@ -774,7 +806,7 @@ void presence_dump(FILE *f)
             for (j = 0; j < gs.v[k].nanims; j++)
                 if (gs.v[k].id[j] == gs.v[k].cur) memcpy(&phase, &gs.v[k].anim[j][ANIM_TIME0], sizeof(phase));
             fprintf(f, "gear %d %s %d %u %d %d %u %u %.5f %u\n", s + 1, gear_kinds[k].name, gob_alive(g),
-                    gs.v[k].hidden, *(DWORD *)(g + GOB_TARGET) == gob_handle(gob_slot(body)),
+                    ((s == my_slot ? *(WORD *)(g + GOB_FLAGS) : gear_left[s][k]) & 0x08) != 0, *(DWORD *)(g + GOB_TARGET) == gob_handle(gob_slot(body)),
                     *(int *)(g + GOB_BONE_SLOT), gs.v[k].cur, gs.v[k].prev, phase, gs.v[k].nanims);
         }
     }
@@ -782,7 +814,8 @@ void presence_dump(FILE *f)
     for (s = 0; s < MAX_PLAYERS; s++) {
         BYTE *body = s == my_slot ? local_player : puppets[s], *c = canopy_gob(body);
         if (!c) continue;
-        fprintf(f, "gear %d chute %d %u %d %d\n", s + 1, gob_alive(c), (*(WORD *)(c + GOB_FLAGS) & 0x08) != 0,
+        fprintf(f, "gear %d chute %d %u %d %d\n", s + 1, gob_alive(c),
+                ((s == my_slot ? *(WORD *)(c + GOB_FLAGS) : gear_left[s][GEAR_SHOWN_ONLY]) & 0x08) != 0,
                 *(DWORD *)(c + GOB_TARGET) == gob_handle(gob_slot(body)), *(int *)(c + GOB_BONE_SLOT));
     }
     for (s = 0; s < GOB_SLOTS; s++) {
