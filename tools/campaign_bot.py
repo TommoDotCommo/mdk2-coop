@@ -627,11 +627,16 @@ def ladder_spots(level, here, tried=(), reach=30):
 
 def ladder_hop(game, spot, log):
     """Walk to a ladder anchor, put the ladder in the right hand and use it (its hand key again). True when
-    the hero ended 3 or more units from the anchor (climbed)."""
-    r = game.goto(*spot['pos'], radius=1.0, timeout=15, explore=0)
+    the hero ended 3 or more units from the anchor (climbed). The hero must stand on the anchor, at its
+    height: a few tries to get there (the anchor may be down off the ledge the hero is on)."""
     here = game.pos()
-    if math.dist(here[:2], spot['pos'][:2]) > 2.5:
-        log(f'    ladder anchor {spot["name"]}: not reached ({r.get("state")}) at {[round(v, 1) for v in here]}')
+    for _ in range(3):
+        game.goto(*spot['pos'], radius=0.6, timeout=15, explore=0, jump=1)
+        here = game.pos()
+        if math.dist(here[:2], spot['pos'][:2]) < 1.5 and abs(here[2] - spot['pos'][2]) < 3:
+            break
+    else:
+        log(f'    ladder anchor {spot["name"]}: not reached, hero at {[round(v, 1) for v in here]}')
         return False
     if not (doc_hold(game, 0, 'OBJ_NONE', log) and doc_hold(game, 1, 'OBJ_LADDER', log)):
         return False
@@ -671,7 +676,10 @@ def doc_leak_puzzle(game, level, log):
         live = game.note('cord', 'local c=l3_hub00_cord if (c and coop_alive(c) == 1) then local p=c.position '
                          'coop_note("cord", format("%.2f %.2f %.2f", p.x, p.y, p.z)) else coop_note("cord", "none") end')
         at = [float(v) for v in live.split()] if live != 'none' else cord
-        game.goto(*at, radius=0.8, timeout=40, explore=0, jump=1)
+        # the pillar stands between the beam and the cord: round by the point the script spawns it at first
+        if math.dist(game.pos()[:2], at[:2]) > 3:
+            game.goto(*cord, radius=1.5, timeout=40, explore=1, jump=1)
+        game.goto(*at, radius=0.6, timeout=30, explore=1, jump=1)
         for _ in range(3):
             if doc_has(game, 'OBJ_CORD'):
                 break
@@ -1674,7 +1682,7 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False, 
     planned_from = game.pos()
     lifts_tried = set()
     doc = is_doc(game)
-    puzzle_tried, ladders_used = [], set()
+    puzzle_tried, ladders_used = [], {}
     while index < len(portals):
         # an elevator carries the hero to the goal's height (level 3's walkway, 90 units down)
         ride = level.lift_toward(game.pos(), goal)
@@ -1805,9 +1813,10 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False, 
                         continue
                 if doc_has(game, 'OBJ_LADDER'):
                     # an anchor whose ladder took Doc up or along is not used again from where he lands
-                    for spot in ladder_spots(level, game.pos(), ladders_used):
-                        ladders_used.add(spot['name'])
+                    for spot in ladder_spots(level, game.pos(), [n for n, v in ladders_used.items() if v == 'done' or v >= 2]):
+                        ladders_used[spot['name']] = ladders_used.get(spot['name'], 0) + 1
                         if ladder_hop(game, spot, log):
+                            ladders_used[spot['name']] = 'done'
                             stalls = 0
                             break
                     else:
