@@ -2231,10 +2231,11 @@ def off_recording(here, target, limit=15.0, below=4.0):
 AIM_TRIES = 5
 
 
-def aim_mode(tries):
+def aim_mode(tries, walk_ok=True):
     """How an objective the recording was shooting at is attacked on its `tries`-th go: from where the hero
-    stands (a spot of the recording itself), then walked up to, then from later spots of the recording."""
-    return 'walk' if tries == 1 else 'stay'
+    stands (a spot of the recording itself), then walked up to (a generator in a pit: not a pod high on a
+    wall, which the walk only sent below it), then from later spots of the recording."""
+    return 'walk' if tries == 1 and walk_ok else 'stay'
 
 
 def aimable(o, here, reach=30.0):
@@ -2476,7 +2477,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             near = [o for o in near if alive(game, o['name'])][:1]
             for o in near:
                 n_tries = stayed.get(o['name'], (0, 0))[0]
-                mode = aim_mode(n_tries)
+                mode = aim_mode(n_tries, 'GENERATOR' in o['type'])
                 # from the recording's own spot first (a target high on a wall, shot from the ledge the person
                 # stood on, was missed from 4 units below it), then walked up to, then from later spots again
                 if mode == 'stay':

@@ -263,7 +263,8 @@ def flight_rules(b, quiet=False):
     out.append(('the points hovered by a hanging pump are flown, others are not',
                 got == {1, 3, 5} and not b.hover_points(hp, [floor])))
     out.append(('an objective is shot at from the recording\'s spot, then walked up to, then from later spots',
-                [b.aim_mode(n) for n in range(5)] == ['stay', 'walk', 'stay', 'stay', 'stay']))
+                [b.aim_mode(n) for n in range(5)] == ['stay', 'walk', 'stay', 'stay', 'stay']
+                and [b.aim_mode(n, False) for n in range(3)] == ['stay'] * 3))
     ft = [{'pos': (float(k), 0.0, z), 'keys': [57]} for k, z in enumerate([10, 12, 14, 13, 16, 20, 20, 18])]
     got = b.flight_targets(ft, 0, 8)
     out.append(('a climb holds the height of the next points, the last point is exact',
@@ -319,8 +320,8 @@ mutants = {
     'a hero in a pit is never flown out': dict(climb_out=lambda rise, stuck, jetpack, wall=4.0, after=8.0: False),
     'a squad passes when only the leader got through': dict(squad_ok=lambda ok, gaps, limit=40.0: bool(ok)),
     'no hero is ever off the recording': dict(off_recording=lambda here, target, limit=15.0, below=4.0: False),
-    'a recorded shot is always walked up to': dict(aim_mode=lambda tries: 'walk'),
-    'a recorded shot is never walked up to': dict(aim_mode=lambda tries: 'stay'),
+    'a recorded shot is always walked up to': dict(aim_mode=lambda tries, walk_ok=True: 'walk'),
+    'a recorded shot is never walked up to': dict(aim_mode=lambda tries, walk_ok=True: 'stay'),
     'a glide is walked': dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
     'a climb stops and goes at every point': dict(flight_targets=lambda pts, i, k, first=None, lead=3: [(*pts[m]['pos'], 3.0, 3.0) for m in range(i + 1, k - 1)] + [(*pts[k - 1]['pos'], 1.5, 2.0)]),
     'a flight is sent point by point': dict(flight_batch=lambda pts, fly, i, apart, limit=14: i + 1),
