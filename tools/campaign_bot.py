@@ -2270,6 +2270,15 @@ def skipped_shots(pts, i, j):
     return any(256 in pts[k]['keys'] for k in range(i, j))
 
 
+def first_shot_at_gate(pts, i, j, gates, reach=45.0):
+    """The first of the points i..j-1 (about to be skipped) where the recording fired within `reach` of a
+    gating objective that is still alive, or None."""
+    for k in range(i, j):
+        if 256 in pts[k]['keys'] and any(math.dist(pts[k]['pos'], g) < reach for g in gates):
+            return k
+    return None
+
+
 def flight_targets(pts, i, k, first=None, lead=3):
     """The pilot's targets for the flown points i..k-1 sent as one command, after the first (`first`, point i
     itself): x, y, z, radius, height tolerance. A point on the way holds the highest height of the next few
@@ -2360,6 +2369,14 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         if j > i and not pinned:
             # shots the recording fired on the stretch just skipped are owed: aimed from here instead
             owed_shots = owed_shots or skipped_shots(pts, i, j)
+            if level and skipped_shots(pts, i, j) and j > i + 1:
+                # not past the spot where the recording shot at something that is still shut: a lock that
+                # opens a door (room 2's, 12 units off the door) is only hit from there
+                gates = [o['pos'] for o in objectives(level, here, None, radius=80)
+                         if gating(level.m, o) and alive(game, o['name'])]
+                k = first_shot_at_gate(pts, i, j, gates)
+                if k is not None:
+                    j = k
             i = j
         p = pts[i]
         if p.get('ride'):
