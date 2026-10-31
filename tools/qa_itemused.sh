@@ -94,6 +94,14 @@ capture leak
 check "the cord item (obj1) was spawned on the host"      worlds_have leak 1 obj1
 check "the cord item (obj1) exists on the client too"     worlds_have leak 2 obj1
 check "the worlds match: same items on both (statecheck)" worlds leak
+# the host collects the cord: the cord's OnPickedUp moves the puzzle on (state 2) in every game and the item goes
+read -r cx cy cz < <(awk '$1=="item" && $NF ~ /obj1/ {print $3, $4, $5}' "$out/leak_1.txt" | tr -d '\r')
+lua 1 "mdkGobSetPositionXYZ(mdkGetPlayerGob(), $cx, $cy, $cz)"
+check "the host's puzzle moved on after collecting the cord (state 2)"  wait_q 1 "l3_w_hub00.state" 2 25
+check "the client's puzzle moved on too (state 2)"                      wait_q 2 "l3_w_hub00.state" 2 30
+sleep 3
+capture picked
+check "the cord item is gone from both games"  bash -c "! grep -qaE '^item .* obj1[[:space:]]*\$' '$out/picked_1.txt' '$out/picked_2.txt'"
 check "the client is outside every splash radius of the host (process state, after)" far "itemused after"
 
 fi

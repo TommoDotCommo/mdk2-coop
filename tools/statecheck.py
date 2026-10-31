@@ -19,7 +19,7 @@ import argparse
 
 def load(path):
     s = {"level": None, "me": None, "life": 0, "player": None, "puppet": {}, "ent": {}, "gone": set(), "actor": [],
-         "item": {}, "unplaced": 0, "door": {}}
+         "item": {}, "unplaced": 0, "door": {}, "doorx": {}}
     seen = set()
     with open(path, encoding="latin-1") as stream:
         lines = stream.readlines()
@@ -58,6 +58,9 @@ def load(path):
             s["item"][name] = s["item"].get(name, 0) + 1
         elif k == "door":
             s["door"][" ".join(f[2:])] = int(f[1])
+        elif k == "doorx":
+            # doorx <locked by a script> <in stasis> <name>: what keeps a closed door shut (bridge/state.c)
+            s["doorx"][" ".join(f[3:])] = (int(f[1]), int(f[2]))
     if not {"role", "level", "me", "life"} <= seen:
         raise ValueError(f"{path}: incomplete state header")
     if s["role"] not in ("host", "client") or not 1 <= s["me"] <= 16 or s["level"] < 1 or not 0 <= s["life"] <= 3:
@@ -201,6 +204,11 @@ def compare_world(h, c, cn, tol, fail, warn, after=None):
     for name in sorted(set(h["door"]) | set(c["door"])):
         if h["door"].get(name) != c["door"].get(name):
             warn(f"door {name}: {h['door'].get(name)} on host, {c['door'].get(name)} on {cn}")
+    # a door locked, or held in stasis, in one game and not in the other stays that way (a lock that died in one
+    # world only, a handler another player triggered): a warning because the dumps are not taken at one instant
+    for name in sorted(set(h["doorx"]) & set(c["doorx"])):
+        if h["doorx"][name] != c["doorx"][name]:
+            warn(f"door {name}: (locked, stasis) {h['doorx'][name]} on host, {c['doorx'][name]} on {cn}")
     return compared
 
 

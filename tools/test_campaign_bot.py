@@ -368,6 +368,11 @@ def statecheck(host, client, post=None):
 
 
 sam = lambda hp, x=0.0: (201, hp, x, 0.0, 0.0, 'sam')
+# a door held in stasis in one game only (its lock died there only) is reported, equal doors are not
+rc, out = statecheck(dump('host', {}) + 'door 0 gate\ndoorx 0 0 gate\n', dump('client', {}) + 'door 0 gate\ndoorx 0 1 gate\n')
+check('statecheck: a door in stasis on the client only is reported', 'door gate: (locked, stasis) (0, 0) on host, (0, 1) on client' in out)
+rc, out = statecheck(dump('host', {}) + 'door 0 gate\ndoorx 1 0 gate\n', dump('client', {}) + 'door 0 gate\ndoorx 1 0 gate\n')
+check('statecheck: equal doors are not reported', '(locked, stasis)' not in out and rc == 0)
 rc, out = statecheck(dump('host', {'a': sam(14)}), dump('client', {'a': sam(0)}))
 check('statecheck without --after: client hp 0 against 14 fails', rc == 1 and 'hp 14 on host, 0 on client' in out)
 rc, out = statecheck(dump('host', {'a': sam(14)}), dump('client', {'a': sam(0)}), dump('host', {'a': sam(0)}))

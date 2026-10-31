@@ -12,7 +12,7 @@
   (`l3_air00`) dresses the user's own body in boots and a fishbowl, so it stays local
   until it is made safe for a puppet. `tools/qa_itemused.sh` (level 3 checkpoint 6, the
   client on the bridge room over 300 units from the host) uses the tape on the host: with
-  the fix the client's water flag becomes 1 and both state dumps hold the same cord item;
+  the fix the client's water flag becomes 1, both state dumps hold the same cord item and, when the host collects it, both games move the puzzle on and lose the item;
   with the old behaviour (`MUTANT=noitemused`) the client's flag stays 0 and the cord
   exists on the host only. The same script checks that a door lock a client shoots dead
   (level 2, room 2's exit door) frees the door in both games: that already worked,
