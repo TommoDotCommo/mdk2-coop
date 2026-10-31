@@ -2341,6 +2341,9 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     # a checkpoint start past a refueller has a full tank (coop.FuelGrantTick); count thrust from here
     game.lua('coop.gunner_cap=10000 coop.GunnerOn(60) coop.jet_ms=0')
     assist = os.environ.get('MDK2_FUEL_ASSIST') == '1'
+    # flights sent to the pilot as one queued path: 6-7's 22-point climb takes 2.4 s instead of 19, but 5-6's
+    # shaft stretches that passed point by point failed with it, so it is chosen per segment (campaign_run.py)
+    batched = os.environ.get('MDK2_FLIGHT_BATCH') == '1'
     if assist:
         game.lua('coop.fuel_assist=1')     # a test crutch (campaign_run.py --fuel-assist): the tank never runs dry
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
@@ -2459,7 +2462,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             # the stretch's points go to the pilot in one command, which goes on from point to point by
             # itself: the bot's round trip for each (about half a second) was hover time, and a tank is
             # some ten seconds of thrust (6-7's climb ran dry halfway)
-            k = flight_batch(pts, fly, i, apart | set(tracked) | over)
+            k = flight_batch(pts, fly, i, apart | set(tracked) | over) if batched else i + 1
             then = flight_targets(pts, i, k, tgt) if k > i + 1 else None
             trk = tracked.get(i)
             t_fl = time.monotonic()

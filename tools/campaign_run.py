@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+BATCHED = ('6-7', '9-10')     # segments whose flights are sent to the pilot as one queued path (campaign_bot.follow)
 ASSIST = None       # --fuel-assist: None off, an empty set for every segment, else the segments ("9-10") given
 
 
@@ -306,7 +307,8 @@ def play(level, start, end, players, wsl, folder, env, opts, logname):
                 time.sleep(5)
             run = subprocess.CompletedProcess(args, 1)
         else:
-            run = watched(args, log, dict(env, MDK2_FUEL_ASSIST='1' if assisted(start, end) else '0'), wsl, opts, timeout=opts.get('limit', 1500))
+            run = watched(args, log, dict(env, MDK2_FUEL_ASSIST='1' if assisted(start, end) else '0',
+                                  MDK2_FLIGHT_BATCH='1' if f'{start}-{end}' in BATCHED else '0'), wsl, opts, timeout=opts.get('limit', 1500))
     name = f'seg_{level}_{start}_{end}.route'
     made = Path(wsl[0]) / 'coop' / name
     if run.returncode == 0 and made.exists() and not (ROOT / 'local/routes' / name).exists():
