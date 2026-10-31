@@ -37,6 +37,15 @@ mutants = {
     'invalid-flags': ('(s->flags & ~0x22)', '0'),
     'invalid-animation': ('s->cur != 66 && s->cur != 67 && s->cur != 255', '0'),
     'nonfinite-animation': ('!isfinite(value)', '0'),
+    'gear-truncated': ('if (size - n < need) return 0;', 'if (0) return 0;'),
+    'gear-bad-fields': ('if (v->hidden > 1 || v->model > 3 || v->nanims > GEAR_ANIMS) return 0;', 'if (0) return 0;'),
+    'gear-bad-animation': ('if ((v->cur != 255 && v->cur >= 160) || (v->prev != 255 && v->prev >= 160)) return 0;', 'if (0) return 0;'),
+    'gear-bad-id': ('if (v->id[i] >= 160) return 0;', 'if (0) return 0;'),
+    'gear-nonfinite': ('if (!(isfinite(value) && fabsf(value) <= 1000000.0f)) return 0;', 'if (0) return 0;'),
+    'gear-infinite-end-rejected': ('if (j == 5) continue;', ''),
+    'gear-decode-count': ('if (v->nanims > GEAR_ANIMS) return 0;\n        if (size - n <', 'if (0) return 0;\n        if (size - n <'),
+    'gear-hidden-lost': ('(unsigned char)(v->hidden | v->model << 1)', '(unsigned char)(v->model << 1)'),
+    'gear-model-lost': ('(unsigned char)(v->hidden | v->model << 1)', '(unsigned char)(v->hidden)'),
     'missing-eligibility': ('if (!players[i].eligible) continue;', 'if (0) continue;'),
     'host-only-target': ('i < count;', 'i < 1;'),
     'no-pull': ('next = now - f->loading_since >= 60 ? JOIN_TIMEOUT : JOIN_LOADING;', 'next = JOIN_WAITING;'),
@@ -58,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix='mdk-presence-') as folder:
         path.write_text(variant)
         binary = folder / name
         subprocess.run(['gcc', '-std=c99', '-O1', '-g', '-Wall', '-Wextra', '-Wno-unused-parameter',
-                        '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-fno-pie', '-no-pie',
+                        '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer', '-fno-pie', '-no-pie',
                         '-I', str(ROOT/'bridge'), str(path),
                         str(ROOT/'bridge/tests/presence_test.c'), '-lm', '-o', str(binary)], check=True)
         result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=20,
@@ -68,7 +77,8 @@ with tempfile.TemporaryDirectory(prefix='mdk-presence-') as folder:
             if result.returncode:
                 raise SystemExit(result.stderr)
         else:
-            if result.returncode == 0 or not ('Assertion' in result.stderr or 'AddressSanitizer' in result.stderr):
+            if result.returncode == 0 or not ('Assertion' in result.stderr or 'AddressSanitizer' in result.stderr or
+                                              'runtime error' in result.stderr):
                 raise SystemExit(f'FAIL mutant not caught: {name}: {result.stderr}')
             print(f'PASS mutant caught: {name}')
 print(f'PASS: {len(mutants)} presence mutation twins rejected')
@@ -81,6 +91,14 @@ adapter_mutants = {
     'store-idle-actors': ('if (store_idle && !no_targeting', 'if (!no_targeting'),
     'omit-script-scope': ('ai_scope_enter(gob, 0);\n    return 1;', 'return 1;'),
     'omit-canopy-apply': ('if (no_canopy || !child', 'if (1 || !child'),
+    'omit-gear-apply': ('if (slot < 0 || slot >= MAX_PLAYERS || no_gear || !gob_alive(body)) return;', 'return;'),
+    'gear-any-character': ('if (gob_type(body) != gear_kinds[k].owner) continue;\n        g = gear_child(body, k);\n        if (!v->present) {', 'g = gear_child(body, k);\n        if (!v->present) {'),
+    'gear-build-every-frame': ('if (!g) { gear_retry[slot][k] = now + 2000; continue; }', 'if (!g) { continue; }'),
+    'gear-never-removed': ('if (g && g == gob_by_handle(gear_owned[slot][k])) { gob_kill(g); gear_owned[slot][k] = 0; }', ''),
+    'gear-hidden-not-applied': ('(*(WORD *)(g + GOB_FLAGS) & ~0x08) | (v->hidden ? 0x08 : 0)', '(*(WORD *)(g + GOB_FLAGS) & ~0x08)'),
+    'gear-anim-not-applied': ('if (i < v->nanims) memcpy(st, v->anim[i], sizeof(v->anim[0]));\n            else st[0] = 0;', 'if (0) memcpy(st, v->anim[i], sizeof(v->anim[0]));'),
+    'gear-release-leaks': ('if (g && gob_alive(g)) gob_kill(g);\n        gear_owned[slot][k] = 0;', 'gear_owned[slot][k] = 0;'),
+    'gear-capture-wrong-model': ('v->model = kind == 2 ? 1 : 0;', 'v->model = 0;'),
     'omit-target-context': ('ai_actor = gob;', 'ai_actor = NULL;'),
     'forget-target-restore': ('ai_actor = saved;', 'ai_actor = gob;'),
     'double-stack-clean': ('"movq %1, %%rsp\\n\\t" /* restore caller stack for both caller-pop and callee-pop */',
@@ -134,6 +152,9 @@ snapshot_mutants = {
     'canopy-not-encoded': ('canopy_encode(&s->canopy, o, (int)(end - o))',
                            '1 /* deliberately omit canopy bytes */'),
     'canopy-not-decoded': ('canopy_decode(p, (int)(end - p), &s->canopy)', '1'),
+    'gear-not-encoded': ('gear_encode(&s->gear, o, (int)(end - o))', '1 /* deliberately omit equipment bytes */'),
+    'gear-not-decoded': ('gear_decode(p, (int)(end - p), &s->gear)', '1'),
+    'gear-lost-on-interpolation': ('*out = t < 0.5f ? *a : *b;', '*out = t < 0.5f ? *a : *b; memset(&out->gear, 0, sizeof(out->gear));'),
     'teleport-blended': ('if (snap_jump(a, b))\n            t->view', 'if (0)\n            t->view'),
     'canopy-lost-on-interpolation': ('*out = t < 0.5f ? *a : *b;',
                                      '*out = t < 0.5f ? *a : *b; out->canopy.present = 0;'),

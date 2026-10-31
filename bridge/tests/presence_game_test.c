@@ -16,8 +16,13 @@ typedef uint32_t DWORD;
 #define GOB_ANIM 0x60
 #define GOB_POSITION 0x18
 #define LIFE_ALIVE 0
+#define GOB_FLAGS 0xa6
+#define GOB_BONE_SLOT 0x8c
+#define GOB_ORIENTATION 0x24
+#define ANIM_ID_MAX 160
+#define MAX_PATH 260
 static BYTE bodies[6][256], infos[6][256], states[6][256], controllers[6][256];
-static DWORD animation[6][2][10], fake_gob_table[GOB_SLOTS * 2];
+static DWORD animation[6][5][10], fake_gob_table[GOB_SLOTS * 2];
 static DWORD fake_player_handle, fake_ai_target_handle;
 #define GOB_TABLE fake_gob_table
 #define GOB_TABLE_AT(i) ((i) < 6 ? bodies[i] : NULL)
@@ -25,6 +30,8 @@ static DWORD fake_player_handle, fake_ai_target_handle;
 #define AI_TARGET_HANDLE fake_ai_target_handle
 static int types[6] = {100,100,100,202,0,202};
 static int alive[6] = {1,1,1,1,1,1}, in_level[3] = {1,1,1}, life[3];
+static char coop_dir[MAX_PATH] = ".";
+static const char *names[6] = {"p0","p1","p2","enemy","",""};
 static int role_host = 1, have_remote = 1, my_slot, test_background = 1;
 static int filtered_classes, repositioned;
 static BYTE *local_player = bodies[0], *puppets[3] = {NULL,bodies[1],bodies[2]};
@@ -48,9 +55,39 @@ static int puppet_slot(BYTE *g) { int i; for(i=0;i<3;i++) if(g && puppets[i]==g)
 static int player_in_level(int s) { return in_level[s]; }
 static int revive_life(void) { return life[0]; }
 static int player_life(int s) { return life[s]; }
-static const char *gob_name(BYTE *g) { return "enemy"; }
+static const char *gob_name(BYTE *g) { return names[gob_slot(g)]; }
 static void gob_peername(BYTE *g, char *out, int size) { snprintf(out,size,"@p%d",gob_slot(g)+1); }
-static DWORD *anim_state(BYTE *g, int id) { return id==66 || id==67 ? animation[gob_slot(g)][id-66] : NULL; }
+static DWORD *anim_state(BYTE *g, int id) {
+    int k = id==66 ? 0 : id==67 ? 1 : id==62 ? 2 : id==77 ? 3 : id==65 ? 4 : -1;
+    return k < 0 ? NULL : animation[gob_slot(g)][k];
+}
+static char *luaL_check_lstr_fake(int n, long *len) { *len = 1; return "k"; }
+#define luaL_check_lstr luaL_check_lstr_fake
+static void gob_kill(BYTE *g) { alive[gob_slot(g)] = 0; }
+static unsigned int fake_ticks = 10000;
+static unsigned int GetTickCount(void) { return fake_ticks; }
+/* the game's equip natives, as fakes: a free fake gob, a model controller, a bone, attach, placement, animation */
+static int bones_found, attaches, placed, played_anim, models_built, fail_bone, last_created = 4;
+static const char *built_model;
+static BYTE *om_gob_create_fake(const char *name) {
+    int i; for (i = 4; i < 6; i++) if (!alive[i]) {
+        memset(bodies[i], 0, sizeof(bodies[i])); alive[i] = 1; types[i] = 0; names[i] = name; last_created = i; return bodies[i]; }
+    return NULL;
+}
+static void *om_model_new_fake(const char *name) { built_model = name; models_built++; memset(controllers[last_created], 0, 256); return controllers[last_created]; }
+static int om_bone_find_fake(void *g, const char *name) { bones_found++; return fail_bone ? -1 : 19; }
+static void om_attach_fake(int a, void *parent, void *child, int bone) {
+    *(DWORD *)((BYTE *)child + GOB_TARGET) = gob_handle(gob_slot(parent)); *(int *)((BYTE *)child + GOB_BONE_SLOT) = bone;
+    *(WORD *)((BYTE *)child + GOB_FLAGS) |= 0x20; attaches++;
+}
+static void om_bone_place_fake(void *g, int bone, float *pos, float *quat) { placed++; }
+static int om_anim_play_fake(void *g, int id, int flags) { played_anim = id; return 1; }
+#define om_gob_create om_gob_create_fake
+#define om_model_new om_model_new_fake
+#define om_bone_find om_bone_find_fake
+#define om_attach om_attach_fake
+#define om_bone_place om_bone_place_fake
+#define om_anim_play om_anim_play_fake
 static BYTE *fallback;
 static BYTE *original_target(void) { return fallback; }
 static void *hook_code(BYTE *fn, const BYTE *expect, int size, void *hook) {
@@ -243,6 +280,64 @@ int main(void)
     assert(presence_damage_allowed((void *)0x434e56));
     assert(!presence_damage_allowed((void *)0x1234));
     test_background=0; assert(presence_damage_allowed((void *)0x1234));
-    puts("PASS engine adapter: attached canopy, scoped targets, ABI stack balance, life/epoch, direct damage evidence");
+    /* Equipment visuals (Max's jetpack, Doc's leaf blower): read from the owner's gob, built and driven on a puppet */
+    {
+        struct gear_state g = {0}, h;
+        BYTE *child, *built;
+        alive[4] = alive[5] = 0; types[0] = types[1] = 101; types[2] = 100;
+        child = om_gob_create_fake("maxjetpack");              /* what the game's pickup code did for the owner */
+        assert(child == bodies[4]);
+        *(DWORD *)(child + GOB_TARGET) = gob_handle(0); *(int *)(child + GOB_BONE_SLOT) = 19;
+        *(WORD *)(child + GOB_FLAGS) = 0x22;
+        *(BYTE **)(child + GOB_ANIM) = controllers[4];
+        memset(animation[4], 0, sizeof(animation[4])); memset(animation[5], 0, sizeof(animation[5]));
+        animation[4][3][0] = 1;
+        { float phase = 0.25f; memcpy(&animation[4][3][3], &phase, 4); memcpy(&animation[4][3][4], &phase, 4); }
+        *(DWORD *)(controllers[4] + 0x28) = (DWORD)(uintptr_t)animation[4][3];     /* thrusting: anim 77, was 62 */
+        *(DWORD *)(controllers[4] + 0x2c) = (DWORD)(uintptr_t)animation[4][2];
+        *(DWORD *)(states[0] + 0x38) = 2;                                            /* the atomic jetpack */
+        gear_capture(local_player, &g);
+        assert(g.v[0].present && g.v[0].cur == 77 && g.v[0].prev == 62 && g.v[0].nanims == 1 && g.v[0].id[0] == 77);
+        assert(g.v[0].model == 1 && !g.v[0].hidden && !g.v[1].present);
+        *(WORD *)(child + GOB_FLAGS) = 0x2a; gear_capture(local_player, &h); assert(h.v[0].hidden);
+        *(WORD *)(child + GOB_FLAGS) = 0x22;
+        /* the puppet has none: it is built with the game's own calls, on the bone and parent, and driven */
+        types[0] = 100; gear_capture(local_player, &h); assert(!h.v[0].present); types[0] = 101;    /* not Max */
+        gear_apply(1, bodies[1], &g);
+        built = gob_by_handle(gear_owned[1][0]);
+        assert(built && gob_alive(built) && !strcmp(names[gob_slot(built)], "maxjetpack"));
+        assert(*(DWORD *)(built + GOB_TARGET) == gob_handle(1) && *(int *)(built + GOB_BONE_SLOT) == 19);
+        assert(!strcmp(built_model, "jetpackatm") && attaches == 1 && placed == 1 && played_anim == 62);
+        gear_capture(bodies[1], &h);
+        assert(h.v[0].present && h.v[0].cur == 77 && h.v[0].prev == 62 && h.v[0].nanims == 1);
+        assert(memcmp(h.v[0].anim[0], g.v[0].anim[0], sizeof(h.v[0].anim[0])) == 0);
+        /* the owner stops thrusting and hides it: the same gob follows, none is built twice */
+        g.v[0].cur = 62; g.v[0].prev = 77; g.v[0].id[0] = 62; g.v[0].hidden = 1; g.v[0].anim[0][0] = 1;
+        gear_apply(1, bodies[1], &g);
+        assert(attaches == 1 && gob_by_handle(gear_owned[1][0]) == built);
+        gear_capture(bodies[1], &h); assert(h.v[0].cur == 62 && h.v[0].prev == 77 && h.v[0].hidden);
+        /* it ends on the owner's side: the puppet's goes too; a gob this side did not build is left alone */
+        memset(&g, 0, sizeof(g)); gear_apply(1, bodies[1], &g);
+        assert(!alive[gob_slot(built)] && !gear_owned[1][0]);
+        /* a visual for a character that does not wear it is never built; a missing bone is not retried every frame */
+        g.v[0].present = 1; g.v[0].cur = g.v[0].prev = NO_ANIM;
+        attaches = 0; gear_apply(2, bodies[2], &g); assert(!attaches && !gear_owned[2][0]);
+        fail_bone = 1; bones_found = 0;
+        gear_apply(1, bodies[1], &g); gear_apply(1, bodies[1], &g); assert(bones_found == 1 && !attaches);
+        fake_ticks += 2001; gear_apply(1, bodies[1], &g); assert(bones_found == 2);
+        fail_bone = 0; fake_ticks += 2001; gear_apply(1, bodies[1], &g); assert(attaches == 1 && gear_owned[1][0]);
+        /* the puppet going away takes what this side built with it; the switch for tests turns the whole thing off */
+        gear_release(1); assert(!gear_owned[1][0] && !alive[5]);
+        no_gear = 1; fake_ticks += 2001; gear_apply(1, bodies[1], &g); assert(!gear_owned[1][0]); no_gear = 0;
+        /* Doc's leaf blower is the same mechanism on another character and bone */
+        types[1] = 102; memset(&g, 0, sizeof(g)); g.v[1].present = 1; g.v[1].cur = 77; g.v[1].prev = 65; g.v[1].nanims = 1;
+        g.v[1].id[0] = 77; g.v[1].anim[0][0] = 1;
+        attaches = 0; fake_ticks += 2001; gear_apply(1, bodies[1], &g);
+        built = gob_by_handle(gear_owned[1][1]);
+        assert(built && !strcmp(names[gob_slot(built)], "docleafblower") && !strcmp(built_model, "leafer") && played_anim == 65);
+        gear_capture(bodies[1], &h); assert(h.v[1].present && h.v[1].cur == 77 && h.v[1].prev == 65 && !h.v[0].present);
+        gear_release(1);
+    }
+    puts("PASS engine adapter: attached canopy, scoped targets, ABI stack balance, life/epoch, direct damage evidence, equipment visuals");
     return 0;
 }
