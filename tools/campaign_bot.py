@@ -2473,7 +2473,9 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 game.goto(*pts[s]['pos'], radius=2, timeout=20, explore=1)
                 i, pinned = s, True
                 continue
-        if (256 in p['keys'] or owed_shots) and level:
+        # (not in the air or just after a flight: the jetpack's hold burns the tank while an aimed kill takes its
+        # seconds -- 9 s of hovering at 134 ran 6-7's tank dry; the gunner shoots meanwhile)
+        if (256 in p['keys'] or owed_shots) and level and (i - 1) not in fly:
             owed_shots = False
             # the recording was shooting here: what it shot is most likely the nearest living scripted
             # objective (the arena's generators: one left at 16 hp kept its exit shut), so aim at it
