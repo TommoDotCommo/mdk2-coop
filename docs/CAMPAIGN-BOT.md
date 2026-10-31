@@ -73,12 +73,26 @@ authoritative source is the installed game itself:
   and been given the toaster) is left alone, or opened with `--assist lift` (`Level.UnlockElevDoor`: a script
   shortcut, named in the run's results as `assist`). The follower's own copy had the lift locked as well, so
   the unlock is not carried by the host's puzzle in this test.
-- **Doc's items** (not built; what was found): a launcher start at level 3's checkpoint 6 gives Doc an empty
-  inventory (`mdkDocHasItem` false for tape, pipes, cord), so the walkway's puzzle (tape at the crack, cord,
-  ladder at the ladder spots) cannot be played from it; `mdkDocGiveItem(doc, OBJ_x, 1)` fills it. Items are
-  chosen by the hand keys (`Q`/`E` in the Modern preset: each press moves one step along that hand's list,
-  empty, item, item...) and used or combined with the fire button, but a press every so often is lost (about
-  half of 200 ms presses changed anything), so a frame-exact press (`coop.Look`'s way) is the next step.
+- **Doc's items and hands** (round 5; `coop.CheckpointItems`, `doc_hold`, `doc_use`, `doc_leak_puzzle`, `ladder_hop`).
+  A launcher start at a Doc checkpoint of level 3 (6, 16, 7, 8, 9, 10, 11, 13, 14) now gives Doc what a player
+  arrives with (`mdkDocGiveItem` once he stands in the level, in `coop.DocGrantTick`; the list is in
+  `coop.CheckpointItems`, from the level script and the walkthroughs: at 6 the atomic toaster, duct tape and pipes;
+  later the ladder, the empty fish bowl). The loaf is not an inventory item (`mdkDocGiveItem` does nothing for it,
+  `mdkDocHasItem` stays 0): it comes in through a native pickup like the jetpack. `MDK2_CPITEMS=0` turns the whole
+  grant off (the mutant: Doc then carries nothing and `campaign_bot.py dochands` fails).
+  Hands (Modern controls; `coop_press_frames` holds each key for whole frames): every hand has a list of the items
+  Doc carries with an empty place in it (left: atomic toaster, tape, empty; right: pipes, empty, loaf, later the
+  ladder), the inventory keys G / F move the selection along the list *without wrapping*, and the hand key
+  (Q left, E right) puts the selected item in that hand. The first answer to "presses are lost" was that a press
+  by time did not move the selection when the list had ended; `doc_hold` turns round after two tries that change
+  nothing. An item is used by pressing its hand key again (the tape at the pillar); fire combines the two hands
+  (cord in the left, pipes in the right: the ladder). Proven live from a clean launcher start at 3:6
+  (`dochands`: items carried, tape used, leak plugged, cord picked up, ladder made; the game's own state read back).
+  The bot does the same inside `advance` on level 3 (`doc_leak_puzzle`), then uses the ladder at an anchor
+  (`OBJ_LADDERSPOT`; `ladder_hop`: the hero climbs 7 units from the pillar's beam to the catwalk, at (-27.8, 0.1, -93.2)
+  from `l3_hublad00` and (-31.5, 2.9, -96.0) from `l3_hublad01`). Not solved: the way on from the catwalk (a mesh duct
+  at y -11 that the plane scan maps badly) to checkpoint 16, and everything after it (fish bowl, magnet, the
+  spacewalk).
 - **Kurt's fans** (level 4's updrafts, `fan_ride`): when the way on is well above Kurt and a fan
   (`OBJ_BLOWERCYLINDER`) stands below it, the bot snipes the lock that switches the fan on (a mined
   `deps` opener whose handler `enables` it), walks to the column's edge, steps in with jump held so
