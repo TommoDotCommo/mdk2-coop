@@ -278,6 +278,8 @@ def play(level, start, end, players, wsl, folder, env, opts, logname):
         for k in ('no_god', 'roles'):
             if opts.get(k) and cmd == 'squad':
                 args.append('--' + k.replace('_', '-'))
+        if opts.get('tactic') and cmd == 'squad':
+            args += ['--tactic', opts['tactic']]
         if opts.get('mutant') in ('desync', 'down', 'down-stay') and cmd == 'squad':
             args += ['--mutant', opts['mutant']]
         if os.environ.get('CAMPAIGN_IDLE'):
@@ -379,6 +381,7 @@ def main(argv=None):
     ap.add_argument('--timeout', type=int, default=1500, help="seconds for a segment's bot before it is stopped")
     ap.add_argument('--build', choices=('overhaul',), help='refuse copies that run another build')
     ap.add_argument('--no-god', action='store_true', help='play without invulnerability: heroes revive each other')
+    ap.add_argument('--tactic', choices=('fight', 'run'), default=None, help='no-God play style (see campaign_bot.py squad)')
     ap.add_argument('--roles', action='store_true', help="split a step's objectives between the players")
     ap.add_argument('--timescale', type=float, help='game clock factor (MDK2_TIMESCALE); 1 to confirm findings')
     ap.add_argument('--explore', '--no-routes', dest='explore', action='store_true', help='the bot plays on its own, ignoring recorded routes')
@@ -410,7 +413,7 @@ def main(argv=None):
         chain = []
     with concurrent.futures.ThreadPoolExecutor(a.shards) as pool:
         opts = {'no_god': a.no_god, 'roles': a.roles, 'timescale': a.timescale, 'mutant': a.mutant, 'explore': a.explore,
-                'limit': a.timeout, 'build': a.build, 'chain': chain}
+                'limit': a.timeout, 'build': a.build, 'chain': chain, 'tactic': a.tactic}
         runs = [(seg, k) for seg in a.segments for k in range(a.repeat)]
         jobs = {pool.submit(segment, a.level, seg, a.players, f'{base}-seg{i}', hook, out / f'run{k + 1}'
                             if a.repeat > 1 else out, not a.no_god, opts): seg

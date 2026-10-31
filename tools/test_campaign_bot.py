@@ -323,6 +323,51 @@ bl = cc.bridge_lives(['life: alive -> downed (lethal hit)\nlife: downed -> alive
 check('the mod\'s life log tells a revive by a teammate from a wipe reload',
       bl == {'downs': 2, 'revived_by_teammate': 1, 'new_level': 2, 'bled_out': 0})
 
+# No-God survival: threats read from the host's state, the focus, cover places.
+rows = [l.split() for l in """player 101 76 92.77 474.60 -27.07
+puppet 2 91.07 493.09 -26.24
+ent 10042 230 150 94.32 590.45 30.60 l2r3turret02
+ent 10043 230 24 91.25 488.57 18.71 l2r3turret03
+ent 30041 201 30 95 480 -20 l2r3samspawn02_s
+ent 1001 511 100 60 400 30 l2r3samspawn01
+ent 10050 230 0 90 500 20 deadturret
+ai_target 10042 230 @p2
+ai_target 10043 230 @p1
+ai_target 30041 201 @p1
+ai_target 1001 511 @p1
+ai_target 10050 230 @p1
+ai_target 10043 230 none""".splitlines()]
+ht = cc.host_threats(rows)
+check('threats: enemies whose AI target is a player, by player; generators and the dead are not threats',
+      sorted(t['name'] for t in ht['threats'][1]) == ['l2r3samspawn02_s', 'l2r3turret03']
+      and [t['name'] for t in ht['threats'][2]] == ['l2r3turret02'] and ht['players']['me'][1] == 474.6
+      and ht['players'][2][1] == 493.09)
+check('focus: a missile near comes first, else the weakest within reach, nothing out of reach',
+      cc.pick_focus(ht['threats'][1], ht['players']['me'])['name'] == 'l2r3samspawn02_s'
+      and cc.pick_focus(ht['threats'][1][:1], ht['players']['me'])['name'] == 'l2r3turret03'
+      and cc.pick_focus(ht['threats'][2], ht['players'][2], reach=50) is None
+      and cc.pick_focus([dict(ht['threats'][1][0], type=201, pos=(92.8, 540.0, -27.0))], ht['players']['me']) is None)
+cand = cc.cover_candidates((0, 0, 0), [(30, 0, 0), (1, 0, 0)])
+check('cover places: nearest first, the hero\'s own spot and trail points on top of it left out',
+      cand[0] == (cand[0][0], cand[0][1], 0) and math.dist(cand[0], (0, 0, 0)) <= 5.0 + 1e-6
+      and (30, 0, 0) in cand and (1, 0, 0) not in cand and len(cand) == 33
+      and all(math.dist(a, (0, 0, 0)) <= math.dist(b, (0, 0, 0)) for a, b in zip(cand, cand[1:])))
+
+# Transient world differences: tolerated only when the next comparison no longer has them.
+def stp(*lines):
+    return {'findings': list(lines), 'known': [], 'warn': []}
+hpl = 'FAIL  enemy 10042 l2r3turret02: hp 54 on host, 48 on client'
+cl = 'FAIL  enemy 1e003d n1e003d (type 201) on the client 2, gone on the host'
+gone = 'FAIL  enemy 20003 sod101 (type 230, hp 150) deleted on the client'
+sts = cc.settle([stp(hpl, cl, gone), stp(gone), stp(hpl)])
+check('transient: health and client-only lines gone at the next step are known, the rest stay findings',
+      sts[0]['findings'] == [gone] and len(sts[0]['known']) == 2 and sts[0]['settled'] == 2
+      and sts[0]['known'][0][1].startswith('transient'))
+check('transient: the same enemy still different at the next step is a finding; the last step stays unsettled',
+      cc.settle([stp(hpl), stp(hpl)])[0]['findings'] == [hpl] and sts[2]['findings'] == [hpl])
+check('transient: a deleted-on-the-client enemy (the desync mutant) is never tolerated',
+      cc.settle([stp(gone), stp()])[0]['findings'] == [gone])
+
 # Crash detection in campaign_run.py: a new dump in a watched copy's crash folder fails the segment.
 import os, subprocess, tempfile
 import campaign_run as cr
@@ -339,6 +384,14 @@ with tempfile.TemporaryDirectory() as tmp:
     (crash / 'dump0001.dmp').write_bytes(b'MDMP not really')
     lines = [l for l in cr.crash_lines(env) if l.startswith('CRASH')]
     check('a new dump%04i.dmp of a copy is a CRASH with its path', len(lines) == 1 and 'dump0001.dmp' in lines[0])
+# The run tactic does not stand under fire to shoot a threat generator (3 to 4 without God mode: 34 s aimed at
+# l2r3samspawn01 from below, every round into the ceiling, in each run that wiped); blockers are still shot.
+gm = bot.Game.__new__(bot.Game)
+gm.aim_at_spawners = False
+objs = [{'name': 's', 'type': 'OBJ_SAMSMITEGENERATOR'}, {'name': 'l', 'type': 'OBJ_DESTRUCTABLE'}]
+check('run tactic: SAM generators are not aimed at, locks and walls are', [o['name'] for o in bot.aimable(gm, objs)] == ['l'])
+gm.aim_at_spawners = True
+check('fight tactic: every objective is aimable', [o['name'] for o in bot.aimable(gm, objs)] == ['s', 'l'])
 # World comparison with a second host dump (tools/statecheck.py --after): dumps are taken one game after another, so a
 # fight or a spawn moves the host's world between the host's and a client's. Evidence: the campaign survey's level 2
 # runs showed the client lower on hp (the client dumped after more hits), an enemy "extra" on the client (the host made

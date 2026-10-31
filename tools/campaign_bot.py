@@ -25,6 +25,8 @@ class Game:
         self.coop = Path(folder) / 'coop'
         self.slot = slot
         self.serial = 0
+        self.gun_range = 60            # how far the gunner shoots (a squad's tactic may shorten it)
+        self.aim_at_spawners = True    # the run tactic does not stand under fire to shoot a threat generator
         # one command.lua per game: threads (a squad's leader and its followers) take turns
         self.lock = threading.RLock()
 
@@ -550,7 +552,7 @@ def fire_sweep(game, wanted, log, pitches=(0, -20, 20, -40, 40), steps=16, snipe
                 break
         if found:
             break
-    game.lua('coop.GunnerOn(60)')
+    game.lua(f'coop.GunnerOn({game.gun_range})')
     if not found:
         log(f'    {"sniper" if sniper else "fire"} sweep hit none of {sorted(wanted)[:6]}')
         return None
@@ -562,7 +564,7 @@ def fire_sweep(game, wanted, log, pitches=(0, -20, 20, -40, 40), steps=16, snipe
         game.lua(face(ang, elev) + (' coop_test_sniper()' if sniper else ' coop_press(256, 600)'))
         time.sleep(.5)
         game.lua(face(ang, 0))
-    game.lua('coop.GunnerOn(60)')
+    game.lua(f'coop.GunnerOn({game.gun_range})')
     if alive(game, name) and not sniper:
         log(f'    fire sweep: {name} still alive after 30 s')
         return None
@@ -625,7 +627,7 @@ def aimed_kill(game, name, log, seconds=60):
             if misses >= 2 and close > 4:
                 close = max(4, close - 4)
                 misses = 0
-    game.lua('coop.GunnerOn(60)')
+    game.lua(f'coop.GunnerOn({game.gun_range})')
     gone = not alive(game, name)
     log(f'    {"killed" if gone else "could not kill"} {name} by aimed fire in {time.monotonic() - t0:.0f}s'
         f' (from {close} units)')
@@ -718,6 +720,13 @@ def objectives(level, pos, toward=None, radius=150):
         scripted = 'OnDie' in level.m['events'].get(o['name'], []) or 'GENERATOR' in o['type']
         return math.dist(o['pos'][:2], ref[:2]) - (40 if scripted else 0)
     return sorted(out, key=rank)
+
+
+def aimable(game, objs):
+    """The objectives worth standing still for: a generator that only makes threats (level 2's SAM spawners,
+    out of reach of the fire from the floor) is not shot by a hero that is running the gauntlet; every
+    blocker (wall, lock, alert) still is. Evidence: 3 to 4 without God mode, docs/CAMPAIGN-BOT.md."""
+    return [o for o in objs if game.aim_at_spawners or o['type'] != 'OBJ_SAMSMITEGENERATOR']
 
 
 def kill_objective(game, nav, obj, log, seconds=25, sniper=False):
@@ -1295,7 +1304,7 @@ def off_route(level, ahead, planned_from, here, jump=40):
 
 def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
     """Get the hero to goal: portal by portal, scanning, walking, and breaking scripted walls."""
-    game.lua('coop.GunnerOn(60)')
+    game.lua(f'coop.GunnerOn({game.gun_range})')
     def route_from(here):
         _, portals = level.path(list(here), list(goal))
         # the room boxes have no vertical links (level 2's shaft from room 5 up to room 6): when the goal
@@ -1624,7 +1633,7 @@ def desync_mutant(games, log):
 
 
 def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, record=None,
-          no_god=False, step_units=25.0, step_seconds=45.0, mutant=None, roles=False):
+          no_god=False, step_units=25.0, step_seconds=45.0, mutant=None, roles=False, tactic='fight'):
     """Every game is a bot: player 1 leads to the goal; each other player follows the leader with its
     own pilot and gunner. The worlds are compared after every step of the leader's progress (each
     step_units along the ground, or step_seconds) and at the end. Without God mode (no_god) each hero looks after
@@ -1634,10 +1643,14 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     import threading
     import campaign_coop as cc
     leader, followers = games[0], games[1:]
+    for g in games:
+        g.gun_range = 6 if tactic == 'run' else 60       # run: shoot only what blocks the way, keep moving
+        g.aim_at_spawners = tactic != 'run'
     result = {}
     stop = threading.Event()
     t_start = time.monotonic()
-    steps, care = [], {'heals': 0, 'retreats': 0, 'revive_tries': 0, 'revive_ok': 0}
+    steps, care = [], {'heals': 0, 'retreats': 0, 'revive_tries': 0, 'revive_ok': 0, 'covers': 0, 'cover_s': 0,
+                'holds': 0, 'hold_s': 0, 'focus_changes': 0}
     lives = cc.Lives([g.slot for g in games])
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
@@ -1686,7 +1699,13 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 take_role(g)
             chase(g)
         except Exception as e:
-            log(f'[{g.slot}] crashed: {e!r}')
+            import traceback
+            log(f'[{g.slot}] crashed: {e!r}\n' + traceback.format_exc())
+            # a follower whose route code failed still goes on to the leader (and the regroup)
+            try:
+                chase(g)
+            except Exception as e2:
+                log(f'[{g.slot}] chase crashed: {e2!r}')
 
     def take_role(g):
         obj = assigned.get(g.slot)
@@ -1702,7 +1721,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
         g.goto(*goal, radius=6, timeout=40, explore=1)     # regroup at the portal
 
     def chase(g):
-        g.lua('coop.GunnerOn(60)')
+        g.lua(f'coop.GunnerOn({g.gun_range})')
         far = 0
         while not stop.is_set():
             target = leader.pos()
@@ -1773,21 +1792,42 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                     log(f'[{g.slot}] revive {d.slot}: try {attempt + 1}, {near:.1f} from the body')
                     if near > 4.5:
                         continue
-                    g.lua('coop.PilotStop() coop_press(19, 4500)')
+                    g.lua('coop.gun_saved = coop.gunner coop.gunner = nil coop.PilotStop() coop_press(19, 4500)')
                     t1 = time.monotonic()
                     while time.monotonic() - t1 < 7:
                         if d.telemetry()['life'] == cc.ALIVE:
                             care['revive_ok'] += 1
                             log(f'[{g.slot}] revived player {d.slot} in {time.monotonic() - t1:.1f}s of R')
                             return
+                        # the reviver holds its game's lock, so the care loop cannot read it: publish its own
+                        # state here, so that a reviver that goes down under fire gets a reviver of its own
+                        # (3 players, 8 to 9: the host went down beside the body it was reviving and bled out
+                        # unseen) and stops holding a key that does nothing
+                        mine = g.telemetry()
+                        known_life[g.slot] = mine
+                        if mine['life'] != cc.ALIVE:
+                            log(f'[{g.slot}] revive {d.slot}: the reviver is down itself (hp {mine["hp"]})')
+                            return
                         time.sleep(.3)
             except (TimeoutError, OSError) as e:
                 log(f'[{g.slot}] revive {d.slot}: {e!r}')
             finally:
+                try:
+                    g.lua('if (coop.gun_saved) then coop.gunner = coop.gun_saved coop.gun_saved = nil end')
+                except (TimeoutError, OSError):
+                    pass
                 reviving.discard(d.slot)
 
+    snap = {'t': 0.0, 'host': {'players': {}, 'threats': {}}}
+    busy_with = {}                     # slot -> 'cover' | 'hold' while a defence thread drives that hero
+    ignored = {}                       # enemy id -> time until which holding for it is pointless
+
+    def spot_of(slot):
+        p = snap['host']['players']
+        return p.get('me' if slot == 1 else slot)
+
     def heal(g, hp):
-        """Low on health: the nearest health pickup if one is near, otherwise back off along the way it came."""
+        """Low on health: the nearest health pickup if one is near (cover is the defence's job)."""
         with g.lock:
             here = g.pos()
             o = cc.health_target(level.m.get('pickups', []), here, taken)
@@ -1796,11 +1836,108 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 g.goto(*o['pos'], radius=1.5, timeout=20, explore=1)
                 care['heals'] += 1
                 log(f'[{g.slot}] hp {hp}: went for {o["name"]} ({o["type"]}), hp now {g.telemetry()["hp"]}')
-            elif trail[g.slot]:
-                back = trail[g.slot][0]
-                g.goto(*back, radius=2, timeout=6, explore=1)
-                care['retreats'] += 1
-                log(f'[{g.slot}] hp {hp}: no health near, backed off to {[round(v) for v in back]}')
+
+    def lualist(vals):
+        return '{' + ', '.join(f'{v:.2f}' for p in vals for v in p) + '}'
+
+    def cover(g, hp):
+        """Being shot at with little health: out of every shooter's sight (a place the hero came from, or one
+        around it that the engine's line of sight says is hidden), and wait there for the shooting to stop."""
+        try:
+            with g.lock:
+                g.lua('coop.PilotStop()')
+                here = g.pos()
+                thr = [t['pos'] for t in snap['host']['threats'].get(g.slot, []) if math.dist(t['pos'], here) < 60]
+                cands = cc.cover_candidates(here, trail[g.slot])[:24]
+                if not thr or not cands:
+                    return
+                n = g.note('cover', f'coop.NavCover({lualist(cands)}, {lualist(thr)})').strip()
+                if n == 'none':
+                    log(f'[{g.slot}] hp {hp}: no cover found among {len(cands)} places from {len(thr)} shooters')
+                    return
+                spot = cands[int(n) - 1]
+                r = g.goto(*spot, radius=1.5, timeout=8, explore=0)
+                care['covers'] += 1
+                t0 = time.monotonic()
+                log(f'[{g.slot}] hp {hp}: took cover at {[round(v) for v in spot]} ({r.get("state")}), '
+                    f'{math.dist(spot, here):.0f} units away')
+                while time.monotonic() - t0 < 10 and not stop.is_set():
+                    time.sleep(1)
+                    if not [t for t in snap['host']['threats'].get(g.slot, [])
+                            if math.dist(t['pos'], spot) < 45]:
+                        break
+                care['cover_s'] += round(time.monotonic() - t0)
+        except (TimeoutError, OSError, ValueError) as e:
+            log(f'[{g.slot}] cover: {e!r}')
+        finally:
+            busy_with.pop(g.slot, None)
+
+    def hold(g, target):
+        """A shooter at the hero within reach: stop walking and shoot it until it is dead, the hero's health
+        calls for cover, or 12 s pass; a target that loses no health in 5 s is not worth holding for."""
+        try:
+            with g.lock:
+                g.lua('coop.PilotStop()')
+                t0 = last_hp_t = time.monotonic()
+                hp0 = target['hp']
+                care['holds'] += 1
+                while time.monotonic() - t0 < 12 and not stop.is_set():
+                    time.sleep(.5)
+                    mine = {t['id']: t for t in snap['host']['threats'].get(g.slot, [])}
+                    cur = mine.get(target['id'])
+                    if cur is None:
+                        break                                   # dead, or no longer after this hero
+                    if cur['hp'] < hp0:
+                        hp0, last_hp_t = cur['hp'], time.monotonic()
+                    elif time.monotonic() - last_hp_t > 5:
+                        ignored[target['id']] = time.monotonic() + 40
+                        log(f'[{g.slot}] hold: {target["name"]} loses no health, not holding for it')
+                        break
+                    tel = known_life.get(g.slot)
+                    if tel and 0 < tel['hp'] <= cc.COVER_HP:
+                        break
+                care['hold_s'] += round(time.monotonic() - t0)
+        except (TimeoutError, OSError) as e:
+            log(f'[{g.slot}] hold: {e!r}')
+        finally:
+            busy_with.pop(g.slot, None)
+
+    def defend(g, t):
+        """Read what is shooting this hero from the host's state; shoot the most urgent first; hold the ground
+        to finish it, or take cover when health is low."""
+        mine = snap['host']['threats'].get(g.slot, [])
+        here = spot_of(g.slot)
+        if not here:
+            return
+        focus = cc.pick_focus(mine, here, reach=g.gun_range - 5 if tactic == 'run' else 55.0)
+        name = focus['name'] if focus else ''
+        if name != focus_set.get(g.slot):
+            focus_set[g.slot] = name
+            care['focus_changes'] += 1
+            try:
+                g.lua(f'coop.GunnerFocus({json.dumps(name) if name else "nil"}, {g.gun_range if tactic != "run" else 25})')
+            except (TimeoutError, OSError):
+                pass
+            if focus:
+                log(f'[{g.slot}] shot at by {len(mine)}: focus {name} (type {focus["type"]}, hp {focus["hp"]}, '
+                    f'{math.dist(focus["pos"], here):.0f} away), own hp {t["hp"]}')
+        if g.slot in busy_with or g.slot in reviving or t['life'] != cc.ALIVE or tactic == 'run':
+            return
+        near_fire = [x for x in mine if math.dist(x['pos'], here) < 45]
+        if 0 < t['hp'] <= cc.COVER_HP and near_fire and now_s() - last_heal.get(('cover', g.slot), -99) > 12:
+            last_heal[('cover', g.slot)] = now_s()
+            busy_with[g.slot] = 'cover'
+            threading.Thread(target=cover, args=(g, t['hp']), daemon=True).start()
+        elif focus and ignored.get(focus['id'], 0) < time.monotonic() and t['hp'] > cc.COVER_HP \
+                and math.dist(focus['pos'], here) < 70 and now_s() - last_heal.get(('hold', g.slot), -99) > 15:
+            last_heal[('hold', g.slot)] = now_s()
+            busy_with[g.slot] = 'hold'
+            threading.Thread(target=hold, args=(g, focus), daemon=True).start()
+
+    focus_set = {}
+
+    def now_s():
+        return time.monotonic() - t_start
 
     def look_after():
         while not stop.wait(1.0):
@@ -1828,6 +1965,11 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 if pos.get(g.slot) is None and g.slot in known_pos:
                     pos[g.slot] = known_pos[g.slot]
             known_life.update({s: v for s, v in seen.items()})
+            try:
+                snap['host'] = cc.host_threats(leader.state())
+                snap['t'] = now
+            except (TimeoutError, OSError, ValueError):
+                pass
             for g in games:
                 t = seen.get(g.slot)
                 if not t:
@@ -1843,9 +1985,11 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                         helper = next(x for x in games if x.slot == who)
                         log(f'  player {g.slot} is down: player {who} goes to revive it')
                         threading.Thread(target=revive, args=(helper, g), daemon=True).start()
-                elif t['life'] == cc.ALIVE and 0 < t['hp'] < cc.LOW_HP and now - last_heal.get(g.slot, -99) > 20:
-                    last_heal[g.slot] = now
-                    threading.Thread(target=heal, args=(g, t['hp']), daemon=True).start()
+                elif t['life'] == cc.ALIVE:
+                    defend(g, t)
+                    if 0 < t['hp'] <= cc.COVER_HP and g.slot not in busy_with and now - last_heal.get(g.slot, -99) > 20:
+                        last_heal[g.slot] = now
+                        threading.Thread(target=heal, args=(g, t['hp']), daemon=True).start()
 
     threads = [threading.Thread(target=lead)] + [threading.Thread(target=keep_up, args=(g,)) for g in followers]
     helpers = [threading.Thread(target=watch, daemon=True), threading.Thread(target=look_after, daemon=True)]
@@ -1877,6 +2021,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     gaps = {g.slot: round(math.dist(g.pos(), leader.pos()), 1) for g in followers}
     log(f'  followers\' distance from the leader at the end: {gaps}')
     followed = {k: v for k, v in result.items() if str(k).startswith(('follower_', 'role_', 'mutant'))}
+    cc.settle(steps)                  # a difference gone at the next comparison is transient
+    (folder / 'steps.json').write_text(json.dumps(steps, indent=1))
     findings = sorted({f for s in steps for f in s['findings']})
     known = sorted({k[0] for s in steps for k in s['known']})
     totals = lives.totals()
@@ -1884,7 +2030,8 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
         result['mutant'] = dict(result.get('mutant', {}), **cc.down_check(totals, (result.get('mutant') or {}).get('downed')))
         followed['mutant'] = result['mutant']
         log(f'  mutant {mutant}: {result["mutant"]}')
-    stats = {'leader': result['leader'][1], 'world_ok': not end['findings'],      # known drift (flyers) is not a difference 'gaps': gaps, 'steps': len(steps),
+    stats = {'leader': result['leader'][1], 'world_ok': not end['findings'],      # known drift (flyers) is not a difference
+             'gaps': gaps, 'steps': len(steps),
              'findings': findings, 'known': len(known), 'lives': totals, 'care': care,
              'regroup_s': regroup, **followed}
     (folder / 'squad.json').write_text(json.dumps({'ok': result['leader'][0], **stats, 'known_lines': known,
@@ -2086,7 +2233,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     pads = [o for o in level.m['objects'] if o['type'] == 'OBJ_REFUELLER'] if level else []
     log(f'  following {len(pts)} points of {path} ({len(fly)} flown at their height)')
     # a checkpoint start past a refueller has a full tank (coop.FuelGrantTick); count thrust from here
-    game.lua('coop.GunnerOn(60) coop.jet_ms=0')
+    game.lua(f'coop.GunnerOn({game.gun_range}) coop.jet_ms=0')
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
     helped, aimed, flybacks, fuelled_at, retries, pinned = set(), set(), {}, {}, {}, False
 
@@ -2103,6 +2250,14 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         here = game.pos()
         if math.dist(here, pts[-1]['pos']) < 6:
             break                           # at the recording's end (the next checkpoint) already
+        # a wipe puts the squad back at its checkpoint, far behind the point it was walking to: rewind to
+        # the nearest earlier point (otherwise the pilot pushes at walls 100 units short of it)
+        if math.dist(here, pts[i]['pos']) > 30 and i > 0:
+            k = min(range(max(0, i - 300), i), key=lambda q: math.dist(here, pts[q]['pos']))
+            if math.dist(here, pts[k]['pos']) < math.dist(here, pts[i]['pos']) - 20:
+                log(f'  {math.dist(here, pts[i]["pos"]):.0f} units behind point {i} (a checkpoint reload?): '
+                    f'back to point {k}')
+                i, last_progress, best = k, time.monotonic(), None
         # skip on: the nearest of the next few points (not while going back to retry a flight or lift)
         ahead = range(i, min(len(pts), i + 80))
         j = min(ahead, key=lambda k: math.dist(here, pts[k]['pos']))
@@ -2197,13 +2352,13 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         if 256 in p['keys'] and level:
             # the recording was shooting here: what it shot is most likely the nearest living scripted
             # objective (the arena's generators: one left at 16 hp kept its exit shut), so aim at it
-            near = [o for o in objectives(level, here, None, radius=50)
+            near = [o for o in aimable(game, objectives(level, here, None, radius=50))
                     if o['name'] not in aimed and math.dist(o['pos'], here) < 50]
             near = [o for o in near if alive(game, o['name'])][:1]
             for o in near:
                 aimed.add(o['name'])
                 aimed_kill(game, o['name'], log, seconds=30)
-                game.lua('coop.GunnerOn(60)')
+                game.lua(f'coop.GunnerOn({game.gun_range})')
         for code in p['keys']:
             game.lua(f'coop_press({code if code < 256 else code}, 450)')
         rise = p['pos'][2] - here[2]
@@ -2240,6 +2395,15 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 time.sleep(.5)
         if time.monotonic() - last_progress > lost_after:
             log(f'  lost at point {i}/{len(pts)} {p["pos"]}, hero at {here}')
+            try:
+                rows = game.state()
+                tg = {r[1]: r[3] for r in rows if r[0] == 'ai_target' and len(r) >= 4}
+                near = sorted((math.dist((float(r[4]), float(r[5]), float(r[6])), here), r[7], r[2], r[3], tg.get(r[1], '-'))
+                              for r in rows if r[0] == 'ent' and len(r) >= 8)[:6]
+                log(f'  lost: hp {game.telemetry()["hp"]}, nearest enemies (dist, name, type, hp, target): '
+                    f'{[(round(d), n, t, h, a) for d, n, t, h, a in near]}')
+            except (TimeoutError, OSError, ValueError):
+                pass
             return False, {'points': len(pts), 'reached': i, 'seconds': round(time.monotonic() - t0)}
     log(f'  followed all {len(pts)} points in {time.monotonic() - t0:.0f}s')
     return True, {'points': len(pts), 'reached': len(pts), 'seconds': round(time.monotonic() - t0)}
@@ -2285,6 +2449,8 @@ def main(argv=None):
     sq.add_argument('--record', help="record the leader's play under this name (kept by the game in coop/)")
     sq.add_argument('--evidence', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/runs'))
     sq.add_argument('--no-god', action='store_true', help='heroes mind their health and revive each other')
+    sq.add_argument('--tactic', choices=('fight', 'run'), default='fight',
+                    help='no-God play: fight (hold the ground, cover) or run (shoot only what is close)')
     sq.add_argument('--roles', action='store_true', help='split a step\'s objectives between the players')
     sq.add_argument('--step-units', type=float, default=25.0, help='compare the worlds after this much progress')
     sq.add_argument('--mutant', choices=['desync', 'down', 'down-stay'],
@@ -2348,7 +2514,7 @@ def main(argv=None):
         folder = Path(a.evidence) / time.strftime('%Y%m%d-%H%M%S')
         ok, stats = squad(games, Level(a.level), a.to, folder, lambda m: print(m, flush=True), fly=a.fly,
                           chute=a.chute, route=a.route, record=a.record, no_god=a.no_god, roles=a.roles,
-                          step_units=a.step_units, mutant=a.mutant)
+                          step_units=a.step_units, mutant=a.mutant, tactic=a.tactic)
         print(f'{"RESULT: PASS" if ok else "RESULT: FAIL"} in {time.monotonic() - t0:.0f}s: {stats}; evidence {folder}')
         return 0 if ok else 1
     if a.cmd == 'advance':

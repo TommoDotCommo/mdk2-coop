@@ -198,6 +198,14 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
   segment's `results.json`. Mutant: `campaign_run.py --mutant desync` deletes a living enemy in the
   client's game only after the first step. Shown live (level 2, 5 to 6, x2): the next step reported
   `enemy 20003 sod101 (type 230, hp 150) deleted on the client` as a finding.
+- **Transient differences** (`campaign_coop.settle`, run at the end of a squad): a health that differs on a
+  client, or an enemy only on the client, is moved to `known` only if the next comparison no longer has
+  that enemy; the last comparison and everything else stay findings (a deleted-on-the-client enemy, the
+  desync mutant, is never tolerated). Evidence from every recorded squad run (7 runs, 156 findings):
+  38 of 38 client-lower health lines (turrets, SAM missiles, a spawner's grunts) and 104 of 104
+  client-only enemies (types 230, 201, 217, 511, 200) were gone at the next comparison; 8 findings are
+  left, the mutant's and puppet-distance lines after a checkpoint reload (a hero moved 170 to 190 units
+  while its puppet lagged one step).
 - **Crashes fail a segment** (`campaign_run.py`): the segment keeps `tools/mdk.sh`'s crash guard
   (`tools/crashwatch.py`) from before the boot to the end. Every 10 s the Overhaul build's error
   dialog ("Jinkies!") is closed and recorded and the game processes are checked; a game gone ends the
@@ -205,7 +213,9 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
   process turns the result into `CRASH`, with the dump's path and exception, and the dumps are moved
   into the segment's `dumps/`. Mutant: `--mutant crash` crashes the last game (`coop_crash()`, test
   builds only). Shown live (level 2, 7 to 8): `CRASH` with the dump (access violation writing 0x10),
-  the dialog, the marker and the gone process.
+  the dialog, the marker and the gone process. A real crash was caught the same way in round 5 (3 to 4 without God mode, an
+  access violation reading 0x8 on the client, `local/campaign/runs/20261031-122223/run2/2-3-4`); the
+  other runs of the batch went on and their results were kept.
 - **Without God mode** (`--no-god`): a hero below 35 health goes for the nearest health pickup
   (Double-A or car battery batteries) within 60 units, otherwise backs off along its way; a downed
   player is revived by the nearest standing teammate, who walks to the body and holds R (the mod's
@@ -235,6 +245,68 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
     x1 passes (815 s, 0 findings, `.../20261031-081607`), so the cause is playing without God mode;
     which part of it (knockback, a blocked door, damage slowing the hero) is unknown.
   - 5 to 6 was not run: its recording and its own play fail at the tip with God mode too (flight code).
+  - **Survival layer (round 4)**. The host's state dump says which enemy targets which player
+    (`ai_target <id> <type> @pN`, the engine's own AI target); `campaign_coop.host_threats` turns it into
+    threats per player, `pick_focus` picks what each hero shoots first (a missile within 25 units, else the
+    weakest within reach; the Lua gunner takes it as `coop.GunnerFocus`), `hold` stands and finishes a
+    shooter, `cover` walks to the nearest place no shooter sees (`coop.NavCover`, the engine's line of
+    sight) and waits. The gunner now aims up and down (it had always aimed flat, so the turrets 20 to 40
+    units above the hero in room 3 were never hit), and a gunner that fired at something far away kept
+    the revive key from registering (the gunner is paused while reviving). A follower rewinds to the
+    nearest earlier route point after a checkpoint reload (it pushed at walls 100 to 390 units short of
+    a point it had already passed). `squad --tactic fight` is this layer; `--tactic run` sprints and
+    shoots only what is within 6 units, plus missiles within 25.
+  - Tactic result at x1, two players, no God mode, recording. **8 to 9: run passes, three runs of three**
+    (146, 118 and 118 s of play, 0 downs, 0 deaths, 0 world findings;
+    `local/campaign/runs/20261031-100949/run{1,2,3}/2-8-9`; run 1 before the missile focus, 2 and 3
+    after). A first single run passed too (181 s, 1 down, 1 revive, `.../20261031-100541`). The fight
+    tactic fails 8 to 9 (lost at point 45 under the room's spawner at 916, 940: grunts keep dropping on the
+    hero, who stands and shoots; `.../20261031-093548`). So what stopped 8 to 9 without God mode was
+    standing to fight a spawner's endless grunts; sprinting through it is how it is played.
+  - **3 to 4 passes without God mode only by luck so far.** Room 3 is a gauntlet: three wall turrets,
+    three SAM generators (homing missiles, 30 hp) and eight grunt spawn groups (97 hp each; the bot's
+    bullets do 6). Fight tactic (`.../20261031-091932`: 5 downs, 4 revives, 0 deaths, 639 s;
+    `.../20261031-093106`: 3 downs, lost at point 66): holding the ground kills about 35 grunts and
+    still loses; cover does not help since nothing heals (room 3 has no health pickup; a revive restores health: 83 to 200 at
+    the next reading). **Run tactic, round 5, x1, two players:** one run PASSED in 415 s
+    (6 downs, 6 revives, 0 deaths, 244 of 244 points, `local/campaign/runs/20261031-121331`); then
+    five more runs did not pass: one client CRASH at 773 s (see the findings), and with the next
+    change, 0 of 3 in 1156 s (`.../20261031-124135/run{1,2,3}`: 25, 25 and 21 downs, 17, 13 and 13
+    revived by a teammate, 8, 12 and 8 wipe reloads, 0 to 1 bled out). The squad is wiped between y 400
+    and 590 (the second and third SAM generators); the run that passed had never stood and aimed at the
+    first generator, and the failing runs had (34 to 36 s under missile fire at `l2r3samspawn01`, every
+    round into the ceiling, the generator 40 units above the hero). The run tactic therefore no longer
+    aims at a threat generator (`aimable`); that did not change the outcome (0 of 3), so the pass rate
+    is low (one in six runs, roughly) and 3 to 4 is not counted as passing without God mode.
+    **Three players pass it once** (run tactic, x1, `.../20261031-135938/2-3-4`): PASS at 891 s of a 900 s
+    limit, 6 wipe reloads, 16 downs, 14 revives (13 by a teammate), 2 deaths (bled out), regroup checked;
+    the 29 world findings are all type 217 grunt copies of `l2_r3spawn07_spa` 27 to 46 units apart on the
+    clients (the fall in the findings). One run, so only a hint that a third player's revives help.
+    What would help and is not done: wait out the missiles behind the corner at y 330 to 390 (the
+    generators only spawn once a hero is in sight, not measured), kill the generators from a place that
+    sees them (`kill_objective` does not find one from the floor), or a third player (its revives).
+  - **7 to 8 passes without God mode, three of three** (fight tactic, x1, two players, recording,
+    after the gunner pitch change; `local/campaign/runs/20261031-130622/run{1,2,3}`): 184, 209 and 163 s
+    of wall clock, downs 0, 1 and 0, revives 0, 1 and 0, deaths 0; the care loop took cover twice in each
+    run and held for 8 to 10 shooters. One finding in run 1 (`host's player is 36.6 from its puppet in
+    the client's game`, one comparison, gone at the next). With God mode the same segment passes in 114 s,
+    0 findings (`.../20261031-130133`), so the pitch change did not regress it.
+  - **5 to 6** fails with God mode too (x1, `.../20261031-133047`: the flight failed three times at
+    points 27, 47 and 55, the jetpack hops, the flight code's job), so the no-God series was not run.
+  - **Three players, 8 to 9, no God mode, run tactic** (x1): first run FAILED in 402 s
+    (`.../20261031-132324`): player 2 followed all 187 points; the host (leader) went down at 6 hp
+    beside the body it was reviving and bled out unseen (the bot's care loop cannot read a game whose
+    lock the reviving thread holds, so nobody was sent: `revive()` now publishes the reviver's own state
+    and gives up when it is down itself); player 3 bled out after three revive tries at 0.0 units from
+    its body; 2 downs, 1 revive, 2 deaths. The second run, with the fix, reached the end with 4 downs, 4
+    revives and 0 deaths in 389 s, worlds equal (0 fail, 160 enemies), and FAILED the regroup: player 2's
+    follower thread had died of an `IndexError` after a wipe reload (the traceback was not logged then; it
+    is now, and the follower falls back to chasing the leader), leaving it 73 units from the goal
+    (`.../20261031-133614/run1`).
+    Then three more runs with the traceback logging, all PASS (`.../20261031-134806/run{1,2,3}`:
+    185, 163 and 244 s wall, downs 0, 0 and 2, revives 0, 0 and 2, deaths 0, regroup in 3, 4 and 3 s,
+    0 world findings): three players on 8 to 9 pass 4 of 5 runs since the reviver fix, and the one
+    `IndexError` has not recurred (it came after a wipe reload; none of these runs had one).
 - **Roles** (`--roles`): when a step has several objectives at the goal's height (level 2, 3 to 4: eight
   alerts, a door lock and walls; 5 to 6: two generators), the leader keeps its route and the next
   players each take another objective (aimed fire), then everyone regroups within 15 units of the
@@ -275,6 +347,22 @@ later):
   generator); the same load gave the checkpoint's atomic jetpack. Not reproduced in four 5 minute
   reruns, two with the grant and two without (`MDK2_CPITEMS=0`); the original came 9 minutes in, so it
   is intermittent or needs longer play.
+- **A grunt's copy falls on clients** (found without God mode, round 5): the type 217 enemies that a
+  generator's spawner makes (`l2_r3spawn07_spa`, `l2_r8gen03_spawn`) stand at one height on the host
+  and sink on the clients while keeping their x and y. 3 to 4: z -13.5 on the host, -67.2 on the client,
+  four grunts, the gap growing 35.5, 40.2, 42.1 in the statecheck lines of the last three comparisons
+  (`local/campaign/runs/20261031-121331/2-3-4/*/end_1.txt`, `end_2.txt`). 8 to 9, three players: z 211.0
+  on the host, 93.1 on client 2 and 146.0 on client 3 (different ages of the same fall)
+  (`local/campaign/runs/20261031-132324/2-8-9/*/step14_{1,2,3}.txt`). The host's grunts were idle
+  (targeting a downed hero). Not fixed; the comparison reports it as a finding, not as known.
+- **The client crash at `mdk2hd.exe+0x2a95` again** (reading address 8), now with a context: the client
+  (3 to 4, no God mode, x1, about 12 minutes in, 14 downs and 8 wipe reloads before it) crashed 40 ms
+  after `ent despawn ... died: running its OnDie` for two enemies and `replay launch type 423 ... replay
+  fire type 423 target '@p2' (found) -> created` (a homing missile launched at the player). The bot
+  reported `CRASH` with the marker, the Jinkies dialog, the dump and the gone process. Evidence:
+  `local/evidence/crash-r5/` (flight record `...flight-0-crash.txt`, `dump0000.dmp`, the segment's
+  `results.json`), `local/campaign/runs/20261031-122223/run2/2-3-4`. The older level 8 crash has the
+  same address and fault; both are a null pointer in the engine (eax 0). Unresolved.
 - **A one-sided face in level 2's arena** blocks the engine's line of sight going south (not north);
   heroes walk across it both ways, so this is only a quirk for line-of-sight users (enemy AI included).
 
@@ -378,7 +466,10 @@ the game-free gates and a short live smoke (see the last section).
   for the silent host hp refill. See the per-step mismatches section above.
 
 **Not yet**
-- The no-God series on 5→6; 5→6 itself at x1.
+- The no-God series on 3→4 passed once in six runs (the gauntlet's missiles wipe the squad; see the Co-op
+  section) and was not run on 5→6 (5→6 does not pass with God mode: the flight code). 7→8 (3 of 3) and 8→9
+  (run tactic, 3 of 3 with two players) pass without God mode; three players on 8→9 passed 4 of 5 (the regroup
+  failed once on a follower thread's `IndexError`, traceback now logged).
 - Levels 5 to 12 beyond the survey, Doc's items, sniper locks that need long chains, bosses,
   minigames, movies, combat damage to the hero.
 
