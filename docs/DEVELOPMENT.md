@@ -64,7 +64,7 @@ Background test mode (`tools/qa.sh` and `tools/sweep.sh` use it; `MDK2_BACKGROUN
 never take focus, are muted and capped at 60 fps (`[test] fps`). They ignore the real keyboard and mouse;
 scripts write a Lua line to `<game dir>\coop\command.lua`, which the bridge runs within a few frames:
 `coop_press(code, ms)` holds a DirectInput scancode (256 / 257 = left / right mouse), `coop_press_frames(code, n)`
-holds one for n whole game frames (a game that polls a key now and then, or a slow frame, loses a press by time) and `coop_shot(name)`
+holds one for n whole game frames (exact however long the frames take; a very short press by time can fall between two polls) and `coop_shot(name)`
 saves the next frame to `coop\<name>.tga`. `tools/play.sh` stays in normal mode for playing by hand.
 
 State checks: `coop_state(tag)` on the host writes `coop\state_<tag>.txt` (players, puppet, synced enemies,

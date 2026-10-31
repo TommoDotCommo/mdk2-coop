@@ -79,12 +79,11 @@ authoritative source is the installed game itself:
   `coop.CheckpointItems`, from the level script and the walkthroughs: at 6 the atomic toaster, duct tape and pipes;
   later the ladder, the empty fish bowl). The loaf is not an inventory item (`mdkDocGiveItem` does nothing for it,
   `mdkDocHasItem` stays 0): it comes in through a native pickup like the jetpack. `MDK2_CPITEMS=0` turns the whole
-  grant off (the mutant: Doc then carries nothing and `campaign_bot.py dochands` fails).
-  Hands (Modern controls; `coop_press_frames` holds each key for whole frames): every hand has a list of the items
+  grant off (the mutant: Doc then carries nothing and `campaign_bot.py dochands` fails). The items were read back from the game at every listed checkpoint (a checkpoint reload resets the inventory; the next grant follows).
+  Hands (Modern controls; `coop_press_frames` holds each key for whole frames; measured: 24 hand changes with 3 frame presses and 12 with 150 ms presses all went through, 60 ms presses lost 1 press in 20): every hand has a list of the items
   Doc carries with an empty place in it (left: atomic toaster, tape, empty; right: pipes, empty, loaf, later the
   ladder), the inventory keys G / F move the selection along the list *without wrapping*, and the hand key
-  (Q left, E right) puts the selected item in that hand. The first answer to "presses are lost" was that a press
-  by time did not move the selection when the list had ended; `doc_hold` turns round after two tries that change
+  (Q left, E right) puts the selected item in that hand. Round 4's "half the presses are lost" was this: a press by time did not move the selection when the list had ended; `doc_hold` turns round after two tries that change
   nothing. An item is used by pressing its hand key again (the tape at the pillar); fire combines the two hands
   (cord in the left, pipes in the right: the ladder). Proven live from a clean launcher start at 3:6
   (`dochands`: items carried, tape used, leak plugged, cord picked up, ladder made; the game's own state read back).
