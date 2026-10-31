@@ -278,6 +278,10 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
     round into the ceiling, the generator 40 units above the hero). The run tactic therefore no longer
     aims at a threat generator (`aimable`); that did not change the outcome (0 of 3), so the pass rate
     is low (one in six runs, roughly) and 3 to 4 is not counted as passing without God mode.
+    **Three players pass it once** (run tactic, x1, `.../20261031-135938/2-3-4`): PASS at 891 s of a 900 s
+    limit, 6 wipe reloads, 16 downs, 14 revives (13 by a teammate), 2 deaths (bled out), regroup checked;
+    the 29 world findings are all type 217 grunt copies of `l2_r3spawn07_spa` 27 to 46 units apart on the
+    clients (the fall in the findings). One run, so only a hint that a third player's revives help.
     What would help and is not done: wait out the missiles behind the corner at y 330 to 390 (the
     generators only spawn once a hero is in sight, not measured), kill the generators from a place that
     sees them (`kill_objective` does not find one from the floor), or a third player (its revives).
