@@ -2094,7 +2094,7 @@ def needs_fuel(used_ms, pts, fly, i, pads=(), tank_ms=TANK_MS, climb=JET_CLIMB):
         if k > i and any(math.dist(pts[k]['pos'], pad) < 5 for pad in pads):
             break
         k += 1
-    return used_ms + up / climb * 1000 + 1500 > tank_ms
+    return used_ms + up / climb * 1000 + 600 > tank_ms
 
 
 LIFT_STAND = 0.2       # a hero standing on a lift platform is this high above the platform's origin (measured)
