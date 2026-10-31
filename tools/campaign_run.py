@@ -30,6 +30,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+BATCHED = ('6-7', '9-10')     # segments whose flights are sent to the pilot as one queued path (campaign_bot.follow)
+ASSIST = None       # --fuel-assist: None off, an empty set for every segment, else the segments ("9-10") given
 
 
 def hook_path(arg):
@@ -39,6 +41,17 @@ def hook_path(arg):
     if not hook:
         raise SystemExit('no resource hook: set MDK2_QA_RESOURCES or pass --resources (see docs/TESTING.md)')
     return hook
+
+
+def assisted(start, end):
+    return ASSIST is not None and (not ASSIST or f'{start}-{end}' in ASSIST)
+
+
+def flies(level, start):
+    """Max's levels, from the jetpack's checkpoint on: the bot refuels and flies (--fly)."""
+    return (level, start) >= (2, 5) and level in (2, 5, 8, 11) and not (level == 5 and start < 9) \
+        and not (level == 8 and start < 5)
+
 
 
 # the non-Steam Overhaul build's mdk2hd.exe (sha256 prefix), the build players use
@@ -94,7 +107,10 @@ def segment(level, seg, players, owner, hook, out, god, opts=None):
     folder = out / f'{level}-{seg}'
     seg = f'{level}:{seg}'
     folder.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, MDK2_QA_OWNER=owner)
+    env = dict(os.environ, MDK2_QA_OWNER=owner, LAB_OWNER=owner)
+    # the jetpack's tank is spent per frame, so a flight is only repeatable at the game's own speed
+    if flies(level, start) and 'MDK2_TIMESCALE' not in env:
+        env['MDK2_TIMESCALE'] = '1'
     # the lab queues fairly and answers BUSY at once while another lease is ahead: try again for a while
     deadline = time.monotonic() + 1800
     while True:
@@ -164,7 +180,8 @@ def segment(level, seg, players, owner, hook, out, god, opts=None):
         tail = lines[-1:]
         result.update({'segment': seg if not chain else f'{level}:{start}-{chain[-1]}',
                   'result': 'PASS' if run.returncode == 0 and len(legs) == len(chain) + 1 else 'FAIL',
-                  'mode': ('chain ' if chain else '') + ('recorded' if '--route' in args else 'autonomous'),
+                  'mode': ('chain ' if chain else '') + ('recorded' if '--route' in args else 'autonomous')
+                  + (' +fuel assist' if assisted(start, end) else ''),
                   'seconds': round(time.monotonic() - t0), 'last': tail[0] if tail else '', 'build': build})
         if chain:
             result['legs'] = legs
@@ -257,8 +274,7 @@ def play(level, start, end, players, wsl, folder, env, opts, logname):
         args = [sys.executable, '-u', str(ROOT / 'tools/campaign_bot.py'), cmd, '--dirs', *wsl,
                 '--level', str(ROOT / f'local/campaign/level{level}.json'), '--to', *map(str, goal)]
         # Max's levels: from the jetpack's checkpoint on, the bot refuels and flies
-        if (level, start) >= (2, 5) and level in (2, 5, 8, 11) and not (level == 5 and start < 9) \
-                and not (level == 8 and start < 5):
+        if flies(level, start):
             args.append('--fly')
         if level in (1, 4, 7, 10):
             args.append('--chute')      # Kurt
@@ -295,7 +311,8 @@ def play(level, start, end, players, wsl, folder, env, opts, logname):
                 time.sleep(5)
             run = subprocess.CompletedProcess(args, 1)
         else:
-            run = watched(args, log, env, wsl, opts, timeout=opts.get('limit', 1500))
+            run = watched(args, log, dict(env, MDK2_FUEL_ASSIST='1' if assisted(start, end) else '0',
+                                  MDK2_FLIGHT_BATCH='1' if f'{start}-{end}' in BATCHED else '0'), wsl, opts, timeout=opts.get('limit', 1500))
     name = f'seg_{level}_{start}_{end}.route'
     made = Path(wsl[0]) / 'coop' / name
     if run.returncode == 0 and made.exists() and not (ROOT / 'local/routes' / name).exists():
@@ -340,7 +357,7 @@ def watched(args, log, env, wsl, opts, timeout):
     """Run the bot while watching its games: every 10 s the Overhaul build's error dialogs are closed and
     recorded and the game processes are checked; a game gone ends the run (the squad cannot finish).
     The crash mutant crashes the last game on purpose (coop_crash, a background test build only)."""
-    proc = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
+    proc = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, env=env)
     t0 = time.monotonic()
     proc.gone, crashed = [], 0
     while proc.poll() is None:
@@ -379,6 +396,9 @@ def main(argv=None):
     ap.add_argument('--shards', type=int, default=2)
     ap.add_argument('--players', type=int, default=2)
     ap.add_argument('--resources')
+    ap.add_argument('--fuel-assist', nargs='*', metavar='SEG',
+                    help='test crutch: a refueller follows each hero so a flight never runs dry; for all segments, '
+                         'or only those named (9-10 6-7); reported in the mode')
     ap.add_argument('--chain', action='store_true', help='consecutive segments of one level in one game pair, in order')
     ap.add_argument('--timeout', type=int, default=1500, help="seconds for a segment's bot before it is stopped")
     ap.add_argument('--assist', nargs='*', default=[], choices=['lift'],
@@ -405,6 +425,9 @@ def main(argv=None):
                       if l == l2 and a.first <= l <= a.last]
     if not a.segments or (not a.level and any(':' not in s for s in a.segments)):
         ap.error('give --segments with --level, level:start-end segments, or --campaign')
+    global ASSIST
+    if a.fuel_assist is not None:
+        ASSIST = set(a.fuel_assist)
     hook = hook_path(a.resources)
     base = os.environ.get('MDK2_QA_OWNER') or f'campaign-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'
     out = ROOT / 'local/campaign/runs' / time.strftime('%Y%m%d-%H%M%S')

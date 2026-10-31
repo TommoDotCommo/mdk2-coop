@@ -198,6 +198,35 @@ refuel trip per bay, then 252 s on one tank). A checkpoint start past a refuelle
 (`coop.FuelGrantTick`: a refueller hidden under the hero for six seconds), like the key items: from
 checkpoint 9 an empty tank could not reach room 9's first lift.
 
+- **Moving lifts** (level 2 room 9's `r9_platform*`): the platforms swing on their own, 21 units in a 20 second
+  period, the neighbours in anti-phase, whatever the player does (read from the objects' heights in the game:
+  `r9_platform` 239 to 260, `r9_platform_s` 280 to 259, the others likewise). The owner boarded each at the
+  bottom of its swing; the follower used to arrive when it was overhead and hover under it. Now a flight that
+  lands on a lift (`plan_boardings`) leaves the ground when the platform is coming down to the boarding height,
+  holds 8 units out from its edge (not under it) for the last stretch until it is down, and keeps two units above
+  the platform's current height as it rises (`coop.pilot.track`); the points between the last flown one and the
+  first standing on the lift are flown too (`extend_to_lifts`: a hero let go early fell off the edge). A hop from
+  one lift straight to the next is not waited for: the lifts are in step. Shown live: the lifts 0 to 5 are
+  ridden first try (`local/dev1` traces: `rode to 257.1 / 277.3 / 294.8 / 318.1 / 337.0 (recorded 258.2 / 277.7 /
+  295.7 / 318.9 / 338.3)`).
+- **Carrying on**: the follower takes the earliest of the next 80 points that is nearly (1.5 units) as near as the
+  nearest (`nearest_ahead`); the nearest alone sent a hero hovering at a pump to a later point at the same height
+  that was not flown, and he let go of the jetpack and fell 200 units. Points the recording spent hovering by a
+  hanging pump are flown too (`hover_points`).
+- **Bays**: where the recording fired at the turrets of a bay (level 2's hatched shafts: rooms 5 and 9 climb through
+  them), the follower stays, the gunner having the aim, until the turrets near it (`turrets_to_clear`: within 45
+  units, up to 16 above or below, since a bay's turrets sit 13 above its floor) are dead or 30 s have passed. Without
+  it the follower climbs on at once and meets a hatch that is still locked. Hovering with jump held after a climb
+  (the owner shot the bay's turrets from the air) counts as flown. The gunner takes turrets when given their names (`coop.GunnerTargets`: a bay's
+  turrets are scripted objects, not actors, so `coop_nearest_enemy` never lists them); the bay wait uses it. Untested live
+  (the earlier fire-held loop it replaces passed 5→6).
+  Shown live: 5→6 passes at game speed without the fuel assist (979 s).
+- **Fuel assist** (`campaign_run.py --fuel-assist`, a test crutch, off by default and named in the report's mode):
+  a refueller kept under each hero (`coop.fuel_assist`), so a recorded flight is not lost to one tank. Without it
+  the follower spends about three times the person's thrust on room 9 (the person: 3.6 s of held jump up to the
+  first pump; the follower hovers while it waits for lifts and spends a round trip with the game on every point),
+  and runs dry at lift 2. Results are reported with and without it.
+
 ## Speed
 
 - Navigation is scanned, not explored by walking, and scans are cached per checkpoint.
@@ -211,7 +240,7 @@ checkpoint 9 an empty tank could not reach room 9's first lift.
   normally at k = 2 (walls broken, enemies fought, doors opened).
 - Background test games read `command.lua` every other frame (the driver's round trip), and a
   viewpoint search is one call in the game rather than one per candidate.
-- `tools/campaign_run.py` runs checkpoint-to-checkpoint segments in parallel, one pair of copies each.
+- `tools/campaign_run.py` runs checkpoint-to-checkpoint segments in parallel, (flight segments at the game's own speed: the tank is per frame), one pair of copies each.
   A crash fails a segment (`tools/crashwatch.py` through `mdk.sh`'s guard: a new `dump%04i.dmp`, a
   `coop/logs/*.crash` marker or the error dialog, which is closed and recorded every 20 s);
   `--build overhaul` refuses copies of another build; `--timeout` caps each segment; each run writes
@@ -458,6 +487,26 @@ between.
   `campaign_bot.compare_worlds` dumps the host again after the clients. A client stuck at 0 while the host holds 60 still fails.
 
 ## Status
+
+Level 2 on the Overhaul build, God mode on, two players, the owner's recordings, flights at the game's own speed
+(`campaign_run.py` forces `timescale` 1 for flight segments). Passing, worlds compared at the end with no difference:
+**1→2 (186 s), 3→4 (412 s), 7→8 (155 s)** (fuel assist on in that run) and **5→6 (979 s, no fuel assist, after the bay fix:
+the turrets of each bay are shot with fire held, the hero turned on each; the climb used the tank, refuel trips and
+all)**. The others stop at:
+
+| segment | reached | where it stops |
+|---|---|---|
+| 2→3 | 81 of 236 | room 1: the alarm `l2_alert03` sits behind the wall `l2_r1_90tun01`, which absorbs the aimed shots, and the objective kills walked the hero 80 units off the recording. Since: aimed fire gives up at point-blank without a hit, and a hero far from the next point walks back along the scanned floor (`off_route`). Not run live since. |
+| 4→5 | 166 and 90 of 286 (round 4) | an aimed kill of room 4's generators takes a hero down into their pit (6 below the floor); in the run of 2026-10-31 10:00 one hero was stuck there each time (the other passed). Since: `off_route` also counts a hero more than 4 below the point (back along the scanned floor), `climb_out` flies a jetpack hero up. Not run live since; the worlds differ only in the flying mantas. |
+| 6→7 | 78 of 326 | the pad refill ran Max off the ledge (fixed after that run: `mount_refueller` uses the pilot); the run after the fix is in the report |
+| 8→9 | passes (225 s, 2 players, no assist, 0 world differences, gap 3.3) | the host had stood at (922, 942) shooting what room 8's generator `l2_r8gen00` (a spawner, so not an objective) spawned without end: the gunner holds the pilot while it fires. The gunner now rests 6 s after 10 s of fire while a recording is followed (`coop.gunner_cap`). |
+| 9→10 | 240 of 276, twice | past the lifts and pumps, then the upper bays (their turret fights came in the fix that made 5→6 pass); the hero ends at the floor of the shaft |
+
+Room 9's lifts are ridden first try (see Moving lifts), a flight that was lost to them in earlier rounds. The bay
+wait runs only at points walked (the hero standing on the bay's floor); stretches the recording fires on while
+flown (room 9's bays) skip it, which is where 9→10 ends. Not done: the whole level chained in one run, the bot
+without a recording (autonomous), levels 3 to 12, Doc's items, sniper locks, bosses, minigames, movies, combat
+damage to the hero.
 
 This file is the integrated status of the worker branches (flight and chaining, levels 3 and 4,
 co-op checks, flying-enemy drift, the second host dump and the hp-only APPLY fix) merged onto the campaign-bot branch. Evidence paths below are

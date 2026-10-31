@@ -30,6 +30,27 @@ def check(label, ok):
     print(f'PASS {label}')
 
 
+# A walkway beside a pit 5 units deep (level 2 room 4): Max before the jetpack keeps off its rim, Kurt (chute)
+# and Max with the jetpack's wider limit (6) do not mind a 5 unit drop.
+walkway = {(i, 0): 0.0 for i in range(12)}
+walkway.update({(i, 1): 0.0 for i in range(12)})
+walkway.update({(i, 2): -5.0 for i in range(12)})
+rimmed = {}
+for kind, (fly, chute) in {'walker': (False, False), 'flyer': (True, False), 'kurt': (False, True)}.items():
+    pn = grid(walkway)
+    pn.fly, pn.chute = fly, chute
+    a_, b_ = pn.nearest((0, 2, 0)), pn.nearest((2, 2, 0))
+    rimmed[kind] = pn.step_cost(a_, b_) / math.dist(pn.cells[a_][:3], pn.cells[b_][:3])
+check('Max without the jetpack keeps off the rim of a 5 unit pit, the others do not',
+      rimmed['walker'] == 20 and rimmed['flyer'] == 1 and rimmed['kurt'] == 1)
+real_rim = bot.Nav.rim
+bot.Nav.rim = lambda self, k: False
+pn = grid(walkway)
+mutant_cost = pn.step_cost(pn.nearest((0, 2, 0)), pn.nearest((2, 2, 0)))
+bot.Nav.rim = real_rim
+check('mutant caught: no rim is ever avoided', mutant_cost == math.dist(pn.cells[pn.nearest((0, 2, 0))][:3],
+                                                                         pn.cells[pn.nearest((2, 2, 0))][:3]))
+
 # A flat corridor 10 cells long, a 33 degree ramp beside it (1.3 per cell, Max slid down one), and a
 # 2-unit ledge onto a flat landing.
 flat = {(i, 0): 0.0 for i in range(10)}
@@ -161,6 +182,119 @@ def flight_rules(b, quiet=False):
                 b.needs_fuel(5000, climb, cfly, 1) and not b.needs_fuel(0, climb, cfly, 1)))
     out.append(('a refueller on the way counts as the end of a climb',
                 not b.needs_fuel(5000, climb, cfly, 1, pads=[(0.0, 0.0, 30.0)])))
+    # moving lifts (room 9's platforms swing on their own): the flight that lands on one waits for it
+    # to come down, holds beside it for the last points, and hovers above the landing
+    lift = {'name': 'plat', 'pos': [9.0, 0.0, 6.0]}
+    far = {'name': 'far', 'pos': [60.0, 0.0, 6.0]}
+    out.append(('the flight landing on a lift is planned with that lift, not a far one',
+                [bd['lift']['name'] for bd in b.plan_boardings(pts, fly, [far, lift])] == ['plat']
+                and not b.plan_boardings(pts, fly, [far])))
+    # a longer hop: the hero holds beside the lift, out from under its edge (8 units), not right at it
+    lng = [{'pos': (0.0, 0.0, 0.0), 'keys': [], 'air': False, 'ride': False}] \
+        + [{'pos': (2.0 * k, 0.0, 3.0 + k), 'keys': [57], 'air': True, 'ride': False} for k in range(1, 9)] \
+        + [{'pos': (16.0, 0.0, 12.0), 'keys': [], 'air': False, 'ride': True}] * 3
+    lfly = set(range(1, 9))
+    plan = b.plan_boardings(lng, lfly, [{'name': 'L', 'pos': [17.0, 0.0, 12.0]}])
+    tr = b.tracked_points(b.plan_boardings(lng, lfly, [{'name': 'L', 'pos': [17.0, 0.0, 12.0]}]))
+    out.append(('only the last stretch of a flight onto a lift keeps above the platform',
+                set(tr.values()) == {'L'} and min(tr) == b.plan_boardings(lng, lfly, [{'name': 'L', 'pos': [17.0, 0.0, 12.0]}])[0]['wait_at']
+                and max(tr) == 8))
+    out.append(('a boarding holds out from under the lift (8 units), from the ground',
+                len(plan) == 1 and plan[0]['wait_at'] is not None
+                and math.dist(lng[plan[0]['wait_at'] - 1]['pos'][:2], (17.0, 0.0)) >= 8
+                and math.dist(lng[plan[0]['wait_at']]['pos'][:2], (17.0, 0.0)) < 8 and not plan[0]['from_ride']))
+    # a hop from a ride to the next lift is not waited for (the lifts are in step; the first one would go down)
+    rides = [{'pos': (0.0, 0.0, 3.0 * k), 'keys': [], 'air': False, 'ride': True} for k in range(4)]
+    hop2 = [{'pos': (1.0 * k, 0.0, 12.0 + k), 'keys': [57], 'air': True, 'ride': False} for k in range(4)]
+    stand2 = [{'pos': (4.0, 0.0, 16.0), 'keys': [], 'air': False, 'ride': True}] * 3
+    p2 = rides + hop2 + stand2
+    f2 = set(range(4, 8))
+    plan2 = b.plan_boardings(p2, f2, [{'name': 'next', 'pos': [4.0, 0.0, 16.0]}])
+    out.append(('a hop from one lift to the next is flagged as leaving a ride', len(plan2) == 1 and plan2[0]['from_ride']))
+    out.append(('a lift coming down to the boarding height is the moment to go',
+                b.lift_ready(243.0, -3.0, 239.3) and b.lift_ready(240.5, -1.0, 239.3)))
+    out.append(('a lift going up, far above, or already past the height is not',
+                not b.lift_ready(243.0, 3.0, 239.3) and not b.lift_ready(255.0, -3.0, 239.3)
+                and not b.lift_ready(238.0, -1.0, 239.3)))
+    # carrying on from the earliest point nearly as near as the nearest: a hero hovering at a pump sits as
+    # near to a later point at the same height (not flown) and must not skip to it
+    loop = [{'pos': (3.0 * k, 0.0, 0.0)} for k in range(10)] + [{'pos': (12.5, 0.5, 0.0)}] \
+        + [{'pos': (15.0, 0.0, 30.0)}, {'pos': (0.0, 0.0, 0.0)}]
+    out.append(('the route carries on from the earliest point nearly as near as the nearest',
+                b.nearest_ahead((12.4, 0.3, 0.0), loop, 0) == 4 and b.nearest_ahead((0.1, 0.0, 0.0), loop, 0) == 0))
+    out.append(('a point clearly nearer than the current one is skipped to',
+                b.nearest_ahead((26.9, 0.0, 0.0), loop, 2) == 9))
+    # the turrets a bay's hatch waits for: those near the hero on his floor, not ones on other floors or far off
+    objs = [{'name': 'a', 'type': 'OBJ_TURRET', 'pos': [10.0, 0.0, 46.0]}, {'name': 'b', 'type': 'OBJ_TURRET', 'pos': [0.0, 20.0, 52.0]},
+            {'name': 'c', 'type': 'OBJ_TURRET', 'pos': [0.0, 5.0, 66.0]}, {'name': 'd', 'type': 'OBJ_TURRET', 'pos': [90.0, 0.0, 46.0]},
+            {'name': 'e', 'type': 'OBJ_DESTRUCTABLE', 'pos': [1.0, 1.0, 46.0]}]
+    out.append(('the turrets to clear are the near ones on the hero\'s floor',
+                b.turrets_to_clear(objs, (0.0, 0.0, 46.0)) == ['a', 'b']))
+    gen = {'pos': (916.0, 940.0, 246.0)}
+    out.append(('a generator 20 above the ledge is aimed at, one 37 units off is not',
+                b.aimable(gen, (910.0, 945.0, 226.0)) and not b.aimable(gen, (916.0, 940.0, 209.0))))
+    out.append(('a jetpack hero held up 6 below the point flies up; a walker, or one just arrived, does not',
+                b.climb_out(6.2, 10.0, True) and not b.climb_out(6.2, 10.0, False) and not b.climb_out(6.2, 1.0, True)
+                and not b.climb_out(2.0, 10.0, True)))
+    out.append(('a squad passes only with every player near the leader',
+                b.squad_ok(True, {2: 3.1}) and not b.squad_ok(True, {2: 334.8}) and not b.squad_ok(False, {2: 1.0})))
+    lua = open(os.path.join(os.path.dirname(__file__), '..', 'lua', 'coop_dev.lua')).read()
+    src = open(os.path.join(os.path.dirname(__file__), 'campaign_bot.py')).read()
+    out.append(('a followed recording caps the gunner\'s fight (a generator spawns enemies without end)',
+                'coop.gunner_cap=10000' in src and 'gn.max_fight and now - gn.fight_start > gn.max_fight' in lua))
+    out.append(('a hero 80 units from the point is off the route, one 5 units away is not',
+                b.off_recording((0.0, 30.0, 0.0), (4.6, 109.8, 3.7)) and not b.off_recording((0.0, 0.0, 0.0), (3.0, 4.0, 0.0))
+                and b.off_recording((366.2, 931.6, -6.24), (368.1, 922.3, -0.08))))
+    out.append(('the gunner is given turret names as a Lua table', b.lua_names(['a', 'b']) == '{"a", "b"}'))
+    # the Lua gunner must list the targets it was given (a bay's turrets are not actors)
+    out.append(('the gunner shoots named scripted objects (turrets)',
+                'function coop.GunnerTargets' in lua and 'coop.GunnerPick(p, gn)' in lua))
+    # hovering with jump held after a climb (the owner's turret fight at a bay) stays flown until jump is let go
+    hv = [{'ms': k * 100, 'pos': (0.0, 0.0, 3.0 * k), 'keys': [57], 'air': True, 'ride': False} for k in range(5)] \
+        + [{'ms': 600 + k * 100, 'pos': (0.0, 0.0, 12.0), 'keys': [57, 256], 'air': False, 'ride': False} for k in range(4)] \
+        + [{'ms': 1000 + k * 100, 'pos': (0.0, 0.0, 12.0), 'keys': [], 'air': False, 'ride': False} for k in range(3)]
+    out.append(('a hover with jump held after a climb stays flown until jump is let go',
+                b.flown(hv) >= set(range(0, 9)) and not (b.flown(hv) & {10, 11})))
+    # a pump hanging in a shaft: the points where the person tapped jump beside it are flown, a point
+    # far from it is not
+    hp = [{'pos': (1.0, 0.0, 52.0 + k % 3), 'keys': [57] if k % 2 else [], 'air': bool(k % 2)} for k in range(6)] \
+        + [{'pos': (30.0, 0.0, 52.0), 'keys': [57], 'air': False}]
+    got = b.hover_points(hp, [pump])
+    out.append(('the points hovered by a hanging pump are flown, others are not',
+                got == {1, 3, 5} and not b.hover_points(hp, [floor])))
+    out.append(('an objective is shot at from the recording\'s spot, then walked up to, then from later spots',
+                [b.aim_mode(n) for n in range(5)] == ['stay', 'walk', 'stay', 'stay', 'stay']
+                and [b.aim_mode(n, False) for n in range(3)] == ['stay'] * 3))
+    ft = [{'pos': (float(k), 0.0, z), 'keys': [57]} for k, z in enumerate([10, 12, 14, 13, 16, 20, 20, 18])]
+    got = b.flight_targets(ft, 0, 8)
+    out.append(('a climb holds the height of the next points, the last point is exact',
+                [t[2] for t in got] == [16, 20, 20, 20, 20, 20, 18] and got[-1][3:5] == (1.5, 2.0)
+                and all(t[3:5] == (3.0, 3.0) for t in got[:-1]) and [t[5] for t in got] == [12, 14, 13, 16, 20, 20, 18]))
+    up = [{'pos': (0.5 * (k % 2), 0.0, 10.0 + 3 * k), 'keys': [57]} for k in range(8)]
+    out.append(('a climb straight up is not batched', b.flight_batch(up, set(range(8)), 0, set()) == 1))
+    sk = [{'pos': (0.0, 0.0, 0.0), 'keys': [256] if k == 3 else []} for k in range(8)]
+    out.append(('shots on skipped points are owed, others are not',
+                b.skipped_shots(sk, 1, 5) and not b.skipped_shots(sk, 4, 8) and not b.skipped_shots(sk, 2, 3)))
+    out.append(('the follower stops at the first shot fired near a shut gate, not past it',
+                b.first_shot_at_gate(sk, 0, 8, [(0.0, 20.0, 0.0)]) == 3 and b.first_shot_at_gate(sk, 4, 8, [(0.0, 20.0, 0.0)]) is None
+                and b.first_shot_at_gate(sk, 0, 8, [(0.0, 90.0, 0.0)]) is None and b.first_shot_at_gate(sk, 0, 8, []) is None))
+    gl = [{'pos': (0.0, 0.0, 30.0 - 3.0 * min(k, 8)), 'keys': [57] if 2 <= k <= 6 else [], 'air': False} for k in range(10)]
+    wk = [{'pos': (0.0, 0.0, 30.0 - 3.0 * k), 'keys': [], 'air': False} for k in range(10)]
+    out.append(('a glide down with jump held is flown, to the landing; a walk down is not',
+                b.flown(gl) == {2, 3, 4, 5, 6, 7, 8, 9} and not b.flown(wk)))
+    dr = [{'pos': (0.0, 0.0, z), 'keys': [57] if k < 4 else [], 'air': k < 4}
+          for k, z in enumerate([10.0, 11.0, 12.0, 13.0, 12.0, 8.0, 4.0, 1.0, 1.0, 1.0, 1.0])]
+    out.append(('a fall that goes on after a flight is flown to the landing, and no further',
+                {4, 5, 6, 7, 8} <= b.flown(dr) and not {9, 10} & b.flown(dr)))
+    # a flight goes to the pilot in one command, up to a lift's boarding point or a ride
+    fp = [{'pos': (5.0 * k, 0.0, 10.0 + k), 'keys': [57]} for k in range(8)]
+    fp[5]['ride'] = True
+    out.append(('a flight is batched up to a ride, a boarding point, a walked point and the limit',
+                b.flight_batch(fp, set(range(8)), 0, set()) == 5
+                and b.flight_batch(fp, set(range(8)), 0, {3}) == 3
+                and b.flight_batch(fp, {0, 1, 2}, 0, set()) == 3
+                and b.flight_batch(fp, set(range(5)), 0, set(), limit=2, span=0.0) == 2
+                and b.flight_batch(fp, set(range(8)), 6, set(), span=0.0) == 8))
     return out
 
 
@@ -170,7 +304,8 @@ for label, ok in results:
 
 # mutants: each must make at least one check fail
 import types
-real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED')}
+real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED', 'lift_ready',
+                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear', 'aimable', 'climb_out', 'squad_ok', 'off_recording', 'flight_batch', 'aim_mode', 'flight_targets', 'skipped_shots', 'first_shot_at_gate')}
 mutants = {
     'only "air" points are flown (the hop onto a lift is walked)':
         dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
@@ -181,6 +316,35 @@ mutants = {
     'refuellers on the way are ignored':
         dict(needs_fuel=lambda used, pts, fly, i, pads=(), **k: real['needs_fuel'](used, pts, fly, i)),
     'a failed flight is retried from where it failed': dict(stretch_start=lambda pts, fly, i: i),
+    'the lift is boarded whatever way it moves': dict(lift_ready=lambda z, vz, bz, high=4.0: True),
+    'the lift is boarded only when it is already at the bottom':
+        dict(lift_ready=lambda z, vz, bz, high=4.0: abs(z - bz) < 0.5),
+    'the nearest point wins outright (skips over flown points)':
+        dict(nearest_ahead=lambda here, pts, i, window=80, slack=1.5: min(range(i, min(len(pts), i + window)),
+                                                                         key=lambda k: math.dist(here, pts[k]['pos']))),
+    'a hover after a climb is walked': dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
+    'a hovered pump is not flown': dict(hover_points=lambda pts, pads, reach=6.0: set()),
+    'every flown point keeps above the platform': dict(tracked_points=lambda boards: {k: bd['lift']['name'] for bd in boards
+                                                                                      for k in range(bd['start'], bd['last'] + 1)}),
+    'every turret counts, wherever it is': dict(turrets_to_clear=lambda objects, here, radius=45.0, dz=16.0:
+                                                [o['name'] for o in objects if o['type'] == 'OBJ_TURRET']),
+    'aim only at objectives on the hero\'s own floor': dict(aimable=lambda o, here, reach=30.0: math.dist(o['pos'], here) < reach and abs(o['pos'][2] - here[2]) < 12),
+    'a hero in a pit is never flown out': dict(climb_out=lambda rise, stuck, jetpack, wall=4.0, after=8.0: False),
+    'a squad passes when only the leader got through': dict(squad_ok=lambda ok, gaps, limit=40.0: bool(ok)),
+    'no hero is ever off the recording': dict(off_recording=lambda here, target, limit=15.0, below=4.0: False),
+    'a recorded shot is always walked up to': dict(aim_mode=lambda tries, walk_ok=True: 'walk'),
+    'a recorded shot is never walked up to': dict(aim_mode=lambda tries, walk_ok=True: 'stay'),
+    'a glide is walked': dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
+    'a climb stops and goes at every point': dict(flight_targets=lambda pts, i, k, first=None, lead=3: [(*pts[m]['pos'], 3.0, 3.0, pts[m]['pos'][2]) for m in range(i + 1, k - 1)] + [(*pts[k - 1]['pos'], 1.5, 2.0, pts[k - 1]['pos'][2])]),
+    'skipped shots are forgotten': dict(skipped_shots=lambda pts, i, j: False),
+    'shots at a gate are skipped over': dict(first_shot_at_gate=lambda pts, i, j, gates, reach=45.0: None),
+    'a climb straight up is batched too': dict(flight_batch=lambda pts, fly, i, apart, limit=14, span=8.0: real['flight_batch'](pts, fly, i, apart, limit, 0.0)),
+    'a flight is sent point by point': dict(flight_batch=lambda pts, fly, i, apart, limit=14, span=8.0: i + 1),
+    'a batch runs through boarding points and rides': dict(flight_batch=lambda pts, fly, i, apart, limit=14, span=8.0:
+                                                           max([k for k in range(i + 1, len(pts) + 1) if all(m in fly for m in range(i, k))] or [i + 1])),
+    'no flight lands on a lift': dict(plan_boardings=lambda pts, fly, lifts, standoff=8.0, base=None: []),
+    'every lift is the nearest, however far': dict(boarding=lambda pts, fly, i, lifts, reach=9.0:
+                                                    real['boarding'](pts, fly, i, lifts, reach=1e9)),
 }
 for name, patch in mutants.items():
     for n, v in patch.items():
@@ -189,6 +353,23 @@ for name, patch in mutants.items():
     for n, v in real.items():
         setattr(bot, n, v)
     check(f'mutant caught: {name}', bool(bad))
+
+# Gating objectives (level 2 room 2): the pods that open the exit wall come before the alarms that open nothing.
+gl = bot.Level.__new__(bot.Level)
+gl.m = {'objects': [{'name': 'alarm', 'type': 'OBJ_DESTRUCTABLE', 'pos': [5, 0, 0]},
+                    {'name': 'pod', 'type': 'OBJ_DESTRUCTABLE', 'pos': [40, 0, 0]},
+                    {'name': 'gen', 'type': 'OBJ_DOGANBOYGENERATOR', 'pos': [60, 0, 0]}],
+        'events': {'alarm': ['OnDie'], 'pod': ['OnDie']}, 'pickups': [],
+        'deps': {'pod': {'OnDie': {'opens': ['wall'], 'enables': [], 'damage': []}}, 'alarm': {'OnDie': {'opens': [], 'enables': [], 'damage': []}}}}
+order = [o['name'] for o in bot.objectives(gl, [0, 0, 0])]
+check('objectives that open something come before those that open nothing',
+      order.index('pod') < order.index('alarm') and bot.gating(gl.m, gl.m['objects'][1]) and bot.gating(gl.m, gl.m['objects'][2])
+      and not bot.gating(gl.m, gl.m['objects'][0]))
+real_opens = bot.opens_something
+bot.opens_something = lambda model, o: False
+flat_order = [o['name'] for o in bot.objectives(gl, [0, 0, 0])]
+bot.opens_something = real_opens
+check('mutant caught: nothing is gating (the alarm comes first)', flat_order.index('alarm') < flat_order.index('pod'))
 
 # Objectives: a pickup with an OnDie handler (level 3's BFB) is not something to shoot at.
 lv = bot.Level.__new__(bot.Level)
@@ -424,9 +605,9 @@ with tempfile.TemporaryDirectory() as tmp:
 gm = bot.Game.__new__(bot.Game)
 gm.aim_at_spawners = False
 objs = [{'name': 's', 'type': 'OBJ_SAMSMITEGENERATOR'}, {'name': 'l', 'type': 'OBJ_DESTRUCTABLE'}]
-check('run tactic: SAM generators are not aimed at, locks and walls are', [o['name'] for o in bot.aimable(gm, objs)] == ['l'])
+check('run tactic: SAM generators are not aimed at, locks and walls are', [o['name'] for o in bot.worth_aiming(gm, objs)] == ['l'])
 gm.aim_at_spawners = True
-check('fight tactic: every objective is aimable', [o['name'] for o in bot.aimable(gm, objs)] == ['s', 'l'])
+check('fight tactic: every objective is aimable', [o['name'] for o in bot.worth_aiming(gm, objs)] == ['s', 'l'])
 # World comparison with a second host dump (tools/statecheck.py --after): dumps are taken one game after another, so a
 # fight or a spawn moves the host's world between the host's and a client's. Evidence: the campaign survey's level 2
 # runs showed the client lower on hp (the client dumped after more hits), an enemy "extra" on the client (the host made

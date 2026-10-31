@@ -847,6 +847,25 @@ function coop.DocGrantTick()
     coop_log(format("checkpoint start: %d items given to Doc", k - 1))
 end
 
+-- Fuel assist (a test option of the campaign bot, off by default): a refueller kept under the hero while
+-- coop.fuel_assist is set, so a recorded flight is not lost to the one tank's 10 s
+function coop.FuelAssistTick()
+    local p = coop.real_player()
+    if (not coop.fuel_assist or not p) then
+        if (coop.fuel_assist_gob) then
+            if (coop_alive(coop.fuel_assist_gob) == 1) then omGobDelete(coop.fuel_assist_gob) end
+            coop.fuel_assist_gob = nil
+        end
+        return
+    end
+    if (not coop.fuel_assist_gob or coop_alive(coop.fuel_assist_gob) ~= 1) then
+        coop.fuel_assist_gob = mdkCreateObjectLua("coop_fuel_assist", OBJ_REFUELLER, mdkGetScene(), nil, nil,
+            p.position.x, p.position.y, p.position.z - (coop.fuel_assist_dz or 2), 1, 0, 0, 0, nil, 0, 0, 0, 0)
+    else
+        mdkGobSetPositionXYZ(coop.fuel_assist_gob, p.position.x, p.position.y, p.position.z - (coop.fuel_assist_dz or 2))
+    end
+end
+
 function coop.SharedPickupDone(gob, itemtype)
     local key, r = next(coop.rewards, nil)
     while (key and r.gob ~= gob) do key, r = next(coop.rewards, key) end
@@ -909,6 +928,7 @@ function coop.HandlerTick()
     coop.SharedPickupTick()
     coop.FuelGrantTick()
     coop.DocGrantTick()
+    coop.FuelAssistTick()
     if (coop.join) then coop.TryJoin() end
     coop.ProximityTick()
     coop.RearGateTick()
@@ -1105,6 +1125,16 @@ coop.pilot_keys = { forward = 17, back = 31, left = 30, right = 32, jump = 57 }
 function coop.PilotGo(x, y, z, radius, flat, explore)
     coop.pilot = { x = x, y = y, z = z, r = radius or 2.5, flat = flat or 1, state = "go", explore = explore or 0,
                    t0 = coop_ms(), best = 1000000, best_ms = coop_ms(), stuck = 0, next_ms = 0 }
+end
+-- A flight along several points (fly = 2), queued after the current target: flat list x, y, z, radius,
+-- height tolerance for each. The pilot goes on from one to the next by itself.
+function coop.PilotPath(path, n)
+    if (coop.pilot) then
+        coop.pilot.path = path
+        coop.pilot.path.n = n
+        coop.pilot.pi = 0
+        coop.pilot.state = "go"
+    end
 end
 -- The pilot's eye: the engine's own line of sight (walls, floors, ceilings) from the hero to an
 -- invisible probe at a point, at body height.
@@ -1312,7 +1342,26 @@ end
 -- The gunner: while on, the nearest living enemy the hero can see (engine line of sight) within
 -- range is faced and shot with the fire button; the pilot waits meanwhile. Counts shots and targets.
 coop.gunner = nil
-function coop.GunnerOn(range) coop.gunner = { range = range or 60, shots = 0, engaged = 0, next_ms = 0, skip = {}, kills = 0 } end
+coop.gunner_cap = nil     -- ms of firing after which the gunner rests (a recording being followed sets it)
+function coop.GunnerOn(range) coop.gunner = { range = range or 60, shots = 0, engaged = 0, next_ms = 0, skip = {}, kills = 0, max_fight = coop.gunner_cap } end
+-- Scripted objects the gunner also shoots (a bay's turrets are not actors, so coop_nearest_enemy never lists
+-- them): names from the level model. They are faced with pitch, nearest living one first, no line of sight test.
+function coop.GunnerTargets(names)
+    if (coop.gunner) then coop.gunner.names = names coop.gunner.nname = 0 end
+end
+function coop.GunnerPick(p, gn)
+    local best, bd, i = nil, gn.range * gn.range, 1
+    while (gn.names and gn.names[i]) do
+        local g = getglobal(gn.names[i])
+        if (g and coop_alive(g) == 1 and not gn.skip[g]) then
+            local dx, dy, dz = g.position.x - p.position.x, g.position.y - p.position.y, g.position.z - p.position.z
+            local d = dx * dx + dy * dy + dz * dz
+            if (d < bd) then best = g bd = d end
+        end
+        i = i + 1
+    end
+    return best
+end
 function coop.GunnerFocus(name, range)
     if (coop.gunner) then
         coop.gunner.focus = name
@@ -1345,6 +1394,9 @@ function coop.GunnerTick()
     local now = coop_ms()
     if (not p or now < gn.next_ms) then return end
     gn.next_ms = now + 100
+    -- a fight that goes on (a generator spawning enemies without end) must not hold the pilot for ever: after
+    -- max_fight ms of firing the gunner rests rest ms and the pilot walks on (the owner's recording ran on)
+    if (gn.rest_until and now < gn.rest_until) then return end
     local e, k = nil, 1
     -- the focus (what is shooting the hero, chosen by the bot from the host's state) comes first --
     if (gn.focus) then
@@ -1363,6 +1415,7 @@ function coop.GunnerTick()
             k = k + 1
         end
     end
+    if (not e) then e = coop.GunnerPick(p, gn) gn.turret = e end
     if (e) then
         if (gn.target ~= e) then
             gn.engaged = gn.engaged + 1
@@ -1379,9 +1432,20 @@ function coop.GunnerTick()
             gn.target = nil
             return
         end
+        if (gn.turret ~= e) then
+            if (not gn.fight_start or now - (gn.last_fire or 0) > 1500) then gn.fight_start = now end
+            gn.last_fire = now
+            if (gn.max_fight and now - gn.fight_start > gn.max_fight) then
+                gn.rest_until = now + (gn.rest or 6000)
+                gn.fight_start = nil
+                gn.busy = 0
+                return
+            end
+        end
         -- aim up or down at it (the quaternion keeps Max upright, unlike mdkGobPointToXYZ): turrets on
         -- the walls sit 20-40 units above the hero, and a flat shot never touches them --
         local dz = e.position.z - p.position.z
+        if (gn.turret == e) then dz = dz - 3 end
         if (dz > 60) then dz = 60 end
         if (dz < -60) then dz = -60 end
         coop.Face(p, e.position.x - p.position.x, e.position.y - p.position.y, dz)
@@ -1404,6 +1468,13 @@ function coop.PilotTick()
     local now = coop_ms()
     if (now < pl.next_ms) then return end
     pl.next_ms = now + 50
+    -- boarding a moving lift (pl.track names it): the height is at least two units above its platform, which
+    -- may rise through the recorded height while the hero is still on the way --
+    if (pl.track) then
+        pl.zbase = pl.zbase or pl.z
+        local g = getglobal(pl.track)
+        if (g and g.position.z + 2.0 > pl.zbase) then pl.z = g.position.z + 2.0 else pl.z = pl.zbase end
+    end
     -- holding a height (Max following a recorded flight): thrust below the point's height, none above
     -- it, so the hero hovers there; this goes on while the gunner aims, or he drops out of the air --
     if (pl.fly == 2) then
@@ -1415,8 +1486,9 @@ function coop.PilotTick()
         local ahead = p.position.z + vz * (coop.jet_lead or 0.35)
         if (ahead < pl.z - 0.4) then
             -- (a hero landed on a ledge with the key still down does not take off again: the engine wants
-            -- a new press, so let go for a tick when the thrust does not move him)
-            if (vz > -0.5 and vz < 0.5) then pl.still = pl.still or now else pl.still = nil end
+            -- a new press, so let go for a tick when the thrust does not move him -- and he is well below the
+            -- point: a hero hovering at its height or under a platform is not on a ledge)
+            if (vz > -0.5 and vz < 0.5 and pl.z - p.position.z > 2.5) then pl.still = pl.still or now else pl.still = nil end
             if (pl.still and now - pl.still > 350 and pl.jet_until) then
                 coop_press(coop.pilot_keys.jump, 0)
                 pl.jet_until = nil
@@ -1448,8 +1520,17 @@ function coop.PilotTick()
     if (pl.flat == 0) then d = sqrt(dx * dx + dy * dy + dz * dz) end
     pl.d = d
     if (pl.fly == 2 and d <= pl.r) then
-        -- over the point: arrived once at its height too; meanwhile hover without walking on
-        if (dz < (pl.zr or 2) and dz > -(pl.zr or 2)) then
+        -- over the point: arrived once at its height too; meanwhile hover without walking on. A point on the way
+        -- of a queued path (coop.PilotPath) is passed once the hero is within 4 of the height the recording had
+        -- there (hovering in place under an overhang for the height ahead never got up; flying on at any height
+        -- ran into a shaft's wall)
+        local own = (pl.zp or pl.z) - p.position.z
+        if (pl.path and pl.pi < pl.path.n and own < 4 and own > -4) then
+            pl.pi = pl.pi + 1
+            local k = pl.pi * 6
+            pl.x, pl.y, pl.z, pl.r, pl.zr, pl.zp = pl.path[k - 5], pl.path[k - 4], pl.path[k - 3], pl.path[k - 2], pl.path[k - 1], pl.path[k]
+            pl.best, pl.best_ms = 1000000, now
+        elseif (not (pl.path and pl.pi < pl.path.n)) and dz < (pl.zr or 2) and dz > -(pl.zr or 2) then
             pl.state = "arrived"
             pl.ms = now - pl.t0
         elseif (now - pl.best_ms > 8000) then
