@@ -329,14 +329,35 @@ int main(void)
         /* the puppet going away takes what this side built with it; the switch for tests turns the whole thing off */
         gear_release(1); assert(!gear_owned[1][0] && !alive[5]);
         no_gear = 1; fake_ticks += 2001; gear_apply(1, bodies[1], &g); assert(!gear_owned[1][0]); no_gear = 0;
+        fake_ticks += 2001; gear_apply(1, bodies[1], &g); assert(gear_owned[1][0]);                       /* built again ... */
+        no_gear = 1; gear_apply(1, bodies[1], &g); assert(!gear_owned[1][0] && !alive[5]); no_gear = 0;   /* ... and the switch takes it away */
+        /* Kurt's canopy exists from his constructor; only whether it is drawn crosses over, and it is forced on the
+         * puppet each time (the game's room stasis bit had hidden it while the owner's was open) */
+        alive[4] = 1; types[0] = types[1] = 100; *(WORD *)(bodies[4] + GOB_FLAGS) = 0x22;
+        gear_capture(local_player, &g); assert(g.v[2].present && !g.v[2].hidden && !g.v[0].present && !g.v[1].present);
+        *(WORD *)(bodies[4] + GOB_FLAGS) = 0x2a; gear_apply(1, bodies[1], &g);
+        assert((*(WORD *)(bodies[4] + GOB_FLAGS) & 0x08) == 0 && gear_left[1][2] == 0x22);
+        g.v[2].hidden = 1; gear_apply(1, bodies[1], &g);
+        assert((*(WORD *)(bodies[4] + GOB_FLAGS) & 0x08) && gear_left[1][2] == 0x2a);
+        g.v[2].present = 0; *(WORD *)(bodies[4] + GOB_FLAGS) = 0x22; gear_apply(1, bodies[1], &g);
+        assert(*(WORD *)(bodies[4] + GOB_FLAGS) == 0x22);                  /* nothing to copy: left alone */
+        types[0] = types[1] = 101; alive[4] = 0;
         /* Doc's leaf blower is the same mechanism on another character and bone */
+        alive[4] = 0;                                   /* the owner's own jetpack is not needed any more */
         types[1] = 102; memset(&g, 0, sizeof(g)); g.v[1].present = 1; g.v[1].cur = 77; g.v[1].prev = 65; g.v[1].nanims = 1;
         g.v[1].id[0] = 77; g.v[1].anim[0][0] = 1;
         attaches = 0; fake_ticks += 2001; gear_apply(1, bodies[1], &g);
         built = gob_by_handle(gear_owned[1][1]);
         assert(built && !strcmp(names[gob_slot(built)], "docleafblower") && !strcmp(built_model, "leafer") && played_anim == 65);
         gear_capture(bodies[1], &h); assert(h.v[1].present && h.v[1].cur == 77 && h.v[1].prev == 65 && !h.v[0].present);
-        gear_release(1);
+        /* a model's sub-gobs (the blower's air puffs) go with the item */
+        {
+            BYTE *puff = om_gob_create_fake("docleafblower__1");
+            assert(puff && puff != built && gob_alive(puff));
+            *(DWORD *)(puff + GOB_TARGET) = gob_handle(gob_slot(built));
+            gear_release(1);
+            assert(!alive[gob_slot(built)] && !alive[gob_slot(puff)]);
+        }
     }
     puts("PASS engine adapter: attached canopy, scoped targets, ABI stack balance, life/epoch, direct damage evidence, equipment visuals");
     return 0;

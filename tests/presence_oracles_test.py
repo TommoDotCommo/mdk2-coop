@@ -86,6 +86,31 @@ class PresenceOracles(unittest.TestCase):
         host.pop('canopy')
         with self.assertRaises(AssertionError): oracle.canopy([host,client],2,66)
 
+    def test_gear_is_read_from_every_process(self):
+        host, client = sample('host',1), sample('client',2)
+        for d in host,client: d['gear'] = [['1','maxjetpack','1','0','1','19','77','62','.5','1']]
+        oracle.gear([host,client],1,'maxjetpack',77)
+        oracle.gear([host,client],1,'maxjetpack')
+        client['gear'][0][6] = '62'                                         # the puppet still shows the idle flame
+        with self.assertRaisesRegex(AssertionError, 'animation'): oracle.gear([host,client],1,'maxjetpack',77)
+        client['gear'][0][6] = '77'
+        for column, text in ((2,'not alive'),(4,'not attached'),(3,'hidden')):
+            old = client['gear'][0][column]; client['gear'][0][column] = '0' if column != 3 else '1'
+            with self.assertRaisesRegex(AssertionError, text): oracle.gear([host,client],1,'maxjetpack',77)
+            client['gear'][0][column] = old
+        client['gear'][0][5] = '20'
+        with self.assertRaisesRegex(AssertionError, 'bones'): oracle.gear([host,client],1,'maxjetpack',77)
+        client['gear'][0][5] = '19'
+        client['gear'] = []                                                 # a puppet that never got one
+        with self.assertRaisesRegex(AssertionError, 'missing'): oracle.gear([host,client],1,'maxjetpack',77)
+        with self.assertRaisesRegex(AssertionError, 'still exists'): oracle.gear([host,client],1,'maxjetpack',absent=True)
+        host['gear'] = []
+        oracle.gear([host,client],1,'maxjetpack',absent=True)
+        host['gear'] = client['gear'] = [['1','chute','1','0','1','2']]
+        oracle.gear([host,client],1,'chute')
+        client['gear'] = [['1','chute','1','1','1','2']]
+        with self.assertRaisesRegex(AssertionError, 'hidden'): oracle.gear([host,client],1,'chute')
+
     def test_wait_requires_actual_menu_and_title(self):
         d=sample('client',2)
         d['join']=[['1']]; d['level']=[['0']]; d['join_screen']=[['1']]

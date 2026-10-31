@@ -98,6 +98,35 @@ def canopy(dumps, owner, expected):
         assert abs(float(r[7])-float(source[7])) < .25
 
 
+GEAR_FIELDS = {'chute': 6}         # every other visual's row has the ten fields the equipment dump writes
+
+
+def gear(dumps, owner, name, expect=None, hidden=0, absent=False):
+    """An equipment visual of player `owner` (a gob attached to its body), as every process reads it from its own
+    gob table: alive, on that body, bone slot, shown or hidden, animation. `absent`: it is gone everywhere."""
+    assert len(dumps) >= 2
+    assert len({number(d, 'me') for d in dumps}) == len(dumps)
+    assert sum(number(d, 'me') == owner for d in dumps) == 1
+    assert len({number(d, 'level') for d in dumps}) == 1 and number(dumps[0], 'level') > 0
+    bones = set()
+    for d in dumps:
+        rows = [r for r in d.get('gear', []) if int(r[0]) == owner and r[1] == name]
+        if absent:
+            assert not rows, f'{name} of player {owner} still exists in a process'
+            continue
+        assert len(rows) == 1, f'{name} of player {owner} is missing in a process'
+        r = rows[0]
+        assert len(r) == GEAR_FIELDS.get(name, 10), 'truncated gear row'
+        assert int(r[2]) == 1, 'visual is not alive'
+        assert int(r[4]) == 1, 'visual is not attached to its player body'
+        assert int(r[3]) == hidden, 'visual hidden state is wrong' if hidden == 0 else 'visual is not hidden'
+        assert int(r[5]) >= 0
+        bones.add(int(r[5]))
+        if expect is not None:
+            assert int(r[6]) == expect, f'{name} animation is {r[6]}, not {expect}'
+    assert absent or len(bones) == 1, 'attached to different bones in different processes'
+
+
 def join(dump, phase):
     assert dump['role'] == [['client']]
     assert number(dump, 'join') == phase
@@ -109,10 +138,13 @@ def join(dump, phase):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('kind', choices=('ai', 'ai-host', 'canopy', 'join'))
+    parser.add_argument('kind', choices=('ai', 'ai-host', 'canopy', 'gear', 'join'))
     parser.add_argument('files', nargs='+')
     parser.add_argument('--owner', type=int)
     parser.add_argument('--expect', type=int)
+    parser.add_argument('--name')
+    parser.add_argument('--hidden', type=int, default=0)
+    parser.add_argument('--absent', action='store_true')
     args = parser.parse_args()
     try:
         rows = [load(p) for p in args.files]
@@ -120,6 +152,7 @@ def main():
             assert len(rows) == 4
             ai(*rows, host_near=args.kind == 'ai-host')
         elif args.kind == 'canopy': canopy(rows, args.owner, args.expect)
+        elif args.kind == 'gear': gear(rows, args.owner, args.name, args.expect, args.hidden, args.absent)
         else:
             assert len(rows) == 1
             join(rows[0], args.expect)
