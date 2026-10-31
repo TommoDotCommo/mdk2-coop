@@ -276,10 +276,13 @@ def flight_rules(b, quiet=False):
     out.append(('the follower stops at the first shot fired near a shut gate, not past it',
                 b.first_shot_at_gate(sk, 0, 8, [(0.0, 20.0, 0.0)]) == 3 and b.first_shot_at_gate(sk, 4, 8, [(0.0, 20.0, 0.0)]) is None
                 and b.first_shot_at_gate(sk, 0, 8, [(0.0, 90.0, 0.0)]) is None and b.first_shot_at_gate(sk, 0, 8, []) is None))
-    gl = [{'pos': (0.0, 0.0, 30.0 - 3.0 * k), 'keys': [57] if 2 <= k <= 6 else [], 'air': False} for k in range(10)]
+    gl = [{'pos': (0.0, 0.0, 30.0 - 3.0 * min(k, 8)), 'keys': [57] if 2 <= k <= 6 else [], 'air': False} for k in range(10)]
     wk = [{'pos': (0.0, 0.0, 30.0 - 3.0 * k), 'keys': [], 'air': False} for k in range(10)]
     out.append(('a glide down with jump held is flown, to the landing; a walk down is not',
-                b.flown(gl) == {2, 3, 4, 5, 6, 7} and not b.flown(wk)))
+                b.flown(gl) == {2, 3, 4, 5, 6, 7, 8, 9} and not b.flown(wk)))
+    dr = [{'pos': (0.0, 0.0, 10.0 + (k if k < 4 else 3 - 4 * (k - 3))), 'keys': [57] if k < 4 else [], 'air': k < 4} for k in range(9)]
+    out.append(('a drop that goes on after a flight is flown to the landing',
+                {4, 5, 6} <= b.flown(dr) and not {7, 8} & b.flown(dr)))
     # a flight goes to the pilot in one command, up to a lift's boarding point or a ride
     fp = [{'pos': (0.0, 0.0, 10.0 + k), 'keys': [57]} for k in range(8)]
     fp[5]['ride'] = True

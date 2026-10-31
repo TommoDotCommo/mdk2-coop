@@ -2042,7 +2042,10 @@ def flown(pts):
         # shooting its turrets; walked, those points let the jetpack go and the hero fell the shaft)
         # (a glide: jump held on the way down is the jetpack braking a drop, which the person aimed at a ledge;
         # walked, the hero fell past 6-7's ledge to the hatch below)
-        was, up = up, bool(p.get('air') or (57 in p['keys'] and (rise > 0.7 or rise < -1.0 or was) and not p.get('ride')))
+        # (and a fall that goes on after a flown point, without jump held: 6-7's drop from the flight's top to the
+        # ledge the person landed on, which walked the hero past it to the hatch 16 units below)
+        was, up = up, bool(p.get('air') or (57 in p['keys'] and (rise > 0.7 or rise < -1.0 or was) and not p.get('ride'))
+                           or ((k - 1) in out and rise < -0.9 and not p.get('ride')))
         if up or (was and not p.get('ride')):
             out.add(k)                      # in the air, or the landing just after
     return out
