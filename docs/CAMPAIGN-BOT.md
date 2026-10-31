@@ -636,21 +636,19 @@ the bot's side). The remaining level 3 and 4 stretches need a person's recording
 - Levels 5 to 12 beyond the survey, Doc's items, sniper locks that need long chains, bosses,
   minigames, movies, combat damage to the hero.
 
-**Integrated-tree smoke (second merge round, Overhaul build, x1, God on, two players)**
-- `campaign_run.py --level 2 --segments 3-4`: PASS in 401 s (244 of 244 points, worlds equal, no findings, no crash).
-- `tools/qa_hpsync.sh`: 4 passed (players 405 units apart); with `MUTANT=nosync` it fails (client keeps hp 97
-  against the host's 33 and 61).
-- `tools/qa_flyers.sh`: 3 passed, flyer drift at most 5.5 units.
-- Game-free: `tools/test_campaign_bot.py`, `tools/test_lua31.sh`, `tests/flyers_check_test.py` and
-  `qa_all.py offline` pass.
-
-- **The `mdk2hd.exe+0x2a95` crash is the bot's own line of sight (round 6).** The faulting function is the sight
-  check `0x402a40`; the dump of the no-God 3 to 4 crash has the Lua binding `mdkAILineOfSight` (`+0x3ac10`, return
-  address `+0x3ac96`) as its caller, not the AI target getter. Its actor is the hero `bob` and its target the gob
-  `l2r2_aa1sign__5` (a level sign, 3 units from the hero, game object pointer null). The only Lua callers are the
-  bot's: the pilot's probe (`coop.PilotSees`), the nav probes and the gunner. The probe is most likely a stale one (not yet seen in play): it lives in a Lua global that
-  outlives a level load; the engine reuses the freed address for a level gob, which `coop_alive` accepts because it
-  only looks for the pointer in the gob table. `coop.ProbeOk` now checks the probe's name and game object
-  (`coop_gob_ok`) and `coop.Los` refuses gobs without a game object. `tools/qa_stale_probe.sh` reproduces the fault
-  on demand (mutant `unchecked`: crash at `+0x2a95`, same stack) and shows the fix. The AI target guard
-  (`ai_target_ready`) was aimed at a different path; it is harmless but was not this crash.
+**Integrated-tree smoke (third merge round, Overhaul build, x1, two players, God on)**
+- `campaign_run.py --level 2 --segments 3-4`: before the last merge it passed in 303 s (244 of 244 points, worlds
+  equal, no findings). On the final tree, three runs: one lost both games' copy folders under it
+  (`FileNotFoundError` on the command file; the shared lab, not the bot), one crashed the host at
+  `mdk2hd.exe+0xdda8` (writing 0x18) during the start-up floor scan, before the bot played (dump kept; the site is
+  not `+0x2a95`; one occurrence, not reproduced), and the third passed (244 of 244 points, 297 s, no step
+  finding), but the final comparison listed one moving spawned enemy (`l2_r3spawn07_spa`) 18.6 to 19.3 units apart
+  on the client against the second host dump. Read it as unconfirmed: the same run's 22 steps were clean.
+- `tools/qa_hpsync.sh`: 4 passed (the client far outside every splash radius); `MUTANT=nosync` fails (the client keeps
+  hp 97 against the host's 33 and 61). One earlier run lost a game at the title screen without a dump or marker.
+- `tools/qa_itemused.sh` (item use and lock kill): 24 passed; `MUTANT=noitemused` fails (the client's leak stays
+  open, no cord item, worlds differ).
+- `tools/qa_flyers.sh`: 3 passed, flyer drift at most 3.9 units; `MUTANT=attached` fails (72.9).
+- `tools/qa_stale_probe.sh`: 5 passed; `MUTANT=unchecked` crashes the game at the expected site (marker and dialog seen).
+- Game-free: `tools/test_campaign_bot.py`, `tools/test_lua31.sh`, `tests/flyers_check_test.py`,
+  `tools/test_crash_context.sh`, `tools/test_presence.py` and `qa_all.py offline` (24 gates) pass.
