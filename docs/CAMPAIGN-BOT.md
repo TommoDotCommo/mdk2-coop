@@ -311,6 +311,22 @@ later):
   generator); the same load gave the checkpoint's atomic jetpack. Not reproduced in four 5 minute
   reruns, two with the grant and two without (`MDK2_CPITEMS=0`); the original came 9 minutes in, so it
   is intermittent or needs longer play.
+- **A grunt's copy falls on clients** (found without God mode, round 5): the type 217 enemies that a
+  generator's spawner makes (`l2_r3spawn07_spa`, `l2_r8gen03_spawn`) stand at one height on the host
+  and sink on the clients while keeping their x and y. 3 to 4: z -13.5 on the host, -67.2 on the client,
+  four grunts, the gap growing 35.5, 40.2, 42.1 in the statecheck lines of the last three comparisons
+  (`local/campaign/runs/20261031-121331/2-3-4/*/end_1.txt`, `end_2.txt`). 8 to 9, three players: z 211.0
+  on the host, 93.1 on client 2 and 146.0 on client 3 (different ages of the same fall)
+  (`local/campaign/runs/20261031-132324/2-8-9/*/step14_{1,2,3}.txt`). The host's grunts were idle
+  (targeting a downed hero). Not fixed; the comparison reports it as a finding, not as known.
+- **The client crash at `mdk2hd.exe+0x2a95` again** (reading address 8), now with a context: the client
+  (3 to 4, no God mode, x1, about 12 minutes in, 14 downs and 8 wipe reloads before it) crashed 40 ms
+  after `ent despawn ... died: running its OnDie` for two enemies and `replay launch type 423 ... replay
+  fire type 423 target '@p2' (found) -> created` (a homing missile launched at the player). The bot
+  reported `CRASH` with the marker, the Jinkies dialog, the dump and the gone process. Evidence:
+  `local/evidence/crash-r5/` (flight record `...flight-0-crash.txt`, `dump0000.dmp`, the segment's
+  `results.json`), `local/campaign/runs/20261031-122223/run2/2-3-4`. The older level 8 crash has the
+  same address and fault; both are a null pointer in the engine (eax 0). Unresolved.
 - **A one-sided face in level 2's arena** blocks the engine's line of sight going south (not north);
   heroes walk across it both ways, so this is only a quirk for line-of-sight users (enemy AI included).
 

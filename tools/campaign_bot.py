@@ -1699,7 +1699,13 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 take_role(g)
             chase(g)
         except Exception as e:
-            log(f'[{g.slot}] crashed: {e!r}')
+            import traceback
+            log(f'[{g.slot}] crashed: {e!r}\n' + traceback.format_exc())
+            # a follower whose route code failed still goes on to the leader (and the regroup)
+            try:
+                chase(g)
+            except Exception as e2:
+                log(f'[{g.slot}] chase crashed: {e2!r}')
 
     def take_role(g):
         obj = assigned.get(g.slot)
