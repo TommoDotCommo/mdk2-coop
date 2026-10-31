@@ -43,8 +43,7 @@ authoritative source is the installed game itself:
   (door animations, door locks released, stasis left, deletions), what they enable (`ANIM_ENABLED`) and
   which damage types they check. When stuck, the bot kills the live prerequisites of an opener near it
   (level 1 room 4: three enemies enable the lock) and triggers the opener with its damage type
-  (`DAMAGE_SNIPER`: a sniper round; known shortcut: launched along Kurt's aim by `coop_test_sniper`,
-  as sniper mode's camera is not steered yet). Openers that switch something on near the way
+  (`DAMAGE_SNIPER`: a sniper round, aimed through the camera, see below). Openers that switch something on near the way
   (level 4's sniper locks that raise platforms or start fans) count as well; each is set off once,
   the nearest first, and one enabled by standing somewhere (`OnCollision`) is never shot at.
 - **Pickups are not objectives**: an item with an `OnDie` handler (level 3's BFB) is carried, not
@@ -52,6 +51,47 @@ authoritative source is the installed game itself:
   break gets sniper rounds.
 - **Moved by the level**: when a script carries the hero off the planned room route (level 3 starts
   with Doc moved 165 units after the intro), the route is planned again from where he is.
+- **Sniper rounds through the camera** (`sniper_aim`): sniper mode is switched on (the left trigger of a faked
+  pad, `coop_pad_fake`; in it the camera sits at the hero's eye), then the camera is turned by mouse look (the
+  right stick) until its own orientation (`coop_pose` of `mdkGetCameraGob()`) points at the target, and the
+  fire trigger is pressed. `coop.Look` holds the stick for an exact number of frames, so a turn does not
+  depend on how soon the driver's next command arrives (a half stick turns 0.43 degrees a frame, a full one
+  2.83; pitch 0.17 / 0.70 / 2.05). The loop measures again after each turn and fires inside 0.8 degrees; the
+  hit comes from the bridge's damage log. Rounds that hit something else (no line of sight from here) are given
+  up after three, and the old launched round (`coop_test_sniper`, along the hero's facing) is the fallback
+  (`--shortcut-sniper` uses it alone). Shown live: level 4's tunnel plug `l4_r1shatter` is broken with the
+  camera aim. A lock the level watches (`omAnimIsPlaying(lock, ANIM_ENABLED)`) is still only hit from where
+  the line of sight reaches it: level 4's fan locks hang under a ledge and are seen from the air or from the far
+  side of the pit, not from anything the scan walks to (the grid of seeing points for `l4_blowlock02` was all
+  at y > -26, the ledge at y -61).
+- **Elevators** (`take_lift`; `campaign_mine.py` `lifts` from `Level.InitElevDoor(top, bottom, mover, cab, ...)`):
+  when the goal is a floor or more away in height and an elevator's far end is at the goal's height, near the
+  goal's column, the bot walks to the door at its own height, steps into the cab (the door opens inside 10
+  units while the mover is not locked, the cab ride starts on touching `EL_CENTER`), waits until the height
+  has been steady a few seconds, and plans again from the new place. Followers ride it too. A lift the level
+  keeps locked behind a puzzle (level 3's walkway lift, `l3_elev00`, opens after Kermit has eaten the aliens
+  and been given the toaster) is left alone, or opened with `--assist lift` (`Level.UnlockElevDoor`: a script
+  shortcut, named in the run's results as `assist`). The follower's own copy had the lift locked as well, so
+  the unlock is not carried by the host's puzzle in this test.
+- **Doc's items and hands** (round 5; `coop.CheckpointItems`, `doc_hold`, `doc_use`, `doc_leak_puzzle`, `ladder_hop`).
+  A launcher start at a Doc checkpoint of level 3 (6, 16, 7, 8, 9, 10, 11, 13, 14) now gives Doc what a player
+  arrives with (`mdkDocGiveItem` once he stands in the level, in `coop.DocGrantTick`; the list is in
+  `coop.CheckpointItems`, from the level script and the walkthroughs: at 6 the atomic toaster, duct tape and pipes;
+  later the ladder, the empty fish bowl). The loaf is not an inventory item (`mdkDocGiveItem` does nothing for it,
+  `mdkDocHasItem` stays 0): it comes in through a native pickup like the jetpack. `MDK2_CPITEMS=0` turns the whole
+  grant off (the mutant: Doc then carries nothing and `campaign_bot.py dochands` fails). The items were read back from the game at every listed checkpoint (a checkpoint reload resets the inventory; the next grant follows).
+  Hands (Modern controls; `coop_press_frames` holds each key for whole frames; measured: 24 hand changes with 3 frame presses and 12 with 150 ms presses all went through, 60 ms presses lost 1 press in 20): every hand has a list of the items
+  Doc carries with an empty place in it (left: atomic toaster, tape, empty; right: pipes, empty, loaf, later the
+  ladder), the inventory keys G / F move the selection along the list *without wrapping*, and the hand key
+  (Q left, E right) puts the selected item in that hand. Round 4's "half the presses are lost" was this: a press by time did not move the selection when the list had ended; `doc_hold` turns round after two tries that change
+  nothing. An item is used by pressing its hand key again (the tape at the pillar); fire combines the two hands
+  (cord in the left, pipes in the right: the ladder). Proven live from a clean launcher start at 3:6
+  (`dochands`: items carried, tape used, leak plugged, cord picked up, ladder made; the game's own state read back).
+  The bot does the same inside `advance` on level 3 (`doc_leak_puzzle`), then uses the ladder at an anchor
+  (`OBJ_LADDERSPOT`; `ladder_hop`: the hero climbs 7 units from the pillar's beam to the catwalk, at (-27.8, 0.1, -93.2)
+  from `l3_hublad00` and (-31.5, 2.9, -96.0) from `l3_hublad01`). Not solved: the way on from the catwalk (a mesh duct
+  at y -11 that the plane scan maps badly) to checkpoint 16, and everything after it (fish bowl, magnet, the
+  spacewalk).
 - **Kurt's fans** (level 4's updrafts, `fan_ride`): when the way on is well above Kurt and a fan
   (`OBJ_BLOWERCYLINDER`) stands below it, the bot snipes the lock that switches the fan on (a mined
   `deps` opener whose handler `enables` it), walks to the column's edge, steps in with jump held so
@@ -178,10 +218,9 @@ checkpoint 9 an empty tank could not reach room 9's first lift.
   `report.md` with the build, the copies' save folder, where the leader stopped and its last words.
 - `tools/test_campaign_bot.py` checks the planner without the game (walking rules, landings,
   reachability, portal route).
-- Ideas not yet built: record a person's
-  playthrough with the route recorder and follow its positions closed-loop (robust to drift, unlike
-  timed replay); decode the room meshes (`.mod`) for an offline navigation mesh; sniper aim through
-  mouse look calibrated against the camera.
+- Ideas not yet built: decode the room meshes (`.mod`) for an offline navigation mesh; viewpoints for locks that
+  only the air sees (jump off a rim with the chute and fire while falling); frame-exact key presses for Doc's
+  hands.
 
 ## Co-op
 
@@ -342,6 +381,23 @@ later):
   an hp-only APPLY when an enemy's hp differs from what clients were told (`tools/qa_hpsync.sh`).
 - **Pickup counts differ** on the final levels (11 and 12): 7 against 4, 3 against 2.
 - **A puppet left behind**: on level 3 the client showed the host's puppet 997 units from the host.
+- **A client crash at a checkpoint reload** (round 5, level 4 checkpoint 5 to 6, two runs out of three): the
+  client dies at `mdk2hd.exe+0x2a95` reading address 8 while it binds the host's enemies after the host's
+  checkpoint reload that follows a hero's death in the vortex. The same signature as the level 8 crash above,
+  which makes it the reload path, not a level. The third run reloaded the checkpoint 12 times (11 deaths) and did
+  not crash, so it is intermittent (about one reload in a dozen or more).
+- **A host crash after a destroyed scenery piece** (round 5, 4:11 to 14): missed sniper rounds took
+  `l4_r7a_90tun01` from 100 to 0 hp and the host crashed on the next frame (`+0x570bd` reading 0x64). The bot
+  stops aiming at a piece after three misses on it (`note_collateral`).
+- **Item use by a script is not carried to the other player** (`OnItemUsed`, unaudited in
+  `tools/script_events.txt`): the cord that level 3's leak puzzle spawns, and the drained water, exist only in the
+  game of the Doc who used the tape (`FAIL item obj1: 1 on host, 0 on client`).
+- **God mode does not survive a checkpoint reload** (a hit of 20 after `mdkNewGame` took 60 hp to 40; `God(1)` put
+  it back). Every squad run since the start played on without it after the first death; the squad now sets it
+  again when a hero comes back.
+- **Line of sight is one-way** for scripted locks: `coop.NavView` takes a ray in either direction, and a lock
+  such as level 4's `l4_r7lock` is clear from the lock outward to 568 of 588 cells of the ledge and from none of
+  them inward. A viewpoint search for a projectile must test inward rays only.
 - **A client crash** on level 8 (checkpoint 6 to 7): access violation at `mdk2hd.exe+0x2a95` reading
   address 8, while binding the host's enemies after the checkpoint load (last bound: a type 511
   generator); the same load gave the checkpoint's atomic jetpack. Not reproduced in four 5 minute
@@ -407,6 +463,38 @@ This file is the integrated status of the worker branches (flight and chaining, 
 co-op checks, flying-enemy drift, the second host dump and the hp-only APPLY fix) merged onto the campaign-bot branch. Evidence paths below are
 under `local/` (ignored), from each branch's own runs; the integrated tree has been checked with
 the game-free gates and a short live smoke (see the last section).
+
+### Round 4 (levels 3 and 4, elevators, camera-aimed sniper rounds)
+
+Levels 3 and 4 on the bot's own, third run (full table in the run's `report.md`; Overhaul build, two players,
+God on): passing are 3:1→2, 3:2→3, 3:3→4 (the plane scan), 3:4→5 (timing dependent), 3:10→11 (trivial),
+4:1→2, 4:2→3 (362 s: the tunnel plug sniped, the tunnel walked, the 175 unit shaft dropped with the chute
+held, the room's generator killed), 4:3→4, 4:6→7 (131 s), 4:8→9 (1069 s, needs a 1200 s limit) and 4:9→10.
+Worlds matched at the end of every one of them (L3 13 enemies, L4 48 to 53 compared). Held up by something
+the bot does not do yet: 3:5→6 (the elevator at (17,34) is not entered), 3:6→16 to 3:9→10 (walkway, slide,
+Doc's items, the spacewalk; the plane scan only gives a rough map there), 4:4→5 (the neck is passed, then the
+platforms: the lock chain l4_blowlock02 → blower02 is sniped from the pit and misses), 4:5→6 (the vortex:
+the three spheres are hit, the fans lift Kurt 17 units at a time, the target is 138 higher), 4:7→8 (the exit
+door of the arena does not open), 4:10→11 (the pit's lock hit without a draft) and 4:11→14 (a generator no
+reachable place sees). The owner's level 3 journals hold no play (the hero stands still), so they give no
+routes. Round 4 added elevators (3:5→6 passes with `--assist lift` in 92 s, both players riding; that lift is locked
+behind Kermit's puzzle) and camera-aimed sniper rounds (level 4's tunnel plug is broken that way; 4:2→3 passes). Level 3's
+walkway and everything after it need Doc's items (a launcher start at checkpoint 6 gives him none), and level 4's fan
+and pit locks (`l4_blowlock02`, `l4_r7lock`) are not seen from anything the bot walks to. Not yet: levels 5 to 12,
+Doc's items, bosses, minigames, movies, combat damage to the hero.
+
+### Round 5 (Doc's items and hands, ladder anchors)
+
+Doc's checkpoint inventory, frame-exact keys, Doc's hands and ladder anchors are built and proven live on
+level 3's walkway puzzle (see "Doc's items and hands" above): a launcher start at 3:6 gives Doc his items,
+the bot plugs the leak, picks up the cord and makes the ladder by pressing keys, and climbs with it; a start
+without the grant (`MDK2_CPITEMS=0`) fails the same check. No new segment passes: 3:6 to 16 stops after the ladder
+(the anchors beyond are reached from the walkway above, and the catwalk's mesh duct is mapped badly), 4:5 to 6
+crashed twice (client, checkpoint reload, finding above), 4:7 to 8 stalls at the arena door and 4:11 to 14 at a
+generator no reachable place sees (and once crashed the host after a tunnel piece was shot to pieces; fixed on
+the bot's side). The remaining level 3 and 4 stretches need a person's recording, listed in the run's report.
+
+### Integrated state (merged branches)
 
 **What exists**
 - The bot, the planner and the pilot/follower (see the sections above), `tools/campaign_run.py`

@@ -475,6 +475,7 @@ void input_pad_frame(void);
 void input_init(void);
 void input_wrap_dinput(void *di);
 void input_press(int code, int hold_ms);
+void input_press_frames(int code, int frames);
 void input_mouse_hold(int on);                  /* emote wheel: the game gets no mouse movement while on */
 void input_mouse_take(long *dx, long *dy);      /* and the movement held back since the last call */
 void input_shot(const char *name);

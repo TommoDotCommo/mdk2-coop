@@ -156,6 +156,22 @@ class Level:
                     best = (vol, name)
         return best[1] if best else None
 
+    def lift_toward(self, here, goal, drop=25.0, near=40.0):
+        """The elevator (mined `lifts`) that carries a hero at one end to the goal's height at the other:
+        (lift, entry door, far door), or None. Its doors are at the two ends' heights; the goal must be
+        well off the hero's height, near the far end's height and within reach of the cab's column."""
+        best = None
+        for lf in self.m.get('lifts', []):
+            for a, b in ((lf['top'], lf['bottom']), (lf['bottom'], lf['top'])):
+                if abs(a["pos"][2] - here[2]) > 20 or abs(b["pos"][2] - goal[2]) > 15:
+                    continue
+                if abs(goal[2] - here[2]) < drop or math.dist(lf['cab']['pos'][:2], goal[:2]) > 100:
+                    continue
+                d = math.dist(a['pos'][:2], here[:2])
+                if best is None or d < best[0]:
+                    best = (d, lf, a, b)
+        return best[1:] if best else None
+
     def nearest_room(self, p):
         """The room whose box is nearest p (a hero dropped out of every box: below level 4's vortex)."""
         def gap(r):
@@ -505,6 +521,185 @@ def collect(game, level, nav, log, radius=80, kinds=WEAPONS):
     return got > 0
 
 
+# Doc's hands (modern controls). Each hand has a list of the items Doc carries, with an empty place in it,
+# and a selection that the inventory up/down keys (G, F) move along the list without wrapping; the hand
+# key (Q left, E right) puts the selected item in that hand. A key is held for whole frames
+# (coop_press_frames): pressed by time, a press was often lost. Fire (the left mouse button) combines
+# what the hands hold: with an item in each hand it combines them; one item is used by pressing its
+# hand key again.
+DOC_HAND_KEY = {0: 16, 1: 18}
+DOC_SCROLL = (34, 33)
+FIRE_BUTTON = 256
+
+
+def doc_press(game, code, frames=3, wait=.6):
+    game.lua(f'coop_press_frames({code}, {frames})')
+    time.sleep(wait)
+
+
+def doc_held(game, hand):
+    """The item type number in a hand (0 left, 1 right); 0 is an empty hand."""
+    return int(game.note('held', f'coop_note("held", tostring(mdkDocGetHeldItem(mdkGetPlayerGob(), {hand})))'))
+
+
+def doc_holds(game, hand, item):
+    """Does the hand hold the item (a script constant such as OBJ_DUCTTAPE; OBJ_NONE for an empty hand)?"""
+    # Lua 3.1: a comparison is 1 or nil
+    return game.note('holds', f'coop_note("holds", tostring(mdkDocGetHeldItem(mdkGetPlayerGob(), {hand}) == {item}))') == '1'
+
+
+def doc_hold(game, hand, item, log=None, tries=14, wait=.6):
+    """Put the item in the hand: scroll the selection one place and equip it, until the hand holds it;
+    the direction turns round when two tries in a row change nothing (the end of the list). True once held."""
+    direction, stale = 0, 0
+    for _ in range(tries):
+        if doc_holds(game, hand, item):
+            return True
+        before = doc_held(game, hand)
+        doc_press(game, DOC_SCROLL[direction], wait=wait)
+        doc_press(game, DOC_HAND_KEY[hand], wait=wait)
+        if doc_held(game, hand) == before:
+            stale += 1
+            if stale >= 2:
+                direction, stale = 1 - direction, 0
+        else:
+            stale = 0
+    ok = doc_holds(game, hand, item)
+    if log and not ok:
+        log(f'    Doc: the {"left" if hand == 0 else "right"} hand would not take {item}')
+    return ok
+
+
+def doc_use(game, left, right='OBJ_NONE', log=None):
+    """Hold left and right (item constants) and act: with the right hand empty, the left item is used where Doc
+    stands (its hand key pressed again, as the walkthroughs say: select it and press left twice); with an
+    item in each hand, fire combines them. The cord is a left hand item and the pipes a right hand one."""
+    ok = doc_hold(game, 0, left, log) and doc_hold(game, 1, right, log)
+    if ok:
+        doc_press(game, DOC_HAND_KEY[0] if right == 'OBJ_NONE' else FIRE_BUTTON, frames=4, wait=1.0)
+    return ok
+
+def doc_has(game, item):
+    return game.note('dochas', f'coop_note("dochas", tostring(mdkDocHasItem(mdkGetPlayerGob(), {item})))') == '1'
+
+
+def doc_walkway(game, log):
+    """Level 3's walkway puzzle with Doc's hands, from the launcher's checkpoint 6 start (the checkpoint's items
+    are granted): the duct tape used at the pillar plugs the leak and the cord appears; the cord picked up and
+    combined with the pipes is the ladder. Doc is put at each spot (the way there is the planner's)."""
+    def put(x, y, z):
+        game.lua(f'local p=mdkGetPlayerGob() mdkGobSetPositionXYZ(p, {x}, {y}, {z + 0.4})')
+        time.sleep(1.5)
+    out = {'items': {n: doc_has(game, n) for n in ('OBJ_ATOMICTOASTER', 'OBJ_DUCTTAPE', 'OBJ_PIPES')}}
+    log(f'  Doc carries {out["items"]}')
+    put(-27.26, 3.85, -101.59)                                    # points.l3_pillarwaypnt
+    out['tape_used'] = doc_use(game, 'OBJ_DUCTTAPE', 'OBJ_NONE', log)
+    for _ in range(40):
+        time.sleep(1)
+        if game.note('water', 'coop_note("water", tostring(l3_w_hub00.water))') == '1' and \
+                game.note('cord', 'coop_note("cord", tostring(coop_alive(l3_hub00_cord)))') == '1':
+            break
+    out['leak_plugged'] = game.note('water', 'coop_note("water", tostring(l3_w_hub00.water))') == '1'
+    log(f'  tape used: {out["tape_used"]}; leak plugged: {out["leak_plugged"]}')
+    put(-27.99, 10.50, -102.33)                                   # points.l3_hub00_cord_i
+    for _ in range(15):
+        if doc_has(game, 'OBJ_CORD'):
+            break
+        time.sleep(1)
+    out['cord'] = doc_has(game, 'OBJ_CORD')
+    out['combined'] = out['cord'] and doc_use(game, 'OBJ_CORD', 'OBJ_PIPES', log)
+    time.sleep(2)
+    out['ladder'] = doc_has(game, 'OBJ_LADDER')
+    log(f'  cord picked up: {out["cord"]}; combined into the ladder: {out["ladder"]}')
+    out['ok'] = bool(out['tape_used'] and out['leak_plugged'] and out['cord'] and out['ladder'])
+    return out
+
+
+def is_doc(game):
+    return game.note('mode', 'coop_note("mode", tostring(mdkGetPlayMode() == PLAYMODE_DOC))') == '1'
+
+
+def ladder_spots(level, here, tried=(), reach=30):
+    """Ladder anchors (OBJ_LADDERSPOT: Doc sets his ladder there and climbs to a place the level gives) near the
+    hero, at about his height, not tried yet; nearest first."""
+    return sorted((o for o in level.m['objects'] if o['type'] == 'OBJ_LADDERSPOT' and o['name'] not in tried
+                   and math.dist(o['pos'][:2], here[:2]) < reach and abs(o['pos'][2] - here[2]) < 12),
+                  key=lambda o: math.dist(o['pos'][:2], here[:2]))
+
+
+def ladder_hop(game, spot, log):
+    """Walk to a ladder anchor, put the ladder in the right hand and use it (its hand key again). True when
+    the hero ended 3 or more units from the anchor (climbed). The hero must stand on the anchor, at its
+    height: a few tries to get there (the anchor may be down off the ledge the hero is on)."""
+    here = game.pos()
+    for _ in range(3):
+        game.goto(*spot['pos'], radius=0.6, timeout=15, explore=0, jump=1)
+        here = game.pos()
+        if math.dist(here[:2], spot['pos'][:2]) < 1.5 and abs(here[2] - spot['pos'][2]) < 3:
+            break
+    else:
+        log(f'    ladder anchor {spot["name"]}: not reached, hero at {[round(v, 1) for v in here]}')
+        return False
+    if not (doc_hold(game, 0, 'OBJ_NONE', log) and doc_hold(game, 1, 'OBJ_LADDER', log)):
+        return False
+    doc_press(game, DOC_HAND_KEY[1], frames=4, wait=.5)
+    time.sleep(4)
+    end = game.pos()
+    log(f'    ladder at {spot["name"]}: {[round(v, 1) for v in here]} -> {[round(v, 1) for v in end]}')
+    return math.dist(end, here) > 3
+
+
+def doc_leak_puzzle(game, level, log):
+    """Level 3's walkway: the duct tape used at the pillar plugs the leak (Doc stands on the magic spot
+    l3_pillarwaypnt, the cutscene plays and the water drains), the cord lies where the water was; the cord
+    and the pipes combined are the ladder. Doc's own controls throughout. True once he has the ladder."""
+    if doc_has(game, 'OBJ_LADDER'):
+        return True
+    pts = level.m['points']
+    spot, cord = pts['l3_pillarwaypnt'], pts['l3_hub00_cord_i']
+    if game.note('water', 'coop_note("water", tostring(l3_w_hub00.water))') != '1':
+        if not doc_has(game, 'OBJ_DUCTTAPE'):
+            return False
+        game.goto(*spot, radius=0.8, timeout=25, explore=0, jump=1)
+        if math.dist(game.pos()[:2], spot[:2]) > 1.5:
+            log(f'    leak puzzle: could not reach the pillar spot (at {[round(v, 1) for v in game.pos()]})')
+            return False
+        doc_use(game, 'OBJ_DUCTTAPE', 'OBJ_NONE', log)
+        for _ in range(40):
+            time.sleep(1)
+            if game.note('cord', 'coop_note("cord", tostring(coop_alive(l3_hub00_cord)))') == '1':
+                break
+        log('    leak puzzle: the duct tape used at the pillar; the water drains')
+        time.sleep(10)          # the cutscene takes the controls for a while
+    for _ in range(3):
+        if doc_has(game, 'OBJ_CORD'):
+            break
+        # the cord settles on the floor a little from where the script spawns it: go where it lies
+        live = game.note('cord', 'local c=l3_hub00_cord if (c and coop_alive(c) == 1) then local p=c.position '
+                         'coop_note("cord", format("%.2f %.2f %.2f", p.x, p.y, p.z)) else coop_note("cord", "none") end')
+        at = [float(v) for v in live.split()] if live != 'none' else cord
+        # the pillar stands between the beam and the cord: round by the point the script spawns it at first
+        if math.dist(game.pos()[:2], at[:2]) > 3:
+            game.goto(*cord, radius=1.5, timeout=40, explore=1, jump=1)
+        game.goto(*at, radius=0.6, timeout=30, explore=1, jump=1)
+        for _ in range(3):
+            if doc_has(game, 'OBJ_CORD'):
+                break
+            # the pilot stops short of a pickup lying beside a rib or a pipe: a few plain steps at it
+            game.lua(f'local p=coop.real_player() coop.Face(p, {at[0]}-p.position.x, {at[1]}-p.position.y, 0) coop_press(17, 700)')
+            time.sleep(1.2)
+        for _ in range(4):
+            if doc_has(game, 'OBJ_CORD'):
+                break
+            time.sleep(1)
+    if not doc_has(game, 'OBJ_CORD'):
+        log(f'    leak puzzle: the cord was not picked up (hero at {[round(v, 1) for v in game.pos()]})')
+    if doc_has(game, 'OBJ_CORD') and doc_use(game, 'OBJ_CORD', 'OBJ_PIPES', log):
+        time.sleep(2)
+    log(f'    leak puzzle: the ladder is {"made" if doc_has(game, "OBJ_LADDER") else "not made"}')
+    return doc_has(game, 'OBJ_LADDER')
+
+
 def max_arm(game, log, rounds=6):
     """Max has four arms: equip every weapon he carries (modern controls: F equips the selected weapon,
     E selects the next)."""
@@ -573,9 +768,12 @@ def fire_sweep(game, wanted, log, pitches=(0, -20, 20, -40, 40), steps=16, snipe
 
 def snipe(game, name, log):
     """A sniper shot at name: the game's own sniper round, launched along Kurt's aim at the target (with
-    a few heights on it). Known shortcut: sniper mode's camera is not steered by the bot yet (its rounds
-    follow the camera, not the hero's facing), so the round is launched by coop_test_sniper; the hit, the
-    script's reaction and its replication to the other games are the game's own."""
+    a few heights on it). First the way a player does it (sniper_aim: sniper mode, the camera turned by mouse
+    look until it points at the target, the fire button); when that does not connect (no line of sight from
+    here, or mouse look is not available) the shortcut: the round is launched along the hero's facing by
+    coop_test_sniper. The hit, the script's reaction and its replication to the other games are the game's own."""
+    if CAMERA_SNIPER and sniper_aim(game, name, log, shots=3):
+        return True
     off = hits_since(game, 0)[1]
     for dz in (0, 1, -1, 2, -2, 3):
         game.lua(f'local p=coop.real_player() local t=getglobal("{name}") if (t) then coop.Face(p, '
@@ -588,8 +786,153 @@ def snipe(game, name, log):
         if name in names:
             log(f'    sniped {name} (aim {dz:+d})')
             return True
+        if note_collateral(names, name):
+            log(f'    sniper rounds keep hitting {sorted(k for k, v in COLLATERAL.items() if v >= COLLATERAL_LIMIT - 1)}: stopped')
+            break
     log(f'    sniper rounds missed {name}')
     return False
+
+
+def cam_forward(q):
+    """The camera's forward vector from its orientation quaternion (w, x, y, z): the engine's forward is +y
+    (coop.Face builds yaw about z, then pitch about x, positive up)."""
+    w, x, y, z = q
+    return (2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x))
+
+
+def aim_error(forward, to):
+    """(yaw, pitch) degrees the camera must turn to look along `to`: yaw positive turns left
+    (counter-clockwise from above), pitch positive looks up."""
+    def angles(v):
+        return math.degrees(math.atan2(v[1], v[0])), math.degrees(math.atan2(v[2], math.hypot(v[0], v[1])))
+    (ya, pa), (yb, pb) = angles(forward), angles(to)
+    return (yb - ya + 180) % 360 - 180, pb - pa
+
+
+# Mouse look through the faked pad's right stick (coop.Look holds it for whole frames). Degrees the camera
+# turns per frame at a deflection, measured on the Overhaul build (the response is far from linear):
+LOOK_YAW = {0.5: 0.43, 1.0: 2.83}
+LOOK_PITCH = {0.5: 0.17, 0.7: 0.70, 1.0: 2.05}
+
+
+def look_pulse(err, pitch=False, deadband=0.8):
+    """(stick, frames) that turn the camera by err degrees: the biggest deflection that does not overshoot.
+    The caller measures again afterwards."""
+    if abs(err) < deadband:
+        return 0.0, 0
+    table = LOOK_PITCH if pitch else LOOK_YAW
+    r = max((r for r, deg in table.items() if 3 * deg <= abs(err)), default=min(table))
+    return math.copysign(r, err), max(1, round(abs(err) / table[r]))
+
+
+def camera_pose(game):
+    t = game.note('campose', 'local x,y,z,w,a,b,c=coop_pose(mdkGetCameraGob()) local p=coop.real_player() '
+                  'local x2,y2,z2=coop_pose(p) coop_note("campose", format("%.3f %.3f %.3f %.4f %.4f %.4f %.4f %.3f %.3f %.3f", '
+                  'x,y,z,w,a,b,c,x2,y2,z2))')
+    v = [float(f) for f in t.split()]
+    return v[0:3], v[3:7], v[7:10]
+
+
+def look(game, rx, ry, frames, rt=0):
+    """Hold the faked pad's right stick (and the fire trigger) for exactly `frames` game frames; returns once
+    the pulse has finished."""
+    done = lambda: int(game.note('look', 'coop_note("look", tostring(coop.lookdone))'))
+    before = done()
+    game.lua(f'coop.Look({rx:.2f}, {ry:.2f}, {frames}, 0, {rt})')
+    t0 = time.monotonic()
+    while done() == before and time.monotonic() - t0 < 10:
+        time.sleep(.05)
+
+
+def sniper_mode(game, want):
+    """Sniper mode on or off (the left trigger toggles it); in it the camera sits at the hero's eye, a
+    unit behind, instead of a few units back."""
+    for _ in range(3):
+        cam, _, hero = camera_pose(game)
+        on = math.dist(cam[:2], hero[:2]) < 2.0
+        if on == want:
+            return True
+        game.lua('coop_pad_fake(0,0,0,0,0,255,0)')
+        time.sleep(.4)
+        game.lua('coop_pad_fake()')
+        time.sleep(.8)
+    return False
+
+
+# sniper rounds are aimed with the camera (mouse look) first; --shortcut-sniper goes straight to the launched round
+CAMERA_SNIPER = True
+
+# What missed rounds hit instead of the target, by name, over the whole run. A scenery piece that takes four
+# rounds is destroyed, and the game crashed the moment level 4's tunnel piece l4_r7a_90tun01 went (host,
+# 4:11-14): a piece hit COLLATERAL_LIMIT - 1 times is not aimed past again.
+COLLATERAL = {}
+COLLATERAL_LIMIT = 4
+
+
+def note_collateral(names, target, counts=None):
+    """Count the things a missed round hit other than its target; True when one is one round from breaking."""
+    counts = COLLATERAL if counts is None else counts
+    for n in set(names):
+        if n != target:
+            counts[n] = counts.get(n, 0) + len([x for x in names if x == n])
+    return any(v >= COLLATERAL_LIMIT - 1 for k, v in counts.items() if k != target)
+
+
+def sniper_aim(game, name, log, rounds=25, dz=0.0, shots=3):
+    """A sniper shot the way a player takes it: sniper mode on, the camera turned by mouse look (the right
+    stick of a faked pad) until it points at the target, the fire button. Closed loop on the camera's own
+    orientation. Returns True when the target's name appears among the things hit."""
+    off = hits_since(game, 0)[1]
+    if not sniper_mode(game, True):
+        log('    sniper mode would not switch on')
+        return False
+    ok = False
+    try:
+        for _ in range(rounds):
+            at = live_pos(game, name)
+            if not at:
+                break
+            cam, q, _ = camera_pose(game)
+            to = (at[0] - cam[0], at[1] - cam[1], at[2] + dz - cam[2])
+            yaw, pitch = aim_error(cam_forward(q), to)
+            sy, ny = look_pulse(yaw)
+            sp, np_ = look_pulse(pitch, pitch=True)
+            if not (ny or np_):
+                look(game, 0, 0, 14, rt=255)           # sniper mode stays on; the fire button for a moment
+                time.sleep(.8)
+                names, off = hits_since(game, off)
+                if name in names:
+                    ok = True
+                    break
+                log(f'    sniper shot at {name} from {[round(v) for v in cam]}: hit {sorted(set(names))[:3]}')
+                shots -= 1
+                if note_collateral(names, name):
+                    log(f'    sniper rounds keep hitting {sorted(k for k, v in COLLATERAL.items() if v >= COLLATERAL_LIMIT - 1)}: not aimed again')
+                    break
+                if shots <= 0:
+                    break
+                dz += 1.0 if dz <= 0 else -2.0
+                continue
+            # the stick's right turns clockwise; a positive yaw error turns left
+            if ny:
+                look(game, -sy, 0, ny)
+            if np_:
+                look(game, 0, sp, np_)
+            time.sleep(.2)
+    finally:
+        game.lua('coop_pad_fake()')
+        sniper_mode(game, False)
+        # the camera's pitch is left where the aim put it: level it again
+        for _ in range(6):
+            cam, q, _ = camera_pose(game)
+            _, pitch = aim_error(cam_forward(q), (0, 1, 0))
+            sp, np_ = look_pulse(pitch, pitch=True)
+            if not np_:
+                break
+            look(game, 0, sp, np_)
+            time.sleep(.2)
+    log(f'    {"sniped" if ok else "missed"} {name} with the camera aim')
+    return ok
 
 
 def aimed_kill(game, name, log, seconds=60):
@@ -1293,6 +1636,47 @@ def prepare_flight(game, level, nav, log):
     return ok
 
 
+def take_lift(game, level, lift, entry, far, out, log, assist=(), seconds=60):
+    """Ride an elevator (elevators.lua): walk to its door at the hero's height, step into the cab (the
+    door opens within 10 units while the elevator is not locked) and wait for the ride to end. A lift
+    the level keeps locked behind a puzzle is opened by script only when assisted ('lift'); otherwise it
+    is reported and left. Returns True when the hero ended up at the far end's height."""
+    mover = lift['mover']
+    locked = game.note('lift', f'coop_note("lift", tostring({mover}.locked))').strip()
+    if locked != 'nil':
+        if 'lift' not in assist:
+            log(f'    lift {mover} is locked (its level puzzle is not solved): not assisted')
+            return False
+        log(f'    lift {mover} is locked: opened by script (assist), the level\'s puzzle is skipped')
+        game.lua(f'Level.UnlockElevDoor({lift["top"]["name"]})')
+    ex, ey, ez = entry['pos']
+    cx, cy = lift['cab']['pos'][:2]
+    # in front of the door: the side of it away from the cab centre
+    dx, dy = ex - cx, ey - cy
+    n = math.hypot(dx, dy) or 1.0
+    front = [ex + 4 * dx / n, ey + 4 * dy / n, ez]
+    if math.dist(game.pos()[:2], front[:2]) > 5:
+        ok, _ = advance(game, level, front, out, log, max_rounds=10)
+        if not ok:
+            log(f'    lift {mover}: could not reach its door at {[round(v) for v in front]}')
+            return False
+    z0 = game.pos()[2]
+    log(f'    lift {mover}: boarding at {[round(v, 1) for v in game.pos()]}, far end {far["pos"][2]:.0f}')
+    game.goto(cx, cy, ez, radius=1.5, timeout=12, explore=0)
+    t0, last, still = time.monotonic(), z0, 0
+    while time.monotonic() - t0 < seconds:
+        z = game.pos()[2]
+        # the ride is over when the height has been steady for a few seconds away from where it began
+        still = still + 1 if abs(z - last) < 0.3 else 0
+        last = z
+        if still >= 4 and abs(z - z0) > 10:
+            break
+        time.sleep(1)
+    z = game.pos()[2]
+    log(f'    lift {mover}: ride {z0:.1f} -> {z:.1f}')
+    return abs(z - far['pos'][2]) < 8
+
+
 def off_route(level, ahead, planned_from, here, jump=40):
     """True when the hero is far from where the remaining room route was planned and in none of its
     rooms: carried or teleported by the level, not walked."""
@@ -1302,7 +1686,7 @@ def off_route(level, ahead, planned_from, here, jump=40):
     return level.room_of(list(here)) not in rooms
 
 
-def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
+def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False, assist=()):
     """Get the hero to goal: portal by portal, scanning, walking, and breaking scripted walls."""
     game.lua(f'coop.GunnerOn({game.gun_range})')
     def route_from(here):
@@ -1326,7 +1710,19 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
         prepare_flight(game, level, scan(game, out, fly=True)[0], log)
     index = 0
     planned_from = game.pos()
+    lifts_tried = set()
+    doc = is_doc(game)
+    puzzle_tried, ladders_used = [], {}
     while index < len(portals):
+        # an elevator carries the hero to the goal's height (level 3's walkway, 90 units down)
+        ride = level.lift_toward(game.pos(), goal)
+        if ride and ride[0]['mover'] not in lifts_tried:
+            lifts_tried.add(ride[0]['mover'])
+            if take_lift(game, level, *ride, out, log, assist=assist):
+                planned_from = game.pos()
+                portals = route_from(planned_from)
+                index = 0
+                continue
         if off_route(level, portals[index:], planned_from, game.pos()):
             # a script moved the hero (level 3 starts with Doc carried 165 units on after the intro):
             # the room route from where he was is no use, plan again from here
@@ -1436,6 +1832,27 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False):
                 if game.pos()[2] > z0 + 10:
                     stalls = 0
                     continue
+            # Doc: level 3's walkway puzzle by his own hands, then ladders at the anchors near him
+            if doc:
+                pp = level.m['points'].get('l3_pillarwaypnt')
+                if pp and level.m.get('level') == 3 and not doc_has(game, 'OBJ_LADDER') \
+                        and math.dist(here[:2], pp[:2]) < 40 and abs(here[2] - pp[2]) < 15 and len(puzzle_tried) < 3:
+                    puzzle_tried.append(1)
+                    if doc_leak_puzzle(game, level, log):
+                        stalls = 0
+                        continue
+                if doc_has(game, 'OBJ_LADDER'):
+                    # an anchor whose ladder took Doc up or along is not used again from where he lands
+                    for spot in ladder_spots(level, game.pos(), [n for n, v in ladders_used.items() if v == 'done' or v >= 2]):
+                        ladders_used[spot['name']] = ladders_used.get(spot['name'], 0) + 1
+                        if ladder_hop(game, spot, log):
+                            ladders_used[spot['name']] = 'done'
+                            stalls = 0
+                            break
+                    else:
+                        spot = None
+                    if stalls == 0:
+                        continue
             # a scripted wall within a few strides is what the way on needs broken (level 4's tunnel mouth):
             # once each, before any other idea
             close_walls = [o for o in level.m['objects'] if o['type'] == 'OBJ_DESTRUCTABLE'
@@ -1633,7 +2050,7 @@ def desync_mutant(games, log):
 
 
 def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, record=None,
-          no_god=False, step_units=25.0, step_seconds=45.0, mutant=None, roles=False, tactic='fight'):
+          no_god=False, step_units=25.0, step_seconds=45.0, mutant=None, roles=False, tactic='fight', assist=()):
     """Every game is a bot: player 1 leads to the goal; each other player follows the leader with its
     own pilot and gunner. The worlds are compared after every step of the leader's progress (each
     step_units along the ground, or step_seconds) and at the end. Without God mode (no_god) each hero looks after
@@ -1680,7 +2097,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                                       scratch=str(Path(folder) / 'nav_1.json'), jetpack=fly)
         else:
             result['leader'] = advance(leader, level, goal, str(Path(folder) / 'nav_1.json'),
-                                       lambda m: log('[1] ' + m), fly=fly, chute=chute)
+                                       lambda m: log('[1] ' + m), fly=fly, chute=chute, assist=assist)
         if record:
             leader.lua(f'coop_route("stop", "{record}")')
 
@@ -1723,6 +2140,7 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
     def chase(g):
         g.lua(f'coop.GunnerOn({g.gun_range})')
         far = 0
+        lifts_tried = set()
         while not stop.is_set():
             target = leader.pos()
             here = g.pos()
@@ -1730,6 +2148,13 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 time.sleep(1)
                 continue
             if math.dist(here, target) > 10:
+                # the leader went down (or up) in an elevator: ride it too
+                ride = level.lift_toward(here, target)
+                if ride and ride[0]['mover'] not in lifts_tried:
+                    lifts_tried.add(ride[0]['mover'])
+                    take_lift(g, level, *ride, str(Path(folder) / f'nav_{g.slot}.json'),
+                              lambda m: log(f'[{g.slot}] ' + m), assist=assist)
+                    continue
                 r = g.goto(*target, radius=6, timeout=8, explore=1)
                 far = far + 1 if r.get('state') != 'arrived' else 0
             else:
@@ -1951,6 +2376,12 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 ev = lives.update(g.slot, t['life'], now)
                 if ev:
                     log(f'  player {g.slot}: {ev} (hp {t["hp"]})')
+                if ev == 'back' and not no_god:
+                    # a checkpoint reload after a death (a fall out of the level) switches God mode off again
+                    try:
+                        g.lua('God(1) coop.save_interval=999999')
+                    except (TimeoutError, OSError):
+                        pass
             if not no_god:
                 continue
             pos = {g.slot: peek(g, Game.pos) for g in games if g.slot in seen}
@@ -2223,6 +2654,26 @@ def jet_used(game):
         return 0
 
 
+# Doc's hand keys and fire act once per press: a recording that held one for a few samples must not repeat it
+DOC_EDGE_KEYS = (16, 18, 33, 34, 256)
+
+
+def press_route_keys(game, keys, prev_keys, edge_state, doc):
+    """The keys a recording held at a point. Held keys are pressed for 450 ms (a walk, a jump). Doc's hand keys
+    and fire are pressed once, for whole frames, at the point where the recording started holding them
+    (edge_state = (point index, set of (point, key) already pressed): the loop may visit a point again)."""
+    index, done = edge_state
+    for code in keys:
+        if doc and code in DOC_EDGE_KEYS:
+            if code in prev_keys or (index, code) in done:
+                continue
+            done.add((index, code))
+            game.lua(f'coop_press_frames({code}, 4)')
+            time.sleep(.6)
+        else:
+            game.lua(f'coop_press({code}, 450)')
+
+
 def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None, jetpack=True):
     """Play a recording closed-loop: walk its positions with the pilot (skipping on when nearer a later
     point), pressing the action keys the recording held on each stretch. Robust to timing and drift,
@@ -2236,6 +2687,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     game.lua(f'coop.GunnerOn({game.gun_range}) coop.jet_ms=0')
     i, t0, last_progress, best = 0, time.monotonic(), time.monotonic(), None
     helped, aimed, flybacks, fuelled_at, retries, pinned = set(), set(), {}, {}, {}, False
+    doc, doc_edges = is_doc(game), set()
 
     def refuel(pad, why):
         mode = refuel_mode(pts, pad) or ('hover' if pad['pos'][2] > game.pos()[2] + 2 else 'stand')
@@ -2359,8 +2811,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 aimed.add(o['name'])
                 aimed_kill(game, o['name'], log, seconds=30)
                 game.lua(f'coop.GunnerOn({game.gun_range})')
-        for code in p['keys']:
-            game.lua(f'coop_press({code if code < 256 else code}, 450)')
+        press_route_keys(game, p['keys'], pts[i - 1]['keys'] if i else (), (i, doc_edges), doc)
         rise = p['pos'][2] - here[2]
         # Kurt: a drop the recording made with jump held is a glide (the chute opens on a held jump)
         r = game.goto(*p['pos'], radius=radius, timeout=6, explore=0,
@@ -2410,6 +2861,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
 
 
 def main(argv=None):
+    global CAMERA_SNIPER
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
     g = sub.add_parser('goto')
@@ -2438,13 +2890,20 @@ def main(argv=None):
     ad.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
     ad.add_argument('--fly', action='store_true', help="Max's jetpack: refuel and fly")
     ad.add_argument('--chute', action='store_true', help="Kurt's chute: long drops")
+    ad.add_argument('--assist', nargs='*', default=[], choices=['lift'],
+                    help='script shortcuts for puzzles the bot cannot solve yet: lift = unlock a locked elevator')
     ad.add_argument('--scratch', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/nav/scratch.json'))
+    dh = sub.add_parser('dochands', help="level 3's walkway with Doc's hand keys (a checkpoint 6 start)")
+    dh.add_argument('--dirs', nargs='+', required=True)
+    dh.add_argument('--player', type=int, default=1)
     sq = sub.add_parser('squad')
     sq.add_argument('--dirs', nargs='+', required=True)
     sq.add_argument('--level', required=True)
     sq.add_argument('--to', nargs=3, type=float, required=True, metavar=('X', 'Y', 'Z'))
     sq.add_argument('--fly', action='store_true', help="Max's jetpack: refuel and fly")
     sq.add_argument('--chute', action='store_true', help="Kurt's chute: long drops")
+    sq.add_argument('--assist', nargs='*', default=[], choices=['lift'],
+                    help='script shortcuts for puzzles the bot cannot solve yet: lift = unlock a locked elevator')
     sq.add_argument('--route', help='follow this recording instead of exploring')
     sq.add_argument('--record', help="record the leader's play under this name (kept by the game in coop/)")
     sq.add_argument('--evidence', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/runs'))
@@ -2464,7 +2923,10 @@ def main(argv=None):
     jo = sub.add_parser('journal', help="turn a person's play journals into segment routes")
     jo.add_argument('folder', help='a game copy\'s coop/journal folder (or a copy of it)')
     jo.add_argument('--out', default=str(Path(__file__).resolve().parents[1] / 'local/routes'))
+    ap.add_argument('--shortcut-sniper', action='store_true',
+                    help='launch sniper rounds along the hero\'s facing (coop_test_sniper) instead of aiming the camera')
     a = ap.parse_args(argv)
+    CAMERA_SNIPER = not a.shortcut_sniper
     if a.cmd == 'journal':
         made = journal_segments(a.folder, a.out)
         print(f'{len(made)} segment routes written to {a.out}')
@@ -2502,6 +2964,10 @@ def main(argv=None):
                 return 1
         print(f'arrived in {time.monotonic() - t0:.1f}s at {game.pos()}')
         return 0
+    if a.cmd == 'dochands':
+        r = doc_walkway(games[a.player - 1], lambda m: print(m, flush=True))
+        print(f'{"DOC HANDS OK" if r["ok"] else "DOC HANDS FAILED"}: {r}')
+        return 0 if r['ok'] else 1
     if a.cmd == 'follow':
         ok, stats = follow(games[a.player - 1], a.route, lambda m: print(m, flush=True),
                            level=Level(a.level) if a.level else None,
@@ -2514,13 +2980,13 @@ def main(argv=None):
         folder = Path(a.evidence) / time.strftime('%Y%m%d-%H%M%S')
         ok, stats = squad(games, Level(a.level), a.to, folder, lambda m: print(m, flush=True), fly=a.fly,
                           chute=a.chute, route=a.route, record=a.record, no_god=a.no_god, roles=a.roles,
-                          step_units=a.step_units, mutant=a.mutant, tactic=a.tactic)
+                          step_units=a.step_units, mutant=a.mutant, tactic=a.tactic, assist=a.assist)
         print(f'{"RESULT: PASS" if ok else "RESULT: FAIL"} in {time.monotonic() - t0:.0f}s: {stats}; evidence {folder}')
         return 0 if ok else 1
     if a.cmd == 'advance':
         t0 = time.monotonic()
         ok, stats = advance(games[a.player - 1], Level(a.level), a.to, a.scratch, lambda m: print(m, flush=True), fly=a.fly,
-                            chute=a.chute)
+                            chute=a.chute, assist=a.assist)
         stats.setdefault('telemetry', games[a.player - 1].telemetry())
         print(f'{"ARRIVED" if ok else "FAILED"} in {time.monotonic() - t0:.0f}s: {stats}')
         return 0 if ok else 1

@@ -274,6 +274,41 @@ with tempfile.TemporaryDirectory() as td:
     os.utime(tmp, ns=(1, 1))
     os.utime(txt, ns=(2, 2))
     check('an older .tmp is not', bot.read_note(txt) == 'running')
+# elevators (mined `lifts`): a hero at one end whose goal is at the other end's height, near the cab, rides;
+# a goal on the hero's own height, in another column or at neither end's height does not
+lv.m['lifts'] = [{'top': {'name': 'doorT', 'pos': [-28, 38.5, 0.0]}, 'bottom': {'name': 'doorB', 'pos': [-28, 29.7, -90.0]},
+                  'mover': 'lift0', 'cab': {'name': 'cab0', 'pos': [-28, 34.1, -90.0]}, 'locked': True}]
+up = lv.lift_toward([-28, 45, 0.1], [-28, 21, -91])
+check('a goal 90 down is reached by the lift from its top door',
+      up and up[0]['mover'] == 'lift0' and up[1]['name'] == 'doorT' and up[2]['name'] == 'doorB')
+down = lv.lift_toward([-28, 25, -90.0], [-28, 40, 0.0])
+check('the same lift is taken back up from its bottom door', down and down[1]['name'] == 'doorB')
+check('a goal on the hero\'s height needs no lift', lv.lift_toward([-28, 45, 0.1], [-60, 45, 0.1]) is None)
+check('a goal at neither end\'s height needs no lift', lv.lift_toward([-28, 45, 0.1], [-28, 21, -45]) is None)
+check('a goal far from the cab\'s column needs no lift', lv.lift_toward([-28, 45, 0.1], [300, 21, -91]) is None)
+check('a hero not at an end\'s height does not use the lift', lv.lift_toward([-28, 45, -40], [-28, 21, -91]) is None)
+check('a hero a floor below the lift\'s bottom door still heads for it', lv.lift_toward([-28, 20, -108], [-28, 40, 0.0]) is not None)
+# sniper aim through the camera: forward from the quaternion (the values the game gave: facing +x is
+# w 0.707, z -0.707), the turn needed to face a target, the stick pulse that makes it
+fx = bot.cam_forward((0.7071, 0, 0, -0.7071))
+check('quaternion for facing +x points along +x', abs(fx[0] - 1) < 1e-3 and abs(fx[1]) < 1e-3 and abs(fx[2]) < 1e-3)
+up = bot.cam_forward((0.9659, 0.2588, 0, 0))
+check('a positive x component pitches the camera up 30 degrees', abs(up[2] - 0.5) < 1e-3 and up[1] > 0.8)
+yaw, pitch = bot.aim_error((0, 1, 0), (-1, 1, 0))
+check('a target to the left of +y is a positive (left) yaw of 45', abs(yaw - 45) < 1e-6 and abs(pitch) < 1e-6)
+yaw, pitch = bot.aim_error((1, 0, 0), (1, 0, -0.5))
+check('a target below needs a negative pitch', abs(yaw) < 1e-6 and -30 < pitch < -20)
+yaw, _ = bot.aim_error((-1, 0.01, 0), (-1, -0.01, 0))
+check('yaw wraps around 180 the short way', abs(yaw) < 2)
+check('inside the deadband no pulse', bot.look_pulse(0.5) == (0.0, 0))
+st, n = bot.look_pulse(-30)
+check('a big turn right is a full stick for a few frames', st == -1.0 and n == round(30 / 2.83))
+st, n = bot.look_pulse(6)
+check('a small turn left is a half stick for err/rate frames', st == 0.5 and n == round(6 / 0.43))
+st, n = bot.look_pulse(5, pitch=True)
+check('a pitch of 5 degrees is the 0.7 stick', st == 0.7 and n == round(5 / 0.70))
+st, n = bot.look_pulse(-1.0, pitch=True)
+check('a pitch of 1 degree is the smallest stick for a frame or more', st == -0.5 and n >= 1)
 # Co-op (tools/campaign_coop.py): the world comparison's tolerance table, lives, revives and roles.
 import campaign_coop as cc
 report = """warn  enemy 1f l2_r6gen00 (type 511) not bound on the client yet
@@ -446,4 +481,108 @@ rc, out = statecheck(dump('host', {'m': sam(40, 0.0)}), dump('client', {'m': sam
 check('statecheck --after: a mover on the host\'s path between the dumps passes', rc == 0 and 'apart' not in out)
 rc, out = statecheck(dump('host', {'m': sam(40, 0.0)}), dump('client', {'m': sam(40, 60.0)}), dump('host', {'m': sam(40, 10.0)}))
 check('statecheck --after: a mover off the host\'s path still fails', rc == 1)
+# Doc's hands: the hand/scroll protocol against a model of the lists seen live (level 3 checkpoint 6: left
+# atomic toaster, tape, empty; right pipes, empty, loaf; the selection does not wrap)
+import re
+
+
+class DocHands:
+    OBJ = {'OBJ_ATOMICTOASTER': 344, 'OBJ_DUCTTAPE': 332, 'OBJ_PIPES': 351, 'OBJ_LOAF': 328, 'OBJ_NONE': 0}
+
+    def __init__(self, lose=0):
+        self.lists = {0: [344, 332, 0], 1: [351, 0, 328]}
+        self.cur = {0: 0, 1: 0}
+        self.held = {0: 0, 1: 0}
+        self.pressed = []
+        self.lose = lose          # every lose-th press is lost (a press by time)
+
+    def lua(self, code):
+        n, frames = (int(v) for v in re.search(r'coop_press_frames\((\d+), (\d+)\)', code).groups())
+        self.pressed.append((n, frames))
+        if self.lose and len(self.pressed) % self.lose == 0:
+            return
+        if n in bot.DOC_SCROLL:
+            for h in (0, 1):
+                self.cur[h] = min(2, max(0, self.cur[h] + (1 if n == bot.DOC_SCROLL[0] else -1)))
+        for h, k in bot.DOC_HAND_KEY.items():
+            if n == k:
+                self.held[h] = self.lists[h][self.cur[h]]
+
+    def note(self, key, code):
+        hand = int(re.search(r'GetHeldItem\(mdkGetPlayerGob\(\), (\d)\)', code).group(1))
+        if key == 'held':
+            return str(self.held[hand])
+        return '1' if self.held[hand] == self.OBJ[re.search(r'== (\w+)\)', code).group(1)] else 'nil'
+
+
+orig_sleep = bot.time.sleep
+bot.time.sleep = lambda s: None
+try:
+    d = DocHands()
+    check('Doc: the tape goes to the left hand', bot.doc_hold(d, 0, 'OBJ_DUCTTAPE') and d.held[0] == 332)
+    check('Doc: the loaf goes to the right hand, the selection turning round at the list end',
+          bot.doc_hold(d, 1, 'OBJ_LOAF') and d.held[1] == 328 and bot.doc_hold(d, 1, 'OBJ_PIPES') and d.held[1] == 351)
+    check('Doc: a hand is emptied', bot.doc_hold(d, 1, 'OBJ_NONE') and d.held[1] == 0)
+    check('Doc: a held item needs no press', not (lambda n: (bot.doc_hold(d, 0, 'OBJ_DUCTTAPE'), len(d.pressed) - n)[1])(len(d.pressed)))
+    check('Doc: every press is held for whole frames', all(f >= 2 for _, f in d.pressed))
+    d = DocHands()
+    check('Doc: an item in each hand, then fire (a combine)',
+          bot.doc_use(d, 'OBJ_ATOMICTOASTER', 'OBJ_LOAF') and d.held == {0: 344, 1: 328} and d.pressed[-1][0] == bot.FIRE_BUTTON)
+    d = DocHands()
+    check('Doc: one item alone is used by its hand key pressed again',
+          bot.doc_use(d, 'OBJ_DUCTTAPE') and d.held == {0: 332, 1: 0} and d.pressed[-1][0] == bot.DOC_HAND_KEY[0])
+    d = DocHands(lose=3)
+    check('Doc: with every third press lost the item is still found (the mutant that loses presses)',
+          bot.doc_hold(d, 1, 'OBJ_LOAF', tries=14))
+    d = DocHands(lose=1)
+    check('Doc: with every press lost the hand fails, and says so', not bot.doc_hold(d, 0, 'OBJ_DUCTTAPE', tries=6))
+finally:
+    bot.time.sleep = orig_sleep
+
+# ladder anchors: the ones near the hero at his height, untried, nearest first
+lv.m['objects'] = lv.m['objects'] + [
+    {'name': 'padA', 'type': 'OBJ_LADDERSPOT', 'room': 'r', 'pos': [-33.0, 0.0, -100.0]},
+    {'name': 'padB', 'type': 'OBJ_LADDERSPOT', 'room': 'r', 'pos': [-31.0, -2.0, -103.0]},
+    {'name': 'padC', 'type': 'OBJ_LADDERSPOT', 'room': 'r', 'pos': [-31.0, -2.0, -140.0]},
+    {'name': 'padD', 'type': 'OBJ_LADDERSPOT', 'room': 'r', 'pos': [100.0, 0.0, -100.0]}]
+check('ladder anchors: those near at his height, nearest first',
+      [o['name'] for o in bot.ladder_spots(lv, (-32.5, -1.0, -101.0))] == ['padA', 'padB'])
+check('ladder anchors: one used is left out', [o['name'] for o in bot.ladder_spots(lv, (-32.5, -1.0, -101.0), {'padA'})] == ['padB'])
+check('ladder anchors: none on another floor or far off', bot.ladder_spots(lv, (60.0, 60.0, -100.0)) == [])
+
+# collateral damage of missed sniper rounds: a piece hit three times is one round from breaking
+c = {}
+check('collateral: the first miss on scenery is counted, not stopped', not bot.note_collateral(['tun01'], 'gen', c) and c == {'tun01': 1})
+check('collateral: the target itself is not counted', not bot.note_collateral(['gen', 'gen'], 'gen', c) and 'gen' not in c)
+check('collateral: the third round on one piece stops the aim', not bot.note_collateral(['tun01'], 'gen', c) and bot.note_collateral(['tun01'], 'gen', c) is True)
+c = {}
+check('collateral: one volley of three rounds on a piece stops it too', bot.note_collateral(['tun01', 'tun01', 'tun01'], 'gen', c))
+
+# a recording's keys at a point: held keys by time, Doc's hand keys once per press, for whole frames
+class KeyLog:
+    def __init__(self):
+        self.sent = []
+
+    def lua(self, code):
+        self.sent.append(code)
+
+
+orig_sleep = bot.time.sleep
+bot.time.sleep = lambda s: None
+try:
+    k, seen = KeyLog(), set()
+    bot.press_route_keys(k, [17, 18], [], (5, seen), True)
+    check('route keys: a walk key by time, a Doc hand key for frames', k.sent == ['coop_press(17, 450)', 'coop_press_frames(18, 4)'])
+    k.sent.clear()
+    bot.press_route_keys(k, [17, 18], [17, 18], (6, seen), True)
+    check('route keys: a hand key still held from the point before is not pressed again', k.sent == ['coop_press(17, 450)'])
+    k.sent.clear()
+    bot.press_route_keys(k, [18], [], (5, seen), True)
+    check('route keys: a point visited again does not press its hand key twice', k.sent == [])
+    k.sent.clear()
+    bot.press_route_keys(k, [18, 256], [], (9, set()), False)
+    check('route keys: outside Doc every key is held by time as before', k.sent == ['coop_press(18, 450)', 'coop_press(256, 450)'])
+finally:
+    bot.time.sleep = orig_sleep
+
 print('all checks passed')

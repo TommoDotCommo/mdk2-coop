@@ -767,6 +767,25 @@ function coop.CheckpointItems(l, cp)
         if (fuel[l][f] == cp) then coop.fuel_grant = "wait" end
         f = f + 1
     end
+    -- Doc's inventory (mdkDocGiveItem, not a pickup): what a game of that checkpoint carries into it,
+    -- from the level scripts (level 3: the tape is kept after the leak is plugged, the leaf blower's
+    -- pipes and the cord make the ladder, the fish bowl comes back empty from the grate, the magnet
+    -- and the tape are spent on the boots) and the walkthroughs
+    local doc = {
+        [3] = { [6] = { OBJ_ATOMICTOASTER, OBJ_LOAF, OBJ_DUCTTAPE, OBJ_PIPES },
+                [16] = { OBJ_ATOMICTOASTER, OBJ_LOAF, OBJ_DUCTTAPE, OBJ_LADDER },
+                [7] = { OBJ_ATOMICTOASTER, OBJ_LOAF, OBJ_DUCTTAPE, OBJ_LADDER },
+                [8] = { OBJ_ATOMICTOASTER, OBJ_LOAF, OBJ_DUCTTAPE, OBJ_LADDER },
+                [9] = { OBJ_ATOMICTOASTER, OBJ_LOAF, OBJ_DUCTTAPE, OBJ_LADDER, OBJ_EMPTYFISHBOWL },
+                [10] = { OBJ_ATOMICTOASTER, OBJ_LOAF, OBJ_LADDER },
+                [11] = { OBJ_ATOMICTOASTER, OBJ_LOAF, OBJ_LADDER },
+                [13] = { OBJ_ATOMICTOASTER, OBJ_LOAF, OBJ_LADDER },
+                [14] = { OBJ_ATOMICTOASTER, OBJ_LOAF, OBJ_LADDER } },
+    }
+    if (doc[l] and doc[l][cp]) then
+        coop.doc_grant = doc[l][cp]
+        coop_log(format("level %d checkpoint %d starts with an empty inventory: Doc's items will be given", l, cp))
+    end
     local list = items[l]
     if (not list) then return end
     local k = 1
@@ -803,6 +822,29 @@ function coop.FuelGrantTick()
     else
         mdkGobSetPositionXYZ(coop.fuel_gob, p.position.x, p.position.y, p.position.z - 6)
     end
+end
+
+-- The Doc grant: once Doc stands in the level (a game that is not Doc's has nothing to give)
+function coop.DocGrantTick()
+    local list = coop.doc_grant
+    local p = coop.real_player()
+    if (not list or not p or not coop.level_ready) then return end
+    coop.doc_grant = nil
+    if (mdkGetPlayMode() ~= PLAYMODE_DOC) then return end
+    local k = 1
+    while (list[k]) do
+        if (list[k] == OBJ_LOAF) then
+            -- the loaf is not held as an inventory item (mdkDocGiveItem does nothing for it, mdkDocHasItem
+            -- stays 0): it comes in through a native pickup, like the other checkpoint items
+            coop.reward_serial = coop.reward_serial + 1
+            coop.rewards[format("coop_reward_%d", coop.reward_serial)] =
+                { source = "", label = "checkpoint start", itemtype = OBJ_LOAF }
+        elseif (mdkDocHasItem(mdkGetPlayerGob(), list[k]) == 0) then
+            mdkDocGiveItem(mdkGetPlayerGob(), list[k], 1)
+        end
+        k = k + 1
+    end
+    coop_log(format("checkpoint start: %d items given to Doc", k - 1))
 end
 
 function coop.SharedPickupDone(gob, itemtype)
@@ -866,6 +908,7 @@ function coop.HandlerTick()
     coop.DomeTick()
     coop.SharedPickupTick()
     coop.FuelGrantTick()
+    coop.DocGrantTick()
     if (coop.join) then coop.TryJoin() end
     coop.ProximityTick()
     coop.RearGateTick()
@@ -1499,8 +1542,27 @@ function coop.PilotTick()
     end
 end
 
+-- Mouse look and triggers in whole frames (background test mode: the faked pad, bridge/pad.c): the right stick
+-- (rx, ry) and the triggers held for exactly n frames, so a turn does not depend on how soon the driver's next
+-- command arrives. coop.lookdone counts the pulses that have finished.
+coop.lookdone = 0
+function coop.Look(rx, ry, frames, lt, rt)
+    coop.lookq = { rx = rx, ry = ry, n = frames, lt = lt or 0, rt = rt or 0 }
+end
+function coop.LookTick()
+    local q = coop.lookq
+    if (q.n > 0) then
+        coop_pad_fake(0, 0, q.rx, q.ry, 0, q.lt, q.rt)
+        q.n = q.n - 1
+    else
+        coop_pad_fake()
+        coop.lookq = nil
+        coop.lookdone = coop.lookdone + 1
+    end
+end
 function coop.Tick()
     coop.ControlsCheck()
+    if (coop.lookq) then coop.LookTick() end
     -- host autostart (tools/play.sh <level> <cp>): once the title screen has been up a while
     -- and coop.autostart_players others have joined (or a minute has gone by), load the start
     -- checkpoint; retried until a level is running --
@@ -1769,6 +1831,7 @@ function level(l, cp, sec)
     coop.rewards = {}
     coop.cp_given = 0
     coop.fuel_grant = nil
+    coop.doc_grant = nil
     coop.rear_gate_result = nil
     coop.level = l
     coop.cp = cp

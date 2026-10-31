@@ -31,6 +31,8 @@ static struct { int slot, count, pad, x, y, w, h; float look; } couch;
 #define CODES           264
 
 static double release_at[CODES];       /* held while now_ms() < release_at */
+static int frames_left[CODES];         /* coop_press_frames: whole frames still to hold */
+static BYTE frame_on[CODES];           /* held in this frame (set from frames_left at the frame's start) */
 static struct route_input captured, replay_input;
 static int replay_active;
 
@@ -72,6 +74,16 @@ static void capture_code(int code, int down)
     else press_state[code / 8] &= ~mask;
 }
 
+/* Held for a number of whole game frames (the first one is the next frame), however long they take:
+ * a press by time is lost when the game polls only now and then, or a frame is slow. */
+void input_press_frames(int code, int frames)
+{
+    if (code < 0 || code >= CODES)
+        return;
+    frames_left[code] = frames;
+    logmsg("press %d for %d frames", code, frames);
+}
+
 void input_press(int code, int hold_ms)
 {
     if (code < 0 || code >= CODES)
@@ -93,7 +105,7 @@ static int held(int code)
         return 1;
     if (replay_active)
         return (replay_input.keys[code / 8] >> (code % 8)) & 1;
-    return now_ms() < release_at[code];
+    return frame_on[code] || now_ms() < release_at[code];
 }
 
 /* The keys of the co-op features that read the keyboard themselves (chat, ping, revive, push to
@@ -180,6 +192,11 @@ void input_pad_frame(void)
     int i, ok;
 
     last = now;
+    for (i = 0; i < CODES; i++) {
+        frame_on[i] = frames_left[i] > 0;
+        if (frames_left[i] > 0)
+            frames_left[i]--;
+    }
     if (dt > 0.1f)
         dt = 0.1f;
     if (couch_active) {

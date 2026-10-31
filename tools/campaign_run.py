@@ -262,6 +262,8 @@ def play(level, start, end, players, wsl, folder, env, opts, logname):
             args.append('--fly')
         if level in (1, 4, 7, 10):
             args.append('--chute')      # Kurt
+        if opts.get('assist'):
+            args += ['--assist', *opts['assist']]
         if cmd == 'squad':
             args += ['--evidence', str(folder)]
             # a segment solved before is followed from its recording; otherwise the bot explores and
@@ -379,6 +381,9 @@ def main(argv=None):
     ap.add_argument('--resources')
     ap.add_argument('--chain', action='store_true', help='consecutive segments of one level in one game pair, in order')
     ap.add_argument('--timeout', type=int, default=1500, help="seconds for a segment's bot before it is stopped")
+    ap.add_argument('--assist', nargs='*', default=[], choices=['lift'],
+                    help='script shortcuts for puzzles the bot cannot solve yet (reported as assisted): '
+                         'lift = unlock a locked elevator')
     ap.add_argument('--build', choices=('overhaul',), help='refuse copies that run another build')
     ap.add_argument('--no-god', action='store_true', help='play without invulnerability: heroes revive each other')
     ap.add_argument('--tactic', choices=('fight', 'run'), default=None, help='no-God play style (see campaign_bot.py squad)')
@@ -413,7 +418,7 @@ def main(argv=None):
         chain = []
     with concurrent.futures.ThreadPoolExecutor(a.shards) as pool:
         opts = {'no_god': a.no_god, 'roles': a.roles, 'timescale': a.timescale, 'mutant': a.mutant, 'explore': a.explore,
-                'limit': a.timeout, 'build': a.build, 'chain': chain, 'tactic': a.tactic}
+                'limit': a.timeout, 'build': a.build, 'chain': chain, 'tactic': a.tactic, 'assist': a.assist}
         runs = [(seg, k) for seg in a.segments for k in range(a.repeat)]
         jobs = {pool.submit(segment, a.level, seg, a.players, f'{base}-seg{i}', hook, out / f'run{k + 1}'
                             if a.repeat > 1 else out, not a.no_god, opts): seg

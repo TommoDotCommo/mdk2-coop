@@ -28,6 +28,7 @@ POINT = re.compile(r'points\.([A-Za-z0-9_]+)\s*=\s*\{x=' + NUM + r',y=' + NUM + 
 CP = re.compile(r'Level\["scenegraph"\]\["checkpoints"\]\[(\d+)\](.*?)=\s*(.+)')
 HANDLER = re.compile(r'^([A-Za-z0-9_]+)\.(On[A-Za-z]+)\s*=', re.M)
 EXIT = re.compile(r'mdkNewGame\((\d+),\s*(\d+)')
+LIFT = re.compile(r'Level\.InitElevDoor\(\s*(\w+),\s*(\w+),\s*(\w+),\s*(\w+),\s*[\d.]+,\s*(nil|\d+)')
 COMBO = re.compile(r'left\s*==\s*(OBJ_[A-Z_]+)\)\s*and\s*\(right\s*==\s*(OBJ_[A-Z_]+)')
 
 # Object kinds the bot cares about, by OBJ_ name.
@@ -95,7 +96,22 @@ def mine_level(geo, logic):
         'spawners': [o for o in objects if ENEMY_SPAWN.match(o['type'])],
         'checkpoint_objects': [o for o in objects if o['type'] == 'OBJ_CHECKPOINT'],
         'doors': [o for o in objects if 'DOOR' in o['type']],
+        'lifts': lifts(logic, objects),
     }
+
+
+def lifts(logic, objects):
+    """Elevators (elevators.lua, Level.InitElevDoor(top, bottom, mover, cab, ...)): the doors at both
+    ends, the cab, and whether the script starts it locked. A rider walks into the cab once a door has
+    opened; the cab then carries the hero to the other end."""
+    where = {o['name']: o['pos'] for o in objects}
+    out = []
+    for m in LIFT.finditer(logic):
+        top, bottom, mover, cab, locked = m.groups()
+        if top in where and bottom in where and cab in where:
+            out.append({'top': {'name': top, 'pos': where[top]}, 'bottom': {'name': bottom, 'pos': where[bottom]},
+                        'mover': mover, 'cab': {'name': cab, 'pos': where[cab]}, 'locked': locked != 'nil'})
+    return out
 
 
 FUNC = re.compile(r'^(?:function\s+([A-Za-z0-9_.:]+)|([A-Za-z0-9_.]+)\s*=\s*function)', re.M)
