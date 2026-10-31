@@ -633,7 +633,7 @@ def aimed_kill(game, name, log, seconds=60, stay=False):
             misses = 0
         else:
             misses += 1
-            if misses >= 2 and close > 4:
+            if misses >= 2 and close > 4 and not stay:
                 close = max(4, close - 4)
                 misses = 0
             elif (close <= 4 and misses >= 3) or (stay and misses >= 4):
@@ -641,7 +641,7 @@ def aimed_kill(game, name, log, seconds=60, stay=False):
     game.lua('coop.GunnerOn(60)')
     gone = not alive(game, name)
     log(f'    {"killed" if gone else "could not kill"} {name} by aimed fire in {time.monotonic() - t0:.0f}s'
-        f' (from {close} units)')
+        f' (from {"the spot" if close > 1e6 else close} units)')
     return gone
 
 
@@ -2217,10 +2217,13 @@ def off_recording(here, target, limit=15.0, below=4.0):
     return math.dist(here, target) > limit or target[2] - here[2] > below
 
 
-def stay_first(tries, limit=4):
-    """Whether an objective the recording was shooting at is aimed at from where the hero stands (a spot of
-    the recording itself) rather than walked up to: the first few times."""
-    return tries < limit
+AIM_TRIES = 5
+
+
+def aim_mode(tries):
+    """How an objective the recording was shooting at is attacked on its `tries`-th go: from where the hero
+    stands (a spot of the recording itself), then walked up to, then from later spots of the recording."""
+    return 'walk' if tries == 1 else 'stay'
 
 
 def aimable(o, here, reach=30.0):
@@ -2432,16 +2435,16 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             near = [o for o in near if alive(game, o['name'])][:1]
             for o in near:
                 n_tries = stayed.get(o['name'], (0, 0))[0]
-                if stay_first(n_tries):
-                    # from the recording's own spot first (a target high on a wall, shot from the ledge the
-                    # person stood on, was missed from 4 units below it), then from further along the route
-                    aimed_kill(game, o['name'], log, seconds=12, stay=True)
-                    stayed[o['name']] = (n_tries + 1, i)
-                    if not alive(game, o['name']):
-                        aimed.add(o['name'])
+                mode = aim_mode(n_tries)
+                # from the recording's own spot first (a target high on a wall, shot from the ledge the person
+                # stood on, was missed from 4 units below it), then walked up to, then from later spots again
+                if mode == 'stay':
+                    aimed_kill(game, o['name'], log, seconds=8, stay=True)
                 else:
-                    aimed.add(o['name'])
                     aimed_kill(game, o['name'], log, seconds=30)
+                stayed[o['name']] = (n_tries + 1, i)
+                if not alive(game, o['name']) or n_tries + 1 >= AIM_TRIES:
+                    aimed.add(o['name'])
                 game.lua('coop.GunnerOn(60)')
         if 256 in p['keys'] and level and jetpack and ('bay', round(here[2] / 12)) not in retries:
             # the recording fired at a bay's turrets here: stay (the gunner has the aim) until they are dead,
