@@ -213,7 +213,9 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
   process turns the result into `CRASH`, with the dump's path and exception, and the dumps are moved
   into the segment's `dumps/`. Mutant: `--mutant crash` crashes the last game (`coop_crash()`, test
   builds only). Shown live (level 2, 7 to 8): `CRASH` with the dump (access violation writing 0x10),
-  the dialog, the marker and the gone process.
+  the dialog, the marker and the gone process. A real crash was caught the same way in round 5 (3 to 4 without God mode, an
+  access violation reading 0x8 on the client, `local/campaign/runs/20261031-122223/run2/2-3-4`); the
+  other runs of the batch went on and their results were kept.
 - **Without God mode** (`--no-god`): a hero below 35 health goes for the nearest health pickup
   (Double-A or car battery batteries) within 60 units, otherwise backs off along its way; a downed
   player is revived by the nearest standing teammate, who walks to the body and holds R (the mod's
@@ -261,16 +263,42 @@ co-op logic that needs no game is in `tools/campaign_coop.py`, checked by `tools
     tactic fails 8 to 9 (lost at point 45 under the room's spawner at 916, 940: grunts keep dropping on the
     hero, who stands and shoots; `.../20261031-093548`). So what stopped 8 to 9 without God mode was
     standing to fight a spawner's endless grunts; sprinting through it is how it is played.
-  - **3 to 4 is not solved.** Room 3 is a gauntlet: three wall turrets, three SAM generators (homing
-    missiles, 30 hp) and eight grunt spawn groups (97 hp each; the bot's bullets do 6). Fight tactic
-    (`.../20261031-091932`: 5 downs, 4 revives, 0 deaths, 639 s; `.../20261031-093106`: 3 downs, lost
-    at point 66; both heroes at 200 hp after each wipe reload but never past y 520): holding the ground
-    kills about 35 grunts and still loses, and cover does not help since nothing heals (room 3 has no
-    health pickup; a revive gives half health). Run tactic (`.../20261031-101120`, killed for the quota
-    stop): the first pass went from hp 200 to 3 and got to y 750 of a goal a few units further, died, and
-    the wipe reload started it again. No full pass of 3 to 4 without God mode yet; the margin is thin
-    (hp 3 at the end), so it is a matter of a few more luck-or-damage points, not of a missing capability.
-    Roughly 190 hp of damage is taken between y 330 and 750 by sprinting.
+  - **3 to 4 passes without God mode only by luck so far.** Room 3 is a gauntlet: three wall turrets,
+    three SAM generators (homing missiles, 30 hp) and eight grunt spawn groups (97 hp each; the bot's
+    bullets do 6). Fight tactic (`.../20261031-091932`: 5 downs, 4 revives, 0 deaths, 639 s;
+    `.../20261031-093106`: 3 downs, lost at point 66): holding the ground kills about 35 grunts and
+    still loses; cover does not help since nothing heals (room 3 has no health pickup; a revive restores health: 83 to 200 at
+    the next reading). **Run tactic, round 5, x1, two players:** one run PASSED in 415 s
+    (6 downs, 6 revives, 0 deaths, 244 of 244 points, `local/campaign/runs/20261031-121331`); then
+    five more runs did not pass: one client CRASH at 773 s (see the findings), and with the next
+    change, 0 of 3 in 1156 s (`.../20261031-124135/run{1,2,3}`: 25, 25 and 21 downs, 17, 13 and 13
+    revived by a teammate, 8, 12 and 8 wipe reloads, 0 to 1 bled out). The squad is wiped between y 400
+    and 590 (the second and third SAM generators); the run that passed had never stood and aimed at the
+    first generator, and the failing runs had (34 to 36 s under missile fire at `l2r3samspawn01`, every
+    round into the ceiling, the generator 40 units above the hero). The run tactic therefore no longer
+    aims at a threat generator (`aimable`); that did not change the outcome (0 of 3), so the pass rate
+    is low (one in six runs, roughly) and 3 to 4 is not counted as passing without God mode.
+    What would help and is not done: wait out the missiles behind the corner at y 330 to 390 (the
+    generators only spawn once a hero is in sight, not measured), kill the generators from a place that
+    sees them (`kill_objective` does not find one from the floor), or a third player (its revives).
+  - **7 to 8 passes without God mode, three of three** (fight tactic, x1, two players, recording,
+    after the gunner pitch change; `local/campaign/runs/20261031-130622/run{1,2,3}`): 184, 209 and 163 s
+    of wall clock, downs 0, 1 and 0, revives 0, 1 and 0, deaths 0; the care loop took cover twice in each
+    run and held for 8 to 10 shooters. One finding in run 1 (`host's player is 36.6 from its puppet in
+    the client's game`, one comparison, gone at the next). With God mode the same segment passes in 114 s,
+    0 findings (`.../20261031-130133`), so the pitch change did not regress it.
+  - **5 to 6** fails with God mode too (x1, `.../20261031-133047`: the flight failed three times at
+    points 27, 47 and 55, the jetpack hops, the flight code's job), so the no-God series was not run.
+  - **Three players, 8 to 9, no God mode, run tactic** (x1): first run FAILED in 402 s
+    (`.../20261031-132324`): player 2 followed all 187 points; the host (leader) went down at 6 hp
+    beside the body it was reviving and bled out unseen (the bot's care loop cannot read a game whose
+    lock the reviving thread holds, so nobody was sent: `revive()` now publishes the reviver's own state
+    and gives up when it is down itself); player 3 bled out after three revive tries at 0.0 units from
+    its body; 2 downs, 1 revive, 2 deaths. The second run, with the fix, reached the end with 4 downs, 4
+    revives and 0 deaths in 389 s, worlds equal (0 fail, 160 enemies), and FAILED the regroup: player 2's
+    follower thread had died of an `IndexError` after a wipe reload (the traceback was not logged then; it
+    is now, and the follower falls back to chasing the leader), leaving it 73 units from the goal
+    (`.../20261031-133614/run1`).
 - **Roles** (`--roles`): when a step has several objectives at the goal's height (level 2, 3 to 4: eight
   alerts, a door lock and walls; 5 to 6: two generators), the leader keeps its route and the next
   players each take another objective (aimed fire), then everyone regroups within 15 units of the
@@ -430,7 +458,10 @@ the game-free gates and a short live smoke (see the last section).
   for the silent host hp refill. See the per-step mismatches section above.
 
 **Not yet**
-- The no-God series on 3→4 (the sprint reaches the last stretch at hp 3) and 5→6; 5→6 itself at x1.
+- The no-God series on 3→4 passed once in six runs (the gauntlet's missiles wipe the squad; see the Co-op
+  section) and was not run on 5→6 (5→6 does not pass with God mode: the flight code). 7→8 (3 of 3) and 8→9
+  (run tactic, 3 of 3 with two players) pass without God mode; three players on 8→9 passed 1 of 2 (the regroup
+  failed once on a follower thread's `IndexError`, traceback now logged).
 - Levels 5 to 12 beyond the survey, Doc's items, sniper locks that need long chains, bosses,
   minigames, movies, combat damage to the hero.
 
