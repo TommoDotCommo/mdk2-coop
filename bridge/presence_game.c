@@ -125,7 +125,8 @@ static BYTE *ai_target_ready(BYTE *target)
 {
     if (ai_guard_on && (!target || !*(BYTE **)(target + GOB_INFO))) {
         if (target && ai_infoless_targets++ < 8)
-            logmsg("ai: target gob %p has no game object (level loading?): none given", (void *)target);
+            logmsg("ai: target gob %p '%s' flags %04x has no game object (level loading?): none given; AI target handle %08x",
+                   (void *)target, gob_name(target), *(unsigned short *)(target + 0xa6), (unsigned)AI_TARGET_HANDLE);
         return NULL;
     }
     return target;
