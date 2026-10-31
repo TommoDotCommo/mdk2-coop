@@ -481,4 +481,15 @@ try:
 finally:
     bot.time.sleep = orig_sleep
 
+# ladder anchors: the ones near the hero at his height, untried, nearest first
+lv.m['objects'] = lv.m['objects'] + [
+    {'name': 'padA', 'type': 'OBJ_LADDERSPOT', 'room': 'r', 'pos': [-33.0, 0.0, -100.0]},
+    {'name': 'padB', 'type': 'OBJ_LADDERSPOT', 'room': 'r', 'pos': [-31.0, -2.0, -103.0]},
+    {'name': 'padC', 'type': 'OBJ_LADDERSPOT', 'room': 'r', 'pos': [-31.0, -2.0, -140.0]},
+    {'name': 'padD', 'type': 'OBJ_LADDERSPOT', 'room': 'r', 'pos': [100.0, 0.0, -100.0]}]
+check('ladder anchors: those near at his height, nearest first',
+      [o['name'] for o in bot.ladder_spots(lv, (-32.5, -1.0, -101.0))] == ['padA', 'padB'])
+check('ladder anchors: one used is left out', [o['name'] for o in bot.ladder_spots(lv, (-32.5, -1.0, -101.0), {'padA'})] == ['padB'])
+check('ladder anchors: none on another floor or far off', bot.ladder_spots(lv, (60.0, 60.0, -100.0)) == [])
+
 print('all checks passed')

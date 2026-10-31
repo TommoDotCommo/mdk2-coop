@@ -613,6 +613,77 @@ def doc_walkway(game, log):
     return out
 
 
+def is_doc(game):
+    return game.note('mode', 'coop_note("mode", tostring(mdkGetPlayMode() == PLAYMODE_DOC))') == '1'
+
+
+def ladder_spots(level, here, tried=(), reach=30):
+    """Ladder anchors (OBJ_LADDERSPOT: Doc sets his ladder there and climbs to a place the level gives) near the
+    hero, at about his height, not tried yet; nearest first."""
+    return sorted((o for o in level.m['objects'] if o['type'] == 'OBJ_LADDERSPOT' and o['name'] not in tried
+                   and math.dist(o['pos'][:2], here[:2]) < reach and abs(o['pos'][2] - here[2]) < 12),
+                  key=lambda o: math.dist(o['pos'][:2], here[:2]))
+
+
+def ladder_hop(game, spot, log):
+    """Walk to a ladder anchor, put the ladder in the right hand and use it (its hand key again). True when
+    the hero ended 3 or more units from the anchor (climbed)."""
+    r = game.goto(*spot['pos'], radius=1.0, timeout=15, explore=0)
+    here = game.pos()
+    if math.dist(here[:2], spot['pos'][:2]) > 2.5:
+        log(f'    ladder anchor {spot["name"]}: not reached ({r.get("state")}) at {[round(v, 1) for v in here]}')
+        return False
+    if not (doc_hold(game, 0, 'OBJ_NONE', log) and doc_hold(game, 1, 'OBJ_LADDER', log)):
+        return False
+    doc_press(game, DOC_HAND_KEY[1], frames=4, wait=.5)
+    time.sleep(4)
+    end = game.pos()
+    log(f'    ladder at {spot["name"]}: {[round(v, 1) for v in here]} -> {[round(v, 1) for v in end]}')
+    return math.dist(end, here) > 3
+
+
+def doc_leak_puzzle(game, level, log):
+    """Level 3's walkway: the duct tape used at the pillar plugs the leak (Doc stands on the magic spot
+    l3_pillarwaypnt, the cutscene plays and the water drains), the cord lies where the water was; the cord
+    and the pipes combined are the ladder. Doc's own controls throughout. True once he has the ladder."""
+    if doc_has(game, 'OBJ_LADDER'):
+        return True
+    pts = level.m['points']
+    spot, cord = pts['l3_pillarwaypnt'], pts['l3_hub00_cord_i']
+    if game.note('water', 'coop_note("water", tostring(l3_w_hub00.water))') != '1':
+        if not doc_has(game, 'OBJ_DUCTTAPE'):
+            return False
+        game.goto(*spot, radius=0.8, timeout=25, explore=0, jump=1)
+        if math.dist(game.pos()[:2], spot[:2]) > 1.5:
+            log(f'    leak puzzle: could not reach the pillar spot (at {[round(v, 1) for v in game.pos()]})')
+            return False
+        doc_use(game, 'OBJ_DUCTTAPE', 'OBJ_NONE', log)
+        for _ in range(40):
+            time.sleep(1)
+            if game.note('cord', 'coop_note("cord", tostring(coop_alive(l3_hub00_cord)))') == '1':
+                break
+        log('    leak puzzle: the duct tape used at the pillar; the water drains')
+        time.sleep(10)          # the cutscene takes the controls for a while
+    for _ in range(3):
+        if doc_has(game, 'OBJ_CORD'):
+            break
+        # the cord settles on the floor a little from where the script spawns it: go where it lies
+        live = game.note('cord', 'local c=l3_hub00_cord if (c and coop_alive(c) == 1) then local p=c.position '
+                         'coop_note("cord", format("%.2f %.2f %.2f", p.x, p.y, p.z)) else coop_note("cord", "none") end')
+        at = [float(v) for v in live.split()] if live != 'none' else cord
+        game.goto(*at, radius=0.8, timeout=40, explore=0, jump=1)
+        for _ in range(8):
+            if doc_has(game, 'OBJ_CORD'):
+                break
+            time.sleep(1)
+    if not doc_has(game, 'OBJ_CORD'):
+        log(f'    leak puzzle: the cord was not picked up (hero at {[round(v, 1) for v in game.pos()]})')
+    if doc_has(game, 'OBJ_CORD') and doc_use(game, 'OBJ_CORD', 'OBJ_PIPES', log):
+        time.sleep(2)
+    log(f'    leak puzzle: the ladder is {"made" if doc_has(game, "OBJ_LADDER") else "not made"}')
+    return doc_has(game, 'OBJ_LADDER')
+
+
 def max_arm(game, log, rounds=6):
     """Max has four arms: equip every weapon he carries (modern controls: F equips the selected weapon,
     E selects the next)."""
@@ -1596,6 +1667,8 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False, 
     index = 0
     planned_from = game.pos()
     lifts_tried = set()
+    doc = is_doc(game)
+    puzzle_tried, ladders_used = [], set()
     while index < len(portals):
         # an elevator carries the hero to the goal's height (level 3's walkway, 90 units down)
         ride = level.lift_toward(game.pos(), goal)
@@ -1715,6 +1788,26 @@ def advance(game, level, goal, out, log, max_rounds=25, fly=False, chute=False, 
                 if game.pos()[2] > z0 + 10:
                     stalls = 0
                     continue
+            # Doc: level 3's walkway puzzle by his own hands, then ladders at the anchors near him
+            if doc:
+                pp = level.m['points'].get('l3_pillarwaypnt')
+                if pp and level.m.get('level') == 3 and not doc_has(game, 'OBJ_LADDER') \
+                        and math.dist(here[:2], pp[:2]) < 40 and abs(here[2] - pp[2]) < 15 and len(puzzle_tried) < 3:
+                    puzzle_tried.append(1)
+                    if doc_leak_puzzle(game, level, log):
+                        stalls = 0
+                        continue
+                if doc_has(game, 'OBJ_LADDER'):
+                    # an anchor whose ladder took Doc up or along is not used again from where he lands
+                    for spot in ladder_spots(level, game.pos(), ladders_used):
+                        ladders_used.add(spot['name'])
+                        if ladder_hop(game, spot, log):
+                            stalls = 0
+                            break
+                    else:
+                        spot = None
+                    if stalls == 0:
+                        continue
             # a scripted wall within a few strides is what the way on needs broken (level 4's tunnel mouth):
             # once each, before any other idea
             close_walls = [o for o in level.m['objects'] if o['type'] == 'OBJ_DESTRUCTABLE'
