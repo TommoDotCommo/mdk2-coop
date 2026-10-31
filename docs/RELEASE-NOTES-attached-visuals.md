@@ -11,12 +11,12 @@
   - **Doc's leaf blower** is made when Doc takes it up (the item on his back and
     the puffs of air it throws). It is now built on the puppet the same way and
     blows when the owner's does. Its push stays the host's, as before.
-  - **Kurt's parachute** exists from the start, but the game keeps it out of
-    sight with the same room bit it uses for everything in a room nobody is
-    awake in. On a puppet that bit stayed set whenever the puppet was away from
-    the room the puppet was created in, so Kurt's canopy opened without being drawn.
-    The canopy's shown bit is now carried from the owner and applied after the
-    game's room pass, every frame.
+  - **Kurt's parachute** exists from the start, but its copy on another player's
+    screen carried the game's hidden bit (the bit the game also uses for things in a
+    room nobody is awake in) while the canopy was open on its owner, when the two
+    players were in different rooms. The canopy's shown bit is now carried from
+    the owner and written every frame, after the game's room pass and before the
+    draw.
 - Players need the same version: the player and relay packet magics changed
   (`MDKV`, `MDKW`) because every snapshot now carries the three visuals.
 - Checked by `tools/qa_attached.sh`: three peers on the player's (Overhaul)

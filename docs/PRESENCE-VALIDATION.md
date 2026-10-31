@@ -144,13 +144,16 @@ process state on the player's build:
   sub-gobs (the air puffs, shown and hidden in turn while blowing, animation 77 on the item, 65 idle) and a
   `blower` object (type 500) that is the push volume. The push is applied by the host (`combat.c`), so only the
   item and its puffs are replicated.
-- Kurt: the `chute` gob exists on a puppet (constructor `0x418240`) and the canopy animation state is copied,
-  but its gob flag word carries the room stasis bit `0x08` that `rooms.c` describes: the game keeps the bit set on
-  the closed canopy, and on a puppet that is away from the room it was made in, the bit stayed set while the
-  canopy controller said open. Three peers, players 369 to 1368 units apart: peers viewing a client's open canopy
-  read the bit set (`local/qa/*attached` `kurt_open_2.try*`), the owner's own copy clear. The game's room pass
-  (`0x4302a0`) runs before the scene update and the bridge's tick follows it, so the shown bit is written from the
-  owner's value each frame, before the draw.
+- Kurt: the `chute` gob exists on a puppet (constructor `0x418240`) and the canopy animation state is copied, but
+  its gob flag word carries bit `0x08`, the bit `rooms.c` describes as the stasis of a room nobody is awake in
+  (nothing in it runs, and the game also uses it to keep Kurt's closed canopy out of sight: the owner's own
+  closed canopy reads `0x2a`, open `0x22`). Observed with three peers, players 369 to 1368 units apart: peers
+  viewing a client-owned canopy that was open on its owner read the bit **set** on their copy (`kurt_open_2.try*`
+  in the evidence), the owner's own copy clear, and the canopy controller on those peers did not follow either
+  (`MUTANT=shown` reproduces both). That the bit comes from the room pass is inferred (the copy sits in a room
+  the viewer is not awake in; the room pass `0x4302a0` runs before the scene update, and the bridge's tick, which
+  writes the bit, comes after the scene update and before the draw at `0x4576a0`), not proven by a trace. A peer
+  standing in the same area read the bit clear. Not checked by a picture: a puppet in another room cannot be seen.
 
 The snapshot carries one record per visual (present, hidden, model variant, current and previous animation, up to
 three animation blocks), written by `gear_encode`/`gear_decode` (`presence.c`), read and built by
