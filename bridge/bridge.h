@@ -136,7 +136,7 @@ void *hook_code(BYTE *fn, const BYTE *expect, int len, void *hook);
 #include "snapshot.h"
 
 enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY,
-       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE, EV_DIAG, EV_PUZZLE, EV_COMBAT };
+       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE, EV_DIAG, EV_PUZZLE, EV_COMBAT, EV_ITEMUSED };
 #define EV_NAME 32
 /* FIRE part: 0 replays create_object arguments; 1 restores a launched class 5 shot. */
 #define FIRE_LAUNCHED 1
@@ -508,11 +508,14 @@ void logmsg(const char *fmt, ...);
 /* ---- remote.c: handlers for what happened to another player ---- */
 
 void remote_queue(const char *name, const char *event, int slot, int arg, int kill);
+void remote_queue2(const char *name, const char *event, int slot, int arg, int arg2, int kill);
+void itemused_event(const struct event *e, int from);     /* remote.c: a teammate used an item: run the room's OnItemUsed here too */
 void remote_reset(void);
 void puzzle_resend(int to);
 void puzzle_event(const struct event *e, int from);
 void pickups_event(const struct event *e, int from);
 int door_locked(BYTE *door);                /* doors.c */
+int door_is_open(BYTE *door);               /* doors.c */
 void remote_lua_init(void);
 void pickups_finish(const char *name);
 void pickups_frame(void);                   /* pickups.c: pickups that arrived before their item did */      /* pickups.c: remove the item the peer picked up, after its handler ran */

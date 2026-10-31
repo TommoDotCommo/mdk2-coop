@@ -9,11 +9,13 @@
 #undef lua_isnumber
 #undef lua_getnumber
 struct build_addrs ADDR;
-int role_host = 1, cur_level = 2, test_background;
+int role_host = 1, cur_level = 2, test_background, have_remote;
+char coop_dir[MAX_PATH];
 BYTE *local_player, *puppets[MAX_PLAYERS];
 int gob_alive(BYTE *g) { return 0; }
 int gob_type(BYTE *g) { return 0; }
 int door_locked(BYTE *g) { return 0; }
+int door_is_open(BYTE *g) { return 0; }
 int revive_life(void) { return 0; }
 int rooms_in_zone(const float *a, const float *b) { return 0; }
 void rooms_center(const char *n, float *out, int *found) { *found = 0; }
@@ -29,6 +31,7 @@ void logmsg(const char *fmt, ...) { }
 void pickups_finish(const char *name) { }
 void event_init(struct event *e, int kind) { memset(e, 0, sizeof(*e)); e->kind = kind; }
 void event_send(const struct event *e, int to) { sends++; sent = *e; }
+void event_relay(const struct event *e, int from) { }
 int main(void)
 {
     struct event e;
