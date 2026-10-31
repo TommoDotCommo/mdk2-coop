@@ -1046,6 +1046,16 @@ function coop.PilotGo(x, y, z, radius, flat, explore)
     coop.pilot = { x = x, y = y, z = z, r = radius or 2.5, flat = flat or 1, state = "go", explore = explore or 0,
                    t0 = coop_ms(), best = 1000000, best_ms = coop_ms(), stuck = 0, next_ms = 0 }
 end
+-- A flight along several points (fly = 2), queued after the current target: flat list x, y, z, radius,
+-- height tolerance for each. The pilot goes on from one to the next by itself.
+function coop.PilotPath(path, n)
+    if (coop.pilot) then
+        coop.pilot.path = path
+        coop.pilot.path.n = n
+        coop.pilot.pi = 0
+        coop.pilot.state = "go"
+    end
+end
 -- The pilot's eye: the engine's own line of sight (walls, floors, ceilings) from the hero to an
 -- invisible probe at a point, at body height.
 function coop.PilotSees(p, x, y, z)
@@ -1398,8 +1408,17 @@ function coop.PilotTick()
     if (pl.fly == 2 and d <= pl.r) then
         -- over the point: arrived once at its height too; meanwhile hover without walking on
         if (dz < (pl.zr or 2) and dz > -(pl.zr or 2)) then
-            pl.state = "arrived"
-            pl.ms = now - pl.t0
+            if (pl.path and pl.pi < pl.path.n) then
+                -- a stretch of a flight queued by coop.PilotPath: on to its next point at once, so the hero
+                -- does not hover (burning fuel) while the bot's next command is on its way
+                pl.pi = pl.pi + 1
+                local k = pl.pi * 5
+                pl.x, pl.y, pl.z, pl.r, pl.zr = pl.path[k - 4], pl.path[k - 3], pl.path[k - 2], pl.path[k - 1], pl.path[k]
+                pl.best, pl.best_ms = 1000000, now
+            else
+                pl.state = "arrived"
+                pl.ms = now - pl.t0
+            end
         elseif (now - pl.best_ms > 8000) then
             pl.state = "stuck"
         end

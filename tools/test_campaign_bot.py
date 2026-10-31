@@ -241,6 +241,15 @@ def flight_rules(b, quiet=False):
     got = b.hover_points(hp, [pump])
     out.append(('the points hovered by a hanging pump are flown, others are not',
                 got == {1, 3, 5} and not b.hover_points(hp, [floor])))
+    # a flight goes to the pilot in one command, up to a lift's boarding point or a ride
+    fp = [{'pos': (0.0, 0.0, 10.0 + k), 'keys': [57]} for k in range(8)]
+    fp[5]['ride'] = True
+    out.append(('a flight is batched up to a ride, a boarding point, a walked point and the limit',
+                b.flight_batch(fp, set(range(8)), 0, set()) == 5
+                and b.flight_batch(fp, set(range(8)), 0, {3}) == 3
+                and b.flight_batch(fp, {0, 1, 2}, 0, set()) == 3
+                and b.flight_batch(fp, set(range(5)), 0, set(), limit=2) == 2
+                and b.flight_batch(fp, set(range(8)), 6, set()) == 8))
     return out
 
 
@@ -251,7 +260,7 @@ for label, ok in results:
 # mutants: each must make at least one check fail
 import types
 real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED', 'lift_ready',
-                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear', 'aimable', 'climb_out', 'squad_ok', 'off_recording')}
+                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear', 'aimable', 'climb_out', 'squad_ok', 'off_recording', 'flight_batch')}
 mutants = {
     'only "air" points are flown (the hop onto a lift is walked)':
         dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
@@ -278,6 +287,9 @@ mutants = {
     'a hero in a pit is never flown out': dict(climb_out=lambda rise, stuck, jetpack, wall=4.0, after=8.0: False),
     'a squad passes when only the leader got through': dict(squad_ok=lambda ok, gaps, limit=40.0: bool(ok)),
     'no hero is ever off the recording': dict(off_recording=lambda here, target, limit=15.0, below=4.0: False),
+    'a flight is sent point by point': dict(flight_batch=lambda pts, fly, i, apart, limit=14: i + 1),
+    'a batch runs through boarding points and rides': dict(flight_batch=lambda pts, fly, i, apart, limit=14:
+                                                           max([k for k in range(i + 1, len(pts) + 1) if all(m in fly for m in range(i, k))] or [i + 1])),
     'no flight lands on a lift': dict(plan_boardings=lambda pts, fly, lifts, standoff=8.0, base=None: []),
     'every lift is the nearest, however far': dict(boarding=lambda pts, fly, i, lifts, reach=9.0:
                                                     real['boarding'](pts, fly, i, lifts, reach=1e9)),

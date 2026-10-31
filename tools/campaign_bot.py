@@ -100,12 +100,14 @@ class Game:
         f = [int(v) for v in t.split()]
         return dict(zip(('level', 'cp', 'hp', 'shots', 'targets', 'life'), f))
 
-    def goto(self, x, y, z, radius=2.5, timeout=60, trail=None, explore=1, jump=0, fly=0, chute=0, flat=1, track=None):
+    def goto(self, x, y, z, radius=2.5, timeout=60, trail=None, explore=1, jump=0, fly=0, chute=0, flat=1, track=None,
+             then=None, zr=None):
         # leaving a held height (fly=2) for the ground: let go of the jetpack first
         off = 'coop_press(57, 0) ' if fly != 2 and getattr(self, 'held', False) else ''
         self.held = fly == 2
         self.lua(f'{off}coop.PilotGo({x},{y},{z},{radius},{flat},{explore}) coop.pilot.max_stuck=40 coop.pilot.jump={jump} '
-                 f'coop.pilot.fly={fly} coop.pilot.chute={chute}' + (f' coop.pilot.track="{track}"' if track else ''))
+                 f'coop.pilot.fly={fly} coop.pilot.chute={chute}' + (f' coop.pilot.track="{track}"' if track else '')
+                 + (f' coop.pilot.zr={zr}' if zr else '') + (' ' + path_lua(then) if then else ''))
         deadline = time.monotonic() + timeout
         while True:
             p = self.pilot()
@@ -119,6 +121,12 @@ class Game:
                 p['state'] = 'timeout'
                 return p
             time.sleep(.25)
+
+
+def path_lua(then):
+    """The pilot's queued points (flat list of x, y, z, radius, height tolerance) as a Lua call."""
+    flat = ', '.join('%.2f' % v for pt in then for v in pt)
+    return f'coop.PilotPath({{{flat}}}, {len(then)})'
 
 
 class Level:
@@ -2232,6 +2240,15 @@ def live_count(game, names):
     return int(game.note('lc', code).strip() or 0)
 
 
+def flight_batch(pts, fly, i, apart, limit=14):
+    """The end (exclusive) of the stretch of flown points starting at i that the pilot flies in one go: it
+    stops before a point that needs the bot (a lift to board or hold by, a ride) and after `limit` points."""
+    k = i + 1
+    while k < len(pts) and k in fly and k not in apart and not pts[k].get('ride') and k - i < limit:
+        k += 1
+    return k
+
+
 def nearest_ahead(here, pts, i, window=80, slack=1.5):
     """The point to carry on from: the earliest of the next `window` points that is within `slack` units
     of the nearest one. Taking the nearest alone jumped a hero hovering at a pump to a later point at the
@@ -2256,6 +2273,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
     flown_only, fly = fly, extend_to_lifts(pts, fly, lifts)
     boards = plan_boardings(pts, fly, lifts, base=flown_only)
     over = {bd['last'] for bd in boards}
+    apart = {m for bd in boards for m in (bd['start'], bd['wait_at'], bd['last']) if m is not None}
     # the last stretch of a flight onto a lift keeps above the platform as it rises (the person's hop was faster)
     tracked = tracked_points(boards)
     log(f'  following {len(pts)} points of {path} ({len(fly)} flown at their height)')
@@ -2353,7 +2371,17 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             tgt = list(p['pos'])
             if i in over:
                 tgt[2] += BOARD_OVER
-            r = game.goto(*tgt, radius=1.5, timeout=6, explore=0, fly=2, track=tracked.get(i))
+            # the stretch's points go to the pilot in one command, which goes on from point to point by
+            # itself: the bot's round trip for each (about half a second) was hover time, and a tank is
+            # some ten seconds of thrust (6-7's climb ran dry halfway)
+            k = flight_batch(pts, fly, i, apart | set(tracked) | over)
+            then = [(*pts[m]['pos'], 3.0, 3.0) for m in range(i + 1, k - 1)] + \
+                   [(*pts[k - 1]['pos'], 1.5, 2.0)] if k > i + 1 else None
+            trk = tracked.get(i)
+            if then:
+                i, p = k - 1, pts[k - 1]
+            r = game.goto(*tgt, radius=3.0 if then else 1.5, timeout=6 + 1.2 * len(then or ()), explore=0, fly=2,
+                          track=trk, then=then, zr=3.0 if then else None)
             at = game.pos()
             if r.get('state') == 'arrived' or (math.dist(at[:2], p['pos'][:2]) < radius
                                                and abs(at[2] - p['pos'][2]) < 2.5):
@@ -2444,7 +2472,8 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             helped.add(('back', Nav.spot(here)))
             nav, _ = scan(game, scratch)
             if nav.cells:
-                log(f'    {math.dist(here, p["pos"]):.0f} units from point {i}: back along the scanned floor')
+                log(f'    {math.dist(here, p["pos"]):.0f} units from point {i} {[round(v) for v in p["pos"]]}, hero at '
+                    f'{[round(v, 1) for v in here]}: back along the scanned floor')
                 walk(game, nav, p['pos'], log, timeout=40)
             continue
         # held up where the recording was shooting (a scripted wall in the way): fire along the way
