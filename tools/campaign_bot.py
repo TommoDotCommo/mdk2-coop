@@ -2239,6 +2239,12 @@ def squad(games, level, goal, folder, log, fly=False, chute=False, route=None, r
                 ev = lives.update(g.slot, t['life'], now)
                 if ev:
                     log(f'  player {g.slot}: {ev} (hp {t["hp"]})')
+                if ev == 'back' and not no_god:
+                    # a checkpoint reload after a death (a fall out of the level) switches God mode off again
+                    try:
+                        g.lua('God(1) coop.save_interval=999999')
+                    except (TimeoutError, OSError):
+                        pass
             if not no_god:
                 continue
             pos = {g.slot: peek(g, Game.pos) for g in games if g.slot in seen}
