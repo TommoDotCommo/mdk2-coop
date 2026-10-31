@@ -62,6 +62,15 @@ typedef void (*lua_CFunction)(void);
 /* native behind omGobDelete */
 #define gob_delete          ((void (*)(void *))0x449710)
 
+/* natives the game's own equip code uses to build an item visual on a character (jetpack: 0x422085, leaf blower:
+ * 0x40a770): create a gob, give it a model, find a bone, attach, place on the bone, start an animation */
+#define om_gob_create       ((BYTE *(*)(const char *))0x449630)
+#define om_model_new        ((void *(*)(const char *))0x44c4f0)
+#define om_bone_find        ((int (*)(void *, const char *))0x44db50)
+#define om_attach           ((void (*)(int, void *, void *, int))0x449a20)
+#define om_bone_place       ((void (*)(void *, int, float *, float *))0x44e580)
+#define om_anim_play        ((int (*)(void *, int, int))0x44ca90)
+
 /* OMGOB layout */
 #define GOB_NAME            0x04    /* char[], name given to mdkCreateObjectLua / mdkRegisterObject */
 #define GOB_POSITION        0x18    /* float x, y, z */
@@ -239,6 +248,9 @@ void anim_apply(BYTE *gob, const struct snap *s);
 BYTE *canopy_gob(BYTE *gob);
 void canopy_capture(BYTE *gob, struct canopy_state *s);
 void canopy_apply(BYTE *gob, const struct canopy_state *s);
+void gear_capture(BYTE *gob, struct gear_state *s);
+void gear_apply(int slot, BYTE *gob, const struct gear_state *s);
+void gear_release(int slot);
 void presence_lua_init(void);
 int presence_test_plant(const char *name);
 int presence_test_sight(const char *name);

@@ -74,6 +74,142 @@ void canopy_apply(BYTE *gob, const struct canopy_state *s)
     *(DWORD *)(ctl + 0x2c) = s->prev == NO_ANIM ? 0 : (DWORD)(uintptr_t)anim_state(child, s->prev);
 }
 
+/* ---- equipment visuals: Max's jetpack, Doc's leaf blower ----
+ * Taking the item makes a separate gob on the character's body (omGobCreate by name, a model controller from
+ * the model's name, attached to a torso bone; the jetpack at 0x422085, the blower at 0x40a770), and play state
+ * (the jetpack's flame while thrusting is its animation 77, idle 62) lives in that gob's own animation controller.
+ * A puppet never runs the pickup, so it had no such gob. The sender reads the gob and the receiver builds the same
+ * one with the same engine calls, then copies the animation state (as for the canopy). */
+struct gear_kind {
+    const char *name, *bone, *model[2];
+    int first_anim, owner;                  /* owner: the character type that wears it (OBJ_MAX 101, OBJ_DOC 102) */
+};
+static const struct gear_kind gear_kinds[GEAR_KINDS] = {
+    { "maxjetpack", "MAX_TORSO", { "jetpack", "jetpackatm" }, 62, 101 },
+    { "docleafblower", "DR_TORSO", { "leafer", "leafer" }, 65, 102 },
+};
+#define GEAR_BUILT GEAR_KINDS
+
+static BYTE *gear_child(BYTE *body, int kind)
+{
+    DWORD me;
+    int s;
+    if (!gob_alive(body)) return NULL;
+    me = gob_handle(gob_slot(body));
+    for (s = 0; s < GOB_SLOTS; s++) {
+        BYTE *g = GOB_TABLE_AT(s);
+        if (g && g != body && gob_alive(g) && *(DWORD *)(g + GOB_TARGET) == me &&
+            !strcmp(gob_name(g), gear_kinds[kind].name)) return g;
+    }
+    return NULL;
+}
+
+void gear_capture(BYTE *body, struct gear_state *out)
+{
+    int k;
+    memset(out, 0, sizeof(*out));
+    if (!gob_alive(body)) return;
+    for (k = 0; k < GEAR_BUILT; k++) {
+        BYTE *g, *ctl;
+        struct gear_visual *v = &out->v[k];
+        int id;
+        if (gob_type(body) != gear_kinds[k].owner) continue;
+        g = gear_child(body, k);
+        if (!g || !(ctl = *(BYTE **)(g + GOB_ANIM))) continue;
+        v->present = 1;
+        v->hidden = (*(WORD *)(g + GOB_FLAGS) & 0x08) != 0;
+        v->cur = v->prev = NO_ANIM;
+        if (k == 0) {
+            /* the jetpack's kind sits in the character's state: 1 jetpack, 2 atomic jetpack (0x422125) */
+            BYTE *info = *(BYTE **)(body + GOB_INFO), *state = info ? *(BYTE **)(info + 0x40) : NULL;
+            DWORD kind = state ? *(DWORD *)(state + 0x38) : 0;
+            v->model = kind == 2 ? 1 : 0;
+        }
+        for (id = 0; id < ANIM_ID_MAX; id++) {
+            DWORD *st = anim_state(g, id), *cur = (DWORD *)(uintptr_t)*(DWORD *)(ctl + 0x28),
+                  *prev = (DWORD *)(uintptr_t)*(DWORD *)(ctl + 0x2c);
+            if (!st) continue;
+            if (st == cur) v->cur = (uint8_t)id;
+            if (st == prev) v->prev = (uint8_t)id;
+            if (st[0] && v->nanims < GEAR_ANIMS) {
+                v->id[v->nanims] = (uint8_t)id;
+                memcpy(v->anim[v->nanims], st, sizeof(v->anim[0]));
+                v->nanims++;
+            }
+        }
+    }
+}
+
+static DWORD gear_owned[MAX_PLAYERS][GEAR_KINDS];       /* handles of the gobs this side built on each puppet */
+static DWORD gear_retry[MAX_PLAYERS][GEAR_KINDS];       /* tick before which a failed build is not repeated */
+static int no_gear;
+
+static BYTE *gear_build(BYTE *body, int kind, int model)
+{
+    const struct gear_kind *k = &gear_kinds[kind];
+    BYTE *g;
+    void *ctl;
+    int bone;
+    if (!gob_alive(body) || !*(BYTE **)(body + GOB_ANIM)) return NULL;
+    bone = om_bone_find(body, k->bone);
+    if (bone < 0) return NULL;
+    if (!(g = om_gob_create(k->name))) return NULL;
+    if (!(ctl = om_model_new(k->model[model & 1]))) { gob_kill(g); return NULL; }
+    *(void **)(g + GOB_ANIM) = ctl;
+    om_attach(0, body, g, bone);
+    om_bone_place(body, bone, (float *)(g + GOB_POSITION), (float *)(g + GOB_ORIENTATION));
+    om_anim_play(g, k->first_anim, 0);
+    return g;
+}
+
+void gear_release(int slot)
+{
+    int k;
+    if (slot < 0 || slot >= MAX_PLAYERS) return;
+    for (k = 0; k < GEAR_KINDS; k++) {
+        BYTE *g = gob_by_handle(gear_owned[slot][k]);
+        if (g && gob_alive(g)) gob_kill(g);
+        gear_owned[slot][k] = 0;
+    }
+}
+
+void gear_apply(int slot, BYTE *body, const struct gear_state *s)
+{
+    int k;
+    if (slot < 0 || slot >= MAX_PLAYERS || no_gear || !gob_alive(body)) return;
+    for (k = 0; k < GEAR_BUILT; k++) {
+        const struct gear_visual *v = &s->v[k];
+        BYTE *g, *ctl;
+        int id, i;
+        if (gob_type(body) != gear_kinds[k].owner) continue;
+        g = gear_child(body, k);
+        if (!v->present) {
+            if (g && g == gob_by_handle(gear_owned[slot][k])) { gob_kill(g); gear_owned[slot][k] = 0; }
+            continue;
+        }
+        if (!g) {
+            DWORD now = GetTickCount();
+            if ((int)(now - gear_retry[slot][k]) < 0) continue;
+            g = gear_build(body, k, v->model);
+            if (!g) { gear_retry[slot][k] = now + 2000; continue; }
+            gear_owned[slot][k] = gob_handle(gob_slot(g));
+            logmsg("gear: built %s on player %d's puppet", gear_kinds[k].name, slot + 1);
+        }
+        if (!(ctl = *(BYTE **)(g + GOB_ANIM))) continue;
+        for (id = 0; id < ANIM_ID_MAX; id++) {
+            DWORD *st = anim_state(g, id);
+            if (!st) continue;
+            for (i = 0; i < v->nanims && v->id[i] != id; i++)
+                ;
+            if (i < v->nanims) memcpy(st, v->anim[i], sizeof(v->anim[0]));
+            else st[0] = 0;
+        }
+        *(DWORD *)(ctl + 0x28) = v->cur != NO_ANIM ? (DWORD)(uintptr_t)anim_state(g, v->cur) : 0;
+        *(DWORD *)(ctl + 0x2c) = v->prev != NO_ANIM ? (DWORD)(uintptr_t)anim_state(g, v->prev) : 0;
+        *(WORD *)(g + GOB_FLAGS) = (WORD)((*(WORD *)(g + GOB_FLAGS) & ~0x08) | (v->hidden ? 0x08 : 0));
+    }
+}
+
 static BYTE *ai_actor;
 static BYTE *(*target_original)(void);
 static struct { DWORD actor, victim; unsigned int queries, hits; } ai_evidence[GOB_SLOTS];
@@ -499,6 +635,7 @@ static void l_presence_test(void)
     no_direct_hurt = (int)num_param(3);
     melee_only = (int)num_param(4);
     net_test_legacy((int)num_param(5));
+    no_gear = (int)num_param(6);
 }
 
 static void l_join_retry(void)
@@ -506,6 +643,67 @@ static void l_join_retry(void)
     net_retry_join();
     memset(&joining, 0, sizeof(joining));
     joining.since = now_ms() / 1000;
+}
+
+/* coop_gobtree(key [, parent]): every live gob (or the children of `parent`) with its flags, scene parent, bone slot and
+ * component kinds, to coop\\tree_<key>.txt. For finding what an effect or an attached visual is made of. */
+static void l_gobtree(void)
+{
+    long len;
+    const char *key = luaL_check_lstr(1, &len);
+    BYTE *parent = tolua_getusertype(2, NULL);
+    char path[MAX_PATH];
+    FILE *f;
+    int s;
+    if (!test_background) return;
+    snprintf(path, sizeof(path), "%s\\tree_%s.txt", coop_dir, key);
+    if (!(f = fopen(path, "w"))) return;
+    for (s = 0; s < GOB_SLOTS; s++) {
+        BYTE *g = GOB_TABLE_AT(s), *info, *c70;
+        DWORD par;
+        if (!g || !gob_alive(g)) continue;
+        par = *(DWORD *)(g + GOB_TARGET);
+        if (parent && par != gob_handle(gob_slot(parent))) continue;
+        info = *(BYTE **)(g + GOB_INFO);
+        c70 = *(BYTE **)(g + 0x70);
+        fprintf(f, "gob %d %s type %d class %d flags %04x parent %lx bone %d c70 %d pos %.1f %.1f %.1f\n", s,
+                gob_name(g)[0] ? gob_name(g) : "-", info ? gob_type(g) : -1, info ? gob_class(g) : -1,
+                *(WORD *)(g + GOB_FLAGS), (unsigned long)par, *(int *)(g + GOB_BONE_SLOT), c70 ? (int)*(DWORD *)c70 : -1,
+                *(float *)(g + GOB_POSITION), *(float *)(g + GOB_POSITION + 4), *(float *)(g + GOB_POSITION + 8));
+    }
+    fclose(f);
+}
+
+/* coop_test_blower(doc): run the game's own "Doc takes up the leaf blower" code (0x40a770, the Doc gob in ebx) on
+ * a gob, for the leaf blower test: the inventory selection that normally reaches it needs the inventory screen. */
+static void l_test_blower(void)
+{
+    BYTE *doc = tolua_getusertype(1, NULL);
+    DWORD fn = 0x40a770;
+    if (!test_background || !gob_alive(doc) || gob_type(doc) != 102) return;
+    __asm__ volatile ("call *%0" : : "r"(fn), "b"(doc) : "eax", "ecx", "edx", "esi", "edi", "memory", "cc");
+}
+
+/* coop_gob_flags(gob): the gob's flag word (0x08 stasis: its room is asleep; 0x20 on a parent's bone) */
+static void l_gob_flags(void)
+{
+    BYTE *g = tolua_getusertype(1, NULL);
+    if (gob_alive(g)) lua_pushnumber(*(WORD *)(g + GOB_FLAGS));
+}
+
+/* coop_child(parent, name): the live gob attached to parent whose name starts with `name`, or nothing */
+static void l_child(void)
+{
+    BYTE *parent = tolua_getusertype(1, NULL);
+    long len;
+    const char *name = luaL_check_lstr(2, &len);
+    int s;
+    if (!gob_alive(parent)) return;
+    for (s = 0; s < GOB_SLOTS; s++) {
+        BYTE *g = GOB_TABLE_AT(s);
+        if (g && gob_alive(g) && *(DWORD *)(g + GOB_TARGET) == gob_handle(gob_slot(parent)) &&
+            !strncmp(gob_name(g), name, (size_t)len)) { push_gob(g); return; }
+    }
 }
 
 static void l_canopy(void)
@@ -519,6 +717,10 @@ void presence_lua_init(void)
     tolua_function(NULL, "coop_ai_begin", l_ai_begin);
     tolua_function(NULL, "coop_ai_end", l_ai_end);
     tolua_function(NULL, "coop_canopy", l_canopy);
+    tolua_function(NULL, "coop_gobtree", l_gobtree);
+    tolua_function(NULL, "coop_child", l_child);
+    tolua_function(NULL, "coop_gob_flags", l_gob_flags);
+    tolua_function(NULL, "coop_test_blower", l_test_blower);
     tolua_function(NULL, "coop_join_cancelled", l_join_cancelled);
     tolua_function(NULL, "coop_join_screen", l_join_screen);
     tolua_function(NULL, "coop_join_tick", l_join_tick);
@@ -555,6 +757,33 @@ void presence_dump(FILE *f)
             }
             fputc('\n', f);
         }
+    }
+    /* equipment visuals read from each body's own attached gobs: player, visual, hidden bit, bone slot, scene-parent
+     * check, current and previous animation, the current one's play phase and the animation block count */
+    for (s = 0; s < MAX_PLAYERS; s++) {
+        BYTE *body = s == my_slot ? local_player : puppets[s];
+        int k;
+        struct gear_state gs;
+        if (!gob_alive(body)) continue;
+        gear_capture(body, &gs);
+        for (k = 0; k < GEAR_BUILT; k++) {
+            BYTE *g = gear_child(body, k);
+            float phase = 0;
+            int j;
+            if (!g || !gs.v[k].present) continue;
+            for (j = 0; j < gs.v[k].nanims; j++)
+                if (gs.v[k].id[j] == gs.v[k].cur) memcpy(&phase, &gs.v[k].anim[j][ANIM_TIME0], sizeof(phase));
+            fprintf(f, "gear %d %s %d %u %d %d %u %u %.5f %u\n", s + 1, gear_kinds[k].name, gob_alive(g),
+                    gs.v[k].hidden, *(DWORD *)(g + GOB_TARGET) == gob_handle(gob_slot(body)),
+                    *(int *)(g + GOB_BONE_SLOT), gs.v[k].cur, gs.v[k].prev, phase, gs.v[k].nanims);
+        }
+    }
+    /* Kurt's canopy child, read the same way (its animation block is already in the canopy rows above) */
+    for (s = 0; s < MAX_PLAYERS; s++) {
+        BYTE *body = s == my_slot ? local_player : puppets[s], *c = canopy_gob(body);
+        if (!c) continue;
+        fprintf(f, "gear %d chute %d %u %d %d\n", s + 1, gob_alive(c), (*(WORD *)(c + GOB_FLAGS) & 0x08) != 0,
+                *(DWORD *)(c + GOB_TARGET) == gob_handle(gob_slot(body)), *(int *)(c + GOB_BONE_SLOT));
     }
     for (s = 0; s < GOB_SLOTS; s++) {
         BYTE *actor = GOB_TABLE_AT(s);

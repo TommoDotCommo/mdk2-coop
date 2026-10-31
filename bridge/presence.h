@@ -7,6 +7,20 @@ struct canopy_state {
     uint8_t present, flags, cur, prev;
     uint32_t anim[2][10]; /* native canopy animations 66 (open), 67 (close) */
 };
+/* Equipment visuals the game builds as separate gobs on a player's body when the item is taken (Max's jetpack, Doc's
+ * leaf blower; its air stream is the host's push volume, not a visual): present, shown or hidden, which model variant, and the play state of the
+ * (at most GEAR_ANIMS) running animations. A mirror builds the same gob, with the game's own attach calls. */
+#define GEAR_KINDS 2
+#define GEAR_ANIMS 3
+#define GEAR_ANIM_DWORDS 10
+struct gear_visual {
+    uint8_t present, hidden, model, cur, prev, nanims;
+    uint8_t id[GEAR_ANIMS];
+    uint32_t anim[GEAR_ANIMS][GEAR_ANIM_DWORDS];
+};
+struct gear_state { struct gear_visual v[GEAR_KINDS]; };
+int gear_encode(const struct gear_state *s, unsigned char *out, int size);
+int gear_decode(const unsigned char *in, int size, struct gear_state *s);
 int canopy_encode(const struct canopy_state *s, unsigned char *out, int size);
 int canopy_decode(const unsigned char *in, int size, struct canopy_state *s);
 struct presence_player { float pos[3]; int eligible; };

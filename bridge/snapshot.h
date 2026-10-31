@@ -18,6 +18,7 @@ struct anim_entry {
 /* One sampled state of a gob: what a snapshot carries and what the puppet shows */
 struct snap {
     struct canopy_state canopy;
+    struct gear_state gear;
     unsigned int time;          /* sender clock, ms */
     float pos[3];
     float quat[4];              /* w, x, y, z */

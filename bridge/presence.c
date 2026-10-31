@@ -49,6 +49,79 @@ int canopy_decode(const unsigned char *in, int size, struct canopy_state *s)
     return n;
 }
 
+/* Wire form of one visual: present; if present: hidden | model << 1, cur, prev, nanims, then per anim its id and
+ * the ten state DWORDs (little endian). Absent visuals are one byte. */
+static int gear_valid(const struct gear_state *s)
+{
+    int k, i, j;
+    for (k = 0; k < GEAR_KINDS; k++) {
+        const struct gear_visual *v = &s->v[k];
+        if (v->present > 1) return 0;
+        if (!v->present) continue;
+        if (v->hidden > 1 || v->model > 3 || v->nanims > GEAR_ANIMS) return 0;
+        if ((v->cur != 255 && v->cur >= 160) || (v->prev != 255 && v->prev >= 160)) return 0;
+        for (i = 0; i < v->nanims; i++) {
+            if (v->id[i] >= 160) return 0;
+            /* the play positions and weight; the end time [5] is legitimately infinite for a looping animation */
+            for (j = 3; j <= 6; j++) {
+                float value;
+                if (j == 5) continue;
+                memcpy(&value, &v->anim[i][j], 4);
+                if (!(isfinite(value) && fabsf(value) <= 1000000.0f)) return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+int gear_encode(const struct gear_state *s, unsigned char *out, int size)
+{
+    int k, i, j, b, n = 0;
+    if (!gear_valid(s)) return 0;
+    for (k = 0; k < GEAR_KINDS; k++) {
+        const struct gear_visual *v = &s->v[k];
+        int need = v->present ? 5 + v->nanims * (1 + 4 * GEAR_ANIM_DWORDS) : 1;
+        if (size - n < need) return 0;
+        out[n++] = v->present;
+        if (!v->present) continue;
+        out[n++] = (unsigned char)(v->hidden | v->model << 1);
+        out[n++] = v->cur; out[n++] = v->prev; out[n++] = v->nanims;
+        for (i = 0; i < v->nanims; i++) {
+            out[n++] = v->id[i];
+            for (j = 0; j < GEAR_ANIM_DWORDS; j++) for (b = 0; b < 4; b++)
+                out[n++] = (unsigned char)(v->anim[i][j] >> (b * 8));
+        }
+    }
+    return n;
+}
+
+int gear_decode(const unsigned char *in, int size, struct gear_state *s)
+{
+    struct gear_state next;
+    int k, i, j, b, n = 0;
+    memset(&next, 0, sizeof(next));
+    for (k = 0; k < GEAR_KINDS; k++) {
+        struct gear_visual *v = &next.v[k];
+        if (size - n < 1) return 0;
+        v->present = in[n++];
+        if (v->present > 1) return 0;
+        if (!v->present) continue;
+        if (size - n < 4) return 0;
+        v->hidden = in[n] & 1; v->model = in[n] >> 1; n++;
+        v->cur = in[n++]; v->prev = in[n++]; v->nanims = in[n++];
+        if (v->nanims > GEAR_ANIMS) return 0;
+        if (size - n < v->nanims * (1 + 4 * GEAR_ANIM_DWORDS)) return 0;
+        for (i = 0; i < v->nanims; i++) {
+            v->id[i] = in[n++];
+            for (j = 0; j < GEAR_ANIM_DWORDS; j++) for (b = 0; b < 4; b++)
+                v->anim[i][j] |= (uint32_t)in[n++] << (b * 8);
+        }
+    }
+    if (!gear_valid(&next)) return 0;
+    *s = next;
+    return n;
+}
+
 int presence_nearest(const float *origin, const struct presence_player *players, int count)
 {
     int i, k, best = -1;
