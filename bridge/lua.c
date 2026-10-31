@@ -906,6 +906,58 @@ static void l_coop_test_sight(void)
     lua_pushnumber(presence_test_sight(name));
 }
 
+/* coop_gob_ok(gob [, "name"]) -> 1 if the gob is in the table with a game object (and, given a name, is the gob
+ * of that name). A Lua global can outlive its gob and the engine reuses the address for another gob (a level's
+ * sign, light) that has no game object: mdkAILineOfSight faults on it (mdk2hd.exe+0x2a95, reading 8). */
+static void l_coop_gob_ok(void)
+{
+    BYTE *gob = tolua_getusertype(1, NULL);
+    unsigned int o = lua_getparam(2);
+    long len;
+    const char *name = o ? luaL_check_lstr(2, &len) : NULL;
+
+    if (!gob_alive(gob) || IsBadReadPtr(gob + GOB_INFO, 4) || !*(BYTE **)(gob + GOB_INFO))
+        return;
+    if (name && strcmp(gob_name(gob), name))
+        return;
+    lua_pushnumber(1);
+}
+
+/* coop_test_gob("name part" [, strip]): the first non-player gob whose name contains it, for tests of stale Lua
+ * references; strip 1 takes its game object away (the state of a recycled address), 0 gives it back. Test mode only. */
+static void l_coop_test_gob(void)
+{
+    static int stripped = -1;
+    static BYTE *stripped_info;
+    long len;
+    const char *part = luaL_check_lstr(1, &len);
+    int i, strip = lua_getparam(2) ? (int)num_param(2) : 0;
+
+    if (!test_background) {
+        logmsg("coop_test_gob: only in background test mode");
+        return;
+    }
+    if (!strip && stripped >= 0) {
+        BYTE *old = (BYTE *)GOB_TABLE[stripped * 2];
+        if (old) *(BYTE **)(old + GOB_INFO) = stripped_info;
+        stripped = -1;
+    }
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *gob = (BYTE *)GOB_TABLE[i * 2];
+        if (!gob || gob == local_player || puppet_slot(gob) >= 0 || !strstr(gob_name(gob), part) ||
+            (strip && !*(BYTE **)(gob + GOB_INFO)))
+            continue;
+        if (strip && stripped < 0) {
+            stripped = i;
+            stripped_info = *(BYTE **)(gob + GOB_INFO);
+            *(BYTE **)(gob + GOB_INFO) = NULL;
+            logmsg("test: gob %s in slot %d without a game object", gob_name(gob), i);
+        }
+        push_gob(gob);
+        return;
+    }
+}
+
 /* coop_ai_guard(on): the target guard of bridge/presence_game.c; 0 is the test mutant. Background test mode only. */
 extern int ai_guard_on;
 static void l_coop_ai_guard(void)
@@ -1126,6 +1178,8 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_test_infoless_target", l_coop_test_infoless_target);
     tolua_function(NULL, "coop_ai_guard", l_coop_ai_guard);
     tolua_function(NULL, "coop_test_sight", l_coop_test_sight);
+    tolua_function(NULL, "coop_test_gob", l_coop_test_gob);
+    tolua_function(NULL, "coop_gob_ok", l_coop_gob_ok);
     tolua_function(NULL, "coop_animscan", l_coop_animscan);
     tolua_function(NULL, "coop_animguard", l_coop_animguard);
     tolua_function(NULL, "coop_animflood", l_coop_animflood);

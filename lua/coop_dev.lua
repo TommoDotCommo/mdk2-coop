@@ -1136,16 +1136,32 @@ function coop.PilotPath(path, n)
         coop.pilot.state = "go"
     end
 end
+-- The engine's line of sight faults (mdk2hd.exe+0x2a95, reading address 8) on a gob without a game object.
+-- A probe kept in a Lua global outlives a level load, and the engine reuses its address for another gob
+-- (a level's sign or light), so a probe is trusted only if it is still the gob made under that name.
+-- coop.test_unchecked = 1 (tests only) skips both checks: the mutant that must crash.
+coop.test_unchecked = nil
+function coop.ProbeOk(g, name)
+    if (not g) then return nil end
+    if (coop.test_unchecked) then return coop_alive(g) end
+    if (coop_gob_ok(g, name) == 1) then return 1 end
+    coop_log(format("probe: the reference to %s is stale (a gob that is gone, has no game object or is another gob); making a new one", name))
+    return nil
+end
+function coop.Los(a, b, aim, range)
+    if (not coop.test_unchecked and (not coop_gob_ok(a) or not coop_gob_ok(b))) then return 0 end
+    return mdkAILineOfSight(a, b, aim, range)
+end
 -- The pilot's eye: the engine's own line of sight (walls, floors, ceilings) from the hero to an
 -- invisible probe at a point, at body height.
 function coop.PilotSees(p, x, y, z)
-    if (not coop.pilot_probe or coop_alive(coop.pilot_probe) ~= 1) then
+    if (coop.ProbeOk(coop.pilot_probe, "coop_pilot_probe") ~= 1) then
         coop.pilot_probe = mdkCreateObjectLua("coop_pilot_probe", OBJ_GRENADEITEM, mdkGetScene(), nil, nil,
                                               0, 0, 0, 1, 0, 0, 0, nil, 0, 0, 0, 0)
         omGobEnterStasis(coop.pilot_probe)
     end
     mdkGobSetPositionXYZ(coop.pilot_probe, x, y, z)
-    return mdkAILineOfSight(p, coop.pilot_probe, 6.3, 100000) == 1
+    return coop.Los(p, coop.pilot_probe, 6.3, 100000) == 1
 end
 -- When the goal is out of sight: the visible point around the hero that brings it nearest the
 -- goal, counting how often the hero has already been near that point (so it backs out of dead ends).
@@ -1178,7 +1194,7 @@ end
 -- coop/note_nav_<n>.txt in batches ("x y z i j" per cell, neighbours as "e i j k l").
 function coop.NavProbe(name)
     local g = getglobal(name)
-    if (not g or coop_alive(g) ~= 1) then
+    if (coop.ProbeOk(g, name) ~= 1) then
         g = mdkCreateObjectLua(name, OBJ_GRENADEITEM, mdkGetScene(), nil, nil, 0, 0, 0, 1, 0, 0, 0, nil, 0, 0, 0, 0)
         omGobEnterStasis(g)
         setglobal(name, g)
@@ -1189,7 +1205,7 @@ function coop.NavClear(ax, ay, az, bx, by, bz)
     local a, b = coop.NavProbe("coop_nav_a"), coop.NavProbe("coop_nav_b")
     mdkGobSetPositionXYZ(a, ax, ay, az)
     mdkGobSetPositionXYZ(b, bx, by, bz)
-    return mdkAILineOfSight(a, b, 6.3, 100000) == 1
+    return coop.Los(a, b, 6.3, 100000) == 1
 end
 -- the floor under (x, y) between top and bottom: the lowest z still in sight from top, to 0.25 units --
 function coop.NavFloor(x, y, top, bottom)
@@ -1401,7 +1417,7 @@ function coop.GunnerTick()
     -- the focus (what is shooting the hero, chosen by the bot from the host's state) comes first --
     if (gn.focus) then
         local f = coop.FindGob(gn.focus)
-        if (f and (coop_hp(f) or 0) > 0 and not gn.skip[f] and mdkAILineOfSight(p, f, 6.3, gn.frange or gn.range) == 1) then
+        if (f and (coop_hp(f) or 0) > 0 and not gn.skip[f] and coop.Los(p, f, 6.3, gn.frange or gn.range) == 1) then
             e = f
             k = 9
         end
@@ -1411,7 +1427,7 @@ function coop.GunnerTick()
         if (not c) then
             k = 9
         else
-            if (not gn.skip[c] and mdkAILineOfSight(p, c, 6.3, gn.range) == 1) then e = c end
+            if (not gn.skip[c] and coop.Los(p, c, 6.3, gn.range) == 1) then e = c end
             k = k + 1
         end
     end

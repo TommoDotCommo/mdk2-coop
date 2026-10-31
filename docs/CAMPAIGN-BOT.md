@@ -643,3 +643,14 @@ the bot's side). The remaining level 3 and 4 stretches need a person's recording
 - `tools/qa_flyers.sh`: 3 passed, flyer drift at most 5.5 units.
 - Game-free: `tools/test_campaign_bot.py`, `tools/test_lua31.sh`, `tests/flyers_check_test.py` and
   `qa_all.py offline` pass.
+
+- **The `mdk2hd.exe+0x2a95` crash is the bot's own line of sight (round 6).** The faulting function is the sight
+  check `0x402a40`; the dump of the no-God 3 to 4 crash has the Lua binding `mdkAILineOfSight` (`+0x3ac10`, return
+  address `+0x3ac96`) as its caller, not the AI target getter. Its actor is the hero `bob` and its target the gob
+  `l2r2_aa1sign__5` (a level sign, 3 units from the hero, game object pointer null). The only Lua callers are the
+  bot's: the pilot's probe (`coop.PilotSees`), the nav probes and the gunner. The probe is most likely a stale one (not yet seen in play): it lives in a Lua global that
+  outlives a level load; the engine reuses the freed address for a level gob, which `coop_alive` accepts because it
+  only looks for the pointer in the gob table. `coop.ProbeOk` now checks the probe's name and game object
+  (`coop_gob_ok`) and `coop.Los` refuses gobs without a game object. `tools/qa_stale_probe.sh` reproduces the fault
+  on demand (mutant `unchecked`: crash at `+0x2a95`, same stack) and shows the fix. The AI target guard
+  (`ai_target_ready`) was aimed at a different path; it is harmless but was not this crash.
