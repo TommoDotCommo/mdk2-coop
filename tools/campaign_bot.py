@@ -519,6 +519,100 @@ def collect(game, level, nav, log, radius=80, kinds=WEAPONS):
     return got > 0
 
 
+# Doc's hands (modern controls). Each hand has a list of the items Doc carries, with an empty place in it,
+# and a selection that the inventory up/down keys (G, F) move along the list without wrapping; the hand
+# key (Q left, E right) puts the selected item in that hand. A key is held for whole frames
+# (coop_press_frames): pressed by time, a press was often lost. Fire (the left mouse button) combines
+# what the hands hold: with an item in each hand it combines them; one item is used by pressing its
+# hand key again.
+DOC_HAND_KEY = {0: 16, 1: 18}
+DOC_SCROLL = (34, 33)
+FIRE_BUTTON = 256
+
+
+def doc_press(game, code, frames=3, wait=.6):
+    game.lua(f'coop_press_frames({code}, {frames})')
+    time.sleep(wait)
+
+
+def doc_held(game, hand):
+    """The item type number in a hand (0 left, 1 right); 0 is an empty hand."""
+    return int(game.note('held', f'coop_note("held", tostring(mdkDocGetHeldItem(mdkGetPlayerGob(), {hand})))'))
+
+
+def doc_holds(game, hand, item):
+    """Does the hand hold the item (a script constant such as OBJ_DUCTTAPE; OBJ_NONE for an empty hand)?"""
+    # Lua 3.1: a comparison is 1 or nil
+    return game.note('holds', f'coop_note("holds", tostring(mdkDocGetHeldItem(mdkGetPlayerGob(), {hand}) == {item}))') == '1'
+
+
+def doc_hold(game, hand, item, log=None, tries=14, wait=.6):
+    """Put the item in the hand: scroll the selection one place and equip it, until the hand holds it;
+    the direction turns round when two tries in a row change nothing (the end of the list). True once held."""
+    direction, stale = 0, 0
+    for _ in range(tries):
+        if doc_holds(game, hand, item):
+            return True
+        before = doc_held(game, hand)
+        doc_press(game, DOC_SCROLL[direction], wait=wait)
+        doc_press(game, DOC_HAND_KEY[hand], wait=wait)
+        if doc_held(game, hand) == before:
+            stale += 1
+            if stale >= 2:
+                direction, stale = 1 - direction, 0
+        else:
+            stale = 0
+    ok = doc_holds(game, hand, item)
+    if log and not ok:
+        log(f'    Doc: the {"left" if hand == 0 else "right"} hand would not take {item}')
+    return ok
+
+
+def doc_use(game, left, right='OBJ_NONE', log=None):
+    """Hold left and right (item constants) and act: with the right hand empty, the left item is used where Doc
+    stands (its hand key pressed again, as the walkthroughs say: select it and press left twice); with an
+    item in each hand, fire combines them. The cord is a left hand item and the pipes a right hand one."""
+    ok = doc_hold(game, 0, left, log) and doc_hold(game, 1, right, log)
+    if ok:
+        doc_press(game, DOC_HAND_KEY[0] if right == 'OBJ_NONE' else FIRE_BUTTON, frames=4, wait=1.0)
+    return ok
+
+def doc_has(game, item):
+    return game.note('dochas', f'coop_note("dochas", tostring(mdkDocHasItem(mdkGetPlayerGob(), {item})))') == '1'
+
+
+def doc_walkway(game, log):
+    """Level 3's walkway puzzle with Doc's hands, from the launcher's checkpoint 6 start (the checkpoint's items
+    are granted): the duct tape used at the pillar plugs the leak and the cord appears; the cord picked up and
+    combined with the pipes is the ladder. Doc is put at each spot (the way there is the planner's)."""
+    def put(x, y, z):
+        game.lua(f'local p=mdkGetPlayerGob() mdkGobSetPositionXYZ(p, {x}, {y}, {z + 0.4})')
+        time.sleep(1.5)
+    out = {'items': {n: doc_has(game, n) for n in ('OBJ_ATOMICTOASTER', 'OBJ_DUCTTAPE', 'OBJ_PIPES')}}
+    log(f'  Doc carries {out["items"]}')
+    put(-27.26, 3.85, -101.59)                                    # points.l3_pillarwaypnt
+    out['tape_used'] = doc_use(game, 'OBJ_DUCTTAPE', 'OBJ_NONE', log)
+    for _ in range(40):
+        time.sleep(1)
+        if game.note('water', 'coop_note("water", tostring(l3_w_hub00.water))') == '1' and \
+                game.note('cord', 'coop_note("cord", tostring(coop_alive(l3_hub00_cord)))') == '1':
+            break
+    out['leak_plugged'] = game.note('water', 'coop_note("water", tostring(l3_w_hub00.water))') == '1'
+    log(f'  tape used: {out["tape_used"]}; leak plugged: {out["leak_plugged"]}')
+    put(-27.99, 10.50, -102.33)                                   # points.l3_hub00_cord_i
+    for _ in range(15):
+        if doc_has(game, 'OBJ_CORD'):
+            break
+        time.sleep(1)
+    out['cord'] = doc_has(game, 'OBJ_CORD')
+    out['combined'] = out['cord'] and doc_use(game, 'OBJ_CORD', 'OBJ_PIPES', log)
+    time.sleep(2)
+    out['ladder'] = doc_has(game, 'OBJ_LADDER')
+    log(f'  cord picked up: {out["cord"]}; combined into the ladder: {out["ladder"]}')
+    out['ok'] = bool(out['tape_used'] and out['leak_plugged'] and out['cord'] and out['ladder'])
+    return out
+
+
 def max_arm(game, log, rounds=6):
     """Max has four arms: equip every weapon he carries (modern controls: F equips the selected weapon,
     E selects the next)."""
@@ -2480,6 +2574,9 @@ def main(argv=None):
     ad.add_argument('--assist', nargs='*', default=[], choices=['lift'],
                     help='script shortcuts for puzzles the bot cannot solve yet: lift = unlock a locked elevator')
     ad.add_argument('--scratch', default=str(Path(__file__).resolve().parents[1] / 'local/campaign/nav/scratch.json'))
+    dh = sub.add_parser('dochands', help="level 3's walkway with Doc's hand keys (a checkpoint 6 start)")
+    dh.add_argument('--dirs', nargs='+', required=True)
+    dh.add_argument('--player', type=int, default=1)
     sq = sub.add_parser('squad')
     sq.add_argument('--dirs', nargs='+', required=True)
     sq.add_argument('--level', required=True)
@@ -2546,6 +2643,10 @@ def main(argv=None):
                 return 1
         print(f'arrived in {time.monotonic() - t0:.1f}s at {game.pos()}')
         return 0
+    if a.cmd == 'dochands':
+        r = doc_walkway(games[a.player - 1], lambda m: print(m, flush=True))
+        print(f'{"DOC HANDS OK" if r["ok"] else "DOC HANDS FAILED"}: {r}')
+        return 0 if r['ok'] else 1
     if a.cmd == 'follow':
         ok, stats = follow(games[a.player - 1], a.route, lambda m: print(m, flush=True),
                            level=Level(a.level) if a.level else None,

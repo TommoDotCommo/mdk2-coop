@@ -585,6 +585,13 @@ static void l_coop_press(void)
         input_press((int)num_param(1), (int)num_param(2));
 }
 
+/* coop_press_frames(code, n): the same for n whole frames (background test mode) */
+static void l_coop_press_frames(void)
+{
+    if (test_background)
+        input_press_frames((int)num_param(1), (int)num_param(2));
+}
+
 /* coop_pad_fake(lx, ly, rx, ry, buttons, lt, rt): stand-in gamepad state (sticks -1..1, triggers
  * 0..255, XInput button bits); with no argument the real pad again. Background test mode only. */
 static void l_coop_pad_fake(void)
@@ -1098,6 +1105,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_test_shot", l_coop_test_shot);
     tolua_function(NULL, "coop_log", l_coop_log);
     tolua_function(NULL, "coop_press", l_coop_press);
+    tolua_function(NULL, "coop_press_frames", l_coop_press_frames);
     tolua_function(NULL, "coop_shot", l_coop_shot);
     tolua_function(NULL, "coop_pad_fake", l_coop_pad_fake);
     tolua_function(NULL, "coop_couch", l_coop_couch);

@@ -423,4 +423,62 @@ rc, out = statecheck(dump('host', {'m': sam(40, 0.0)}), dump('client', {'m': sam
 check('statecheck --after: a mover on the host\'s path between the dumps passes', rc == 0 and 'apart' not in out)
 rc, out = statecheck(dump('host', {'m': sam(40, 0.0)}), dump('client', {'m': sam(40, 60.0)}), dump('host', {'m': sam(40, 10.0)}))
 check('statecheck --after: a mover off the host\'s path still fails', rc == 1)
+# Doc's hands: the hand/scroll protocol against a model of the lists seen live (level 3 checkpoint 6: left
+# atomic toaster, tape, empty; right pipes, empty, loaf; the selection does not wrap)
+import re
+
+
+class DocHands:
+    OBJ = {'OBJ_ATOMICTOASTER': 344, 'OBJ_DUCTTAPE': 332, 'OBJ_PIPES': 351, 'OBJ_LOAF': 328, 'OBJ_NONE': 0}
+
+    def __init__(self, lose=0):
+        self.lists = {0: [344, 332, 0], 1: [351, 0, 328]}
+        self.cur = {0: 0, 1: 0}
+        self.held = {0: 0, 1: 0}
+        self.pressed = []
+        self.lose = lose          # every lose-th press is lost (a press by time)
+
+    def lua(self, code):
+        n, frames = (int(v) for v in re.search(r'coop_press_frames\((\d+), (\d+)\)', code).groups())
+        self.pressed.append((n, frames))
+        if self.lose and len(self.pressed) % self.lose == 0:
+            return
+        if n in bot.DOC_SCROLL:
+            for h in (0, 1):
+                self.cur[h] = min(2, max(0, self.cur[h] + (1 if n == bot.DOC_SCROLL[0] else -1)))
+        for h, k in bot.DOC_HAND_KEY.items():
+            if n == k:
+                self.held[h] = self.lists[h][self.cur[h]]
+
+    def note(self, key, code):
+        hand = int(re.search(r'GetHeldItem\(mdkGetPlayerGob\(\), (\d)\)', code).group(1))
+        if key == 'held':
+            return str(self.held[hand])
+        return '1' if self.held[hand] == self.OBJ[re.search(r'== (\w+)\)', code).group(1)] else 'nil'
+
+
+orig_sleep = bot.time.sleep
+bot.time.sleep = lambda s: None
+try:
+    d = DocHands()
+    check('Doc: the tape goes to the left hand', bot.doc_hold(d, 0, 'OBJ_DUCTTAPE') and d.held[0] == 332)
+    check('Doc: the loaf goes to the right hand, the selection turning round at the list end',
+          bot.doc_hold(d, 1, 'OBJ_LOAF') and d.held[1] == 328 and bot.doc_hold(d, 1, 'OBJ_PIPES') and d.held[1] == 351)
+    check('Doc: a hand is emptied', bot.doc_hold(d, 1, 'OBJ_NONE') and d.held[1] == 0)
+    check('Doc: a held item needs no press', not (lambda n: (bot.doc_hold(d, 0, 'OBJ_DUCTTAPE'), len(d.pressed) - n)[1])(len(d.pressed)))
+    check('Doc: every press is held for whole frames', all(f >= 2 for _, f in d.pressed))
+    d = DocHands()
+    check('Doc: an item in each hand, then fire (a combine)',
+          bot.doc_use(d, 'OBJ_ATOMICTOASTER', 'OBJ_LOAF') and d.held == {0: 344, 1: 328} and d.pressed[-1][0] == bot.FIRE_BUTTON)
+    d = DocHands()
+    check('Doc: one item alone is used by its hand key pressed again',
+          bot.doc_use(d, 'OBJ_DUCTTAPE') and d.held == {0: 332, 1: 0} and d.pressed[-1][0] == bot.DOC_HAND_KEY[0])
+    d = DocHands(lose=3)
+    check('Doc: with every third press lost the item is still found (the mutant that loses presses)',
+          bot.doc_hold(d, 1, 'OBJ_LOAF', tries=14))
+    d = DocHands(lose=1)
+    check('Doc: with every press lost the hand fails, and says so', not bot.doc_hold(d, 0, 'OBJ_DUCTTAPE', tries=6))
+finally:
+    bot.time.sleep = orig_sleep
+
 print('all checks passed')
