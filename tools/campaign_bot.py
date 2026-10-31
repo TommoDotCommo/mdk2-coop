@@ -2404,6 +2404,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             then = [(*pts[m]['pos'], 3.0, 3.0) for m in range(i + 1, k - 1)] + \
                    [(*pts[k - 1]['pos'], 1.5, 2.0)] if k > i + 1 else None
             trk = tracked.get(i)
+            t_fl = time.monotonic()
             if then:
                 i, p = k - 1, pts[k - 1]
             r = game.goto(*tgt, radius=3.0 if then else 1.5, timeout=6 + 1.2 * len(then or ()), explore=0, fly=2,
@@ -2411,6 +2412,8 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             at = game.pos()
             if r.get('state') == 'arrived' or (math.dist(at[:2], p['pos'][:2]) < radius
                                                and abs(at[2] - p['pos'][2]) < 2.5):
+                if then:
+                    log(f'    flew to point {i} in {time.monotonic() - t_fl:.1f}s ({jet_used(game) / 1000:.1f} s of thrust so far)')
                 i += 1
                 pinned = False
                 last_progress, best = time.monotonic(), None
