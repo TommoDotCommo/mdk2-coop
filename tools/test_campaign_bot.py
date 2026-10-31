@@ -492,4 +492,12 @@ check('ladder anchors: those near at his height, nearest first',
 check('ladder anchors: one used is left out', [o['name'] for o in bot.ladder_spots(lv, (-32.5, -1.0, -101.0), {'padA'})] == ['padB'])
 check('ladder anchors: none on another floor or far off', bot.ladder_spots(lv, (60.0, 60.0, -100.0)) == [])
 
+# collateral damage of missed sniper rounds: a piece hit three times is one round from breaking
+c = {}
+check('collateral: the first miss on scenery is counted, not stopped', not bot.note_collateral(['tun01'], 'gen', c) and c == {'tun01': 1})
+check('collateral: the target itself is not counted', not bot.note_collateral(['gen', 'gen'], 'gen', c) and 'gen' not in c)
+check('collateral: the third round on one piece stops the aim', not bot.note_collateral(['tun01'], 'gen', c) and bot.note_collateral(['tun01'], 'gen', c) is True)
+c = {}
+check('collateral: one volley of three rounds on a piece stops it too', bot.note_collateral(['tun01', 'tun01', 'tun01'], 'gen', c))
+
 print('all checks passed')

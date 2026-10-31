@@ -857,6 +857,21 @@ def sniper_mode(game, want):
 # sniper rounds are aimed with the camera (mouse look) first; --shortcut-sniper goes straight to the launched round
 CAMERA_SNIPER = True
 
+# What missed rounds hit instead of the target, by name, over the whole run. A scenery piece that takes four
+# rounds is destroyed, and the game crashed the moment level 4's tunnel piece l4_r7a_90tun01 went (host,
+# 4:11-14): a piece hit COLLATERAL_LIMIT - 1 times is not aimed past again.
+COLLATERAL = {}
+COLLATERAL_LIMIT = 4
+
+
+def note_collateral(names, target, counts=None):
+    """Count the things a missed round hit other than its target; True when one is one round from breaking."""
+    counts = COLLATERAL if counts is None else counts
+    for n in set(names):
+        if n != target:
+            counts[n] = counts.get(n, 0) + len([x for x in names if x == n])
+    return any(v >= COLLATERAL_LIMIT - 1 for k, v in counts.items() if k != target)
+
 
 def sniper_aim(game, name, log, rounds=25, dz=0.0, shots=3):
     """A sniper shot the way a player takes it: sniper mode on, the camera turned by mouse look (the right
@@ -886,6 +901,9 @@ def sniper_aim(game, name, log, rounds=25, dz=0.0, shots=3):
                     break
                 log(f'    sniper shot at {name} from {[round(v) for v in cam]}: hit {sorted(set(names))[:3]}')
                 shots -= 1
+                if note_collateral(names, name):
+                    log(f'    sniper rounds keep hitting {sorted(k for k, v in COLLATERAL.items() if v >= COLLATERAL_LIMIT - 1)}: not aimed again')
+                    break
                 if shots <= 0:
                     break
                 dz += 1.0 if dz <= 0 else -2.0
