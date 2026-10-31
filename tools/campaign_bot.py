@@ -2264,6 +2264,20 @@ def live_count(game, names):
     return int(game.note('lc', code).strip() or 0)
 
 
+def flight_targets(pts, i, k, first=None, lead=3):
+    """The pilot's targets for the flown points i..k-1 sent as one command, after the first (`first`, point i
+    itself): x, y, z, radius, height tolerance. A point on the way holds the highest height of the next few
+    points, so a climb is one steady burst of thrust rather than a stop and go at each point's height (the
+    stop and go took 19 s and 7 s of a 10 s tank for a 33 unit climb that the person flew in 2.5 s); the last
+    point is the exact one."""
+    out = []
+    for m in range(i + 1, k - 1):
+        z = max(pts[j]['pos'][2] for j in range(m, min(k - 1, m + lead) + 1))
+        out.append((pts[m]['pos'][0], pts[m]['pos'][1], z, 3.0, 3.0))
+    out.append((*pts[k - 1]['pos'], 1.5, 2.0))
+    return out
+
+
 def flight_batch(pts, fly, i, apart, limit=14):
     """The end (exclusive) of the stretch of flown points starting at i that the pilot flies in one go: it
     stops before a point that needs the bot (a lift to board or hold by, a ride) and after `limit` points."""
@@ -2412,8 +2426,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             # itself: the bot's round trip for each (about half a second) was hover time, and a tank is
             # some ten seconds of thrust (6-7's climb ran dry halfway)
             k = flight_batch(pts, fly, i, apart | set(tracked) | over)
-            then = [(*pts[m]['pos'], 3.0, 3.0) for m in range(i + 1, k - 1)] + \
-                   [(*pts[k - 1]['pos'], 1.5, 2.0)] if k > i + 1 else None
+            then = flight_targets(pts, i, k, tgt) if k > i + 1 else None
             trk = tracked.get(i)
             t_fl = time.monotonic()
             if then:

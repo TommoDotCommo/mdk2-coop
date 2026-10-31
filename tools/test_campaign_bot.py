@@ -264,6 +264,11 @@ def flight_rules(b, quiet=False):
                 got == {1, 3, 5} and not b.hover_points(hp, [floor])))
     out.append(('an objective is shot at from the recording\'s spot, then walked up to, then from later spots',
                 [b.aim_mode(n) for n in range(5)] == ['stay', 'walk', 'stay', 'stay', 'stay']))
+    ft = [{'pos': (float(k), 0.0, z), 'keys': [57]} for k, z in enumerate([10, 12, 14, 13, 16, 20, 20, 18])]
+    got = b.flight_targets(ft, 0, 8)
+    out.append(('a climb holds the height of the next points, the last point is exact',
+                [t[2] for t in got] == [16, 20, 20, 20, 20, 20, 18] and got[-1][3:] == (1.5, 2.0)
+                and all(t[3:] == (3.0, 3.0) for t in got[:-1])))
     gl = [{'pos': (0.0, 0.0, 30.0 - 3.0 * k), 'keys': [57] if 2 <= k <= 6 else [], 'air': False} for k in range(10)]
     wk = [{'pos': (0.0, 0.0, 30.0 - 3.0 * k), 'keys': [], 'air': False} for k in range(10)]
     out.append(('a glide down with jump held is flown, to the landing; a walk down is not',
@@ -287,7 +292,7 @@ for label, ok in results:
 # mutants: each must make at least one check fail
 import types
 real = {n: getattr(bot, n) for n in ('flown', 'refuel_mode', 'needs_fuel', 'stretch_start', 'LIFT_SPEED', 'lift_ready',
-                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear', 'aimable', 'climb_out', 'squad_ok', 'off_recording', 'flight_batch', 'aim_mode')}
+                                    'boarding', 'plan_boardings', 'nearest_ahead', 'hover_points', 'tracked_points', 'turrets_to_clear', 'aimable', 'climb_out', 'squad_ok', 'off_recording', 'flight_batch', 'aim_mode', 'flight_targets')}
 mutants = {
     'only "air" points are flown (the hop onto a lift is walked)':
         dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
@@ -317,6 +322,7 @@ mutants = {
     'a recorded shot is always walked up to': dict(aim_mode=lambda tries: 'walk'),
     'a recorded shot is never walked up to': dict(aim_mode=lambda tries: 'stay'),
     'a glide is walked': dict(flown=lambda pts: {k for k, p in enumerate(pts) if p.get('air')}),
+    'a climb stops and goes at every point': dict(flight_targets=lambda pts, i, k, first=None, lead=3: [(*pts[m]['pos'], 3.0, 3.0) for m in range(i + 1, k - 1)] + [(*pts[k - 1]['pos'], 1.5, 2.0)]),
     'a flight is sent point by point': dict(flight_batch=lambda pts, fly, i, apart, limit=14: i + 1),
     'a batch runs through boarding points and rides': dict(flight_batch=lambda pts, fly, i, apart, limit=14:
                                                            max([k for k in range(i + 1, len(pts) + 1) if all(m in fly for m in range(i, k))] or [i + 1])),
