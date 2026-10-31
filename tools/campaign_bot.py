@@ -784,6 +784,9 @@ def snipe(game, name, log):
         if name in names:
             log(f'    sniped {name} (aim {dz:+d})')
             return True
+        if note_collateral(names, name):
+            log(f'    sniper rounds keep hitting {sorted(k for k, v in COLLATERAL.items() if v >= COLLATERAL_LIMIT - 1)}: stopped')
+            break
     log(f'    sniper rounds missed {name}')
     return False
 
