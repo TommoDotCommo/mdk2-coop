@@ -309,10 +309,11 @@ later):
   an hp-only APPLY when an enemy's hp differs from what clients were told (`tools/qa_hpsync.sh`).
 - **Pickup counts differ** on the final levels (11 and 12): 7 against 4, 3 against 2.
 - **A puppet left behind**: on level 3 the client showed the host's puppet 997 units from the host.
-- **A client crash at a checkpoint reload** (round 5, level 4 checkpoint 5 to 6, two runs out of two): the
+- **A client crash at a checkpoint reload** (round 5, level 4 checkpoint 5 to 6, two runs out of three): the
   client dies at `mdk2hd.exe+0x2a95` reading address 8 while it binds the host's enemies after the host's
   checkpoint reload that follows a hero's death in the vortex. The same signature as the level 8 crash above,
-  which makes it the reload path, not a level.
+  which makes it the reload path, not a level. The third run reloaded the checkpoint 12 times (11 deaths) and did
+  not crash, so it is intermittent (about one reload in a dozen or more).
 - **A host crash after a destroyed scenery piece** (round 5, 4:11 to 14): missed sniper rounds took
   `l4_r7a_90tun01` from 100 to 0 hp and the host crashed on the next frame (`+0x570bd` reading 0x64). The bot
   stops aiming at a piece after three misses on it (`note_collateral`).
