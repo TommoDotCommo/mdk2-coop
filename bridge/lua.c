@@ -871,6 +871,41 @@ static void l_coop_crash(void)
     *(volatile int *)(uintptr_t)0x10 = 1;
 }
 
+/* coop_test_infoless_target("name"): the first non-player gob whose name contains it becomes the AI target and
+ * loses its game object (what the sight check crashed on); no argument restores it. Background test mode only. */
+static void l_coop_test_infoless_target(void)
+{
+    unsigned int o = lua_getparam(1);
+    long len;
+    const char *name = o ? luaL_check_lstr(1, &len) : NULL;
+    if (!test_background) {
+        logmsg("coop_test_infoless_target: only in background test mode");
+        return;
+    }
+    lua_pushnumber(presence_test_plant(name));
+}
+
+/* coop_test_sight("actor"): the native caller's sequence for the first gob whose name has that part: the AI target
+ * from the (hooked) getter, then the sight check on it. Returns -1 not possible, 0 no target, 1/2 seen/not seen. */
+static void l_coop_test_sight(void)
+{
+    unsigned int o = lua_getparam(1);
+    long len;
+    const char *name = o ? luaL_check_lstr(1, &len) : NULL;
+    if (!test_background) {
+        logmsg("coop_test_sight: only in background test mode");
+        return;
+    }
+    lua_pushnumber(presence_test_sight(name));
+}
+
+/* coop_ai_guard(on): the target guard of bridge/presence_game.c; 0 is the test mutant. Background test mode only. */
+extern int ai_guard_on;
+static void l_coop_ai_guard(void)
+{
+    if (test_background) ai_guard_on = num_param(1) != 0.0;
+}
+
 /* coop_animscan(): the bridge's own animation paths (snapshot capture and re-apply) over every gob with a
  * controller, as net sync does for each synced entity; logs how many gobs had no animation table. */
 static void l_coop_animscan(void)
@@ -1081,6 +1116,9 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_emitters", l_coop_emitters);
     tolua_function(NULL, "coop_emitter_guard", l_coop_emitter_guard);
     tolua_function(NULL, "coop_crash", l_coop_crash);
+    tolua_function(NULL, "coop_test_infoless_target", l_coop_test_infoless_target);
+    tolua_function(NULL, "coop_ai_guard", l_coop_ai_guard);
+    tolua_function(NULL, "coop_test_sight", l_coop_test_sight);
     tolua_function(NULL, "coop_animscan", l_coop_animscan);
     tolua_function(NULL, "coop_animguard", l_coop_animguard);
     tolua_function(NULL, "coop_animflood", l_coop_animflood);

@@ -114,10 +114,96 @@ static BYTE *ai_select(const float *pos, BYTE *actor)
     return best >= 0 ? bodies[best] : NULL;
 }
 
+/* The sight check at 0x402a40 (three callers) reads gob+0x84 -> field +8 of the target this getter
+ * returns and faults when a gob that is still in the table has no game object yet (a level being
+ * built) or no longer (a doomed one): mdk2hd.exe+0x2a95 reading 8. The native getter returns such a
+ * gob as it is. No target is the answer its callers already handle (the getter itself returns
+ * none for a downed hero). */
+static unsigned int ai_infoless_targets;
+int ai_guard_on = 1;                    /* the test mutant (coop_ai_guard in lua.c) turns the guard off */
+static BYTE *ai_target_ready(BYTE *target)
+{
+    if (ai_guard_on && (!target || !*(BYTE **)(target + GOB_INFO))) {
+        if (target && ai_infoless_targets++ < 8)
+            logmsg("ai: target gob %p '%s' flags %04x has no game object (level loading?): none given; AI target handle %08x",
+                   (void *)target, gob_name(target), *(unsigned short *)(target + 0xa6), (unsigned)AI_TARGET_HANDLE);
+        return NULL;
+    }
+    return target;
+}
+
+/* Test hook (background test mode, coop_test_infoless_target in lua.c): the named gob is made the AI target
+ * and loses its game object for a while, the state in which the sight check crashed. */
+static int planted_slot = -1;
+static BYTE *planted_info;
+
+int presence_test_plant(const char *name)
+{
+    int i;
+    if (planted_slot >= 0) {                      /* restore the previous one */
+        BYTE *old = (BYTE *)GOB_TABLE[planted_slot * 2];
+        if (old) *(BYTE **)(old + GOB_INFO) = planted_info;
+        planted_slot = -1;
+    }
+    if (!name || !*name) return 0;
+    for (i = 0; i < GOB_SLOTS; i++) {
+        BYTE *gob = (BYTE *)GOB_TABLE[i * 2];
+        if (!gob || gob == local_player || puppet_slot(gob) >= 0 || !*(BYTE **)(gob + GOB_INFO) ||
+            !strstr(gob_name(gob), name)) continue;
+        planted_slot = i;
+        planted_info = *(BYTE **)(gob + GOB_INFO);
+        *(BYTE **)(gob + GOB_INFO) = NULL;
+        AI_TARGET_HANDLE = gob_handle(i);
+        logmsg("test: planted AI target %s in slot %d without a game object", gob_name(gob), i);
+        return 1;
+    }
+    return 0;
+}
+
+static unsigned int ai_queries;
+/* who asks for the target (return addresses of the getter, the first 16 seen) and how often, and how often the test's
+ * planted gob was handed out: state evidence for tests/qa_ai_target_guard.sh */
+static struct { void *ra; unsigned int n; } ai_callers[16];
+static unsigned int ai_planted_served;
+
+static BYTE *ai_target(void);
+
+/* Test hook (coop_test_sight in lua.c): what the native callers at 0x434e16 do for an actor, on demand. Ask for the
+ * AI target through the hooked getter and, when there is one, run the sight check 0x402a40 on it. With the test's
+ * planted gob (no game object) and the guard off this is the fault at 0x2a95. Overhaul build only (checked bytes). */
+int presence_test_sight(const char *name)
+{
+    static const BYTE entry[8] = { 0x83, 0xec, 0x48, 0x53, 0x8b, 0x5c, 0x24, 0x50 };
+    int (*sight)(BYTE *, BYTE *, float, float) = (int (*)(BYTE *, BYTE *, float, float))0x402a40;
+    BYTE *actor = NULL, *target;
+    int i;
+    if (memcmp((BYTE *)0x402a40, entry, sizeof(entry))) { logmsg("test: sight check not at 0x402a40 in this build"); return -1; }
+    for (i = 0; i < GOB_SLOTS && name && *name; i++) {
+        BYTE *gob = (BYTE *)GOB_TABLE[i * 2];
+        if (gob && gob != (BYTE *)GOB_TABLE[planted_slot < 0 ? 0 : planted_slot * 2] && *(BYTE **)(gob + GOB_INFO) &&
+            strstr(gob_name(gob), name)) { actor = gob; break; }
+    }
+    if (!actor) { logmsg("test: no actor named %s", name ? name : ""); return -1; }
+    target = ((BYTE *(*)(void))0x42ad50)();
+    if (!target) { logmsg("test: sight check skipped, no AI target (guard)"); return 0; }
+    logmsg("test: sight check %s -> target %p (game object %p)", gob_name(actor), (void *)target, *(void **)(target + GOB_INFO));
+    return sight(actor, target, *(float *)0x4c687c, *(float *)0x4c3048) != 0 ? 1 : 2;
+}
+
 static BYTE *ai_target(void)
 {
-    BYTE *target = ai_select(ai_actor ? (const float *)(ai_actor + GOB_POSITION) : NULL, ai_actor);
+    BYTE *target;
+    ai_queries++;
+    {
+        void *ra = __builtin_return_address(0);
+        int c;
+        for (c = 0; c < 16 && ai_callers[c].ra && ai_callers[c].ra != ra; c++) ;
+        if (c < 16) { ai_callers[c].ra = ra; ai_callers[c].n++; }
+    }
+    if (planted_slot >= 0) AI_TARGET_HANDLE = gob_handle(planted_slot);
+    target = ai_target_ready(ai_select(ai_actor ? (const float *)(ai_actor + GOB_POSITION) : NULL, ai_actor));
     int index = ai_actor ? gob_slot(ai_actor) : -1;
+    if (planted_slot >= 0 && target && target == (BYTE *)GOB_TABLE[planted_slot * 2]) ai_planted_served++;
     if (index >= 0 && role_host && have_remote) {
         int victim = target ? gob_slot(target) : -1;
         if (ai_evidence[index].actor != gob_handle(index)) memset(&ai_evidence[index], 0, sizeof(ai_evidence[index]));
@@ -448,6 +534,12 @@ void presence_dump(FILE *f)
     fprintf(f, "ai_scope_depth %d\nengine_player %s\n", ai_depth, engine_player);
     fprintf(f, "direct_source %s\n", local_direct_source[0] ? local_direct_source : "none");
     fprintf(f, "ai_hook %d\njoin_screen %d\n", target_original != NULL, join_screen);
+    fprintf(f, "ai_queries %u\nai_infoless_answers %u\nai_guard %d\n", ai_queries, ai_infoless_targets, ai_guard_on);
+    fprintf(f, "ai_planted_served %u\n", ai_planted_served);
+    {
+        int c;
+        for (c = 0; c < 16 && ai_callers[c].ra; c++) fprintf(f, "ai_caller %p %u\n", ai_callers[c].ra, ai_callers[c].n);
+    }
     fprintf(f, "join %d\ndirect_receipts %u\nmelee_only %d\n", joining.phase, local_direct_hits, melee_only);
     for (s = 0; s < MAX_PLAYERS; s++) {
         BYTE *body = s == my_slot ? local_player : puppets[s];

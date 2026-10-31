@@ -68,6 +68,7 @@ static void lua_pushstring(const char *s) { }
 static void net_cancel_join(void) { }
 static void net_test_legacy(int on) { }
 static void net_retry_join(void) { }
+static void logmsg(const char *fmt, ...) { (void)fmt; }
 static int net_version_mismatch(void) { return 0; }
 static int net_join_cancelled(void) { return 0; }
 static double now_ms(void) { return 1000; }
@@ -223,6 +224,18 @@ int main(void)
     life[1]=1; expected=bodies[2]; ai_run(bodies[3],(DWORD)(uintptr_t)fake_think,11,22,33); life[1]=0;
     in_level[1]=0; expected=bodies[2]; ai_run(bodies[3],(DWORD)(uintptr_t)fake_think,11,22,33); in_level[1]=1;
     fallback=bodies[5]; expected=fallback; ai_run(bodies[3],(DWORD)(uintptr_t)fake_think,11,22,33); /* scripted target */
+    /* A target without a game object (a gob still being built or already doomed) crashed the native
+     * sight check at 0x402a95: the getter must answer none, for every route to the target. */
+    {
+        BYTE *info = *(BYTE **)(bodies[5] + GOB_INFO);
+        fallback=bodies[5]; assert(ai_target()==bodies[5]);
+        *(BYTE **)(bodies[5] + GOB_INFO)=NULL;
+        assert(ai_target()==NULL);
+        role_host=0; assert(ai_target()==NULL); role_host=1;
+        no_targeting=1; assert(ai_target()==NULL); no_targeting=0;
+        *(BYTE **)(bodies[5] + GOB_INFO)=info;
+        assert(ai_target()==bodies[5]);
+    }
     fallback=local_player; no_targeting=1; expected=local_player; ai_run(bodies[3],(DWORD)(uintptr_t)fake_think,11,22,33);
     no_targeting=0; role_host=0; expected=local_player; ai_run(bodies[3],(DWORD)(uintptr_t)fake_think,11,22,33);
     presence_hit(bodies[3],local_player,1); assert(local_direct_hits==1);

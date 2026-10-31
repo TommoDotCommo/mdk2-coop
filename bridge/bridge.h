@@ -240,6 +240,8 @@ BYTE *canopy_gob(BYTE *gob);
 void canopy_capture(BYTE *gob, struct canopy_state *s);
 void canopy_apply(BYTE *gob, const struct canopy_state *s);
 void presence_lua_init(void);
+int presence_test_plant(const char *name);
+int presence_test_sight(const char *name);
 void presence_dump(FILE *f);
 void ai_init(void);
 void ai_before_scene(void);
