@@ -128,6 +128,41 @@ that reply is rejected before world/events decode and produces update guidance.
 Other unknown protocols can time out instead. Exact mod-version string matching
 inside the game is not implemented; compatible protocol versions can connect.
 
+## Equipment and attached visuals
+
+Kurt's canopy, Max's jetpack and Doc's leaf blower are separate gobs on the character's body (scene
+parent at gob `+0x88`, flag `0x20` and bone slot `+0x8c`), not part of the character's model. Findings, from
+process state on the player's build:
+
+- Max: `maxjetpack` (bone 19, `MAX_TORSO`) is made by the pickup code at `0x422085`: `omGobCreate` (`0x449630`),
+  a model controller from the model's name (`0x44c4f0`, "jetpack" or "jetpackatm" by the character state's
+  `+0x38`), `0x44db50` for the bone, `0x449a20` to attach, `0x44e580` to place it, `0x44ca90` to play animation 62.
+  Its flame is the jetpack's own animation 77 (thrusting), 62 idle. A puppet has no such gob (the listing of
+  its scene children shows only the model's own sub-gobs).
+- Doc: `docleafblower` (bone 1, model "leafer", bone `DR_TORSO`) is made by the take-up code at `0x40a770`
+  (reached from the inventory selection at `0x40c15d` when the held item is `0x157`), together with the model's
+  sub-gobs (the air puffs, shown and hidden in turn while blowing, animation 77 on the item, 65 idle) and a
+  `blower` object (type 500) that is the push volume. The push is applied by the host (`combat.c`), so only the
+  item and its puffs are replicated.
+- Kurt: the `chute` gob exists on a puppet (constructor `0x418240`) and the canopy animation state is copied,
+  but its gob flag word carries the room stasis bit `0x08` that `rooms.c` describes: the game keeps the bit set on
+  the closed canopy, and on a puppet that is away from the room it was made in, the bit stayed set while the
+  canopy controller said open. Three peers, players 369 to 1368 units apart: peers viewing a client's open canopy
+  read the bit set (`local/qa/*attached` `kurt_open_2.try*`), the owner's own copy clear. The game's room pass
+  (`0x4302a0`) runs before the scene update and the bridge's tick follows it, so the shown bit is written from the
+  owner's value each frame, before the draw.
+
+The snapshot carries one record per visual (present, hidden, model variant, current and previous animation, up to
+three animation blocks), written by `gear_encode`/`gear_decode` (`presence.c`), read and built by
+`gear_capture`/`gear_apply` (`presence_game.c`). Packet magics changed (`MDKV`, `MDKW`).
+
+`tools/qa_attached.sh` runs Kurt on level 1, Max on level 2 and Doc on level 3 with three peers, every peer the
+owner in turn, the players in different rooms at least 300 units apart. Each peer's own dump gives, for the owner's
+visual, whether it is alive, attached to that body, on which bone, hidden or shown, and its animation (the rows
+`gear <player> <name> ...` of `coop_state`; a puppet's hidden bit is the value the bridge left for the draw).
+`MUTANT=gear` (no equipment built on puppets), `MUTANT=canopy` (no canopy state copy) and `MUTANT=shown` (the game's
+room bit left alone) must fail.
+
 ## Ordered verifier commands
 
 Use configured isolated disposable copies and background mode. These commands
@@ -144,6 +179,9 @@ MDK2_BACKGROUND=1 bash tools/qa_join.sh
 MDK2_BACKGROUND=1 MUTANT=join bash tools/qa_join.sh
 MDK2_BACKGROUND=1 bash tools/qa_presence.sh
 MDK2_BACKGROUND=1 MUTANT=canopy bash tools/qa_presence.sh
+MDK2_BACKGROUND=1 bash tools/qa_attached.sh
+MDK2_BACKGROUND=1 MUTANT=gear bash tools/qa_attached.sh
+MDK2_BACKGROUND=1 MUTANT=shown bash tools/qa_attached.sh
 MDK2_BACKGROUND=1 bash tools/qa_ai.sh
 MDK2_BACKGROUND=1 MUTANT=targeting bash tools/qa_ai.sh
 MDK2_BACKGROUND=1 MUTANT=hostaoe bash tools/qa_ai.sh
