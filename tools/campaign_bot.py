@@ -2265,6 +2265,11 @@ def live_count(game, names):
     return int(game.note('lc', code).strip() or 0)
 
 
+def skipped_shots(pts, i, j):
+    """Whether the recording fired on the points i..j-1 that the follower skips over."""
+    return any(256 in pts[k]['keys'] for k in range(i, j))
+
+
 def flight_targets(pts, i, k, first=None, lead=3):
     """The pilot's targets for the flown points i..k-1 sent as one command, after the first (`first`, point i
     itself): x, y, z, radius, height tolerance. A point on the way holds the highest height of the next few
@@ -2354,7 +2359,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
         j = nearest_ahead(here, pts, i)
         if j > i and not pinned:
             # shots the recording fired on the stretch just skipped are owed: aimed from here instead
-            owed_shots = owed_shots or any(256 in pts[k]['keys'] for k in range(i, j))
+            owed_shots = owed_shots or skipped_shots(pts, i, j)
             i = j
         p = pts[i]
         if p.get('ride'):
