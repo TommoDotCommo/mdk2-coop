@@ -2429,7 +2429,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 time.sleep(2)
                 here = game.pos()
                 log(f'  flight failed at point {i} {p["pos"]}, hero at {[round(v, 1) for v in here]}: '
-                    f'again from point {s} (try {retries[s]})')
+                    f'again from point {s} (try {retries[s]}; {jet_used(game) / 1000:.1f} s of thrust since the tank was filled)')
                 near = [o for o in pads if math.dist(o['pos'], here) < 60]
                 if near:
                     refuel(min(near, key=lambda o: math.dist(o['pos'], here)), 'after a failed flight')
