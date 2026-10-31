@@ -729,8 +729,19 @@ def objectives(level, pos, toward=None, radius=150):
 
     def rank(o):
         scripted = 'OnDie' in level.m['events'].get(o['name'], []) or 'GENERATOR' in o['type']
-        return math.dist(o['pos'][:2], ref[:2]) - (40 if scripted else 0)
+        return math.dist(o['pos'][:2], ref[:2]) - (40 if scripted else 0) - (80 if opens_something(level.m, o) else 0)
     return sorted(out, key=rank)
+
+
+def opens_something(model, o):
+    """Whether a script opens a door or a wall when this object dies (or plays out)."""
+    return any(d.get('opens') for d in model.get('deps', {}).get(o['name'], {}).values())
+
+
+def gating(model, o):
+    """Whether something in the level waits for this object: a generator, or a script that opens a door or
+    a wall when it dies (level 2 room 2's two teleporter pods open the exit wall; its alarms open nothing)."""
+    return 'GENERATOR' in o['type'] or opens_something(model, o)
 
 
 def kill_objective(game, nav, obj, log, seconds=25, sniper=False):
@@ -2446,7 +2457,8 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
             # (within 30 units: the walk to a generator 37 units off took a hero off the ledge and down a
             # shaft; but not only on his floor: room 8's generator hangs 20 above the ledge the recording
             # shot it from, and its exit stayed shut)
-            near = [o for o in objectives(level, here, None, radius=50) if o['name'] not in aimed and aimable(o, here)
+            near = [o for o in objectives(level, here, None, radius=60) if o['name'] not in aimed
+                    and aimable(o, here, reach=45.0 if gating(level.m, o) else 30.0)
                     and i - stayed.get(o['name'], (0, -99))[1] >= 8]
             near = [o for o in near if alive(game, o['name'])][:1]
             for o in near:
@@ -2459,7 +2471,7 @@ def follow(game, path, log, radius=2.5, lost_after=120, level=None, scratch=None
                 else:
                     aimed_kill(game, o['name'], log, seconds=30)
                 stayed[o['name']] = (n_tries + 1, i)
-                if not alive(game, o['name']) or n_tries + 1 >= AIM_TRIES:
+                if not alive(game, o['name']) or n_tries + 1 >= (AIM_TRIES if gating(level.m, o) else 1):
                     aimed.add(o['name'])
                 game.lua('coop.GunnerOn(60)')
         if 256 in p['keys'] and level and jetpack and ('bay', round(here[2] / 12)) not in retries:

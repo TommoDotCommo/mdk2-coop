@@ -332,6 +332,23 @@ for name, patch in mutants.items():
         setattr(bot, n, v)
     check(f'mutant caught: {name}', bool(bad))
 
+# Gating objectives (level 2 room 2): the pods that open the exit wall come before the alarms that open nothing.
+gl = bot.Level.__new__(bot.Level)
+gl.m = {'objects': [{'name': 'alarm', 'type': 'OBJ_DESTRUCTABLE', 'pos': [5, 0, 0]},
+                    {'name': 'pod', 'type': 'OBJ_DESTRUCTABLE', 'pos': [40, 0, 0]},
+                    {'name': 'gen', 'type': 'OBJ_DOGANBOYGENERATOR', 'pos': [60, 0, 0]}],
+        'events': {'alarm': ['OnDie'], 'pod': ['OnDie']}, 'pickups': [],
+        'deps': {'pod': {'OnDie': {'opens': ['wall'], 'enables': [], 'damage': []}}, 'alarm': {'OnDie': {'opens': [], 'enables': [], 'damage': []}}}}
+order = [o['name'] for o in bot.objectives(gl, [0, 0, 0])]
+check('objectives that open something come before those that open nothing',
+      order.index('pod') < order.index('alarm') and bot.gating(gl.m, gl.m['objects'][1]) and bot.gating(gl.m, gl.m['objects'][2])
+      and not bot.gating(gl.m, gl.m['objects'][0]))
+real_opens = bot.opens_something
+bot.opens_something = lambda model, o: False
+flat_order = [o['name'] for o in bot.objectives(gl, [0, 0, 0])]
+bot.opens_something = real_opens
+check('mutant caught: nothing is gating (the alarm comes first)', flat_order.index('alarm') < flat_order.index('pod'))
+
 # Objectives: a pickup with an OnDie handler (level 3's BFB) is not something to shoot at.
 lv = bot.Level.__new__(bot.Level)
 lv.m = {'objects': [{'name': 'bfb', 'type': 'OBJ_BFB', 'pos': [5, 0, 0]},
