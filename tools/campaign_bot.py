@@ -278,7 +278,7 @@ class Nav:
         if -6 <= rise <= self.WALK_RISE:
             # Max without Kurt's chute: keep off the rim of a drop (the pilot cuts corners, and the way
             # back up costs fuel)
-            return base * 20 if self.fly and not self.chute and self.rim(n) else base
+            return base * 20 if not self.chute and self.rim(n) else base
         if rise < -6 and self.chute:                    # Kurt's chute
             return base * 2
         if rise < -6 and self.fly:
@@ -292,11 +292,13 @@ class Nav:
         return None          # too steep, or a long fall without Kurt's chute
 
     def rim(self, k):
-        """A cell beside a drop of more than 6 units."""
+        """A cell beside a drop of more than 6 units (4 for Max before the jetpack: there is no way back up,
+        and level 2's room 4 has a 6 unit pit beside the walkway that trapped a hero)."""
         cache = self.__dict__.setdefault('_rim', {})
         if k not in cache:
             z = self.cells[k][2]
-            cache[k] = any(n in self.cells and self.cells[n][2] < z - 6 for n in self.cells[k][3])
+            drop = 6 if self.fly else 4
+            cache[k] = any(n in self.cells and self.cells[n][2] < z - drop for n in self.cells[k][3])
         return cache[k]
 
     def nearest(self, p):

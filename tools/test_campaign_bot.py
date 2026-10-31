@@ -30,6 +30,27 @@ def check(label, ok):
     print(f'PASS {label}')
 
 
+# A walkway beside a pit 5 units deep (level 2 room 4): Max before the jetpack keeps off its rim, Kurt (chute)
+# and Max with the jetpack's wider limit (6) do not mind a 5 unit drop.
+walkway = {(i, 0): 0.0 for i in range(12)}
+walkway.update({(i, 1): 0.0 for i in range(12)})
+walkway.update({(i, 2): -5.0 for i in range(12)})
+rimmed = {}
+for kind, (fly, chute) in {'walker': (False, False), 'flyer': (True, False), 'kurt': (False, True)}.items():
+    pn = grid(walkway)
+    pn.fly, pn.chute = fly, chute
+    a_, b_ = pn.nearest((0, 2, 0)), pn.nearest((2, 2, 0))
+    rimmed[kind] = pn.step_cost(a_, b_) / math.dist(pn.cells[a_][:3], pn.cells[b_][:3])
+check('Max without the jetpack keeps off the rim of a 5 unit pit, the others do not',
+      rimmed['walker'] == 20 and rimmed['flyer'] == 1 and rimmed['kurt'] == 1)
+real_rim = bot.Nav.rim
+bot.Nav.rim = lambda self, k: False
+pn = grid(walkway)
+mutant_cost = pn.step_cost(pn.nearest((0, 2, 0)), pn.nearest((2, 2, 0)))
+bot.Nav.rim = real_rim
+check('mutant caught: no rim is ever avoided', mutant_cost == math.dist(pn.cells[pn.nearest((0, 2, 0))][:3],
+                                                                         pn.cells[pn.nearest((2, 2, 0))][:3]))
+
 # A flat corridor 10 cells long, a 33 degree ramp beside it (1.3 per cell, Max slid down one), and a
 # 2-unit ledge onto a flat landing.
 flat = {(i, 0): 0.0 for i in range(10)}
