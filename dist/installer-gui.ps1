@@ -1,5 +1,5 @@
 # User-facing installer. Only the game-file operation is ever elevated.
-param([string]$ProbePath, [ValidateSet('', 'install', 'uninstall')][string]$TestCompletion = '', [switch]$TestLayout, [string]$TestActionsPath, [string]$TestBuildGate)
+param([string]$ProbePath, [ValidateSet('', 'install', 'uninstall')][string]$TestCompletion = '', [switch]$TestLayout, [string]$TestActionsPath, [string]$TestBuildGate, [string]$SetupExe)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -17,7 +17,7 @@ $form.StartPosition = 'CenterScreen'
 $form.BackColor = [Drawing.ColorTranslator]::FromHtml('#0c171c')
 $form.ForeColor = [Drawing.ColorTranslator]::FromHtml('#e9eef0')
 $form.Font = New-Object Drawing.Font 'Segoe UI', 10
-$exe = Join-Path $PSScriptRoot 'MDK2-Coop-Setup.exe'
+$exe = if ($SetupExe -and (Test-Path -LiteralPath $SetupExe -PathType Leaf)) { $SetupExe } else { Join-Path $PSScriptRoot 'MDK2-Coop-Setup.exe' }   # the single-file Setup unpacks elsewhere and passes its own path
 if (Test-Path $exe) { try { $form.Icon = [Drawing.Icon]::ExtractAssociatedIcon($exe) } catch { } }
 $header = New-Object Windows.Forms.Panel
 $header.BackColor = [Drawing.ColorTranslator]::FromHtml('#142832')
@@ -72,6 +72,7 @@ $form.Controls.Add($browse)
 $buildLabel = New-Object Windows.Forms.Label
 $buildLabel.Name = 'BuildLabel'; $buildLabel.Text = ''
 $buildLabel.ForeColor = [Drawing.ColorTranslator]::FromHtml('#b2c2c9')
+$buildLabel.Font = New-Object Drawing.Font 'Segoe UI', 9
 $buildLabel.SetBounds(26, 186, 702, 22)
 $form.Controls.Add($buildLabel)
 $status = New-Object Windows.Forms.Label

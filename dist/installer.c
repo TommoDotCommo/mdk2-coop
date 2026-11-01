@@ -110,9 +110,9 @@ static int load_payload(const unsigned char **blob, DWORD *len, struct sc_file *
     return *count < 0 ? EXIT_DAMAGED : EXIT_OK;
 }
 
-static void start_gui(const wchar_t *dir, int *code)
+static void start_gui(const wchar_t *dir, int *code)   /* the Setup exe's own path goes along for the window icon */
 {
-    wchar_t script[MAX_PATH], powershell[MAX_PATH], cmd[MAX_PATH * 4];
+    wchar_t script[MAX_PATH], powershell[MAX_PATH], self[MAX_PATH], cmd[MAX_PATH * 4];
     STARTUPINFOW startup = { 0 };
     PROCESS_INFORMATION process = { 0 };
     if (wcslen(dir) + 1 + wcslen(L"installer-gui.ps1") >= MAX_PATH) { *code = EXIT_FAIL; return; }
@@ -121,7 +121,8 @@ static void start_gui(const wchar_t *dir, int *code)
         *code = EXIT_FAIL; return;
     }
     wcscat(powershell, L"\\WindowsPowerShell\\v1.0\\powershell.exe");
-    swprintf(cmd, MAX_PATH * 4, L"\"%ls\" -NoProfile -ExecutionPolicy Bypass -File \"%ls\"", powershell, script);
+    if (!GetModuleFileNameW(NULL, self, MAX_PATH)) self[0] = 0;
+    swprintf(cmd, MAX_PATH * 4, L"\"%ls\" -NoProfile -ExecutionPolicy Bypass -File \"%ls\" -SetupExe \"%ls\"", powershell, script, self);
     startup.cb = sizeof(startup);
     if (!CreateProcessW(powershell, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, dir, &startup, &process)) {
         say(L"Could not start the installer. Windows PowerShell is required.");

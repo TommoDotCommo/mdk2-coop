@@ -33,7 +33,8 @@ if (Test-Path (Join-Path $PackageDir 'MDK2-Coop-Setup.exe')) {
     $startupDir = Join-Path $root 'setup startup'
     New-Item -ItemType Directory $startupDir | Out-Null
     $setup = Join-Path $startupDir 'MDK2-Coop-Setup.exe'
-    Copy-Item (Join-Path $PackageDir 'MDK2-Coop-Setup.exe') $setup
+    # the whole package beside it (Setup refuses to start without its files), with the GUI script replaced by the probe below
+    Copy-Item (Join-Path $PackageDir '*') $startupDir -Recurse
     [IO.File]::WriteAllText((Join-Path $startupDir 'installer-gui.ps1'), @'
 Add-Type @"
 using System;
