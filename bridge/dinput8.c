@@ -10,6 +10,8 @@
 #include <string.h>
 #include "bridge.h"
 #include "crash_context.h"
+#include "build_sigs.h"
+#include "launcher_update.h"
 
 void l_coop_init(void);
 void loader_ensure(void);      /* loader.c */
@@ -70,14 +72,15 @@ static LONG CALLBACK crash_logger(EXCEPTION_POINTERS *e)
 }
 
 struct build_addrs ADDR;
+static void *crash_handler;
 
 static const struct build_addrs BUILDS[] = {
-    { "Steam build 3902", 0x506520, 0x4d7d34,
+    { COOP_BUILD_STEAM,
       0x476bb0, 0x476c40, 0x476b80, 0x476690, 0x476a20, 0x476a60,
       0x478100, 0x478de0, 0x476ce0, 0x477980, 0x475700, 0x4776b0,
       0x457520, 0x458360,
       0x4f64a8, 0x524e10, 0x524378, 0x524380, 0x5494c8, 0x549500 },
-    { "Overhaul Games build", 0x505510, 0x4d769c,
+    { COOP_BUILD_OVERHAUL,
       0x476710, 0x4767a0, 0x4766e0, 0x4761f0, 0x476580, 0x4765c0,
       0x477c60, 0x478940, 0x476840, 0x4774e0, 0x475260, 0x477210,
       0x457500, 0x458340,
@@ -85,6 +88,16 @@ static const struct build_addrs BUILDS[] = {
 };
 
 const char *build_name(void) { return ADDR.name ? ADDR.name : "unknown"; }
+
+/* Memory the process can read now, tested without raising an exception: a probe of an address this process does not have
+ * (any exe but the known builds) must not be logged as a crash in bridge.log, and must not run the exception handlers. */
+static int readable(const void *p, size_t n)
+{
+    MEMORY_BASIC_INFORMATION mi;
+    if (!p || !VirtualQuery(p, &mi, sizeof(mi)) || mi.State != MEM_COMMIT || (mi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+        return 0;
+    return (const char *)p + n <= (const char *)mi.BaseAddress + mi.RegionSize;
+}
 
 /* The builtin table entry { "copytagmethods", fn } is where the Lua hook goes, and it identifies the build. */
 static int select_build(void)
@@ -95,7 +108,7 @@ static int select_build(void)
         void **entry = (void **)BUILDS[i].builtin_entry;
         const char *name = (const char *)BUILDS[i].builtin_name;
 
-        if (!IsBadReadPtr(entry, 8) && !IsBadReadPtr(name, 15) && entry[0] == (void *)name &&
+        if (readable(entry, 8) && readable(name, 15) && entry[0] == (void *)name &&
             strcmp(name, "copytagmethods") == 0) {
             ADDR = BUILDS[i];
             return 1;
@@ -104,16 +117,85 @@ static int select_build(void)
     return 0;
 }
 
+/* Without a known build the Lua hook cannot go in, so neither can the launcher: say why in plain words. The text goes to
+ * a file next to the log (coop\\unsupported-build.txt) and, outside background test mode, to a message box. Both happen on
+ * a thread of their own, started from the game's first DirectInput8Create call (DllMain holds the loader lock, and the box
+ * must not block the game's start). */
+#define UNSUPPORTED_BUILD_TEXT \
+    "Co-op is off: this copy of MDK2 HD is a game build the co-op mod does not know.\r\n\r\n" \
+    "Supported: MDK2 HD on Steam (build 3902) and the Overhaul Games build.\r\n\r\n" \
+    "What to do: in Steam, right-click MDK2 HD > Properties > Betas and choose None (opt out of betas), then " \
+    "Installed Files > Verify integrity of game files, and start the game again. The game itself still plays normally.\r\n"
+
+static DWORD WINAPI unsupported_build_notice(LPVOID self)
+{
+    char text[1200], hash[65] = "", ini[MAX_PATH], exe[MAX_PATH], file[MAX_PATH];
+    FILE *f;
+
+#ifdef COOP_MUTANT_NO_BUILD_NOTICE      /* tools/qa_build_message.sh MUTANT=silent: the old behaviour, only a log line */
+    FreeLibraryAndExitThread((HMODULE)self, 0);
+#endif
+    GetModuleFileNameA(NULL, exe, MAX_PATH);
+    if (!lu_file_sha256(exe, hash))
+        strcpy(hash, "unreadable");
+    snprintf(text, sizeof(text), "%sGame file SHA-256: %s\r\n", UNSUPPORTED_BUILD_TEXT, hash);
+    snprintf(file, MAX_PATH, "%s\\unsupported-build.txt", coop_dir);
+    if ((f = fopen(file, "wb"))) {
+        fputs(text, f);
+        fclose(f);
+    }
+    snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
+    /* background test games stay off the desktop; [test] notice_dialog=1 shows the box anyway, without taking focus
+     * (tools/qa_build_message.sh finds it and closes it) */
+    if (!GetPrivateProfileIntA("test", "background", 0, ini))
+        MessageBoxA(NULL, text, "MDK2 Co-op", MB_OK | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND);
+    else if (GetPrivateProfileIntA("test", "notice_dialog", 0, ini))
+        MessageBoxA(NULL, text, "MDK2 Co-op", MB_OK | MB_ICONWARNING);
+    FreeLibraryAndExitThread((HMODULE)self, 0);     /* the thread holds a reference to this DLL until it is done (the updater test unloads it) */
+    return 0;
+}
+
+static volatile LONG unsupported_build;     /* set by install_lua_hook when select_build fails */
+
+/* The game's first DirectInput8Create call: it runs on the game's own thread, after DllMain. */
+static void announce_unsupported_build(void)
+{
+    HANDLE t = NULL;
+    HMODULE self = NULL;
+
+    char exe[MAX_PATH], *name;
+
+    if (!unsupported_build || InterlockedExchange(&unsupported_build, 0) == 0)
+        return;
+    /* only the game itself: a test harness or tool that loads this DLL is not "an unknown build of MDK2 HD" */
+    GetModuleFileNameA(NULL, exe, MAX_PATH);
+    name = strrchr(exe, '\\');
+    if (_stricmp(name ? name + 1 : exe, "mdk2hd.exe") != 0)
+        return;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, (LPCSTR)unsupported_build_notice, &self))   /* takes a reference */
+        t = CreateThread(NULL, 0, unsupported_build_notice, self, 0, NULL);
+    if (t)
+        CloseHandle(t);
+    else if (self)
+        FreeLibrary(self);
+}
+
 static int install_lua_hook(void)
 {
     void **entry;
     DWORD old;
 
     if (!select_build()) {
-        logmsg("unknown game build: lua hook not installed");
+        logmsg("unknown game build: lua hook not installed (co-op is off; see unsupported-build.txt)");
+        unsupported_build = 1;      /* said to the player when the game first asks for DirectInput (not here: DllMain holds the loader lock) */
         return 0;
     }
     logmsg("game build: %s", ADDR.name);
+    {   /* a notice left by an earlier run on another build is stale now */
+        char stale[MAX_PATH];
+        snprintf(stale, MAX_PATH, "%s\\unsupported-build.txt", coop_dir);
+        DeleteFileA(stale);
+    }
     entry = BUILTIN_ENTRY;
 
     VirtualProtect(entry, 8, PAGE_READWRITE, &old);
@@ -145,6 +227,7 @@ typedef HRESULT (WINAPI *DirectInput8Create_t)(HINSTANCE, DWORD, REFIID, LPVOID 
 HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE inst, DWORD ver, REFIID riid, LPVOID *out, LPUNKNOWN outer)
 {
     DirectInput8Create_t fn = (DirectInput8Create_t)real_proc("DirectInput8Create");
+    announce_unsupported_build();
     HRESULT hr = fn ? fn(inst, ver, riid, out, outer) : E_FAIL;
     if (SUCCEEDED(hr))
         input_wrap_dinput(*out);
@@ -217,11 +300,14 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         diag_log_open();
         logmsg("mdk2-coop bridge attached");
         logmsg("files in %s", coop_dir);
-        AddVectoredExceptionHandler(1, crash_logger);
+        crash_handler = AddVectoredExceptionHandler(1, crash_logger);
         redirect_init();
         if (install_lua_hook())
             loader_ensure();
         input_init();
+    } else if (reason == DLL_PROCESS_DETACH && !reserved) {
+        if (crash_handler)      /* unloaded with FreeLibrary (the updater tests do): the handler must not outlive this code */
+            RemoveVectoredExceptionHandler(crash_handler);
     } else if (reason == DLL_PROCESS_DETACH && reserved) {
         diag_log_close();           /* a session log without this line ended in a crash or a kill */
     }

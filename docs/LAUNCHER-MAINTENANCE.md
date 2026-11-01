@@ -67,6 +67,87 @@ discovery and safe self-updating:
 - The user retains full control via the "Auto-check" toggle on the About page and manual "Check now" /
   "Install update" / "Roll back" buttons.
 
+### Release layout and the updater
+
+`tools/release.sh <version>` produces, in `local/release/`:
+
+| Asset | Used by |
+|---|---|
+| `MDK2-Coop-Setup.exe` + `MDK2-Coop-Setup.exe.sha256` | players: the main download. The zip's files are embedded as a payload (`tools/payload.py`, read by `dist/installer.c` and `dist/setup-core.h`), checked against a SHA-256 stored in the exe, and unpacked into a fresh `%LOCALAPPDATA%\mdk2-coop\setup\<version>[-n]` folder (exclusive create, never through a link) before `installer-gui.ps1` runs from there. `Setup.exe /extract <new folder>` only unpacks. |
+| `mdk2-coop-<tag>.zip` + `mdk2-coop-<tag>.zip.sha256` | the in-game updater, manual installs, Nexus. Its `MDK2-Coop-Setup.exe` carries no payload and starts the scripts beside it; run from inside a zip (scripts missing, or a path under `%TEMP%` with a `*.zip` folder) it says "Extract the whole zip first, or download the single Setup.exe". |
+
+The updater (`bridge/launcher_update.h`) is unchanged by the single-file Setup and needs exactly the old things: the
+asset `mdk2-coop-<tag>.zip` with its `.zip.sha256`, and the members `mdk2-coop-<tag>/dinput8.dll` and
+`mdk2-coop-<tag>/coop/coop.lua`. The Setup.exe assets are ignored by its asset matching (it matches names exactly).
+**Keep it that way**: do not rename the zip or its top folder, and keep both files in it. `tools/test_update_layout.py`
+checks this against a real `release.sh` build (release JSON with all four assets, apply, rollback; mutants for a wrong
+root folder and a missing sidecar). The payload zip stays far below the updater's 32 MB limit (the Setup.exe is never
+downloaded by it).
+
+Windows-side checks for the Setup exe (`tools/test_setup_exe.py`: extraction, damaged payload, junctions, zip message,
+mutants) and for the plain build messages (`tools/test_installer_builds.ps1`, `tools/qa_build_message.sh`) run in
+`tools/qa_installer.sh` and `tools/qa_build_message.sh`; `tools/test_setup_core.py`, `tools/test_install_linux.sh`,
+`tools/test_release_signing.sh` and `tools/test_update_layout.py` are game-free offline gates.
+
+`tools/test_launcher_update_win.py` loads an old and a new DLL in one process and unloads the old one. Build both packages
+from the same tree (as the commands above do): an old DLL from a different source version leaks its exception handler,
+which then points into the new DLL's code. The current DLL removes its handler when it is unloaded.
+
+## Code signing
+
+Windows SmartScreen and antivirus heuristics treat an unsigned exe that starts PowerShell with
+`-ExecutionPolicy Bypass` with suspicion. A code-signing certificate fixes the first and helps with the second.
+`tools/release.sh` is ready for one; nothing in the repository holds a certificate.
+
+```sh
+# a command template that signs one file in place; {file} is replaced by the quoted path
+SIGN_CMD='osslsigncode sign -pkcs12 "$HOME/sign.p12" -pass "$SIGN_PASS" -h sha256 -t http://timestamp.digicert.com -in {file} -out {file}.signed && mv {file}.signed {file}' \
+SIGN_VERIFY_CMD='osslsigncode verify -in {file}' \
+  bash tools/release.sh v0.x.y
+# signtool from a Windows shell works too: SIGN_CMD='signtool.exe sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 /a {file}'
+python3 tools/check_release_package.py local/release/mdk2-coop-v0.x.y.zip --require-signed
+```
+
+What the script does when `SIGN_CMD` is set: signs `dinput8.dll`, `install-policy.exe` and the zip's `MDK2-Coop-Setup.exe`
+**before** the single-file Setup's payload is hashed and embedded (so the embedded copies are the signed ones, and the
+receipts and the updater's hashes cover signed bytes); builds and signs the single-file `MDK2-Coop-Setup.exe` last; after
+each signature it checks that the file now carries a certificate table, plus `SIGN_VERIFY_CMD` if you set one; any failure
+aborts the release. Unset `SIGN_CMD`, and it builds unsigned with a warning. `--require-signed` fails unless every shipped
+exe and dll (and the embedded copies, which must equal the zip's) is signed. The scripts (`*.ps1`) are not signed: a signed
+Setup that starts them with Bypass is the common installer pattern, and the zip's scripts are plain text.
+`tools/test_release_signing.sh` proves the hook with a fake signer, including a `RELEASE_MUTANT=late-sign` build that the
+checker must reject.
+
+Routes for the certificate (the owner chooses):
+
+- **SignPath Foundation**: free for open-source projects; a hosted signer with an approval workflow, so `SIGN_CMD` would call
+  their CLI/API with the built file (their rules: public repository, OSI licence, a build you can show; apply on their site).
+- **Certum "Open Source Code Signing"**: a cheap yearly certificate on a smart card or a cloud token; it works with
+  `osslsigncode`/`signtool`.
+- **Azure Trusted Signing** (about USD 10 a month): a Microsoft-run service; check its current eligibility for individual
+  developers in your country. It signs with `signtool` plus its dlib, which fits `SIGN_CMD`.
+
+A new certificate has no SmartScreen reputation at first; the warning fades after enough downloads (an EV certificate skips
+that wait but costs much more). Signing alone does not stop an antivirus false positive on the first release.
+
+## Submitting a false positive to Microsoft Defender (wdsi)
+
+If Defender or SmartScreen flags a release (Setup.exe, the zip or `dinput8.dll`):
+
+1. Go to https://www.microsoft.com/en-us/wdsi/filesubmission and sign in with a Microsoft account (the portal's wording and
+   options change from time to time: follow what the page offers, the steps below are the usual path).
+2. Choose **Software developer**, then **Submit as: I believe this file is incorrectly detected** (not "malware").
+3. Upload the flagged file (a zip works; use the password `infected` only if the form asks for one) and fill in the detection name if
+   Windows showed it (Security > Protection history).
+4. In the additional information, say what it is: "MDK2 Co-op, an open-source co-op mod for the game MDK2 HD
+   (https://github.com/TommoDotCommo/mdk2-coop, MIT). `dinput8.dll` is a DirectInput proxy that the game loads; Setup starts
+   PowerShell scripts that are included in readable form. Source, SHA-256 of the release files and the build script are public."
+   Give the release URL and the file's SHA-256.
+5. Submit one file per request, note the submission ID, and check the result in the portal (usually within a few days). Resubmit
+   each new release's flagged files, or sign them (above) and say so.
+6. Other vendors have their own forms (VirusTotal lists who flags a file: submit to each flagging vendor through its
+   "report a false positive" page).
+
 ## 3. Saved-IP profiles
 
 `bridge/launcher_profiles.h` and `bridge/launcher_profiles_win.h` manage connection profiles:
@@ -151,9 +232,15 @@ python3 tools/test_launcher_update.py
 # 6. UI layout & DPI geometry verification at 100%, 125%, 150%, 200%, 300%
 python3 tools/test_ui_layout.py
 
-# 7. Release packaging and SHA-256 sidecar verification
+# 7. Release packaging and SHA-256 sidecar verification (zip, single-file Setup, embedded payload)
 bash tools/release.sh v0.3.2-test
 python3 tools/check_release_package.py local/release/mdk2-coop-v0.3.2-test.zip
+
+# 7b. One-file Setup and plain-build-message cores, Linux install script, signing hook, updater layout (all with mutants)
+python3 tools/test_setup_core.py
+bash tools/test_install_linux.sh
+bash tools/test_release_signing.sh
+python3 tools/test_update_layout.py
 
 # 8. Python syntax check
 python3 -m py_compile tools/test_install_policy.py tools/test_launcher_profiles.py \

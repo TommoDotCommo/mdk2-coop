@@ -11,15 +11,42 @@ accepted but untested. Every player needs their own copy.
 
 Install
 -------
-1. Unzip this folder anywhere (not inside the game folder).
+Easiest: download the single MDK2-Coop-Setup.exe from the release page (no zip, nothing to extract) and
+double-click it. If you have this zip instead:
+1. Unzip the whole folder anywhere (not inside the game folder). Do not run Setup from inside the zip viewer:
+   it says "Extract the whole zip first" because the files beside it are missing.
 2. Double-click MDK2-Coop-Setup.exe and choose Install, Update or Repair as offered by its status check.
    - It finds MDK2 HD in your Steam libraries or the Overhaul Games folder (or asks for the
-     folder) and installs. Windows asks for administrator permission if the game folder is protected.
-     It does not check the game version: the mod picks the Steam or the Overhaul engine
-     addresses itself at every start (see coop\bridge.log).
+     folder) and shows what it found: "Found: MDK2 HD Steam build 3902", "Found: MDK2 HD Overhaul Games build" or
+     "Found: unknown build (SHA-256 ...)". An unknown build gets a warning that co-op will stay off, and is
+     installed only if you confirm. Windows asks for administrator permission if the game folder is protected.
    - That is all it asks: host or join, Steam or a direct address are chosen in the launcher.
 3. Choose Play MDK2 or Close when setup finishes. You can also start MDK2 HD from
    Steam or the Beamdog client as usual. The co-op launcher opens first.
+
+If the game starts but co-op is off and a message says the game build is not known: in Steam, right-click MDK2 HD >
+Properties > Betas > choose None, then Installed Files > Verify integrity of game files. The message (and the exe's
+SHA-256 for a bug report) is also saved as coop\unsupported-build.txt.
+
+Manual install (instead of Setup)
+---------------------------------
+Close the game, then copy two files from this zip into the game folder (the one with mdk2hd.exe):
+    dinput8.dll       ->  <game folder>\dinput8.dll
+    coop\coop.lua     ->  <game folder>\coop\coop.lua     (create the coop folder if needed)
+If a dinput8.dll is already there, keep it as dinput8.dll.coop-original first. Nothing else is needed: the mod adds its
+loader line to %LOCALAPPDATA%\MDK2HD\settings.lua by itself at the first start. To uninstall by hand, delete those two files
+(and put the original dinput8.dll back); the loader line does nothing without the mod and may stay.
+
+Steam Deck / Linux (Proton) - untested
+--------------------------------------
+Proton has its own built-in dinput8, so Steam must be told to load the mod's file first. In Steam, right-click MDK2 HD >
+Properties > General > Launch Options and enter exactly:
+    WINEDLLOVERRIDES="dinput8=n,b" %command%
+Put the two files in with: sh install-linux.sh install "<game folder>"   (run in this unzipped folder; the game folder is the
+one with mdk2hd.exe, e.g. ~/.local/share/Steam/steamapps/common/"MDK 2 HD"). It keeps an existing dinput8.dll as
+dinput8.dll.coop-original and notes what it did in coop/install-linux.record. Remove it again with:
+sh install-linux.sh uninstall "<game folder>"   (it removes only the files it installed). Not tested on a real Steam Deck
+yet: please report how it went at https://github.com/TommoDotCommo/mdk2-coop/issues
 
 The launcher
 ------------
@@ -42,8 +69,8 @@ Use Save address inside a lobby to keep the host address and port for next time.
 Saved addresses preserve your names and notes; Join opens the connected lobby directly.
 Leave lobby returns to connection selection.
 
-If Windows shows "Windows protected your PC", click "More info" > "Run anyway".
-(The installer uses PowerShell scripts, readable in Notepad.)
+If Windows shows "Windows protected your PC", click "More info" > "Run anyway": Setup is not code-signed yet.
+(The installer uses PowerShell scripts, readable in Notepad: MDK2-Coop-Setup.exe /extract <new folder> unpacks them.)
 
 
 Couch co-op (2-4 players on one PC)
@@ -180,6 +207,10 @@ Known issues
   check the host has that much upload to spare.
 - Nobody has finished the whole campaign in co-op yet. Every checkpoint loads and
   plays in automated tests, but those don't solve puzzles or beat bosses.
+- Steam Deck / Linux (Proton) is untested: the launch option and install-linux.sh were only
+  checked against fixture folders.
+- A game build the mod does not know (for example a Steam beta branch) keeps co-op off, with a message.
+- Setup is not code-signed yet, so Windows SmartScreen warns before the first run.
 
 Help test
 ---------

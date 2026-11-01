@@ -41,6 +41,11 @@ OFFLINE = [Gate("rear-gate-routing", ("bash", "tools/test_rear_gate.sh")),
            Gate("launcher-audio", ("bash", "tools/test_launcher_audio.sh")),
            Gate("launcher-profiles", ("python3", "tools/test_launcher_profiles.py")),
            Gate("install-policy", ("python3", "tools/test_install_policy.py")),
+           Gate("setup-core", ("python3", "tools/test_setup_core.py")),
+           Gate("linux-install", ("bash", "tools/test_install_linux.sh")),
+           Gate("release-signing", ("bash", "tools/test_release_signing.sh"), timeout=900),
+           Gate("update-layout", ("python3", "tools/test_update_layout.py"), timeout=900),
+           Gate("release-package", ("python3", "-B", "-m", "unittest", "tests/release_package_test.py")),
            Gate("launcher-session", ("python3", "tools/test_launcher_session.py")),
            Gate("launcher-update", ("python3", "tools/test_launcher_update.py")),
            Gate("ui-layout", ("python3", "tools/test_ui_layout.py")),
@@ -81,7 +86,7 @@ FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
                 ("combat-startup", "qa_combat_startup", 1, "counts"), ("combat", "qa_combat", 3, "counts"), ("hud", "qa_hud", 3, "counts"), ("chat", "qa_chat", 3, "counts"),
                 ("voice", "qa_voice", 3, "counts"), ("projectiles", "qa_shots", 3, "projectiles"),
                 ("native-projectiles", "qa_shots_native", 3, "counts"),
-                ("installer", "qa_installer", 1, "installer")]]
+                ("installer", "qa_installer", 1, "installer"), ("build-message", "qa_build_message", 1, "counts")]]
 CAMPAIGN = Gate("campaign", ("bash", "tools/sweep.sh"), 2, 5400, "sweep")
 LOSSY = Gate("lossy-projectiles", ("bash", "tools/qa_shots_native.sh"), 3, 600, "counts", "80 30 3")
 LOSSY_COMBAT = Gate("lossy-combat", ("bash", "tools/qa_combat.sh"), 3, 600, "counts", "80 30 3")

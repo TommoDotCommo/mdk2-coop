@@ -52,11 +52,16 @@ No game files are in this repo. Every player needs their own copy of MDK2 HD on 
 
 ## Install
 
-You need MDK2 HD: the **Steam** version (build 3902) or the **Overhaul Games** (Beamdog) version. The installer does not check the game version. At every start the mod looks at the game it is in and uses the Steam engine addresses if they fit, the Overhaul ones if not. If neither fits, co-op stays off and `bridge.log` says "unknown game build".
+You need MDK2 HD: the **Steam** version (build 3902) or the **Overhaul Games** (Beamdog) version. Setup reads the
+game's executable (it never runs it) and tells you what it found before you install: *Found: MDK2 HD Steam build 3902*,
+*Found: MDK2 HD Overhaul Games build*, or *Found: unknown build (SHA-256 ...)*. For an unknown build Setup warns that
+co-op will stay off and installs only if you say so. If you do start such a game, a message box says the same in plain
+words and what to do (in Steam: Properties > Installed Files > Verify integrity of game files, and Properties > Betas >
+None), and `coop\unsupported-build.txt` keeps the text and the exe's SHA-256 for a bug report.
 
-1. Download the zip from [Releases](https://github.com/TommoDotCommo/mdk2-coop/releases) and unzip it
-   anywhere (not inside the game folder).
-2. Double-click **MDK2-Coop-Setup.exe**. It finds MDK2 HD (Steam libraries or the Overhaul Games folder; browse
+1. Download **MDK2-Coop-Setup.exe** from [Releases](https://github.com/TommoDotCommo/mdk2-coop/releases). It is one
+   file: there is nothing to unzip. (The zip on the same page is for a manual install, below.)
+2. Double-click it. It finds MDK2 HD (Steam libraries or the Overhaul Games folder; browse
    to the folder if it cannot), then choose **Install / Repair**. If the game folder is protected, Windows asks
    for administrator permission. Host or Join, Steam or direct IP
    and the address are chosen in the launcher at every start.
@@ -65,8 +70,53 @@ You need MDK2 HD: the **Steam** version (build 3902) or the **Overhaul Games** (
 
 Already installed? Open setup and click **Play MDK2** to launch the game. Use **Create desktop shortcut** to add a shortcut that opens the game and its co-op launcher directly. Both buttons are also available after installing. Keep Steam or the Beamdog client running.
 
-If Windows shows "Windows protected your PC", choose **More info > Run anyway**. The installer uses
-PowerShell scripts (`installer-gui.ps1` and `mdk2-coop.ps1`) that you can read in Notepad first.
+**"Windows protected your PC"?** Setup is not code-signed yet, so SmartScreen warns about any new unsigned program:
+choose **More info > Run anyway**. Some antivirus programs also dislike that Setup starts PowerShell to run its installer
+scripts. Nothing is hidden: `MDK2-Coop-Setup.exe /extract <new folder>` writes the scripts (`installer-gui.ps1`,
+`mdk2-coop.ps1`, `install-state.ps1`) and the other files to a folder you can read in Notepad first, and every release
+lists its SHA-256 (`MDK2-Coop-Setup.exe.sha256`). Setup unpacks its own files, after checking them against a SHA-256 stored in the
+exe, into a fresh folder under `%LOCALAPPDATA%\mdk2-coop\setup\<version>`; it never writes into an existing folder or
+through a link. If you opened Setup from inside the zip without extracting it, it says so: extract the whole zip first, or
+download the single `MDK2-Coop-Setup.exe`.
+
+### Manual install (from the zip)
+
+Use this if you would rather not run Setup, or on a PC where it will not run. Unzip the release, close the game, then
+copy two files into the game folder (the one with `mdk2hd.exe`):
+
+| From the zip | Into the game folder |
+|---|---|
+| `dinput8.dll` | `<game folder>\dinput8.dll` |
+| `coop\coop.lua` | `<game folder>\coop\coop.lua` (make the `coop` folder if it is not there) |
+
+Nothing else is needed: at its first start the mod adds its one loader line to `%LOCALAPPDATA%\MDK2HD\settings.lua`
+by itself, and the launcher keeps its settings and saves in `%LOCALAPPDATA%\mdk2-coop\coop` (or in the game
+folder's `coop` folder if that is writable). If `<game folder>\dinput8.dll` already exists, keep it as
+`dinput8.dll.coop-original` first. The other files in the zip (`Couch.cmd`, `mdk2-couch.ps1`) are for couch co-op.
+The mod does not patch the game executable. Manual uninstall: delete those two files (put the original `dinput8.dll`
+back if there was one); optionally delete the `-- >>> mdk2-coop >>>` ... `-- <<< mdk2-coop <<<` block in
+`%LOCALAPPDATA%\MDK2HD\settings.lua` (it does nothing without the mod) and the `coop` folders.
+
+### Steam Deck and Linux (Proton): untested
+
+MDK2 HD runs through Proton, and the mod is a `dinput8.dll` proxy. Wine and Proton have their own built-in
+`dinput8`, so Steam must be told to load the mod's file first. Untested by the project so far (see Known issues).
+
+1. Install the game in Steam (desktop mode on the Deck) and run it once.
+2. Copy the files in: unzip the release on the Deck, open a terminal in the unzipped folder and run
+   `sh install-linux.sh install "<game folder>"`, where the game folder is the one with `mdk2hd.exe`, for example
+   `~/.local/share/Steam/steamapps/common/"MDK 2 HD"`. It copies the two files, keeps any existing `dinput8.dll` as
+   `dinput8.dll.coop-original`, never writes through a link, and records what it did in `coop/install-linux.record`.
+   (Or copy `dinput8.dll` and `coop/coop.lua` by hand as in the table above.)
+3. In Steam, right-click MDK2 HD > Properties > General > Launch Options and enter exactly:
+   `WINEDLLOVERRIDES="dinput8=n,b" %command%`
+4. Start the game from Steam. The co-op launcher opens first. `coop/bridge.log` (or `unsupported-build.txt`) in the game
+   folder says what happened if it does not.
+
+To remove it: `sh install-linux.sh uninstall "<game folder>"` removes exactly the files it installed (a file you changed
+since is left alone), puts the original `dinput8.dll` back, and refuses to do anything without its record. Then clear
+the launch option. Please report whether it worked, with the Proton version, in an
+[issue](https://github.com/TommoDotCommo/mdk2-coop/issues).
 
 ## Play together
 
@@ -183,6 +233,11 @@ over the local network inside your PC and cannot be combined with online play.
   tests, but those don't solve puzzles or beat bosses.
 - Some cutscenes started by events inside a level have no countdown until they have been watched once.
 - Real gamepads, microphones and 3-4 couch players have only been tested with simulated input.
+- **Steam Deck / Linux (Proton) is untested.** The launch option and `install-linux.sh` are tested against fixture
+  folders only; nobody has run the game that way yet.
+- **An unsupported game build** (for example a Steam beta branch) keeps co-op off with a message; only Steam build 3902
+  and the Overhaul Games build are known.
+- Setup is **not code-signed yet**: Windows SmartScreen warns before the first run.
 
 ## Help test
 
@@ -220,7 +275,7 @@ what's needed:
 
 ## Uninstall
 
-Open **MDK2-Coop-Setup.exe** and choose **Uninstall**. It removes owned mod files, restores verified original files and removes the settings loader while keeping current player options. Co-op settings, logs and saves in `%LOCALAPPDATA%\mdk2-coop\coop` stay;
+Open **MDK2-Coop-Setup.exe** and choose **Uninstall** (installed by hand or on Linux: see the manual steps under Install). It removes owned mod files, restores verified original files and removes the settings loader while keeping current player options. Co-op settings, logs and saves in `%LOCALAPPDATA%\mdk2-coop\coop` stay;
 delete that folder if you like. Older installs may also have data in the game folder's `coop` subfolder.
 
 What the installer changes: `<game folder>\dinput8.dll` (an earlier one is kept as `dinput8.dll.coop-original`),

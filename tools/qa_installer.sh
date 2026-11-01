@@ -26,6 +26,17 @@ i686-w64-mingw32-gcc -Os -Wall -Wextra -mwindows -o "$out/package/MDK2-Coop-Setu
 i686-w64-mingw32-gcc -O2 -o "$out/package/data_loader_test.exe" "$here/bridge/tests/data_loader_test.c"
 cp -a "$out/package" "$fixtures/setup-package"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_installer_startup.ps1")" -PackageDir "$(wslpath -w "$fixtures/setup-package")"
+# the single-file Setup: built by the release script, checked, started from a folder with nothing else in it
+RELEASE_OUT="$out/release" RELEASE_REUSE_DLL=1 SIGN_CMD="" bash "$here/tools/release.sh" v0.0.0-qa >/dev/null
+python3 "$here/tools/check_release_package.py" "$out/release/mdk2-coop-v0.0.0-qa.zip"
+mkdir -p "$fixtures/single"
+cp "$out/release/MDK2-Coop-Setup.exe" "$fixtures/single/"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_installer_startup.ps1")" -PackageDir "$(wslpath -w "$fixtures/setup-package")" -SingleFile "$(wslpath -w "$fixtures/single/MDK2-Coop-Setup.exe")"
+python3 "$here/tools/test_setup_exe.py"
+# plain build messages at install: synthetic fixture exes, mutants
+python3 "$here/tools/fixtures/make_build_fixtures.py" "$fixtures/builds"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_installer_builds.ps1")" \
+    -PackageDir "$(wslpath -w "$fixtures/setup-package")" -Fixtures "$(wslpath -w "$fixtures/builds")" -TestRoot "$(wslpath -w "$fixtures")"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_installer.ps1")" \
     -GameExe "$(mdk_dir 1)\\mdk2hd.exe" -PackageDir "$(wslpath -w "$fixtures/setup-package")" \
     -TestRoot "$(wslpath -w "$fixtures")"

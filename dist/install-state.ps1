@@ -39,6 +39,28 @@ function Invoke-CoopPolicy([string[]]$values) {
     if ($result.ExitCode -ne 0 -or $result.Output.Trim() -notmatch '^\d+$') { throw 'Setup policy helper failed; unpack the whole release again.' }
     return [int]$result.Output.Trim()
 }
+# ---- which game is this? (read from the exe on disk, never run) ----
+# The native helper applies the same test the DLL uses at every start (bridge/build_sigs.h): the builtin table entry of
+# "copytagmethods" must point at that string. Known = the mod will switch on for this exe.
+$script:CoopUnknownBuildWarning = "This game build is not one the co-op mod knows, so co-op will stay off when you start it " +
+    "(the game itself plays as before). Supported: MDK2 HD on Steam (build 3902) and the Overhaul Games build. " +
+    "If your game is the Steam version, verify its files in Steam (Properties > Installed Files) and opt out of betas " +
+    "(Properties > Betas > None), then run Setup again."
+function Get-CoopGameBuild([string]$exe) {
+    $result = Invoke-CoopHiddenProcess $script:CoopPolicy ('build "{0}"' -f $exe)
+    $lines = @($result.Output -split '\r?\n' | Where-Object { $_ })
+    if ($result.ExitCode -eq 0 -and $lines.Count -ge 2 -and $lines[0] -match '^-?\d+$' -and [int]$lines[0] -ge 0) {
+        return [pscustomobject]@{ Known = $true; Name = $lines[1]; Text = "MDK2 HD $($lines[1])" }
+    }
+    try { $hash = Get-CoopHash $exe } catch { $hash = $null }
+    if (-not $hash) { return [pscustomobject]@{ Known = $false; Name = 'unreadable'; Text = 'unknown build (the game file cannot be read)' } }
+    return [pscustomobject]@{ Known = $false; Name = 'unknown'; Text = "unknown build (SHA-256 $hash)" }
+}
+# The question to ask before installing: $null for a known build (and for uninstalling), else the plain-words warning.
+function Get-CoopBuildWarning($build, [bool]$remove) {
+    if ($remove -or $build.Known) { return $null }
+    return $script:CoopUnknownBuildWarning
+}
 function Get-CoopFileState($expected, $observed, $receipt, $backup, $unknown = $false) {
     $schema = if ($receipt) { if ($receipt.schema -eq 1) { 1 } else { -1 } } else { 0 }
     $values = @('file', "$expected", "$observed", "$schema", "$($receipt.installed)", "$($receipt.original)", "$($receipt.pending)", "$backup", "$([int][bool]$unknown)")

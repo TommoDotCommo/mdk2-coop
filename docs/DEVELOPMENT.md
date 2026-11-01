@@ -23,7 +23,7 @@ process interop (`powershell.exe` and `wslpath`), with isolated game copies.
 Two builds are supported: Steam build 3902 and the Overhaul Games (Beamdog client) build (exe sha256 2e4ae928...39f9).
 They share nearly all code at the same addresses; the Lua runtime, a few helpers and the data tables differ, so
 `select_build()` in `dinput8.c` picks a `struct build_addrs` (`ADDR`) by finding the `copytagmethods` builtin entry.
-On any other build the bridge logs "unknown game build" and only forwards DirectInput. The Overhaul addresses came
+On any other build the bridge logs "unknown game build", says so in a message box and `coop\unsupported-build.txt`, and only forwards DirectInput. The signature test is shared with the installer (`bridge/build_sigs.h`). The Overhaul addresses came
 from a normalised-instruction alignment of the two disassemblies (the Steam exe is encrypted on disk, so the
 Steam side is a memory dump of a running game) and were checked statically (hook prologues, patched call sites).
 That build refuses to start without the Beamdog client ("Please start the BeamDog Client"), so it has not been
@@ -35,14 +35,17 @@ work around that check.
 1. Run the whole ladder with the configured test harness: `python3 tools/qa_all.py full --campaign-shards 4` (see
    [TESTING.md](TESTING.md)). Every gate must pass.
 2. Update `dist/README.txt` (the player's copy in the zip) and the [README](../README.md) for anything new.
-3. `tools/release.sh v0.x.y` builds `local/release/mdk2-coop-v0.x.y.zip`: dinput8.dll, coop\coop.lua,
-   MDK2-Coop-Setup.exe (the only thing a player opens to install or uninstall; it runs installer-gui.ps1, which calls
-   mdk2-coop.ps1 and install-state.ps1, all beside it), Couch.cmd,
-   mdk2-couch.ps1, README.txt and LICENSE.txt. The graphical installer requests elevation only for game-folder
-   writes; its separate user-settings operation runs as the original user. The version
-   is built into the DLL and shown on the launcher's About tab.
-   A matching `.zip.sha256` is generated; include it with the ZIP when publishing.
-4. Tag and publish: `gh release create v0.x.y local/release/mdk2-coop-v0.x.y.zip local/release/mdk2-coop-v0.x.y.zip.sha256` (`--prerelease` for alphas).
+3. `tools/release.sh v0.x.y` builds, in `local/release/`: `MDK2-Coop-Setup.exe` (the single-file Setup, the main download:
+   the files below are embedded in it, checked by SHA-256 and unpacked into a fresh `%LOCALAPPDATA%\mdk2-coop\setup\<version>` folder;
+   it runs installer-gui.ps1 from there, which calls mdk2-coop.ps1 and install-state.ps1) and
+   `mdk2-coop-v0.x.y.zip`: dinput8.dll, coop\coop.lua, MDK2-Coop-Setup.exe (no payload: it starts the scripts beside it, or
+   explains that the zip must be extracted), the scripts, install-policy.exe, Couch.cmd, mdk2-couch.ps1, install-linux.sh
+   (manual install for Proton / Steam Deck), README.txt and LICENSE.txt. The graphical installer requests elevation only for
+   game-folder writes; its separate user-settings operation runs as the original user. The version
+   is built into the DLL and shown on the launcher's About tab. A `.sha256` file is generated for each of the two assets.
+   With `SIGN_CMD` set the script signs every exe and dll first (see [LAUNCHER-MAINTENANCE.md](LAUNCHER-MAINTENANCE.md)),
+   otherwise it warns that the release is unsigned. Check it with `python3 tools/check_release_package.py <zip> [--require-signed]`.
+4. Tag and publish: `gh release create v0.x.y local/release/MDK2-Coop-Setup.exe local/release/MDK2-Coop-Setup.exe.sha256 local/release/mdk2-coop-v0.x.y.zip local/release/mdk2-coop-v0.x.y.zip.sha256` (`--prerelease` for alphas).
 
 ## Dev harness
 

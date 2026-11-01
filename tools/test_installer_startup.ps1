@@ -1,5 +1,6 @@
 # Check the real native bootstrap and real form, without clicking any actions.
-param([Parameter(Mandatory=$true)][string]$PackageDir)
+param([Parameter(Mandatory=$true)][string]$PackageDir,
+      [string]$SingleFile)    # the single-file Setup.exe from tools/release.sh: no scripts beside it; unpacks into %LOCALAPPDATA%
 $ErrorActionPreference = 'Stop'
 Add-Type @'
 using System;
@@ -30,7 +31,13 @@ try {
     . (Join-Path $PackageDir 'install-state.ps1')
     if ((Invoke-CoopPolicy @('actions', '2', '0')) -ne 1) { throw 'Unexpected policy result' }
     Write-Output 'PASS: packaged status helper runs without elevation'
-    $bootstrap = Start-Process -FilePath (Join-Path $PackageDir 'MDK2-Coop-Setup.exe') -PassThru
+    $setupExe = if ($SingleFile) { $SingleFile } else { Join-Path $PackageDir 'MDK2-Coop-Setup.exe' }
+    if ($SingleFile) {
+        # its working folder goes under a scratch profile, not the real one
+        $env:LOCALAPPDATA = Join-Path (Split-Path -Parent $SingleFile) 'profile'
+        New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
+    }
+    $bootstrap = Start-Process -FilePath $setupExe -PassThru
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     $window = [IntPtr]::Zero
     do {
@@ -49,7 +56,13 @@ try {
     [void][SetupWindows]::PostMessage($window, 0x10, [IntPtr]::Zero, [IntPtr]::Zero)
     if (-not $child.WaitForExit(5000)) { throw 'Setup did not close normally' }
     if ($child.ExitCode -ne 0) { throw "Setup exited with an error: $($child.ExitCode)" }
+    if ($SingleFile) {
+        $unpacked = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'mdk2-coop\setup') -Directory | Select-Object -First 1
+        if (-not $unpacked -or -not (Test-Path (Join-Path $unpacked.FullName 'installer-gui.ps1')) -or -not (Test-Path (Join-Path $unpacked.FullName 'dinput8.dll'))) { throw 'single-file Setup did not unpack its files' }
+        Write-Output "PASS: single-file Setup unpacked into a fresh folder and showed the real installer window"
+    } else {
     Write-Output 'PASS: unelevated package policy and visible real installer window; closed without installing'
+    }
 } finally {
     if ($child -and -not $child.HasExited) { $child.Kill(); $child.WaitForExit() }
 }

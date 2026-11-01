@@ -22,6 +22,7 @@ param(
     [switch]$PerUserData,    # GUI installs use writable per-user runtime data
     [string]$DataPath = (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop'),
     [switch]$FindOnly,      # print the game folder that would be used and stop
+    [switch]$AcceptUnknownBuild, # install although the mod does not know this game build (co-op stays off); the GUI passes it after asking
     [switch]$Yes            # no questions: defaults for anything not given
 )
 $ErrorActionPreference = 'Stop'
@@ -174,6 +175,16 @@ function Do-Install {
     $game = Resolve-GameDir
     Say "Game folder: $game"
     if ($FindOnly) { return }
+    $build = Get-CoopGameBuild (Join-Path $game 'mdk2hd.exe')
+    Say "Found: $($build.Text)"
+    $warning = Get-CoopBuildWarning $build $false
+    if ($warning) {
+        Say $warning Yellow
+        if (-not $AcceptUnknownBuild) {
+            if ($Yes) { Fail 'Not installed: this game build is unknown. Run again with -AcceptUnknownBuild to install anyway.' }
+            if ((Ask 'Install anyway? (yes / no)' 'no') -notmatch '^(y|yes)$') { Fail 'Not installed.' }
+        }
+    }
     if ($PrepareDataOnly) { Prepare-UserData $game; return }
     if ($UserSettingsOnly) {
         if ($PerUserData) { Prepare-UserData $game }

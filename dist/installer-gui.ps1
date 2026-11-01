@@ -1,5 +1,5 @@
 # User-facing installer. Only the game-file operation is ever elevated.
-param([string]$ProbePath, [ValidateSet('', 'install', 'uninstall')][string]$TestCompletion = '', [switch]$TestLayout, [string]$TestActionsPath)
+param([string]$ProbePath, [ValidateSet('', 'install', 'uninstall')][string]$TestCompletion = '', [switch]$TestLayout, [string]$TestActionsPath, [string]$TestBuildGate)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -69,10 +69,15 @@ $browse = New-Object Windows.Forms.Button
 $browse.Text = 'Browse...'; $browse.SetBounds(505, 151, 108, 32)
 Style-Button $browse $false
 $form.Controls.Add($browse)
+$buildLabel = New-Object Windows.Forms.Label
+$buildLabel.Name = 'BuildLabel'; $buildLabel.Text = ''
+$buildLabel.ForeColor = [Drawing.ColorTranslator]::FromHtml('#b2c2c9')
+$buildLabel.SetBounds(26, 186, 702, 22)
+$form.Controls.Add($buildLabel)
 $status = New-Object Windows.Forms.Label
 $status.Text = 'Close the game before installing. Your co-op saves and settings are kept on uninstall.'
 $status.ForeColor = [Drawing.ColorTranslator]::FromHtml('#b2c2c9')
-$status.SetBounds(26, 199, 585, 45)
+$status.SetBounds(26, 209, 585, 38)
 $form.Controls.Add($status)
 $install = New-Object Windows.Forms.Button
 $install.Text = 'Install'; $install.SetBounds(430, 480, 143, 40)
@@ -145,8 +150,14 @@ function Refresh-Status {
         $install.Text = 'Install'
         $playExisting.Enabled = $false; $shortcutExisting.Enabled = $false
         $status.Text = 'Choose a game folder to inspect its installation.'
+        $buildLabel.Text = ''
         $dir = $path.Text.Trim().Trim('"')
         if (-not $dir -or -not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe') -PathType Leaf)) { return }
+        try {
+            $build = Get-CoopGameBuild (Join-Path $dir 'mdk2hd.exe')
+            $buildLabel.Text = "Found: $($build.Text)"
+            $buildLabel.ForeColor = [Drawing.ColorTranslator]::FromHtml($(if ($build.Known) { '#7fd19a' } else { '#ffb35b' }))
+        } catch { $buildLabel.Text = 'Found: the game build could not be identified' }
         $playExisting.Enabled = $true; $shortcutExisting.Enabled = $true
         try {
             $snapshot = Get-CoopInstallStatus $dir $PSScriptRoot (Join-Path $env:LOCALAPPDATA 'MDK2HD\settings.lua') (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop')
@@ -191,7 +202,7 @@ $shortcut.Text = 'Create desktop shortcut'; $shortcut.SetBounds(26, 175, 280, 40
 Style-Button $shortcut $false
 $shortcut.Add_Click({ Add-DesktopShortcut $script:installedDir })
 function Show-Completion($remove) {
-    foreach ($control in @($label, $path, $browse, $status, $install, $uninstall, $inventory, $refresh, $playExisting, $shortcutExisting)) { $form.Controls.Remove($control) }
+    foreach ($control in @($label, $path, $browse, $buildLabel, $status, $install, $uninstall, $inventory, $refresh, $playExisting, $shortcutExisting)) { $form.Controls.Remove($control) }
     $finish.Controls.Remove($play)
     $finish.Controls.Remove($shortcut)
     if ($remove) {
@@ -203,6 +214,14 @@ function Show-Completion($remove) {
     }
     $form.Controls.Add($finish)
     $form.AcceptButton = $close
+}
+if ($TestBuildGate) {
+    # What Install would show for this game folder: the "Found:" line and, for an unknown build, the warning it must ask about.
+    $build = Get-CoopGameBuild (Join-Path $TestBuildGate 'mdk2hd.exe')
+    Write-Output "Found: $($build.Text)"
+    $warning = Get-CoopBuildWarning $build $false
+    Write-Output $(if ($warning) { "WARNING: $warning" } else { 'NO WARNING' })
+    $form.Dispose(); exit 0
 }
 if ($TestLayout) {
     foreach ($scale in @(1.0, 1.25, 1.5, 2.0)) {
@@ -285,6 +304,7 @@ if ($ProbePath) {
 function Run-Backend($dir, $remove, $part, $elevate) {
     $arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -GameDir "{1}" -Yes -{2}' -f $backend, $dir, $part
     $arguments += ' -PerUserData'
+    if ($script:acceptUnknown) { $arguments += ' -AcceptUnknownBuild' }
     if ($remove) { $arguments += ' -Uninstall' }
     $options = @{ FilePath = 'powershell.exe'; ArgumentList = $arguments; Wait = $true; PassThru = $true; WindowStyle = 'Hidden' }
     if ($elevate) {
@@ -296,6 +316,7 @@ function Run-Backend($dir, $remove, $part, $elevate) {
     if ($process.ExitCode -ne 0) { throw 'The installer could not complete this step. Check that the game is closed and the folder is writable.' }
 }
 $script:busy = $false
+$script:acceptUnknown = $false
 function Perform($remove) {
     if ($script:busy) { return }
     $dir = $path.Text.Trim().Trim('"')
@@ -306,6 +327,13 @@ function Perform($remove) {
     try {
         $preflight = Get-CoopInstallStatus $dir $PSScriptRoot (Join-Path $env:LOCALAPPDATA 'MDK2HD\settings.lua') (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop')
         if ($preflight.actions.blocked) { throw 'Conflicting or unreadable files must be resolved before setup can continue.' }
+        $script:acceptUnknown = $false
+        $warning = Get-CoopBuildWarning (Get-CoopGameBuild (Join-Path $dir 'mdk2hd.exe')) $remove
+        if ($warning) {
+            $answer = [Windows.Forms.MessageBox]::Show($form, "$warning`n`nInstall anyway?", 'MDK2 Co-op: unknown game build', 'YesNo', 'Warning', 'Button2')
+            if ($answer -ne 'Yes') { $status.Text = 'Not installed. Co-op needs a supported game build.'; return }
+            $script:acceptUnknown = $true
+        }
         $script:busy = $true
         $form.ControlBox = $false
         foreach ($control in @($path, $browse, $install, $uninstall, $refresh, $playExisting, $shortcutExisting)) { $control.Enabled = $false }
