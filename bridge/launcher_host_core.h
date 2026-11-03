@@ -330,17 +330,22 @@ static inline int lh_hello_write(char *out, size_t cap, unsigned id, int ready, 
     return n > 0 && (size_t)n < cap ? n : 0;
 }
 #define LH_BANS 32
-struct lh_bans { int n; struct { unsigned id; uint32_t ip; unsigned port; } b[LH_BANS]; };
-static inline void lh_ban(struct lh_bans *b, unsigned id, uint32_t ip, unsigned port)
+/* Kicked this lobby: by launcher id, by address and port, and by name (a rejoin from the same launcher
+ * gets a new id and port; the name stays). Another player on the same PC is not affected. */
+struct lh_bans { int n; struct { unsigned id; uint32_t ip; unsigned port; char name[33]; } b[LH_BANS]; };
+static inline void lh_ban(struct lh_bans *b, unsigned id, uint32_t ip, unsigned port, const char *name)
 {
     int k = b->n < LH_BANS ? b->n++ : LH_BANS - 1;
     b->b[k].id = id; b->b[k].ip = ip; b->b[k].port = port;
+    snprintf(b->b[k].name, sizeof(b->b[k].name), "%s", name ? name : "");
 }
-static inline int lh_banned(const struct lh_bans *b, unsigned id, uint32_t ip, unsigned port)
+static inline int lh_banned(const struct lh_bans *b, unsigned id, uint32_t ip, unsigned port, const char *name)
 {
     int i;
-    for (i = 0; i < b->n; i++)
+    for (i = 0; i < b->n; i++) {
         if (b->b[i].id == id || (b->b[i].ip == ip && b->b[i].port == port)) return 1;
+        if (name && name[0] && b->b[i].name[0] && lh_path_same(b->b[i].name, name)) return 1;
+    }
     return 0;
 }
 enum lh_refuse { LH_ADMIT, LH_REFUSE_KICKED, LH_REFUSE_INVITE, LH_REFUSE_FULL };
@@ -348,7 +353,7 @@ enum lh_refuse { LH_ADMIT, LH_REFUSE_KICKED, LH_REFUSE_INVITE, LH_REFUSE_FULL };
 static inline int lh_admit(const struct lh_bans *bans, int invite_only, uint32_t secret, const struct lh_hello *h,
                            uint32_t ip, unsigned port, int members, int limit)
 {
-    if (lh_banned(bans, h->id, ip, port)) return LH_REFUSE_KICKED;
+    if (lh_banned(bans, h->id, ip, port, h->name)) return LH_REFUSE_KICKED;
     if (invite_only && (!h->has_key || h->key != secret)) return LH_REFUSE_INVITE;
     if (members >= limit) return LH_REFUSE_FULL;
     return LH_ADMIT;

@@ -7,7 +7,7 @@ GAME_DIR ?=
 
 .DEFAULT_GOAL := dinput8.dll
 
-SRCS = combat.c combat_core.c combat_hud.c dinput8.c game.c net.c steam.c entities.c shots.c pickups.c doors.c rooms.c frame.c input.c state.c saves.c settings.c loader.c launcher.c hud.c ctrlview.c netstats.c revive.c chat.c movie.c emote.c voice.c plist.c lua.c route.c bot.c pad.c diag.c redirect.c scripttrace.c remote.c presence.c presence_game.c
+SRCS = combat.c combat_core.c combat_hud.c dinput8.c game.c net.c steam.c entities.c shots.c pickups.c doors.c rooms.c frame.c input.c state.c saves.c settings.c loader.c launcher.c hud.c ctrlview.c netstats.c revive.c chat.c movie.c emote.c voice.c plist.c lua.c route.c bot.c pad.c diag.c redirect.c scripttrace.c remote.c presence.c presence_game.c launcher_host.c
 
 # VERSIONINFO with the mod version (tools/versioninfo.py rewrites version.rc only when the version changed)
 VERSION_RC := $(shell python3 ../tools/versioninfo.py "$(VERSION)" dinput8.dll "MDK2 Co-op (DirectInput proxy)" version.rc >/dev/null && echo version.rc)
@@ -20,7 +20,7 @@ diag_ps1.h: ../dist/diag.ps1
 	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r$$//' -e 's/^/"/' -e 's/$$/\\n"/' $< | \
 		{ echo 'static const char diag_script[] ='; cat; echo ';'; } > $@
 
-dinput8.dll: $(SRCS) bridge.h anim_guard.h crash_context.h combat_core.h combat_hud.h presence.h snapshot.h steam_abi.h route.h pad.h launcher_session.h launcher_profiles.h launcher_profiles_win.h launcher_update.h launcher_update_win.h launcher_voice_win.h dinput8.def diag_ps1.h version_res.o
+dinput8.dll: $(SRCS) bridge.h anim_guard.h crash_context.h combat_core.h combat_hud.h presence.h snapshot.h steam_abi.h route.h pad.h launcher_session.h launcher_profiles.h launcher_profiles_win.h launcher_update.h launcher_update_win.h launcher_voice_win.h launcher_host.h launcher_host_core.h launcher_host_win.h coop_invite.h coop_discover.h coop_discover_win.h dinput8.def diag_ps1.h version_res.o
 	$(CC) $(CFLAGS) -DMOD_VERSION='"$(VERSION)"' -o $@ $(SRCS) version_res.o dinput8.def $(LDFLAGS)
 
 install: dinput8.dll

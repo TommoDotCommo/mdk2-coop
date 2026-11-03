@@ -173,13 +173,25 @@ static void test_lobby(void)
     CHECK(lh_admit(&bans, 1, 0, &h, ip4(192, 168, 1, 5), 50000, 1, 16) == LH_REFUSE_INVITE);   /* no key is not key 0 */
     /* kicked: refused for this session by id, and by address with a new id */
     h.has_key = 1; h.key = 0x1234;
-    lh_ban(&bans, h.id, ip4(192, 168, 1, 5), 50000);
+    lh_ban(&bans, h.id, ip4(192, 168, 1, 5), 50000, "Fox");
     CHECK(lh_admit(&bans, 1, 0x1234, &h, ip4(192, 168, 1, 5), 50000, 1, 16) == LH_REFUSE_KICKED);
+    snprintf(h.name, sizeof(h.name), "Bob");
     h.id = 0x9999;
-    CHECK(lh_admit(&bans, 0, 0x1234, &h, ip4(192, 168, 1, 5), 50000, 1, 16) == LH_REFUSE_KICKED);
+    CHECK(lh_admit(&bans, 0, 0x1234, &h, ip4(192, 168, 1, 5), 50000, 1, 16) == LH_REFUSE_KICKED);   /* same address and port */
     CHECK(lh_admit(&bans, 0, 0x1234, &h, ip4(192, 168, 1, 6), 50000, 1, 16) == LH_ADMIT);
     CHECK(lh_admit(&bans, 0, 0x1234, &h, ip4(192, 168, 1, 5), 50001, 1, 16) == LH_ADMIT);    /* same PC, another player */
     CHECK(lh_admit(&bans, 0, 0x1234, &h, ip4(192, 168, 1, 6), 50000, 16, 16) == LH_REFUSE_FULL);
+    snprintf(h.name, sizeof(h.name), "fox");                                                  /* rejoined: new id and port */
+    h.id = 0x7777;
+    CHECK(lh_admit(&bans, 0, 0x1234, &h, ip4(192, 168, 1, 5), 50002, 1, 16) == LH_REFUSE_KICKED);
+    h.name[0] = 0;
+    CHECK(lh_admit(&bans, 0, 0x1234, &h, ip4(192, 168, 1, 5), 50002, 1, 16) == LH_ADMIT);    /* an empty name matches nothing */
+    {
+        struct lh_bans none;
+        memset(&none, 0, sizeof(none));
+        lh_ban(&none, 0x55, ip4(10, 0, 0, 9), 4000, "");                                      /* a nameless player kicked */
+        CHECK(lh_admit(&none, 0, 0, &h, ip4(10, 0, 0, 8), 4000, 1, 16) == LH_ADMIT);          /* another nameless one is not */
+    }
     CHECK(lh_refusal_parse("MDKL K 2", 8) == LH_REFUSE_INVITE && !lh_refusal_parse("MDKL K 9", 8) && !lh_refusal_parse("MDKL R 2", 8));
     CHECK(strstr(lh_refusal_text(LH_REFUSE_INVITE), "invite only") != NULL);
     /* B9: invite only is not listed by the v1 probe, still answers v2 (flagged, nameless) */
