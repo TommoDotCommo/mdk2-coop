@@ -255,12 +255,19 @@ self-test on loopback fake hosts. See [DISCOVERY.md](DISCOVERY.md).
 `bridge/launcher_join.h`: the host answer to CPQ1 and CPQ2 with its rate limit, the scan's candidates on
 a model PC with two adapters, Tailscale and recent hosts, the sources line, row text and order, the
 failure wording, an invite's routes tried at once, the saved-addresses migration, the Rejoin shortcut and
-the `mdk2-coop://` link on the command line, with sanitisers and 24 source mutants (among them: queries only to 255.255.255.255, which loses the
+the `mdk2-coop://` link on the command line, with sanitisers and 25 source mutants (among them: an invite-only host listed by the v1 probe, and queries only to 255.255.255.255, which loses the
 second adapter's host). It also checks the wiring: both host listeners answer through `lj_host_reply`
 and the Join page has no typed address field. The live gate `join-list` (`tools/qa_join_list.sh`, two
 games) asserts from the launcher's state dump that the joiner, with no address configured, lists the host,
 joins from the list, remembers it, joins again from a pasted invite code (LAN route kept over a second
 one), sees Rejoin on Play and is offered a clipboard invite once.
+
+`tools/test_launcher_host.py` (gate `launcher-host`) covers the host side of the lobby: NAT-PMP and
+UPnP-IGD messages, the CGNAT check, firewall rule verdicts, invite routes, the lobby key, kicks,
+"Waiting for" and the pad from recorded states, with sanitisers, fuzzing and 25 source mutants;
+with Windows interop the router code runs against a fake IGD and NAT-PMP responder (mutant: the mapping is not
+removed on close). `tools/qa_host.sh` (feature gate `hosting`, two games) is its live check. See
+[HOSTING.md](HOSTING.md).
 
 `tools/test_network.sh` also requires four broken epoch variants to fail: premature
 epoch adoption, applying spawns during a load, blocking a same-epoch reconnect,

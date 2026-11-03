@@ -20,6 +20,24 @@ Not final: edit the version, merge into the release's notes file and delete this
 - **Ready for code signing.** `tools/release.sh` signs every exe and dll when `SIGN_CMD` is set; the release published
   here may still be unsigned (Windows SmartScreen then warns: More info > Run anyway).
 
+## Hosting that explains itself
+
+- **Friends can join by.** The lobby checks every way in and says what it found: same network, Tailscale (with this
+  PC's Tailscale name), the internet and Windows Firewall, each with its fix. Steam stays on Play: Connection: Steam.
+- **The router port, by itself.** While your lobby is open it asks the router to open the port (UPnP, else NAT-PMP),
+  keeps it open for the game, and removes it when you leave. If your provider shares your address (CGNAT), the
+  lobby says so and points to Steam or Tailscale. Settings > Network > Open the router port while hosting.
+- **One invite.** Copy invite puts "Fox is hosting MDK2. Join: <link>" on the clipboard; the code carries every
+  route that works (internet only when the router check passed). Paste the code or the link into Join.
+- **Invite only.** Choose who can see your lobby: Open to my networks, or Invite only (not listed; the invite's code
+  is needed to get in).
+- **The lobby.** Players, chat and "Friends can join by" side by side. Start game waits until everyone is ready
+  ("Waiting for Fox and Bob"). The host can Kick a player from the lobby.
+- **Four tabs.** Play, Saves, Settings, About. Help moved into About (Report a problem). Settings has Network and
+  Launcher sections. An available update shows a banner on Play, never over a lobby.
+- **Pad.** The launcher works with a pad: stick or D-pad, A, B, LB/RB tabs, Start, X copies the invite, hold Y for
+  the quick guide; the hints switch to pad buttons.
+
 ## Under the hood
 
 - The game-build test is one shared header (`bridge/build_sigs.h`) used by the DLL at every start and by the installer on

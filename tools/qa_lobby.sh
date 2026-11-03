@@ -140,6 +140,7 @@ if [ "${MUTANT:-}" = nostart ]; then
     echo "$pass passed, $fail failed (nostart mutant detected)"
     [ "$fail" -eq 0 ]; exit $?
 else
+    lcmd 3 "key 13"; sleep 1          # Start waits until everyone is ready (standard D3)
     lcmd 1 "key 13"
 fi
 check "host: countdown started"                wait_log 1 "^lobby: host started the countdown \(3 players\)" 10

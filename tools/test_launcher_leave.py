@@ -6,10 +6,13 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / 'bridge/launcher.c').read_text()
-start = source.index('    if (page == PAGE_PLAY) {\n        if (lob.on)')
-end = source.index('\nstatic void pass(void)', start)
-# Keep the production renderer's page dispatch and footer, stopping at its closing brace.
-body = source[start:end].rstrip()
+# The production renderer: the open lobby takes the whole window and returns, then the page dispatch and
+# the footer, stopping at render's closing brace.
+start = source.index('    if (page == PAGE_PLAY && lob.on) {\n        lobby_full();')
+first_end = source.index('    }\n', start) + len('    }\n')
+tail = source.index('    if (page == PAGE_PLAY)\n        page_play();', first_end)
+end = source.index('\nstatic void pass(void)', tail)
+body = source[start:first_end] + source[tail:end].rstrip()
 PRELUDE = r'''
 #include <assert.h>
 #include <stdint.h>
@@ -43,7 +46,7 @@ static int button(int id,int x,int y,int w,int h,const char *s,int primary) {
     return click && x <= 1000 && 1000 < x+w && y <= 660 && 660 < y+h;
 }
 static void lob_leave(void) {lob.on=0;leaves++;}
-static void lobby_page(void) {if(click) lob_leave();}
+static void lobby_full(void) {if(click) lob_leave();}
 static void page_play(void) {}
 static void lj_page_recents(void) {}
 static void lj_set_view(int full,int play) {}
@@ -85,8 +88,8 @@ with tempfile.TemporaryDirectory() as temp:
     result=run(body)
     assert result.returncode==0,result.stderr.decode()
     print(result.stdout.decode().strip())
-    guard='if (!lob.on) return; /* Leave must not activate the Play footer in this pass. */'
+    guard='        lobby_full();\n        return;\n'
     assert guard in body
-    mutant=run(body.replace(guard,''))
+    mutant=run(body.replace(guard,'        lobby_full();\n'))
     assert mutant.returncode!=0,'SURVIVED: leave-click-through'
     print('KILLED: leave-click-through')

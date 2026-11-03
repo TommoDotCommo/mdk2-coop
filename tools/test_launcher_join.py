@@ -23,6 +23,7 @@ MUTANTS = {
     'recents-not-probed': ('cd_add_recent(c, &in->recents->r[i], in->recent_ip ? in->recent_ip[i] : 0);', ';'),
     'configured-port-only': ('if (!n || out[0] != LJ_DEFAULT_PORT) out[n++] = LJ_DEFAULT_PORT;', 'if (!n) out[n++] = LJ_DEFAULT_PORT;'),
     'default-port-only': ('if (configured >= 1 && configured <= 65532) out[n++] = configured;', ''),
+    'invite-only-listed': ('if (h->invite_only && n == 8) return 0;', ''),
     'no-rate-limit': ('if (!cd_rate_allow(rate, from_ip, now)) return 0;', ''),
     'cpq1-dropped': ('(n == 8 && !memcmp(q, "CPQ1", 4)) || ', ''),
     'cpq2-dropped': (' || (n == CD_QUERY_LEN && !memcmp(q, "CPQ2", 4))', ''),
@@ -92,6 +93,10 @@ join = (BRIDGE / 'launcher_join.c').read_text()
 problems = []
 if 'lj_host_reply(' not in launcher or 'lj_host_reply(' not in net:
     problems.append('a host listener does not answer through lj_host_reply')
+if 'lhost_probe_answer' in launcher or 'cd_answer(' in launcher or 'cd_answer(' in net:
+    problems.append('a second probe answer path besides lj_host_reply')
+if 'lhost_cfg.invite_only' not in launcher.split('lj_host_reply(', 1)[0].rsplit('struct cd_host me', 1)[-1]:
+    problems.append('the launcher lobby answers probes without its invite-only setting')
 if 'lp_answer(' in launcher or 'lp_answer(' in net:
     problems.append('a host listener still answers with lp_answer only')
 if '"Host address"' in launcher or '"Host address"' in join:

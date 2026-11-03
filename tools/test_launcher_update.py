@@ -310,7 +310,7 @@ with tempfile.TemporaryDirectory() as temp:
 # Execute the shipped About-page renderer with game-free UI stubs. A successful
 # check has no release notes, which used to trigger a stray write clearing line.
 launcher = (ROOT / 'bridge/launcher.c').read_text()
-about = launcher.split('static void page_about(void)', 1)[1].split('/* Help:', 1)[0]
+about = launcher.split('static void page_about(void)', 1)[1].split('\n/* ---- lobby', 1)[0]
 shim = r"""
 #include <stdio.h>
 #include <string.h>
@@ -348,7 +348,10 @@ enum { UP_IDLE, UP_CHECKING, UP_CURRENT, UP_AVAILABLE, UP_DOWNLOADING,
 #define ShellExecuteA(...) ((void)0)
 #define LU_OWNER_SETUP 0
 #define RELEASES_PAGE ""
-int update_state, update_rollback_ready, changed, seen, update_owner;
+#define MAX_PATH 260
+int update_state, update_rollback_ready, changed, seen, update_owner, diag_state;
+char diag_msg[MAX_PATH];
+static int diag_bundle_start(void) { return 0; }
 struct { int auto_enabled, include_prereleases; } update_sched = {1, 1};
 struct { char notes[180]; } update_rel;
 char update_msg[220];

@@ -35,7 +35,7 @@ BS=(); for i in $(seq 1 24); do BS+=("key 8"); done     # backspaces: empty a fi
 
 # canvas spots (1280x720): tabs, Play page tiles, the connection selector, the Join paste box,
 # the Play button; Settings: the section picker's arrows (Co-op, Interface, Voice and sound, Display) and rows
-T_PLAY="click 780 50"; T_SAVES="click 880 50"; T_SET="click 1000 50"; T_ABOUT="click 1130 50"
+T_PLAY="click 780 50"; T_SAVES="click 880 50"; T_SET="click 1000 50"; T_ABOUT="click 1070 50"
 HOST="click 1000 200"; JOIN="click 1000 283"; SOLO="click 1000 367"
 PASTE="click 1000 366"; PLAY="click 1000 660"
 SEC_NEXT="click 1220 115"; SEC_PREV="click 1050 115"
@@ -113,8 +113,8 @@ check "host: F1 quick guide draws over the window"      bash -c "! cmp -s '$out/
 # help: Send diagnostics zips the logs (into a test folder, not the desktop) and says where it went
 diagout="$(dir 1)/coop/diag-out"; rm -rf "$diagout"; mkdir -p "$diagout"
 setini 1 diag out_dir "$(mdk_dir 1)\\coop\\diag-out"
-lcmd 1 "click 1165 50"; shot 1 help_page
-lcmd 1 "click 944 288"
+lcmd 1 "$T_ABOUT"; shot 1 help_page             # Help is part of About (Report a problem)
+lcmd 1 "press Send diagnostics"
 check "help: Send diagnostics starts the bundle"        wait_log 1 "^diagnostics: bundling started" 10
 check "help: the bundle is made"                        wait_log 1 "^diagnostics: OK .*mdk2-coop-diag_.*\\.zip" 120
 shot 1 help_done
@@ -151,8 +151,8 @@ cp "$settings" "$out/settings.lua.before"
 mdk_kill; sleep 2
 P2=$(start 2); echo "$P2" > "$MDK2_PIDS.solo"
 check "solo: launcher up"                               wait_log 2 "^launcher: shown" 30
-lcmd 2 "$T_SET" "$SEC_PREV" "$RES"; shot 2 settings_res        # Display (the picker wraps round)
-lcmd 2 "$SEC_PREV" "$MUSIC"; shot 2 settings_sound              # Voice and sound: music one step up
+lcmd 2 "$T_SET" "$SEC_PREV" "$SEC_PREV" "$SEC_PREV" "$RES"; shot 2 settings_res   # Display (wraps round: Launcher, Network, Display)
+lcmd 2 "$SEC_PREV" "$SEC_PREV" "$MUSIC"; shot 2 settings_sound  # Voice and sound (past Controls): music one step up
 lcmd 2 "$T_PLAY" "$SOLO"; shot 2 solo
 lcmd 2 "$PLAY"
 check "solo: chosen"                                    wait_log 2 "^launcher: play, solo \(co-op off\)" 10

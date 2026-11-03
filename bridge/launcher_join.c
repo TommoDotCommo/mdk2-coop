@@ -66,6 +66,9 @@ static struct {
     int pending, pending_route;
     char pending_name[CI_NAME_MAX + 1], pending_host[128];
     unsigned pending_port;
+    /* the invite's lobby key for the join lj_go starts now (an invite-only host asks for it) */
+    int go_has_key;
+    uint32_t go_key;
     char shown_label[96];
 } lju;
 
@@ -429,7 +432,7 @@ static void lj_go(uint32_t ip, unsigned port, int state, const char *name, int r
     lj_note_pending(name, host, port, route);
     logmsg("join: %s (%s, %s)", name && name[0] ? name : "host", cd_route_name(route),
            state == CD_IN_GAME ? "in game" : "in lobby");
-    if (state != CD_IN_GAME && lob_wants()) lob_open();
+    if (state != CD_IN_GAME && lob_wants()) lob_open();      /* takes lju.go_key into the hello */
     else {
         lj_remember(name, host, port, route);          /* the game connects next; the lobby is skipped */
         done = 1;
@@ -506,7 +509,10 @@ static void lj_take_result(void)
         row.ip = ip; row.port = (uint16_t)port; row.route = route;
         if (!row.name[0]) snprintf(row.name, sizeof(row.name), "%.32s", label);
         lju.busy = 0;
+        lju.go_has_key = v.n > 0;                      /* an invite's route answered: its key goes along */
+        lju.go_key = v.secret;
         lj_row_go(&row);
+        lju.go_has_key = 0;
         return;
     }
     if (lju.rec.kind == CR_INVITE || lju.rec.kind == CR_LINK || was_offer) {
