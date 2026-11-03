@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define LHOST_JOIN_PAGE "tommodotcommo.github.io/join"
+#define LHOST_JOIN_PAGE "tommodotcommo.github.io/coop-mod-kit/join"
 
 /* Settings > Network rows (coop.ini [network]) and the lobby's visibility. */
 struct lhost_settings {

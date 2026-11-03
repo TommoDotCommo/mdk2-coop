@@ -145,8 +145,8 @@ static void test_invite(void)
     CHECK(ci_encode(&v, "MDK2", code, sizeof(code)) > 0);
     CHECK(ci_decode(code, strlen(code), "MDK2", &back, &other) == CI_OK && back.secret == v.secret && back.port == 27916 && back.n == 4 &&
           back.steam_lobby == v.steam_lobby && back.flags == v.flags && !memcmp(back.route, v.route, sizeof(v.route)));
-    CHECK(ci_message("Fox", "MDK2", "tommodotcommo.github.io/join", code, msg, sizeof(msg)) > 0 &&
-          !strncmp(msg, "Fox is hosting MDK2. Join: https://tommodotcommo.github.io/join/#MDK2-", 69));
+    CHECK(ci_message("Fox", "MDK2", "tommodotcommo.github.io/coop-mod-kit/join", code, msg, sizeof(msg)) > 0 &&
+          !strncmp(msg, "Fox is hosting MDK2. Join: https://tommodotcommo.github.io/coop-mod-kit/join/#MDK2-", 82));
 }
 
 static void test_lobby(void)
