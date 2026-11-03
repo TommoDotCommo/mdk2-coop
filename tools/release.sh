@@ -7,6 +7,7 @@
 #                                     coop-mod.json (what the package is: tools/mod_manifest.py) sits at the zip root and in
 #                                     its top folder; every shipped exe and dll carries a VERSIONINFO with the version.
 #   NEXUS-<version>.txt               the copy note for Nexus Mods: the same zip, the same version string (no upload)
+#   mod-managers/                     the Vortex extension zip and the MO2 plugin (modmanagers/build.py), release assets
 #   tools/release.sh            version from `git describe --tags --always`
 #   tools/release.sh v0.1.0     explicit version
 # Code signing: set SIGN_CMD to a command template that signs one file in place; {file} is replaced by the (quoted) path.
@@ -156,6 +157,7 @@ python3 "$here/tools/mod_manifest.py" --nexus-note "$out/$name.zip" > "$out/NEXU
 echo "$out/MDK2-Coop-Setup.exe ($(du -h "$out/MDK2-Coop-Setup.exe" | cut -f1))"
 echo "$out/$name.zip ($(du -h "$out/$name.zip" | cut -f1))"
 echo "$out/NEXUS-$ver.txt"
+python3 "$here/modmanagers/build.py" "$out/mod-managers"
 
 checks=()
 [ "${RELEASE_REQUIRE_SIGNED:-0}" != 1 ] || checks+=(--require-signed)
