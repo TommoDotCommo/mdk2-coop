@@ -3,8 +3,8 @@
 #  * with the player's mdk2.tar: the title art, the menu font, the buttons' steel and the three heroes' panels load;
 #    on every page (Play in each mode, Saves, each Settings section, About, the lobby as host and as guest) every
 #    button label is drawn in the menu font and none is wider than its button
-#  * the host's lobby shows each player's hero (a new game starts at level 1: Kurt) and the guest's does not (its
-#    roster does not say which level the host chose)
+#  * the host's lobby shows each player's hero (a new game starts at level 1: Kurt) and the guest's shows the same
+#    (the roster carries the level); each Saves card shows the hero of its level
 #  * without the art ([test] launcher_art=0, as without mdk2.tar) the launcher draws everything in the GDI face, and the
 #    art checks above fail on that dump (they can fail)
 #   tools/qa_launcher_look.sh
@@ -31,7 +31,6 @@ lcmd()  { local f i; f="$(dir "$1")/coop/launcher.txt"; shift
 dump()  { local f="$(dir "$1")/coop/launcher-state.ini"; rm -f "$f"; lcmd "$1" "dump"; sleep 0.3
           tr -d '\r' < "$f" > "$out/$2.ini" 2>/dev/null; }
 val()   { awk -F= -v k="$2" '/^\[/ { s = $0 } s == "[launcher]" && $1 == k { print $2; exit }' "$out/$1.ini"; }
-trap 'mdk_kill' EXIT
 
 # canvas spots (1280x720), as tools/qa_launcher.sh
 T_PLAY="click 780 50"; T_SAVES="click 880 50"; T_SET="click 1000 50"; T_ABOUT="click 1070 50"
@@ -51,6 +50,52 @@ for i in 1 2; do
     rm -f "$(dir $i)/coop/launcher.txt"
 done
 setini 1 launcher mode host; setini 2 launcher mode join
+
+# three saves in the host's saves.ini (levels 4, 2 and 7: Kurt, Max, Kurt), restored afterwards with the player id
+now=$(date +%s); seeded="$(dir 1)/coop"
+for f in player.ini saves.ini; do rm -f "$seeded/$f.qa"; [ -e "$seeded/$f" ] && cp "$seeded/$f" "$seeded/$f.qa"; done
+unseed() { for f in player.ini saves.ini; do rm -f "$seeded/$f"; [ -e "$seeded/$f.qa" ] && mv "$seeded/$f.qa" "$seeded/$f"; done; }
+trap 'unseed; mdk_kill' EXIT
+printf '[player]\r\nid=0a0b0c0d\r\nname=PlayerOne\r\n' > "$seeded/player.ini"
+cat > "$seeded/saves.ini" <<SEED
+[h0a0b0c0d_1234]
+a_no=3
+a_level=4
+a_cp=3
+a_file=save\\c0c0d1234a.sav
+updated=$((now - 7200))
+peak=3
+m_n=3
+m0=PlayerOne
+m1=Alice
+m2=Bob
+host_name=PlayerOne
+me=PlayerOne
+[h0a0b0c0d_5678]
+b_no=2
+b_level=2
+b_cp=5
+b_file=save\\c0c0d5678b.sav
+updated=$((now - 600000))
+peak=2
+m_n=2
+m0=PlayerOne
+m1=Carol
+host_name=PlayerOne
+me=PlayerOne
+[h1f2e3d4c_9abc]
+a_no=7
+a_level=7
+a_cp=2
+a_file=save\\c0c0d9abca.sav
+updated=$((now - 100000))
+peak=2
+m_n=2
+m0=Dave
+m1=PlayerOne
+host_name=Dave
+me=PlayerOne
+SEED
 P1=$(mdk_start 1); P2=$(mdk_start 2); echo "$P1 $P2" > "$MDK2_PIDS"
 wait_log 1 "^launcher: shown at" 40 && wait_log 2 "^launcher: shown at" 40
 check "both launchers up" has 2 "^launcher: shown at"
@@ -60,9 +105,11 @@ lcmd 1 "$T_PLAY" "$HOST"; dump 1 play_host
 lcmd 1 "$JOIN"; sleep 1; dump 1 play_join
 lcmd 1 "$HOST_ANY" "$SOLO"; dump 1 play_solo
 lcmd 1 "$HOST_ANY" "$T_SAVES"; dump 1 saves
+lcmd 1 "shot look_saves"; python3 "$here/tga2png.py" "$(dir 1)/coop/look_saves.tga" "$out/saves.png" 2>/dev/null; rm -f "$(dir 1)/coop/look_saves.tga"
 lcmd 1 "$T_SET"
 for n in 0 1 2 3 4 5 6; do dump 1 "settings_$n"; lcmd 1 "$SEC_NEXT"; done
 lcmd 1 "$T_ABOUT"; dump 1 about
+check "saves: a portrait on each of the 3 cards, the hero of its level ($(val saves look_portraits))" test "$(val saves look_portraits)" = 3
 for p in play_host play_join play_solo saves settings_0 settings_1 settings_2 settings_3 settings_4 settings_5 settings_6 about; do
     check "art: $p in the game's look, no label over its button (labels $(val $p look_game_labels), over $(val $p look_overflow))" art_ok "$p"
 done
