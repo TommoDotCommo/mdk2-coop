@@ -164,3 +164,22 @@ and the glyph switch; `coop-keys` checks the guide's pad lines; live: `pad-layer
   (player list) and [ ] (watch) appear and the keys stay in step.
 - Checks: `tools/qa_session_menu.sh` (two games; Copy invite decoded by `tools/invite_decode.py`, Leave asks once, Ctrl+M
   write-back, with a mutant), plus mutants in `tools/test_ui_layout.py` and `tools/test_coop_keys.py`.
+
+## The whole launcher in the MDK2 look
+
+- **Buttons in the game's steel.** Every button other than the big orange one (Mute me, Deafen, Mute, Kick, Leave
+  lobby, Send, Copy invite, Open to my networks, Save address, Check now, Send diagnostics, Try again, Rename, Pin,
+  Forget...) now has the game's diamond-plate steel with a raised edge and its label in the game's menu font, sized to
+  fit the button. The one under the mouse or the keyboard gets an orange edge; the host's "Waiting for <names>" is
+  darker until everyone is ready. The short orange buttons (Install update, Join, Save) keep their label inside.
+- **Choosers, switches, text boxes and the Join list** use the same steel.
+- **Who plays whom.** In the host's lobby each player's row shows the face of the hero everyone starts the chosen
+  level as (Kurt, Max or Doc), cut from the game's own comic panels, next to the player's colour.
+- **The title art stays in view** behind a lighter lobby panel, as on Play. The lobby's key hints use the same size as
+  on the other pages; body text, hints and chat stay in the plain readable face.
+- All of it is read from your own `mdk2.tar` when the launcher opens (in one pass over the archive); nothing from
+  the game is shipped. Without the archive the launcher looks as before.
+- Checks: `launcher-look-core` (labels fit their button or fall back, the heroes per level; a mutant whose labels never
+  shrink must fail), new `tools/test_ui_layout.py` checks with two mutants, and `tools/qa_launcher_look.sh` (two games:
+  every page in the game's look with no label wider than its button, the host's portraits, and the same pages with
+  `[test] launcher_art=0` drawn as before).

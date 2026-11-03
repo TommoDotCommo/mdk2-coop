@@ -245,7 +245,10 @@ the rest of the file and the loader block are kept. Its Settings tab has every c
 (Co-op, Interface, Voice and sound, Display). Solo sets `coop_enabled = 0`, and
 coop_init then does nothing. Drawn with GDI into a DIB: the title art (`Titlescreen_PC.dds`) and menu font
 (`font.dds`, widths from `font.lua`) are read from the player's own mdk2.tar; without them it falls back to
-plain colours and Windows fonts. Skipped for `+connect_lobby` and in background test mode, except with
+plain colours and Windows fonts. The buttons' steel (a band of `jd_panel00.dds`) and the heroes' faces in the lobby
+(squares of the comic panels `l0apanel004.dds`, `l0xpanel003.dds`, `l0ypanel004.dds`) come from there too, all found
+in one pass over the archive; `bridge/launcher_look.h` says where to cut them and fits each button label in the menu
+font (or the GDI face when it cannot fit). `[test] launcher_art=0` draws without any of it, as without mdk2.tar. Skipped for `+connect_lobby` and in background test mode, except with
 `[test] save_dir=<folder>` (`bridge/redirect.c`) moves the game's `%LOCALAPPDATA%\MDK2HD` (saves, crash reports, `settings.lua`) to `<folder>\MDK2HD` by pointing the exe's `SHGetSpecialFolderPathA` import at a wrapper; `tools/install.sh` sets it for every test copy (see [Per-instance user data](TESTING.md#per-instance-user-data)).
 `[test] launcher=1`: hidden, driven by `coop\launcher.txt` (`key <vk>`, `click <x> <y>`, `text <s>`,
 `shot <name>`). `tools/qa_launcher.sh` (two games: pages, UDP join at a typed address,

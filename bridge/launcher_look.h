@@ -13,7 +13,7 @@
 #include <ctype.h>
 
 #define LL_MIN_GLYPH 14.0f      /* smaller than this the menu font smears: the GDI face reads better */
-#define LL_MAX_GLYPH 24.0f      /* the tabs are 26, the primary button 34 */
+#define LL_MAX_GLYPH 26.0f      /* as the tabs; the primary button is 34 */
 #define LL_PAD       5.0f       /* room left and right of a label inside its button */
 
 /* the width of s in the menu font at height h (cell 32x32, advances in cells; the font has capitals only) */
@@ -38,7 +38,9 @@ static float ll_fit(const float adv[256], const char *s, float w, float gh)
 /* the glyph height for label s in a secondary button w x h, or 0: it does not fit in the menu font, use the GDI face */
 static float ll_label_height(const float adv[256], const char *s, float w, float h)
 {
-    float gh = (float)(int)(h * 0.6f + 0.001f);       /* whole pixels: 25 * 0.6 must not become 14.999 */
+    /* the capitals fill about two thirds of the 32-pixel cell: a cell of 0.78 h gives capitals half the button's height;
+     * whole pixels, so 25 * 0.78 does not become 19.4999 */
+    float gh = (float)(int)(h * 0.78f + 0.001f);
     return ll_fit(adv, s, w, gh > LL_MAX_GLYPH ? LL_MAX_GLYPH : gh);
 }
 
@@ -46,7 +48,7 @@ static float ll_label_height(const float adv[256], const char *s, float w, float
  * the short ones (Install update, Join, Save) so the label stays inside */
 static float ll_primary_height(const float adv[256], const char *s, float w, float h)
 {
-    float gh = h - 14 > 34 ? 34 : h - 14;
+    float gh = (float)(int)(h * 0.78f + 0.001f);
     return h >= 50 ? 34 : ll_fit(adv, s, w, gh);
 }
 

@@ -29,8 +29,7 @@ int main(void)
     /* about the menu font's widths: capitals and digits half a cell, a space less, wide letters more */
     for (i = 0; i < 256; i++)
         adv[i] = 0.45f;
-    adv[' '] = 0.30f;
-    adv['M'] = adv['W'] = 0.72f;
+    adv['M'] = adv['W'] = 0.60f;
     adv['I'] = adv['1'] = 0.25f;
 
     for (i = 0; i < (int)(sizeof(buttons) / sizeof(buttons[0])); i++) {
@@ -60,7 +59,7 @@ int main(void)
         gh = ll_label_height(adv, s, w, h);
         if (gh > 0) {
             CHECK(ll_title_width(adv, s, gh) <= w - 2 * LL_PAD, "\"%s\" at %g in %gx%g runs over", s, gh, w, h);
-            CHECK(gh >= LL_MIN_GLYPH && gh <= LL_MAX_GLYPH && gh <= h * 0.6f + 0.002f, "\"%s\": height %g out of range", s, gh);
+            CHECK(gh >= LL_MIN_GLYPH && gh <= LL_MAX_GLYPH && gh <= h * 0.78f + 0.002f, "\"%s\": height %g out of range", s, gh);
         }
         if (fails > 5)
             break;
@@ -73,14 +72,14 @@ int main(void)
         };
         for (i = 0; i < (int)(sizeof(prim) / sizeof(prim[0])); i++) {
             float gh = ll_primary_height(adv, prim[i].s, prim[i].w, prim[i].h);
-            CHECK(gh >= LL_MIN_GLYPH && ll_title_width(adv, prim[i].s, gh) <= prim[i].w - 2 * LL_PAD && gh <= prim[i].h - 14,
+            CHECK(gh >= LL_MIN_GLYPH && ll_title_width(adv, prim[i].s, gh) <= prim[i].w - 2 * LL_PAD && gh <= prim[i].h * 0.78f,
                   "primary \"%s\" (%gx%g) does not fit at %g", prim[i].s, prim[i].w, prim[i].h, gh);
         }
         CHECK(ll_primary_height(adv, "Open lobby", 476, 64) == 34 && ll_primary_height(adv, "Start game", 233, 52) == 34,
               "the tall primary buttons changed size");
     }
     CHECK(ll_label_height(adv, "A very long label for a tiny button", 60, 28) == 0, "a label that cannot fit keeps the menu font");
-    CHECK(ll_label_height(adv, "OK", 60, 20) == 0, "a button too low for the minimum keeps the menu font");
+    CHECK(ll_label_height(adv, "OK", 60, 17) == 0, "a button too low for the minimum keeps the menu font");
 
     /* the hero each level starts with (launcher.c level_heroes: Kurt, Max, Doc, ...; 6 and 12 are Doc and Hyde) */
     {

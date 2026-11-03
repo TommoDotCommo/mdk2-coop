@@ -1191,10 +1191,10 @@ static int button(int id, float x, float y, float w, float h, const char *s, int
         /* secondary: the game's steel with an edge; orange marks the one under the mouse or the keyboard;
          * 2: the host's "Waiting for <names>", darker and dim (it still answers: it says who is not ready) */
         int off = primary == 2, lit = !off && (hot || (focus == id && kb_focus));
-        steel_fill(x, y, w, h, off ? 0.28f : hot ? 0.60f : 0.44f);
+        steel_fill(x, y, w, h, off ? 0.30f : hot ? 0.60f : 0.44f);
         bevel(x, y, w, h);
         fill(x, y, 3, h, off ? 0x2a3a42 : lit ? C_ORANGE : 0x6f8088, 255);
-        button_label(x + 2, y, w - 2, h, s, off ? C_DIM : lit ? 0xffd6a0 : C_TEXT, 0);
+        button_label(x + 2, y, w - 2, h, s, off ? 0xb0c0c6 : lit ? 0xffd6a0 : C_TEXT, 0);
     }
     focus_ring(id, x, y, w, h);
     if (focus == id)
@@ -2883,7 +2883,7 @@ static void lobby_full(void)
         return;
     lobby_page();
     if (lob.on) {
-        gdi_text(f_tiny, 24, LH - 26, C_FAINT, pad_last ? (lob.host ?
+        gdi_text(f_small, 24, 690, C_FAINT, pad_last ? (lob.host ?
                  "A select   B back   LB/RB tabs   Start: start game   X: copy invite   hold Y: quick guide" :
                  "A select   B back   LB/RB tabs   Start: ready   hold Y: quick guide") :
                  (lob.host ? "Hold F1: quick guide   Enter: start   Esc: leave the lobby" : "Hold F1: quick guide   Enter: ready   Esc: leave the lobby"),
