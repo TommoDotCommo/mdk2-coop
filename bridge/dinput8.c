@@ -376,9 +376,7 @@ static void choose_coop_dir(void)
     CreateDirectoryA(base, NULL);
     snprintf(coop_dir, MAX_PATH, "%s\\coop", base);
     CreateDirectoryA(coop_dir, NULL);
-#ifndef COOP_MUTANT_NO_DATA_MOVE
     move_old_game_data(game_coop);
-#endif
 }
 
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
