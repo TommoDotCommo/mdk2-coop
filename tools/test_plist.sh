@@ -24,6 +24,7 @@ mutants = {
     'opens-outside-level': ('int want = hud_ingame() && have_remote', 'int want = have_remote'),
     'opens-over-guide': ('&& !guide_on() && !ctrlview_on()', '&& !ctrlview_on()'),
     'opens-over-wheel': ('!emote_wheel_open() && local_player', 'local_player'),
+    'menu-keeps-the-mouse': ('    if (is_on && (!hud_ingame() || !have_remote))', '    if (0)'),
     'pointer-unclamped': ('    if (px > win_w - 1.0f) px = win_w - 1.0f;', ''),
     'dead-rows-listed': ('static int listed(int s)\n{\n    return s == my_slot || player_connected(s);', 'static int listed(int s)\n{\n    return 1;'),
 }

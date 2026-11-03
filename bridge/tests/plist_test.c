@@ -115,6 +115,10 @@ static void open_and_close(void)
     have_remote = 1; frame(); CHECK(plist_on());
     guide = 1; frame(); CHECK(!plist_on() && !mouse_held_now);   /* opening the guide closes it */
     guide = 0; key = 0; frame();
+    /* a menu opens while Tab is down: the mouse is given back at the next draw, even if no frame runs */
+    key = 1; frame(); CHECK(plist_on());
+    ingame = 0; draw(); CHECK(!plist_on() && !mouse_held_now && !buttons_held_now);
+    ingame = 1; key = 0; frame();
 }
 
 static void mute_and_volume(void)

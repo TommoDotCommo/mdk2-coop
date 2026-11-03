@@ -155,6 +155,8 @@ void plist_draw(int w, int h)
 
     win_w = w;
     win_h = h;
+    if (is_on && (!hud_ingame() || !have_remote))      /* a menu came up or the session ended with the key down */
+        close_list();
     if (!is_on)
         return;
     u = (float)hud_font_h();
