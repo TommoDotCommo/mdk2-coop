@@ -695,8 +695,8 @@ static float lj_join_panel(float y)
     if (lju.message[0]) { y = lj_failure_panel(y + 2); shown = 1; }
     n = lj_order(&list, idx);
     if (lju.top > 0 && lju.top >= n) lju.top = 0;
-    if (!n) {
-        gdi_para(f_small, PX, y + 6, PW, C_FAINT, src[LJ_SRC_LAN].state == LJ_S_LOOKING && !src[LJ_SRC_LAN].found ?
+    if (!n) {   /* the words take their own room: Recent hosts goes under them */
+        y += 12 + gdi_para(f_small, PX, y + 6, PW, C_FAINT, src[LJ_SRC_LAN].state == LJ_S_LOOKING && !src[LJ_SRC_LAN].found ?
                  "Looking on your networks..." :
                  "No games found yet. Ask the host to open their lobby, or paste their invite above.");
     }
