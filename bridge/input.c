@@ -15,6 +15,7 @@
 #include "bridge.h"
 #include "route.h"
 #include "pad.h"
+#include "launcher_host.h"
 #include <mmsystem.h>
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
@@ -827,6 +828,13 @@ static DWORD WINAPI hook_GetTickCount(void)
     return tick_anchor + (DWORD)((double)(GetTickCount() - tick_anchor) * time_scale);
 }
 
+/* The game quits: the router mapping the launcher's lobby kept for this game goes first (C2) */
+static VOID WINAPI hook_ExitProcess(UINT code)
+{
+    lhost_game_end();
+    ExitProcess(code);
+}
+
 /* DllMain: read the switches and, when on, take over the window calls before WinMain runs */
 void input_init(void)
 {
@@ -834,6 +842,7 @@ void input_init(void)
 
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
     patch_import("gdi32.dll", "SwapBuffers", (void *)hook_SwapBuffers);
+    patch_import("kernel32.dll", "ExitProcess", (void *)hook_ExitProcess);
     patch_import("user32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA);
     test_background = GetPrivateProfileIntA("test", "background", 0, ini);
     test_journal = GetPrivateProfileIntA("test", "journal", 0, ini);

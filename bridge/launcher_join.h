@@ -17,11 +17,14 @@ static inline int lj_is_probe(const uint8_t *q, size_t n)
     return (n == 8 && !memcmp(q, "CPQ1", 4)) || (n == CD_QUERY_LEN && !memcmp(q, "CPQ2", 4));
 }
 /* Reply length (0: stay silent). Probes from one source are rate limited (cd_rate_allow) before
- * cd_answer builds the reply; a v1 query still gets the v1 reply. */
+ * cd_answer builds the reply; a v1 query still gets the v1 reply. The one answer of the launcher lobby
+ * and the game's listener. B9: an invite-only host is not listed: no v1 reply at all (saved addresses
+ * of older versions list from it), the v2 reply flagged and nameless (cd_answer). */
 static inline int lj_host_reply(struct cd_rate *rate, const uint8_t *q, size_t n, uint32_t from_ip, uint32_t now,
                                 const struct cd_host *h, uint8_t *reply)
 {
     if (!lj_is_probe(q, n)) return 0;
+    if (h->invite_only && n == 8) return 0;
     if (!cd_rate_allow(rate, from_ip, now)) return 0;
     return cd_answer(q, n, h, reply);
 }

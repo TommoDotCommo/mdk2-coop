@@ -80,6 +80,7 @@ int main(void)
         h.invite_only = 1;
         n = lj_host_reply(&rate, q2, sizeof(q2), IP(10, 0, 0, 11), 500, &h, reply);
         CHECK(n > 0 && cd_parse_reply(reply, (size_t)n, 6, "MDK2", &rep) && !rep.name[0] && (rep.flags & CD_F_INVITE_ONLY));
+        CHECK(!lj_host_reply(&rate, q1, 8, IP(10, 0, 0, 13), 500, &h, reply));    /* B9: not listed by the v1 probe */
         h.invite_only = 0; h.state = CD_IN_GAME;
         n = lj_host_reply(&rate, q2, sizeof(q2), IP(10, 0, 0, 12), 500, &h, reply);
         CHECK(n > 0 && cd_parse_reply(reply, (size_t)n, 6, "MDK2", &rep) && rep.state == CD_IN_GAME);

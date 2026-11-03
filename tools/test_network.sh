@@ -24,6 +24,8 @@ mutants = {
                               'return e->epoch == pending_epoch;'),
     'ignore-epoch-zero': ('pending_epoch = (unsigned short)e->netid;',
                          'if (e->netid) pending_epoch = (unsigned short)e->netid;'),
+    'invite-gate-open': ('if (lh_gate_pass(&invite_gate, 1, link_known(from), ip, port))',
+                         'if (1)'),
 }
 with tempfile.TemporaryDirectory(prefix='epochs-', dir=out) as folder:
     folder = Path(folder)

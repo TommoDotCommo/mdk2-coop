@@ -97,6 +97,12 @@ static int entity_packets, sent_packets;
 void ents_receive(const void *buf, int len) { entity_packets++; }
 int ents_is_packet(const void *buf, int len) { return len >= 4 && *(const unsigned int *)buf == 0x464b444d; }
 void netstats_sent(int kind, int len) { sent_packets++; }
+/* the launcher's hand-off to the game (launcher_host.c): an invite-only lobby's key, the joiner's key */
+struct lhost_settings lhost_cfg;
+static int gate_invite_only, gate_has_key;
+static uint32_t gate_secret, gate_key;
+int lhost_game_secret(uint32_t *secret) { *secret = gate_secret; return gate_invite_only; }
+int lhost_join_key(uint32_t *key) { *key = gate_key; return gate_has_key; }
 
 struct fake_object { void **vtable; };
 static void *client_vt[13], *user_vt[3], *friends_vt[44], *utils_vt[18], *mm_vt[36], *nm_vt[4];
@@ -361,6 +367,56 @@ int main(void)
         setsockopt(peer,SOL_SOCKET,SO_RCVTIMEO,(char *)&timeout,sizeof(timeout)); len=sizeof(peer_addr);
         received_len=recvfrom(peer,(char *)data,sizeof(data),0,(struct sockaddr *)&peer_addr,&len);
         CHECK(received_len>0 && packet_unpack(data,received_len,&p));
+        /* Invite only (the game started from an invite-only lobby): a new player needs the lobby key
+         * ("MDKJ" + key) from its own address first; one already in stays; without it: refused, no link. */
+        {
+            SOCKET stranger=socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP);
+            struct sockaddr_in any; BYTE key[LH_JOIN_KEY_LEN]; int used=0, s2, refused;
+            memset(&any,0,sizeof(any)); any.sin_family=AF_INET; any.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+            CHECK(stranger!=INVALID_SOCKET && !bind(stranger,(struct sockaddr *)&any,sizeof(any)));
+            setsockopt(stranger,SOL_SOCKET,SO_RCVTIMEO,(char *)&timeout,sizeof(timeout));
+            gate_invite_only=1; gate_secret=0xc0ffee42u;
+            for (s2=1; s2<MAX_PLAYERS; s2++) used+=links[s2].used;
+            p=packet(124,790,1); len=packet_pack(&p,data,sizeof(data));
+            CHECK(sendto(stranger,(char *)data,len,0,(struct sockaddr *)&target,sizeof(target))==len);
+            net_poll(); refused=0;
+            for (s2=1; s2<MAX_PLAYERS; s2++) refused+=links[s2].used;
+            CHECK(refused==used);                                   /* no key: no link */
+            len=sizeof(peer_addr); received_len=recvfrom(stranger,(char *)data,sizeof(data),0,(struct sockaddr *)&peer_addr,&len);
+            CHECK(received_len==8 && lh_refusal_parse((char *)data,8)==LH_REFUSE_INVITE);   /* told why */
+            lh_join_key_write(key,0xc0ffee43u);                     /* a wrong key */
+            CHECK(sendto(stranger,(char *)key,sizeof(key),0,(struct sockaddr *)&target,sizeof(target))==sizeof(key));
+            p=packet(124,790,2); len=packet_pack(&p,data,sizeof(data));
+            CHECK(sendto(stranger,(char *)data,len,0,(struct sockaddr *)&target,sizeof(target))==len);
+            net_poll(); refused=0;
+            for (s2=1; s2<MAX_PLAYERS; s2++) refused+=links[s2].used;
+            CHECK(refused==used);
+            p=packet(123,789,2); len=packet_pack(&p,data,sizeof(data));  /* the player already in still gets through */
+            CHECK(sendto(peer,(char *)data,len,0,(struct sockaddr *)&target,sizeof(target))==len);
+            net_poll(); CHECK(links[udp_slot].used && players[udp_slot].connected);
+            lh_join_key_write(key,0xc0ffee42u);                     /* the invite's key */
+            CHECK(sendto(stranger,(char *)key,sizeof(key),0,(struct sockaddr *)&target,sizeof(target))==sizeof(key));
+            p=packet(124,790,3); len=packet_pack(&p,data,sizeof(data));
+            CHECK(sendto(stranger,(char *)data,len,0,(struct sockaddr *)&target,sizeof(target))==len);
+            net_poll(); refused=0;
+            for (s2=1; s2<MAX_PLAYERS; s2++) refused+=links[s2].used;
+            CHECK(refused==used+1);
+            gate_invite_only=0; closesocket(stranger);
+        }
+        /* The client sends its invite's key to the host it is set to */
+        {
+            SOCKET fake_host=socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP);
+            struct sockaddr_in any; uint32_t got=0; int alen=sizeof(any);
+            memset(&any,0,sizeof(any)); any.sin_family=AF_INET; any.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+            CHECK(fake_host!=INVALID_SOCKET && !bind(fake_host,(struct sockaddr *)&any,sizeof(any)) &&
+                  !getsockname(fake_host,(struct sockaddr *)&any,&alen));
+            setsockopt(fake_host,SOL_SOCKET,SO_RCVTIMEO,(char *)&timeout,sizeof(timeout));
+            role_host=0; have_remote=0; links[0].used=1; links[0].addr=any; gate_has_key=1; gate_key=0xc0ffee42u;
+            net_poll();
+            len=sizeof(peer_addr); received_len=recvfrom(fake_host,(char *)data,sizeof(data),0,(struct sockaddr *)&peer_addr,&len);
+            CHECK(received_len==LH_JOIN_KEY_LEN && lh_join_key_parse(data,(size_t)received_len,&got) && got==0xc0ffee42u);
+            gate_has_key=0; memset(&links[0],0,sizeof(links[0])); role_host=1; closesocket(fake_host);
+        }
         role_host=0; CHECK(net_retarget("127.0.0.1",27900)); net_steam=1; CHECK(!net_retarget("127.0.0.1",27900));
         closesocket(peer); closesocket(sock); sock=INVALID_SOCKET; WSACleanup();
     }

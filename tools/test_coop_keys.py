@@ -72,8 +72,11 @@ def static_checks(fails):
     if order != ["session", "rules", "ui", "voice", "controls"]:
         fails.append(f"menu page order is {order}")
     launcher = (ROOT / "bridge/launcher.c").read_text()
-    if '{ "Co-op rules", "Players and interface", "Voice and sound", "Display", "Network" }' not in launcher:
-        fails.append("launcher Settings sections do not match the menu names")
+    # standard E: the launcher's sections in this order, named as the menu's pages where both have them
+    sections = re.search(r"static const char \*sections\[\] = \{(.*?)\};", launcher, re.S)
+    got = re.findall(r'"([^"]+)"', sections.group(1)) if sections else []
+    if got != ["Co-op rules", "Players and interface", "Voice and sound", "Controls", "Display", "Network", "Launcher"]:
+        fails.append(f"launcher Settings sections do not match the menu names and the standard order: {got}")
     if '"Voice volume"' not in launcher or '"Voice chat volume"' in launcher:
         fails.append("launcher voice volume row is not named as the menu's")
     if '"Voice volume"' not in SRC:

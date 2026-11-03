@@ -24,6 +24,8 @@
 #include <math.h>
 #include "bridge.h"
 #include "launcher_join.h"
+#include "launcher_host.h"
+#include "launcher_host_core.h"
 #ifndef MOD_VERSION
 #define MOD_VERSION "dev"
 #endif
@@ -294,6 +296,8 @@ static void load_player_id(void)
     logmsg("player id %08x, name %s", my_id, my_name);
 }
 
+static void invite_key_send(double now);
+
 void net_open(const char *ini)
 {
     char host[64], role[16], transport[16];
@@ -370,6 +374,7 @@ void net_open(const char *ini)
         l->addr.sin_port = htons((u_short)peer_port);
         l->addr.sin_addr.s_addr = inet_addr(host);
         link_reset(l);
+        invite_key_send(now_ms());      /* an invite-only host's game: the key before the first player packet */
     }
     logmsg("udp listen %d, role %s%s%s:%d", listen_port, role_host ? "host" : "client",
            role_host ? "" : ", host at ", role_host ? "" : host, role_host ? 0 : peer_port);
@@ -1746,6 +1751,61 @@ void net_steam_left(uint64_t peer)
         }
 }
 
+/* An invite-only session (the game started from an invite-only launcher lobby, lhost_game_secret): a
+ * peer the host's game has no link for gets in only after "MDKJ" + the lobby key from its address, as
+ * the lobby's hello checks it. The client sends its invite's key (lhost_join_key) until welcomed. */
+static struct lh_gate invite_gate;
+
+static int link_known(const struct sockaddr_in *from)
+{
+    int s;
+    for (s = 1; s < MAX_PLAYERS; s++)
+        if (links[s].used && links[s].addr.sin_addr.s_addr == from->sin_addr.s_addr && links[s].addr.sin_port == from->sin_port)
+            return 1;
+    return 0;
+}
+
+/* Host: 1 when the datagram was the gate's (a key, or refused); 0 lets it through */
+static int invite_gate_take(const BYTE *buf, int n, const struct sockaddr_in *from, double now)
+{
+    static double next_note;
+    uint32_t secret, key, ip = ntohl(from->sin_addr.s_addr);
+    unsigned port = ntohs(from->sin_port);
+    if (!role_host || !lhost_game_secret(&secret))
+        return 0;
+    if (lh_join_key_parse(buf, (size_t)n, &key)) {
+        if (lh_gate_find(&invite_gate, ip, port) < 0)
+            logmsg("invite only: %s:%u %s", inet_ntoa(from->sin_addr), port,
+                   lh_gate_key(&invite_gate, secret, ip, port, key) ? "has the invite" : "sent a wrong key");
+        return 1;
+    }
+    if (lh_gate_pass(&invite_gate, 1, link_known(from), ip, port))
+        return 0;
+    if (n >= (int)sizeof(unsigned int) && *(const unsigned int *)buf == PLAYER_MAGIC) {
+        char refuse[16];
+        int rn = snprintf(refuse, sizeof(refuse), "MDKL K %d", LH_REFUSE_INVITE);
+        sendto(sock, refuse, rn, 0, (const struct sockaddr *)from, sizeof(*from));
+        if (now >= next_note) {
+            logmsg("invite only: refused a player without the invite from %s:%u", inet_ntoa(from->sin_addr), port);
+            next_note = now + 5000.0;
+        }
+    }
+    return 1;
+}
+
+/* Client: the invite's key to the host's game, twice a second until welcomed, then now and then */
+static void invite_key_send(double now)
+{
+    static double next_send;
+    uint8_t b[LH_JOIN_KEY_LEN];
+    uint32_t key;
+    if (role_host || now < next_send || !links[0].used || !lhost_join_key(&key))
+        return;
+    next_send = now + (have_remote ? 5000.0 : 500.0);
+    lh_join_key_write(b, key);
+    sendto(sock, (const char *)b, sizeof(b), 0, (struct sockaddr *)&links[0].addr, sizeof(links[0].addr));
+}
+
 void net_poll(void)
 {
     BYTE buf[MAX_DATAGRAM];
@@ -1756,6 +1816,7 @@ void net_poll(void)
     if (net_steam) {
         steam_poll();
     } else if (sock != INVALID_SOCKET) {
+        invite_key_send(now);
         for (i = 0; i < 256; i++) {
             fromlen = sizeof(from);
             n = recvfrom(sock, (char *)buf, sizeof(buf), 0, (struct sockaddr *)&from, &fromlen);
@@ -1764,13 +1825,23 @@ void net_poll(void)
             if (n <= 0)
                 break;
             if (role_host && lj_is_probe(buf, (size_t)n)) {
-                /* the Join list and recent hosts ask (CPQ2; saved addresses of older versions CPQ1) */
+                /* the Join list and recent hosts ask (CPQ2; saved addresses of older versions CPQ1);
+                 * invite only: CPQ2 flagged and nameless, CPQ1 not at all (lj_host_reply) */
                 static struct cd_rate rate;
-                struct cd_host me = { LJ_PROBE_ID, MOD_VERSION, my_name, CD_IN_GAME, 0, 0,
+                struct cd_host me = { LJ_PROBE_ID, MOD_VERSION, my_name, CD_IN_GAME, lhost_cfg.invite_only, 0,
                                       (unsigned)(1 + players_connected()), MAX_PLAYERS };
                 uint8_t reply[CD_REPLY_MAX];
                 int bytes = lj_host_reply(&rate, buf, (size_t)n, ntohl(from.sin_addr.s_addr), (uint32_t)now, &me, reply);
                 if (bytes) sendto(sock, (char *)reply, bytes, 0, (struct sockaddr *)&from, fromlen);
+            } else if (invite_gate_take(buf, n, &from, now)) {
+                continue;
+            } else if (!role_host && n == 8 && lh_refusal_parse((const char *)buf, (size_t)n) == LH_REFUSE_INVITE &&
+                       from.sin_addr.s_addr == links[0].addr.sin_addr.s_addr && from.sin_port == links[0].addr.sin_port) {
+                static double next_note;
+                if (now >= next_note) {
+                    logmsg("join: %s", lh_refusal_text(LH_REFUSE_INVITE));
+                    next_note = now + 10000.0;
+                }
             } else received(buf, n, &from, 0, now);
         }
     }

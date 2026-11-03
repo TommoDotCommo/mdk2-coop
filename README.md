@@ -135,10 +135,12 @@ with exit codes 0 done, 1 failed, 2 usage, 3 unsupported game build, 4 the game 
 When you start the game, the launcher opens: choose **Host a game**, **Join a friend** or **Play solo**
 (plain MDK2 HD, co-op off for that start), your name, Steam or direct UDP, and press **Enter** (or the big
 button) to start. The **Saves** tab lists your co-op saves with who played and how far you got, and lets the host
-start a new game at any level and checkpoint. The **Settings** tab has every option. **Help** collects what a bug
-report needs in one click (see [Reporting a problem](#reporting-a-problem)). **Esc** quits.
+start a new game at any level and checkpoint. The **Settings** tab has every option. **About** has the version,
+updates, the quick guide and **Report a problem**, which collects what a bug report needs in one click (see
+[Reporting a problem](#reporting-a-problem)). **Esc** quits. A pad works too: stick or D-pad to move, A to press,
+B back, LB/RB for tabs, Start for the big button, hold Y for the quick guide.
 
-Don't want the launcher? **Settings > Display > Show launcher at start: Off**. Hold **Shift** while the game
+Don't want the launcher? **Settings > Launcher > Show launcher at start: Off**. Hold **Shift** while the game
 starts to bring it back. Accepting a Steam invite skips it and joins straight away.
 
 ### Over Steam (recommended)
@@ -160,8 +162,15 @@ The host listens on **UDP port 27900** (Settings > Network). On a LAN or a share
 **Join a friend** lists the hosts it finds under **Games near you** (every network this PC is on, your Tailscale
 devices, and hosts you joined before), with their state, players and ping; pick one and press **Join <name>**.
 Or paste what the host sent you into the box above the list: an invite code or link, a Steam lobby number, an
-address (with `:port` if it is not 27900) or a computer name. Over the internet, the host forwards that port on
-their router and shares their public IP address.
+address (with `:port` if it is not 27900) or a computer name.
+When nothing is found (over the internet, say), ask the host for their invite.
+
+When you host, the lobby shows **Friends can join by**:
+same network, Tailscale, the internet and Windows Firewall, each with what it found and how to fix it. While the
+lobby is open it asks your router to open the port (UPnP or NAT-PMP; turn it off in Settings > Network) and
+removes the mapping when you leave. **Copy invite** puts one line on the clipboard with a code that carries every
+route that works; your friends paste it into **Join** (or open the link). **Invite only** lobbies let in only
+friends with that invite. The host can **Kick** a player from the lobby. See [docs/HOSTING.md](docs/HOSTING.md).
 
 Hosts you join are remembered under **Recent hosts** (rename, pin, forget); your old saved addresses move there,
 pinned. When the last host is online, **Rejoin <name>** appears on Play. An invite copied to the clipboard is
@@ -343,6 +352,9 @@ The mod does not collect or send personal data.
   identifier or usage data is sent. Turn it off with the Auto-check setting on the About page.
 - Multiplayer: game and voice traffic go only to the players you choose to host or join (directly, or through
   Steam when you use a Steam lobby).
+- Hosting: while your lobby is open the launcher asks your own router (UPnP or NAT-PMP, on your network only) to
+  open the port, and reads your Windows Firewall rules without changing them. Turn the router request off in
+  Settings > Network.
 - Diagnostics: **Send diagnostics** writes a zip to your own Desktop, with your Windows and computer names, profile
   folder and IP addresses replaced first. Nothing is uploaded; you decide whether to attach it to a bug report.
 

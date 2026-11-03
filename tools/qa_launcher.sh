@@ -34,12 +34,13 @@ start() { local pid; pid=$(mdk_start "$1"); echo "$pid"; }
 BS=(); for i in $(seq 1 24); do BS+=("key 8"); done     # backspaces: empty a field
 
 # canvas spots (1280x720): tabs, Play page tiles, the connection selector, the Join paste box,
-# the Play button; Settings: the section picker's arrows (Co-op, Interface, Voice and sound, Display) and rows
-T_PLAY="click 780 50"; T_SAVES="click 880 50"; T_SET="click 1000 50"; T_ABOUT="click 1130 50"
-HOST="click 1000 200"; JOIN="click 1000 283"; SOLO="click 1000 367"
+# the Play button; Settings: the section picker's arrows and rows (Interface: the emote wheel is the sixth row, under
+# the DPS meter). In Join mode the three tiles are short (the Join list needs the room): HOST_ANY hits Host in both.
+T_PLAY="click 780 50"; T_SAVES="click 880 50"; T_SET="click 1000 50"; T_ABOUT="click 1070 50"
+HOST="click 1000 200"; JOIN="click 1000 283"; SOLO="click 1000 367"; HOST_ANY="click 1000 185"
 PASTE="click 1000 366"; PLAY="click 1000 660"
 SEC_NEXT="click 1220 115"; SEC_PREV="click 1050 115"
-FF="click 1000 170"; EMOTE="click 1000 363"; MUSIC="click 1220 371"; RES="click 1180 219"
+FF="click 1000 170"; EMOTE="click 1000 411"; MUSIC="click 1220 371"; RES="click 1180 219"
 
 for i in 1 2; do
     setini $i test launcher 1
@@ -113,8 +114,8 @@ check "host: F1 quick guide draws over the window"      bash -c "! cmp -s '$out/
 # help: Send diagnostics zips the logs (into a test folder, not the desktop) and says where it went
 diagout="$(dir 1)/coop/diag-out"; rm -rf "$diagout"; mkdir -p "$diagout"
 setini 1 diag out_dir "$(mdk_dir 1)\\coop\\diag-out"
-lcmd 1 "click 1165 50"; shot 1 help_page
-lcmd 1 "click 944 288"
+lcmd 1 "$T_ABOUT"; shot 1 help_page             # Help is part of About (Report a problem)
+lcmd 1 "press Send diagnostics"
 check "help: Send diagnostics starts the bundle"        wait_log 1 "^diagnostics: bundling started" 10
 check "help: the bundle is made"                        wait_log 1 "^diagnostics: OK .*mdk2-coop-diag_.*\\.zip" 120
 shot 1 help_done
@@ -143,7 +144,8 @@ lcmd 2 "$PLAY"
 check "client: Join chosen"                             wait_log 2 "^launcher: play, join over UDP" 10
 check "client: role, address and port written"          bash -c "[ '$(ini 2 role coop.ini)' = client ] && [ \"\$(grep -E '^peer_host=' '$(dir 2)/coop/coop.ini' | tr -d '\r')\" = peer_host=127.0.0.1 ] && grep -qE '^peer_port=${MDK2_PORT}' '$(dir 2)/coop/coop.ini'"
 check "host: the client joined from 127.0.0.1"          wait_log 1 "^player 2 joined from 127\.0\.0\.1" 40
-check "mode remembered"                                 bash -c "[ '$(ini 1 mode coop.ini)' = host ] && [ '$(ini 2 mode coop.ini)' = join ]"
+lmode() { tr -d '\r' < "$(dir "$1")/coop/coop.ini" | awk -F= '/^\[/{s=$0} s=="[launcher]" && $1=="mode"{print $2}'; }   # [voice] has a mode too
+check "mode remembered"                                 bash -c "[ '$(lmode 1)' = host ] && [ '$(lmode 2)' = join ]"
 
 # 3. client solo, with a new resolution (settings.lua is shared by all copies: kept and put back)
 settings="$(mdk_wsl "$(powershell.exe -NoProfile -Command '$env:LOCALAPPDATA' | tr -d '\r')")/MDK2HD/settings.lua"
@@ -151,9 +153,9 @@ cp "$settings" "$out/settings.lua.before"
 mdk_kill; sleep 2
 P2=$(start 2); echo "$P2" > "$MDK2_PIDS.solo"
 check "solo: launcher up"                               wait_log 2 "^launcher: shown" 30
-lcmd 2 "$T_SET" "$SEC_PREV" "$RES"; shot 2 settings_res        # Display (the picker wraps round)
-lcmd 2 "$SEC_PREV" "$MUSIC"; shot 2 settings_sound              # Voice and sound: music one step up
-lcmd 2 "$T_PLAY" "$SOLO"; shot 2 solo
+lcmd 2 "$T_SET" "$SEC_PREV" "$SEC_PREV" "$SEC_PREV" "$RES"; shot 2 settings_res   # Display (wraps round: Launcher, Network, Display)
+lcmd 2 "$SEC_PREV" "$SEC_PREV" "$MUSIC"; shot 2 settings_sound  # Voice and sound (past Controls): music one step up
+lcmd 2 "$T_PLAY" "$HOST_ANY" "$SOLO"; shot 2 solo     # the last start was Join (short tiles): Host first
 lcmd 2 "$PLAY"
 check "solo: chosen"                                    wait_log 2 "^launcher: play, solo \(co-op off\)" 10
 check "solo: video line written"                        wait_log 2 "^launcher: video chSetVideoMode" 5
