@@ -102,6 +102,10 @@ function Run-Checks($code) {
         $script:installedDir = ''
         $cards = @(Get-CoopInstallCards '' '' '' $dirs)
         Require ($cards.Count -eq 6 -and @($cards | Where-Object selected).Count -eq 1 -and $cards[0].selected) 'all build cards, Steam preselected'
+        [IO.File]::WriteAllText((Join-Path $custom 'dinput8.dll'), 'mdk2-coop bridge attached old unknown release')
+        $cards = @(Get-CoopInstallCards '' '' '' $dirs)
+        Require ($cards[4].selected -and $cards[4].has_coop) 'unverified co-op copy preselected and reported as found'
+        Remove-Item (Join-Path $custom 'dinput8.dll')
         $script:installedDir = $gog
         $cards = @(Get-CoopInstallCards '' '' '' $dirs)
         Require ($cards[3].selected -and @($cards | Where-Object selected).Count -eq 1) 'installed co-op preselected'
@@ -125,7 +129,8 @@ if ($Mutants) {
         @(' --coop-invite "%1"', ' %1'),
         @('if ($options.invite_links)', 'if ($false)'),
         @("        `$dirs += Join-Path `$lib 'steamapps\common\MDK 2 HD'", ''),
-        @('if (-not $selected -and $snapshot.owner -ne ''none'')', 'if ($false)')
+        @('if (-not $selected -and $hasCoop)', 'if ($false)'),
+        @('(Test-CoopOurDll (Join-Path $dir ''dinput8.dll''))', '$false')
     )) {
         Require ($source.Contains($twin[0])) 'mutant applies'
         $failed = $false

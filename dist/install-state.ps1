@@ -532,9 +532,10 @@ function Get-CoopInstallCards($package, $settings, $data, $dirs = @(Find-AllGame
     foreach ($dir in $dirs) {
         $build = Get-CoopGameBuild (Join-Path $dir 'mdk2hd.exe')
         $snapshot = Get-CoopInstallStatus $dir $package $settings $data
-        $card = [pscustomobject]@{ path=$dir; build=$build; state=$snapshot; selected=$false }
+        $hasCoop = $snapshot.owner -ne 'none' -or (Test-CoopOurDll (Join-Path $dir 'dinput8.dll'))
+        $card = [pscustomobject]@{ path=$dir; build=$build; state=$snapshot; has_coop=$hasCoop; selected=$false }
         $cards += $card
-        if (-not $selected -and $snapshot.owner -ne 'none') { $selected = $card }
+        if (-not $selected -and $hasCoop) { $selected = $card }
     }
     if (-not $selected) { $selected = $cards | Where-Object { $_.build.Name -eq 'Steam build 3902' } | Select-Object -First 1 }
     if (-not $selected) { $selected = $cards | Select-Object -First 1 }

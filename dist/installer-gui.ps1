@@ -400,7 +400,7 @@ function Refresh-Cards {
         $dir = $entry.path; $build = $entry.build; $snapshot = $entry.state
         $card = New-Object Windows.Forms.RadioButton
         $card.Appearance = 'Button'; $card.AutoSize = $false; $card.Size = New-Object Drawing.Size(665, 60)
-        $state = if ($snapshot.owner -eq 'none') { 'Co-op not installed' } elseif ($snapshot.owner -eq 'manual') { 'Co-op copied by hand' } else { "Co-op: $($snapshot.owner)" }
+        $state = if ($snapshot.owner -eq 'none' -and $entry.has_coop) { 'Co-op files found (unverified)' } elseif ($snapshot.owner -eq 'none') { 'Co-op not installed' } elseif ($snapshot.owner -eq 'manual') { 'Co-op copied by hand' } else { "Co-op: $($snapshot.owner)" }
         $action = if ($snapshot.actions.blocked) { "; needs attention" } elseif ($snapshot.actions.install) { "; $($snapshot.actions.install) available" } elseif ($snapshot.owner -ne 'none') { '; up to date' } else { '' }
         $cardBuild = if ($build.Known) { $build.Text } else { 'MDK2 HD unknown build' }
         $card.Text = "$cardBuild  /  $state$action`r`n$dir"; $card.Tag = $dir
