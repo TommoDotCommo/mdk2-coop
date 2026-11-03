@@ -1,5 +1,6 @@
 """The release checker accepts the zip or its same-named folder when the version has dots."""
 import hashlib
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -9,6 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import check_release_package as checker
 
 NAME = 'mdk2-coop-v0.3.2-alpha'
+# a stub PE with the VERSIONINFO string the checker reads
+PE = b'MZ' + 'ProductVersion\0'.encode('utf-16-le') + b'\0\0' + 'v0.3.2-alpha'.encode('utf-16-le') + b'\0\0'
 
 
 def build(folder, policy='policy\n', extra=None):
@@ -16,7 +19,10 @@ def build(folder, policy='policy\n', extra=None):
     members = {}
     with zipfile.ZipFile(archive, 'w') as z:
         for f in checker.EXPECTED:
-            data = b'MZ' if f.endswith(('.exe', '.dll')) else (policy.replace('\n', '\r\n').encode() if f == 'install-state.ps1' else b'x')
+            data = PE if f.endswith(('.exe', '.dll')) else (policy.replace('\n', '\r\n').encode() if f == 'install-state.ps1' else b'x')
+            if f == 'coop-mod.json':
+                data = json.dumps(checker.mod_manifest.manifest(NAME[len('mdk2-coop-'):], members)).encode()
+                z.writestr('coop-mod.json', data)
             members[f] = data
             info = zipfile.ZipInfo(NAME + '/' + f)
             info.external_attr = (0o755 if f.endswith('.sh') else 0o644) << 16
@@ -26,8 +32,8 @@ def build(folder, policy='policy\n', extra=None):
     (folder / (archive.name + '.sha256')).write_text(hashlib.sha256(archive.read_bytes()).hexdigest() + '  ' + archive.name + '\n')
     # the single-file Setup beside it; its payload is read through payload.read_exe, replaced here by a stub
     setup = folder / 'MDK2-Coop-Setup.exe'
-    setup.write_bytes(b'MZ')
-    (folder / 'MDK2-Coop-Setup.exe.sha256').write_text(hashlib.sha256(b'MZ').hexdigest() + '  MDK2-Coop-Setup.exe\n')
+    setup.write_bytes(PE)
+    (folder / 'MDK2-Coop-Setup.exe.sha256').write_text(hashlib.sha256(PE).hexdigest() + '  MDK2-Coop-Setup.exe\n')
     blob = checker.payload.pack([(f, members[f]) for f in checker.PAYLOAD])
     checker.payload.read_exe = lambda path: (NAME[len('mdk2-coop-'):], hashlib.sha256(blob).hexdigest(), blob)
     return archive
