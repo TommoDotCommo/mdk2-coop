@@ -257,6 +257,26 @@ the right stick click talks. **View** (Back) is the co-op button:
 While View is held the D-pad does not move you. After pad input the hints show pad buttons and voice is open mic (Voice
 mode: Automatic; Push to talk and Open mic are the other choices).
 
+### Steam Deck and controllers
+
+The mod reads an **Xbox gamepad**, so in Steam the controller must be presented as a gamepad: Steam's own *Gamepad*
+template (or *Gamepad with joystick*) is right. The *Keyboard (WASD) and Mouse* templates hide the pad from the mod: the
+co-op layer, pad hints and the pad menus then do nothing. Steam shows no controller-support entry for MDK2 HD, so
+check this once under the game's **Controller settings**.
+
+On a Steam Deck, pick the community layout **MDK2 Co-op (pad layer)** (Controller settings > Browse Configs >
+Community; its file is `dist/steam-input/mdk2-coop_deck.vdf`). It is Steam's Gamepad template plus two back buttons:
+
+| Deck button | Presents | Does in the mod |
+|---|---|---|
+| L4 (upper left back) | View | Tap: ping. Hold: player list, and the D-pad, LB, RB and Y become co-op buttons (table above) |
+| R4 (upper right back) | Right stick click | Hold: push to talk |
+| L5, R5 (lower back) | nothing | Free for you to bind |
+
+Every other button is as in the table above (the Deck's own View button works the same as L4). Other controllers have
+no back buttons to bind; with them, check that Steam's Gamepad template presents a View (Back) button, as the co-op
+layer needs it.
+
 ## Settings
 
 In the launcher's **Settings** tab, or in game under **Options > Co-op** (on the title screen, or Esc > Options), whose pages are named like the launcher's sections:
