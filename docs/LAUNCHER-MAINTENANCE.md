@@ -22,11 +22,53 @@ and whenever the window regains focus. The action button dynamically reflects sy
 - "Uninstall" enables only when an owned installation exists, restoring original files from
   verified `.coop-original` backups while strictly preserving user saves and settings.
 
-For a script-readable snapshot, from an unpacked package:
+For a script-readable snapshot, from an unpacked package (the verbs every co-op Setup takes; `MDK2-Coop-Setup.exe` passes
+them to `mdk2-coop.ps1` without a window, waits, and returns its exit code; `install-linux.sh` takes the same words):
 
 ```powershell
-powershell -NoProfile -File .\mdk2-coop.ps1 -GameDir '<game dir>' -StatusOnly -Yes
+MDK2-Coop-Setup.exe status --json ['<game dir>']      # every install found, or that one
+MDK2-Coop-Setup.exe install '<game dir>' --yes
+MDK2-Coop-Setup.exe uninstall '<game dir>' --yes
+powershell -NoProfile -File .\mdk2-coop.ps1 -GameDir '<game dir>' -StatusOnly -Yes   # the old form, still accepted
 ```
+
+Exit codes: 0 done, 1 failed (also a damaged single-file Setup), 2 usage, 3 unsupported game build, 4 the game is running
+from that folder. The verbs never ask questions. Setup.exe and its PowerShell are 32-bit (like the game): the running-game
+check reads only 32-bit processes' paths. `tools/test_setup_verbs.ps1` (run by `tools/qa_installer.sh`) covers the verbs
+and codes on the zip's and the single-file Setup, with mutants.
+
+### Who installed it
+
+`Get-CoopOwner` (install-state.ps1) answers `setup` (a `.coop-receipt.json` beside a payload file), `mod-manager` (no
+receipt, and the files match the hashes in a `coop-mod.json`: the package's own or one in the game folder), `vortex` (the
+same, with `dinput8.dll` hard-linked: `fsutil hardlink list`), or `none`. For a mod manager's install Setup shows
+"Installed by a mod manager" with Play enabled and no Install/Uninstall, and `install` refuses (exit 1): the manager updates
+and removes its files. `install-linux.sh status --json` reports the same states (`installed`, `mod-manager`, `vortex`).
+
+### Another mod's dinput8.dll: the chain
+
+A `dinput8.dll` that is not this mod's (no `mdk2-coop bridge attached` string) is kept as `dinput8.chain.dll` instead of
+`dinput8.dll.coop-original`. The receipt format is unchanged: its `original` hash says which file is the original, and
+`Get-CoopKeptPath` finds it under either name. Install and Update move a non-mod `dinput8.dll.coop-original` that an older
+Setup kept to `dinput8.chain.dll` (verified). Uninstall puts the original back as `dinput8.dll`. An older copy of this mod is
+never chained (it would run the mod twice).
+
+The proxy (`bridge/dinput8.c` `chain_load`) loads `<game>\dinput8.chain.dll` at the end of its own start-up (still inside
+the loader's attach, which is when ASI loaders and fixes expect to run) and logs what it chained. If the chained DLL exports
+`DirectInput8Create` it is a full dinput8 proxy, and every dinput8 export goes through it (it forwards to the system DLL
+itself); a call that comes back into this DLL from inside it goes to the system `dinput8.dll`, and the interface is wrapped
+once. Otherwise it is a plug-in loaded for its side effects and the exports go to the system `dinput8.dll` as before. A file
+containing this mod's marker string is never loaded. `tools/test_chain_load.py` runs the real DLL in a host exe with fixture
+chain DLLs (plug-in, full proxy, a copy of the mod, none) and a `-DCOOP_MUTANT_NO_CHAIN` build that must fail.
+
+### Nothing written into the game folder at run time
+
+`choose_coop_dir` (dinput8.c): the bridge keeps its data (coop.ini, logs, diagnostics, `unsupported-build.txt`, profiles) in
+`%LOCALAPPDATA%\mdk2-coop\coop`. The only exception is a test or couch copy: a `<game>\coop\coop.ini` with a `[test]` or
+`[couch]` section, placed by the test tools or Couch.cmd (the mod never creates it), keeps that copy's data in
+`<game>\coop` as before. Top-level files an older version wrote into `<game>\coop` move to the profile once (copied,
+verified, then deleted; never overwriting; subfolders such as old logs stay). The bridge no longer writes a `write.test`
+probe into the game folder.
 
 Each deployed DLL, Lua file and per-user marker has a sibling
 `.coop-receipt.json` recording the original and installed SHA-256 and any pending
@@ -59,9 +101,17 @@ discovery and safe self-updating:
 - Locates the release ZIP and its matching `.zip.sha256` sidecar asset.
 - Downloads assets in memory up to 32 MB, verifying declared size and SHA-256 hash.
 - Safely extracts files with DEFLATE inflation (`lu_inflate`), checking CRC-32 and PE32 headers.
-- Replaces running files atomically (`lu_apply_package`): moves current `dinput8.dll` to
-  `dinput8.dll.previous`, writes new files, updates `update-state.ini`, and synchronizes
-  installer receipts.
+- Keeps its own files outside the game folder, in `<user data>\mdk2-coop\update` (`%LOCALAPPDATA%`, or the `[test]
+  save_dir` folder of a test copy): `update-state.ini` and the verified backups `dinput8.dll.previous` and
+  `coop.lua.previous`.
+- Replaces running files atomically (`lu_apply_package`): copies the current files to those backups, renames the running
+  `dinput8.dll` aside to `dinput8.dll.update-old` (a mapped DLL can be renamed, not deleted), moves the verified new files
+  into place, updates `update-state.ini`, and synchronizes installer receipts and `install-linux.sh`'s record.
+- Replaces only files Setup installed (`lu_install_owner`: a receipt, or install-linux.sh's record). Otherwise it still
+  checks, says "Update it in your mod manager" (Vortex wording when the files are hard-linked) and offers the release page
+  instead of Install (`LU_ERR_NOT_OWNED`; `update_owner` in `launcher-state.ini`).
+- At every start (`lu_startup`): deletes the `update-old` DLL of the last update, and moves the `.previous` files and
+  `update-state.ini` an older updater (v0.3.5 and before) wrote into the game folder to the data folder (verified).
 - Automatic rollback (`lu_rollback`): if any step fails or an interrupted update is detected on
   startup (`lu_recover_interrupted`), the verified `.previous` backups are restored.
 - The user retains full control via the "Auto-check" toggle on the About page and manual "Check now" /
@@ -76,13 +126,27 @@ discovery and safe self-updating:
 | `MDK2-Coop-Setup.exe` + `MDK2-Coop-Setup.exe.sha256` | players: the main download. The zip's files are embedded as a payload (`tools/payload.py`, read by `dist/installer.c` and `dist/setup-core.h`), checked against a SHA-256 stored in the exe, and unpacked into a fresh `%LOCALAPPDATA%\mdk2-coop\setup\<version>[-n]` folder (exclusive create, never through a link) before `installer-gui.ps1` runs from there. `Setup.exe /extract <new folder>` only unpacks. |
 | `mdk2-coop-<tag>.zip` + `mdk2-coop-<tag>.zip.sha256` | the in-game updater, manual installs, Nexus. Its `MDK2-Coop-Setup.exe` carries no payload and starts the scripts beside it; run from inside a zip (scripts missing, or a path under `%TEMP%` with a `*.zip` folder) it says "Extract the whole zip first, or download the single Setup.exe". |
 
-The updater (`bridge/launcher_update.h`) is unchanged by the single-file Setup and needs exactly the old things: the
+The updater of every installed version (`bridge/launcher_update.h`; v0.3.5-alpha is public) needs exactly these things: the
 asset `mdk2-coop-<tag>.zip` with its `.zip.sha256`, and the members `mdk2-coop-<tag>/dinput8.dll` and
-`mdk2-coop-<tag>/coop/coop.lua`. The Setup.exe assets are ignored by its asset matching (it matches names exactly).
+`mdk2-coop-<tag>/coop/coop.lua`. The Setup.exe assets are ignored by its asset matching (it matches names exactly), and so
+are the two `coop-mod.json` copies (it extracts only the members it names; every name in the zip must still be a safe path).
 **Keep it that way**: do not rename the zip or its top folder, and keep both files in it. `tools/test_update_layout.py`
-checks this against a real `release.sh` build (release JSON with all four assets, apply, rollback; mutants for a wrong
-root folder and a missing sidecar). The payload zip stays far below the updater's 32 MB limit (the Setup.exe is never
-downloaded by it).
+checks this against a real `release.sh` build with both the current updater and the v0.3.5-alpha one (read from the git
+tag): release JSON with all four assets, apply, rollback; mutants for a wrong root folder and a missing sidecar. The
+payload zip stays far below the updater's 32 MB limit (the Setup.exe is never downloaded by it).
+
+### coop-mod.json, VERSIONINFO and the Nexus note
+
+`tools/mod_manifest.py` writes `coop-mod.json` (co-op mod standard J5: schema, id, name, version, game with its builds,
+proxy with `chain_file`, Proton DLL overrides, the game-folder files with SHA-256 and size, user data, homepage, update
+sources) into the zip's top folder (and the single-file Setup's payload) and at the zip root. Setup reads its file list
+from the package's copy (`Get-CoopPackageFiles`, with the old two-file list as the fallback). The in-game updater keeps its
+compiled-in member names, which the old updater needs anyway. `tools/check_release_package.py` checks both copies against
+the zip (`mod_manifest.check`), and that `dinput8.dll`, `install-policy.exe` and both Setup exes carry a VERSIONINFO whose
+ProductVersion is the release version (`tools/versioninfo.py`); `tools/test_mod_manifest.py` has four manifest mutants.
+The Steam build's exe hash in `BUILDS` is not known yet (null); build detection does not use it.
+`release.sh` also writes `local/release/NEXUS-<version>.txt`: the copy note for Nexus Mods (the same zip, its SHA-256 and
+the same version string). Nothing is uploaded.
 
 Windows-side checks for the Setup exe (`tools/test_setup_exe.py`: extraction, damaged payload, junctions, zip message,
 mutants) and for the plain build messages (`tools/test_installer_builds.ps1`, `tools/qa_build_message.sh`) run in
@@ -236,11 +300,15 @@ python3 tools/test_ui_layout.py
 bash tools/release.sh v0.3.2-test
 python3 tools/check_release_package.py local/release/mdk2-coop-v0.3.2-test.zip
 
-# 7b. One-file Setup and plain-build-message cores, Linux install script, signing hook, updater layout (all with mutants)
+# 7b. One-file Setup and plain-build-message cores, Linux install script, signing hook, updater layout, updater ownership
+#     and game-folder check, coop-mod.json, chain-load (all with mutants; the chain-load test runs a Windows host exe)
 python3 tools/test_setup_core.py
 bash tools/test_install_linux.sh
 bash tools/test_release_signing.sh
 python3 tools/test_update_layout.py
+python3 tools/test_update_ownership.py
+python3 tools/test_mod_manifest.py
+python3 tools/test_chain_load.py
 
 # 8. Python syntax check
 python3 -m py_compile tools/test_install_policy.py tools/test_launcher_profiles.py \
