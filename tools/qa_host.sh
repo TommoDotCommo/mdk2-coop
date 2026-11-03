@@ -10,6 +10,7 @@
 #      with the code it gets in; Kick removes it with "The host removed you" and it stays out of that lobby
 #   4. Mute me sends no voice (the host receives none), Unmute sends again
 #   5. the pad: LB/RB change tabs, the D-pad walks the focus to "Start game", A starts the countdown
+#   6. that last lobby is invite only: the game it starts lets the client's game in by the invite's key (net.c)
 #   tools/qa_host.sh            about 2 minutes, 2 game copies (see tools/mdk.sh)
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -112,11 +113,14 @@ lcmd 2 "key 27"; sleep 1
 lcmd 2 "$PLAY"
 check "kick: refused again this session"               wait_state 2 10 launcher.refused=1
 lcmd 2 "key 27"; sleep 1
-# the ban lasts as long as this lobby: the host leaves, opens a new one (open to my networks) and Alice joins by address
+# the ban lasts as long as this lobby: the host leaves, opens a new one (invite only again) and Alice joins with
+# its new invite; the game this lobby starts checks the same key
 lcmd 1 "key 27"; sleep 1
-lcmd 1 "visibility 0" "$PLAY"
+lcmd 1 "$PLAY"
 check "host: a new lobby"                              wait_state 1 10 launcher.lobby=1 launcher.players=1
-lcmd 2 "join $lan"
+sleep 3
+code=$(value 1 invite_code)
+lcmd 2 "join $code"
 
 # 4. and 5. Mute me, then the pad: tabs, the focus to Start, A starts
 lcmd 1 "pad 0x0200 0 0" "pad 0 0 0"
@@ -147,6 +151,7 @@ check "pad: A on Start starts the countdown"           wait_log 1 "^lobby: host 
 check "host: game started"                             wait_log 1 "^launcher: play, host over UDP" 15
 check "client: game started"                           wait_log 2 "^launcher: play, join over UDP" 15
 check "client joined the game"                         wait_log 2 "^we are player [0-9]+" 60
+check "game: invite only, the client's game let in by its key" wait_log 1 "^invite only: .* has the invite" 5
 
 for i in 1 2; do cp "$(mdk_log "$i")" "$out/game$i.log"; done
 mdk_kill

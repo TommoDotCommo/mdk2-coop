@@ -161,7 +161,7 @@ class Launchers:
         self.command(2, 'page 5')
         self.expect(2, 'Recent hosts page scans', **{'launcher.page': 5, 'join.shown': 1, 'recents.count': 2})
         self.shot(2, 'recent_hosts')
-        self.command(2, 'page 2', *['click 1220 115'] * 4)     # Settings, the section picker to Network
+        self.command(2, 'page 2', *['click 1220 115'] * 5)     # Settings, the section picker to Network (the sixth)
         self.expect(2, 'Settings > Network: find settings on by default', **{'join.find_lan': 1, 'join.find_tailscale': 1})
         self.shot(2, 'settings_network')
         self.command(2, 'page 0')
