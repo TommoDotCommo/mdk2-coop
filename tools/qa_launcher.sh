@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launcher checks with two games in background test mode, the launcher hidden and driven through
 # coop\launcher.txt ([test] launcher=1, see bridge/launcher.c): screenshots of every page, a
-# client joining over UDP at an address typed in, the host's settings written on Play, solo
+# client joining over UDP at an address typed into the Join paste box, the host's settings written on Play, solo
 # turning co-op off, Esc quitting, [launcher] show=0, +connect_lobby skipping it and the
 # resolution written to settings.lua (restored afterwards). Screenshots go to the output folder.
 #   tools/qa_launcher.sh
@@ -33,11 +33,11 @@ shot()  { lcmd "$1" "shot launcher_$2" && python3 "$here/tga2png.py" "$(dir "$1"
 start() { local pid; pid=$(mdk_start "$1"); echo "$pid"; }
 BS=(); for i in $(seq 1 24); do BS+=("key 8"); done     # backspaces: empty a field
 
-# canvas spots (1280x720): tabs, Play page tiles, the connection selector, the UDP join fields,
+# canvas spots (1280x720): tabs, Play page tiles, the connection selector, the Join paste box,
 # the Play button; Settings: the section picker's arrows (Co-op, Interface, Voice and sound, Display) and rows
 T_PLAY="click 780 50"; T_SAVES="click 880 50"; T_SET="click 1000 50"; T_ABOUT="click 1130 50"
 HOST="click 1000 200"; JOIN="click 1000 283"; SOLO="click 1000 367"
-ADDR="click 900 532"; PORT="click 1170 532"; PLAY="click 1000 660"
+PASTE="click 1000 366"; PLAY="click 1000 660"
 SEC_NEXT="click 1220 115"; SEC_PREV="click 1050 115"
 FF="click 1000 170"; EMOTE="click 1000 363"; MUSIC="click 1220 371"; RES="click 1180 219"
 
@@ -136,9 +136,9 @@ check "host: co-op on"                                  wait_log 1 "^coop_init: 
 check "host: the picked session is what the game starts"  wait_log 1 "launcher start: resume" 60
 check "host: it resumes session 4660 (0x1234)"          wait_log 1 "autostart: resuming co-op session 4660" 60
 
-# 2. client: join over UDP at a typed address
+# 2. client: join over UDP at an address typed into the paste box (the host's game answers the probe)
 lcmd 2 "$JOIN"; shot 2 join_udp_old
-lcmd 2 "$ADDR" "${BS[@]}" "text 127.0.0.1" "$PORT" "${BS[@]}" "text ${MDK2_PORT}"; shot 2 join_udp
+lcmd 2 "$PASTE" "${BS[@]}" "text 127.0.0.1:${MDK2_PORT}"; shot 2 join_udp
 lcmd 2 "$PLAY"
 check "client: Join chosen"                             wait_log 2 "^launcher: play, join over UDP" 10
 check "client: role, address and port written"          bash -c "[ '$(ini 2 role coop.ini)' = client ] && [ \"\$(grep -E '^peer_host=' '$(dir 2)/coop/coop.ini' | tr -d '\r')\" = peer_host=127.0.0.1 ] && grep -qE '^peer_port=${MDK2_PORT}' '$(dir 2)/coop/coop.ini'"

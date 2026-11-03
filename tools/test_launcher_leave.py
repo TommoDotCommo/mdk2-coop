@@ -45,7 +45,9 @@ static int button(int id,int x,int y,int w,int h,const char *s,int primary) {
 static void lob_leave(void) {lob.on=0;leaves++;}
 static void lobby_page(void) {if(click) lob_leave();}
 static void page_play(void) {}
-static void page_profiles(void) {}
+static void lj_page_recents(void) {}
+static void lj_set_view(int full,int play) {}
+static void lj_rejoin_button(int x,int y,int w) {}
 static void page_saves(void) {}
 static void page_settings(void) {}
 static void page_help(void) {}
@@ -55,6 +57,8 @@ static void lob_primary(void) {}
 static void start_summary(char *s,int n) {s[0]=0;}
 static int lob_wants(void) {return 1;}
 static void lob_open(void) {opens++;lob.on=1;}
+static const char *primary_label(char *s,int n) {return "Join";}
+static void play_primary(void) {if(lob_wants()) lob_open(); else done=1;}
 static void render(void) {char line[160];
 '''
 TEST = r'''

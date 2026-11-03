@@ -968,7 +968,7 @@ static int focus = -1, kb_focus = 1;     /* rings only while the keyboard is in 
 static int ids[128], nids;                  /* focusable widgets of the last pass, in order */
 static struct { float x, y, w, h; } hits[128];
 static int nhits;
-static char typed[64];                      /* characters for the focused field ('\b' backspace) */
+static char typed[300];                     /* characters for the focused field ('\b' backspace) */
 static int ntyped;
 static int field_focused;       /* the last render drew the focused control as a text field: Space types */
 static int changed, done, quit, caret_on = 1;
@@ -976,6 +976,7 @@ static int headless;
 static int lob_wants(void);
 static void lob_open(void);
 static int profile_session_active(void);
+static void play_primary(void);
 
 #define ID __LINE__
 
@@ -1106,10 +1107,8 @@ static int field(int id, float x, float y, float w, const char *label, char *buf
     int edited = 0, i;
     if (focus == id)
         field_focused = 1;
-    if (control(id, x, y + 24, w, 40) && !clicked && !profile_session_active() && page == PAGE_PLAY) {
-        if (lob_wants()) lob_open();
-        else done = 1;               /* Enter in a Play field starts the game or lobby */
-    }
+    if (control(id, x, y + 24, w, 40) && !clicked && !profile_session_active() && page == PAGE_PLAY)
+        play_primary();              /* Enter in a Play field does what the primary button says */
     gdi_text(f_small, x, y, C_DIM, label, DT_LEFT);
     if (focus == id) {
         for (i = 0; i < ntyped; i++) {
@@ -1187,7 +1186,9 @@ static void lan_address(char *out, int size)
     WSACleanup();
 }
 
-static void profile_load(void);
+static float lj_join_panel(float y);
+static float lj_settings_network(float y);
+static int lj_offer_panel(float y);
 
 static void page_play(void)
 {
@@ -1199,17 +1200,32 @@ static void page_play(void)
     heading(PX, y, 20, "Your name", C_DIM, DT_LEFT);
     field(ID, PX + 150, y - 30, PW - 150, "", cfg.name, sizeof(cfg.name), 0, "Player");
     y += 50;
+    if (cfg.mode == MODE_JOIN) {    /* the three tiles, short: the Join list needs the room */
+        if (tile(ID, PX, y, PW, 46, "Host a game", "", 0))
+            cfg.mode = MODE_HOST, changed = 1;
+        y += 52;
+        tile(ID, PX, y, PW, 46, "Join a friend", "", 1);
+        y += 52;
+        if (tile(ID, PX, y, PW, 46, "Play solo", "", 0))
+            cfg.mode = MODE_SOLO, changed = 1;
+        y += 56;
+        if (!lj_offer_panel(y))
+            lj_join_panel(y);       /* Games near you and the paste box (launcher_join.c) */
+        return;
+    }
     if (tile(ID, PX, y, PW, 74, "Host a game", "Run the world. Friends join you.", cfg.mode == MODE_HOST))
         cfg.mode = MODE_HOST, changed = 1;
     y += 84;
-    if (tile(ID, PX, y, PW, 74, "Join a friend", "Follow a host into their game.", cfg.mode == MODE_JOIN))
+    if (tile(ID, PX, y, PW, 74, "Join a friend", "Find a host near you, or paste their invite.", cfg.mode == MODE_JOIN))
         cfg.mode = MODE_JOIN, changed = 1;
     y += 84;
     if (tile(ID, PX, y, PW, 74, "Play solo", "Plain MDK2 HD. Co-op is off for this start.", cfg.mode == MODE_SOLO))
         cfg.mode = MODE_SOLO, changed = 1;
     y += 92;
 
-    if (cfg.mode != MODE_SOLO) {
+    if (lj_offer_panel(y))
+        return;                 /* B8: an invite on the clipboard, Join / Not now */
+    if (cfg.mode == MODE_HOST) {
         choice(ID, PX, y, PW, "Connection", cfg.steam ? "Friends-only lobby, no setup" :
                "LAN, or port forwarding", conn, 2, &cfg.steam);
         y += 66;
@@ -1224,14 +1240,6 @@ static void page_play(void)
         snprintf(line, sizeof(line), "This PC on your network: %s\nOver the internet, forward UDP %s "
                  "to it and give friends your public IP.", lan, cfg.listen[0] ? cfg.listen : "27900");
         gdi_para(f_small, PX + 160, y + 4, PW - 160, C_DIM, line);
-        if (link(ID, PX, y+66, "Saved addresses")) { page = PAGE_PROFILES; changed = 1; }
-    } else if (cfg.mode == MODE_JOIN && cfg.steam) {
-        field(ID, PX, y, PW, "Host's lobby ID (optional)", cfg.lobby, sizeof(cfg.lobby), 1,
-              "Or accept a Steam invite in the game");
-    } else if (cfg.mode == MODE_JOIN) {
-        field(ID, PX, y, PW - 160, "Host address", cfg.host, sizeof(cfg.host), 0, "e.g. 192.168.1.20");
-        field(ID, PX + PW - 140, y, 140, "Port", cfg.port, sizeof(cfg.port), 1, "27900");
-        if (link(ID, PX, y+66, "Saved addresses")) { page = PAGE_PROFILES; changed = 1; }
     } else {
         gdi_para(f_small, PX, y - 6, PW, C_DIM, "The co-op mod stays installed but does nothing until you "
                  "pick Host or Join at the next start.");
@@ -1272,7 +1280,8 @@ static void clip_text(char *out, float w)
     }
 }
 
-#include "launcher_profiles_win.h"
+#include <ws2tcpip.h>
+#include "launcher_profiles.h"
 static int update_data_base(char *out, size_t n) { return redirect_data_base(out, n); }
 #include "launcher_update_win.h"
 
@@ -1463,7 +1472,7 @@ static void start_summary(char *out, int size)
 
 static void page_settings(void)
 {
-    static const char *sections[] = { "Co-op rules", "Players and interface", "Voice and sound", "Display" };
+    static const char *sections[] = { "Co-op rules", "Players and interface", "Voice and sound", "Display", "Network" };
     static const char *window[] = { "Windowed", "Fullscreen" };
     static const char *levels[] = { "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%" };
     static char res_text[64][24];
@@ -1471,7 +1480,7 @@ static void page_settings(void)
     float y = 92;
     int i;
 
-    choice(ID, PX, y, PW, "Settings", NULL, sections, 4, &cfg.section);
+    choice(ID, PX, y, PW, "Settings", NULL, sections, 5, &cfg.section);
     y += ROW + 10;
     if (cfg.section == 0) {
         toggle(ID, PX, y, PW, "Friendly fire", "The host's choice counts", &cfg.friendly_fire);
@@ -1534,6 +1543,8 @@ static void page_settings(void)
         choice(ID, PX, y, PW, "Microphone", NULL, lv_in_names, lv_in_count, &cfg.voice_in_dev);
         y += ROW + 2;
         choice(ID, PX, y, PW, "Voice output", NULL, lv_out_names, lv_out_count, &cfg.voice_out_dev);
+    } else if (cfg.section == 4) {
+        lj_settings_network(y);     /* launcher_join.c */
     } else {
         if (choice(ID, PX, y, PW, "Screen", NULL, window, 2, &video.fullscreen))
             video_dirty = 1;
@@ -1681,6 +1692,9 @@ static void page_help(void)
     if (link(ID, PX + 180, y, "Open mod folder"))
         ShellExecuteA(NULL, "open", coop_dir, NULL, NULL, SW_SHOWNORMAL);
 }
+
+static int lob_wants(void);
+#include "launcher_join.c"
 
 /* ---- lobby: who has connected, before the game starts ----
  * Host and Join over UDP first meet here. The host listens on the game's port and every joiner says hello
@@ -1881,14 +1895,13 @@ static void lob_poll(void)
         n = recvfrom(lob.s, buf, sizeof(buf) - 1, 0, (struct sockaddr *)&from, &flen);
         if (n <= 0)
             break;
-        if (lob.host && n == 8 && !memcmp(buf, "CPQ1", 4)) {
-            static DWORD next_probe;
-            unsigned char reply[64];
-            if ((int32_t)(now-next_probe) >= 0) {
-                int bytes = lp_answer((unsigned char *)buf, n, lob.n, 0, MOD_VERSION, reply);
-                next_probe = now+100;
-                if (bytes) sendto(lob.s, (const char *)reply, bytes, 0, (struct sockaddr *)&from, flen);
-            }
+        if (lob.host && lj_is_probe((const uint8_t *)buf, (size_t)n)) {
+            /* "Games near you" and recent hosts ask (CPQ2; saved addresses of older versions CPQ1) */
+            static struct cd_rate rate;
+            struct cd_host me = { LJ_PROBE_ID, MOD_VERSION, lob_name(), CD_IN_LOBBY, 0, 0, (unsigned)lob.n, LOB_MAX };
+            uint8_t reply[CD_REPLY_MAX];
+            int bytes = lj_host_reply(&rate, (const uint8_t *)buf, (size_t)n, ntohl(from.sin_addr.s_addr), now, &me, reply);
+            if (bytes) sendto(lob.s, (const char *)reply, bytes, 0, (struct sockaddr *)&from, flen);
             continue;
         }
         if (n == (int)sizeof(struct ls_voice_pkt) && !memcmp(buf, "MDKV", 4)) {
@@ -2021,8 +2034,10 @@ static void lob_poll(void)
             lob.n = count;
             memcpy(lob.m, roster, lob.n * sizeof(roster[0]));
             lob_sync_comm();
-            if (!lob.connected)
+            if (!lob.connected) {
                 logmsg("lobby: connected to the host (%d players)", lob.n);
+                lj_joined(cfg.host, ntohs(lob.hostaddr.sin_port), lob.n ? lob.m[0].name : "");   /* B4: a recent host */
+            }
             lob.connected = 1;
             lob.last_host = now;
             lob.start_at = lob.session.phase == LS_COUNTDOWN ? lob.session.deadline : 0;
@@ -2218,8 +2233,9 @@ static void lobby_page(void)
         if (!strcmp(address, "unknown")) {
             snprintf(lob.address_status, sizeof(lob.address_status), "Could not find this lobby's IP address.");
         } else {
-            profile_save_endpoint(address, port);
-            snprintf(lob.address_status, sizeof(lob.address_status), "%s", profile_message);
+            snprintf(lob.address_status, sizeof(lob.address_status), "%s",
+                     lj_save_endpoint(address, port, lob.host ? "" : lob.n ? lob.m[0].name : "") ?
+                     "Saved, pinned, under Join a friend > Recent hosts." : "Could not save this address.");
         }
         changed = 1;
     }
@@ -2413,6 +2429,28 @@ static void draw_full_guide(void)
              DT_CENTER);
 }
 
+/* The primary button (A2): its words say what it does */
+static const char *primary_label(char *out, size_t cap)
+{
+    if (cfg.mode == MODE_JOIN || lju.offer)
+        lj_primary_label(out, cap);
+    else
+        snprintf(out, cap, "%s", cfg.mode == MODE_SOLO ? "Play solo" : sel >= 0 ? "Continue" : "Host");
+    while (strlen(out) > 8 && (font.px ? title_width(out, 34) : gdi_width(f_big, out)) > PW - 24)
+        strcpy(out + strlen(out) - 4, "...");
+    return out;
+}
+
+static void play_primary(void)
+{
+    if (cfg.mode == MODE_JOIN || lju.offer)
+        lj_primary();               /* the chosen game, the paste box, the invite offered (launcher_join.c) */
+    else if (lob_wants())
+        lob_open();
+    else
+        done = 1;
+}
+
 static void render(void)
 {
     char line[160];
@@ -2455,6 +2493,8 @@ static void render(void)
         quit = 1;
     fill(PX, 80, PW, 1, 0x22343c, 255);
 
+    lj_set_view(!lob.on && (page == PAGE_PROFILES || (page == PAGE_PLAY && cfg.mode == MODE_JOIN)),
+                !lob.on && page == PAGE_PLAY);
     if (page == PAGE_PLAY) {
         if (lob.on) {
             lobby_page();
@@ -2462,7 +2502,7 @@ static void render(void)
         } else page_play();
     }
     else if (page == PAGE_PROFILES)
-        page_profiles();
+        lj_page_recents();
     else if (page == PAGE_SAVES)
         page_saves();
     else if (page == PAGE_SETTINGS)
@@ -2495,13 +2535,10 @@ static void render(void)
     start_summary(line, sizeof(line));
     if (line[0])
         gdi_text(f_small, PX, LH - 118, C_ORANGE, line, DT_LEFT);
-    if (button(ID, PX, LH - 92, PW, 64, cfg.mode == MODE_SOLO ? "Play solo" :
-               cfg.mode == MODE_JOIN ? "Join" : sel >= 0 ? "Continue" : "Host", 1)) {
-        if (lob_wants())
-            lob_open();
-        else
-            done = 1;
-    }
+    if (page == PAGE_PLAY)
+        lj_rejoin_button(PX, LH - 160, PW);      /* A4: the last host answers */
+    if (button(ID, PX, LH - 92, PW, 64, primary_label(line, sizeof(line)), 1))
+        play_primary();
     if (guide_open)
         draw_full_guide();
 }
@@ -2601,8 +2638,7 @@ static void key(int vk)
             break;                      /* Space only presses the focused button; Enter starts the game */
         if (!focus_valid()) {
             if (lob.on) lob_primary();
-            else if (lob_wants()) lob_open();
-            else done = 1;
+            else play_primary();
         } else {
             activate = 1;
         }
@@ -2699,10 +2735,15 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             present();
         }
         return 0;
+    case WM_ACTIVATE:
+        if (LOWORD(wp) != WA_INACTIVE && !headless)
+            lj_on_focus(h);     /* B8: this game's invite on the clipboard is offered */
+        break;
     case WM_TIMER:
         if (wp == 3) {
             diag_poll();
             lob_poll();
+            lj_poll();
             if (changed || page == PAGE_PROFILES || page == PAGE_ABOUT || (lob.on && lob.start_at)) {   /* a roster change or the countdown redraws */
                 pass();
                 present();
@@ -2760,7 +2801,7 @@ static void test_commands(void)
         int a, b;
         char *s;
         line[strcspn(line, "\r\n")] = 0;
-        logmsg("launcher: test %s", line);
+        logmsg("launcher: test %s", strncmp(line, "clipboard ", 10) ? line : "clipboard (text not logged)");
         if (sscanf(line, "key %d", &a) == 1) {
             key(a);
         } else if (sscanf(line, "click %d %d", &a, &b) == 2) {
@@ -2792,6 +2833,9 @@ static void test_commands(void)
             pass();
         } else if (sscanf(line, "vmode %d", &a) == 1) {
             cfg.voice_mode = a != 0;
+            pass();
+        } else if (!strncmp(line, "clipboard ", 10)) {
+            lj_clipboard_text(line + 10, strlen(line + 10));     /* the clipboard check, on given text */
             pass();
         } else if (!strcmp(line, "update check")) {
             update_init();
@@ -2826,17 +2870,7 @@ static void test_commands(void)
                             i, lob.m[i].ready, cm ? cm->muted : 0, cm ? cm->volume : 100,
                             cm ? cm->voice_frames : 0u, ls_member_talking(cm, now_dump), lob.m[i].ver, lob.m[i].rtt);
                 }
-                if (profile_loaded) {
-                    EnterCriticalSection(&profile_lock);
-                    fprintf(state, "[profiles]\ncount=%d\nselected=%d\nediting=%d\nmessage=%s\n",
-                            profiles.n, profile_selected, profile_edit, profile_message);
-                    for (i = 0; i < profiles.n; i++)
-                        fprintf(state, "[profile%d]\nname=%s\nhost=%s\nport=%u\nnotes=%s\nused=%llu\nstatus=%d\nversion=%s\nrtt=%d\n",
-                                i, profiles.p[i].name, profiles.p[i].host, profiles.p[i].port,
-                                profiles.p[i].notes, (unsigned long long)profiles.p[i].used,
-                                profile_probes[i].status, profile_probes[i].version, profile_probes[i].rtt);
-                    LeaveCriticalSection(&profile_lock);
-                }
+                lj_dump(state);
                 for (i = start_c; i < total_c; i++) {
                     const struct ls_chat_msg *msg = &lob.comm.history[(unsigned)i % LS_CHAT_HISTORY];
                     fprintf(state, "[chat%d]\nname=%s\ntext=%s\ncolor=%u\nseq=%u\n",
@@ -2976,14 +3010,14 @@ static void run(void)
             test_commands();
             lob_poll();
             diag_poll();
-            if (changed && (lob.on || page == PAGE_HELP))
+            if (lj_poll() || (changed && (lob.on || page == PAGE_HELP)))
                 pass();
             continue;
         }
         TranslateMessage(&msg);
         DispatchMessageA(&msg);
     }
-    if (profile_loaded) InterlockedExchange(&profile_stop, 1);
+    lj_shutdown();
     lob_leave();
     DestroyWindow(wnd);
     wnd = NULL;

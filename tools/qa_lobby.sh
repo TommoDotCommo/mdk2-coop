@@ -4,7 +4,7 @@
 # it over UDP, everyone is listed with their name, ready state and ping, a client's Ready shows on the
 # host, the host's Start counts down on every launcher, and then all three games start and connect.
 #   tools/qa_lobby.sh
-#   MDK2_EXTENDED=1 tools/qa_lobby.sh  profile controls/probes, full lobby with synthetic peers,
+#   MDK2_EXTENDED=1 tools/qa_lobby.sh  Save address into recent hosts, full lobby with synthetic peers,
 #                                     host loss/reconnect, hostile/flood chat and speaking indicators
 #   MUTANT=nostart tools/qa_lobby.sh    the host never sends the countdown: passes only if the start check fails
 # Game copies: see tools/mdk.sh. About 2 minutes.
@@ -45,7 +45,7 @@ for i in 1 2 3; do
     rm -f "$(dir $i)/coop/launcher.txt"
     if [ "${MDK2_EXTENDED:-0}" = 1 ]; then
         # Archive disposable-copy profile state before seeding a fresh UI fixture.
-        for f in profiles.tsv profiles-export.tsv profiles-import.tsv; do
+        for f in profiles.tsv recents.tsv; do
             if [ -f "$(dir $i)/coop/$f" ]; then
                 cp "$(dir $i)/coop/$f" "$out/player$i-$f"
                 rm "$(dir $i)/coop/$f"
@@ -74,7 +74,7 @@ live_check() {
 if [ "${MDK2_EXTENDED:-0}" = 1 ]; then
     lcmd 1 dump
     live_version=$(sed -n 's/^version=//p' "$(dir 1)/coop/launcher-state.ini" | head -1 | tr -d '\r')
-    live_check profiles || exit 1
+    live_check recents || exit 1
     i686-w64-mingw32-gcc -O2 -Wall -Wextra -o "$out/lobby_peers.exe" "$here/../bridge/tests/launcher_lobby_peers.c" -lws2_32 || exit 1
     "$out/lobby_peers.exe" "$MDK2_PORT" 13 "$live_version" 10000 &
     peer_pid=$!
