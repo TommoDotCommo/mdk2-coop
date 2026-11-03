@@ -1,4 +1,4 @@
-# Portable installer policy and file ownership journal. No UI or registry writes.
+# Shared Setup policy, file ownership journal, install discovery and optional Windows integrations.
 # Receipts are beside each managed file so elevated and user steps stay independent.
 function Get-CoopHash($file) {
     if (-not (Test-Path -LiteralPath $file)) { return $null }
@@ -130,12 +130,11 @@ function Get-CoopPackageFiles($package) {
     if (-not $m) { return $script:CoopDefaultFiles }
     return @($m.files | ForEach-Object { "$($_.path)".Replace('/', '\') })
 }
-# Who installed the files: 'setup' (receipts), 'vortex' (no receipt, release files hard-linked), 'mod-manager' (no receipt,
-# the files of a known release copied in), or 'none' (not installed, or files Setup cannot place).
+# Who installed the files: Setup receipts, Vortex hard links, a verified manual copy, or none.
 function Get-CoopLinkCount($file) {
     try {
-        $out = (& fsutil.exe hardlink list $file 2>$null)
-        if ($LASTEXITCODE -eq 0 -and $out) { return @($out).Count }
+        $result = Invoke-CoopHiddenProcess 'fsutil.exe' ('hardlink list "{0}"' -f $file)
+        if ($result.ExitCode -eq 0 -and $result.Output) { return @($result.Output -split '\r?\n' | Where-Object { $_.Trim() }).Count }
     } catch { }
     return 1
 }
@@ -151,8 +150,10 @@ function Get-CoopOwner($game, $package) {
             if ($h -ne "$($f.sha256)") { $match = $false; break }
         }
         if ($match) {
-            if ((Get-CoopLinkCount (Join-Path $game 'dinput8.dll')) -gt 1) { return 'vortex' }
-            return 'mod-manager'
+            foreach ($f in $m.files) {
+                if ((Get-CoopLinkCount (Join-Path $game ($f.path.Replace('/', '\')))) -gt 1) { return 'vortex' }
+            }
+            return 'manual'
         }
     }
     return 'none'
@@ -325,13 +326,219 @@ function Get-CoopInstallStatus($game, $package, $settings, $data, $perUser = $tr
         } catch { $rows += [pscustomobject]@{ item='User data migration'; status='unknown'; detail='Could not inspect all runtime files; no action is safe' } }
     }
     $actions = Get-CoopActions @($rows | ForEach-Object { $_.status }) $owned
-    if ($owner -in 'mod-manager', 'vortex') {
+    if ($owner -eq 'vortex') {
         # a mod manager's files: it updates and removes them; Setup shows that and offers Play
         $actions = [pscustomobject]@{ install=''; uninstall=$false; blocked=$false }
+    }
+    if ($owner -eq 'manual' -and -not $actions.blocked) {
+        $actions.install = 'Install'; $actions.uninstall = $false
     }
     $iniPath = if ($perUser) { Join-Path $data 'coop.ini' } else { Join-Path $game 'coop\coop.ini' }
     $rows += [pscustomobject]@{ item='coop.ini'; status=$(if (Test-Path -LiteralPath $iniPath) { 'present' } else { 'default on launch' }); detail='Existing co-op settings preserved; only explicit CLI flags edit [net] and [launcher] mode' }
     $rows += [pscustomobject]@{ item='settings.lua.coop-backup'; status=$(if (Test-Path -LiteralPath "$settings.coop-backup") { 'present' } else { 'will create' }); detail='First settings snapshot, retained for manual recovery' }
-    $rows += [pscustomobject]@{ item='Registry, shortcuts, game executable, existing saves'; status='untouched'; detail='No registry, shortcut or executable changes; original saves never overwritten or removed' }
-    return [pscustomobject]@{ schema=1; owner=$owner; items=$rows; actions=$actions }
+    $options = Get-CoopOptions $game
+    foreach ($name in 'desktop_shortcut', 'allow_hosting', 'invite_links') {
+        $rows += [pscustomobject]@{ item=$name; status=$(if ($options.$name) { 'current' } else { 'missing' }); detail='Optional Setup integration; removed on uninstall' }
+    }
+    $rows += [pscustomobject]@{ item='Game executable and existing saves'; status='untouched'; detail='Never overwritten or removed' }
+    return [pscustomobject]@{ schema=1; owner=$owner; options=$options; items=$rows; actions=$actions }
+}
+
+# Adopt only a complete, verified release, never a manager's linked deployment.
+# These files are the mod itself, so uninstall removes them instead of restoring another copy of co-op.
+function Adopt-CoopInstall($game, $package) {
+    if ((Get-CoopOwner $game $package) -ne 'manual') { throw 'Only a verified manual install can be adopted.' }
+    foreach ($m in @(Read-CoopManifest $package; Read-CoopManifest $game)) {
+        if (-not $m) { continue }
+        $matching = $true
+        foreach ($f in $m.files) {
+            $target = Join-Path $game ($f.path.Replace('/', '\'))
+            Assert-CoopRegularPath $target
+            Assert-CoopNoRecoveryArtifacts $target
+            Assert-CoopRegularPath "$target.coop-receipt.json"
+            Assert-CoopRegularPath "$target.coop-receipt.json.tmp"
+            if (Test-Path -LiteralPath "$target.coop-original") { throw 'An original backup needs review before adoption.' }
+            if ((Get-CoopHash $target) -ne $f.sha256 -or (Get-CoopLinkCount $target) -gt 1) { $matching = $false; break }
+        }
+        if (-not $matching) { continue }
+        foreach ($f in $m.files) {
+            $target = Join-Path $game ($f.path.Replace('/', '\'))
+            Write-CoopReceipt $target ([pscustomobject]@{ schema=1; original=$null; installed=$f.sha256; pending=$null })
+        }
+        return
+    }
+    throw 'The manual install changed; refresh Setup and try again.'
+}
+
+function Steam-Libraries {
+    $roots = @()
+    foreach ($k in 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam', 'HKLM:\SOFTWARE\Valve\Steam', 'HKCU:\Software\Valve\Steam') {
+        $p = Get-ItemProperty $k -ErrorAction SilentlyContinue
+        if ($p.SteamPath)   { $roots += ($p.SteamPath -replace '/', '\') }
+        if ($p.InstallPath) { $roots += $p.InstallPath }
+    }
+    $libs = @()
+    foreach ($r in ($roots | Select-Object -Unique)) {
+        $libs += $r
+        $vdf = Join-Path $r 'steamapps\libraryfolders.vdf'
+        if (Test-Path $vdf) {
+            foreach ($m in [regex]::Matches((Get-Content $vdf -Raw), '"path"\s+"([^"]+)"')) {
+                $libs += ($m.Groups[1].Value -replace '\\\\', '\')
+            }
+        }
+    }
+    $libs | Where-Object { $_ } | ForEach-Object { $_.TrimEnd('\') } | Select-Object -Unique
+}
+
+function Find-AllGames {
+    $found = @()
+    foreach ($lib in Steam-Libraries) {
+        $acf = Join-Path $lib 'steamapps\appmanifest_213350.acf'
+        $dirs = @()
+        if (Test-Path $acf) {
+            $m = [regex]::Match((Get-Content $acf -Raw), '"installdir"\s+"([^"]+)"')
+            if ($m.Success) { $dirs += Join-Path $lib "steamapps\common\$($m.Groups[1].Value)" }
+        }
+        $dirs += Join-Path $lib 'steamapps\common\MDK 2 HD'
+        foreach ($d in $dirs) { if (Test-Path (Join-Path $d 'mdk2hd.exe')) { $found += $d } }
+    }
+    foreach ($root in @(${env:ProgramFiles(x86)}, $env:ProgramFiles, $env:ProgramW6432)) {
+        if (-not $root) { continue }
+        $d = Join-Path $root 'Overhaul Games\MDK 2 HD'
+        if (Test-Path (Join-Path $d 'mdk2hd.exe')) { $found += $d }
+    }
+    # Registered custom locations (including Overhaul/Beamdog installs outside Program Files).
+    foreach ($key in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+                       'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
+                       'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall')) {
+        foreach ($entry in @(Get-ChildItem $key -ErrorAction SilentlyContinue)) {
+            $value = Get-ItemProperty $entry.PSPath -ErrorAction SilentlyContinue
+            if ($value.DisplayName -match 'MDK\s*2.*HD' -and $value.InstallLocation -and
+                (Test-Path -LiteralPath (Join-Path $value.InstallLocation 'mdk2hd.exe') -PathType Leaf)) { $found += $value.InstallLocation }
+        }
+    }
+    if ($env:ProgramData) {
+        $epic = Join-Path $env:ProgramData 'Epic\EpicGamesLauncher\Data\Manifests'
+        foreach ($entry in @(Get-ChildItem -LiteralPath $epic -Filter '*.item' -ErrorAction SilentlyContinue)) {
+            try {
+                $value = Get-Content -LiteralPath $entry.FullName -Raw | ConvertFrom-Json
+                if ($value.InstallLocation -and (Test-Path -LiteralPath (Join-Path $value.InstallLocation 'mdk2hd.exe') -PathType Leaf)) { $found += $value.InstallLocation }
+            } catch { } # A damaged manifest must not hide the other installs.
+        }
+    }
+    # Only MDK2 HD counts: the original GOG MDK2 executable is a different game build.
+    foreach ($key in @('HKLM:\SOFTWARE\GOG.com\Games', 'HKLM:\SOFTWARE\WOW6432Node\GOG.com\Games')) {
+        foreach ($entry in @(Get-ChildItem $key -ErrorAction SilentlyContinue)) {
+            $value = Get-ItemProperty $entry.PSPath -ErrorAction SilentlyContinue
+            if ($value.path -and (Test-Path -LiteralPath (Join-Path $value.path 'mdk2hd.exe') -PathType Leaf)) { $found += $value.path }
+        }
+    }
+    foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432, (Join-Path $env:SystemDrive 'GOG Games'))) {
+        if (-not $root) { continue }
+        foreach ($suffix in @('GOG Galaxy\Games\MDK2 HD', 'MDK2 HD')) {
+            $d = Join-Path $root $suffix
+            if (Test-Path -LiteralPath (Join-Path $d 'mdk2hd.exe') -PathType Leaf) { $found += $d }
+        }
+    }
+    return @($found | ForEach-Object { (Resolve-Path $_).ProviderPath } | Select-Object -Unique)
+}
+
+function New-Mdk2DesktopShortcut($dir, $desktop = [Environment]::GetFolderPath('DesktopDirectory')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe') -PathType Leaf)) { throw 'Choose the folder containing mdk2hd.exe.' }
+    $shell = New-Object -ComObject WScript.Shell
+    $link = $null
+    try {
+        $link = $shell.CreateShortcut((Join-Path $desktop 'MDK2 Co-op.lnk'))
+        $link.TargetPath = Join-Path $dir 'mdk2hd.exe'
+        $link.WorkingDirectory = $dir
+        $link.IconLocation = (Join-Path $dir 'mdk2hd.exe') + ',0'
+        $link.Description = 'Play MDK2 HD with the co-op launcher'
+        $link.Save()
+    } finally {
+        if ($link) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($link) }
+        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
+    }
+}
+function Get-CoopShortcutTarget($desktop = [Environment]::GetFolderPath('DesktopDirectory')) {
+    $file = Join-Path $desktop 'MDK2 Co-op.lnk'
+    if (-not (Test-Path -LiteralPath $file)) { return '' }
+    $shell = New-Object -ComObject WScript.Shell
+    $link = $null
+    try { $link = $shell.CreateShortcut($file); return $link.TargetPath }
+    finally {
+        if ($link) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($link) }
+        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
+    }
+}
+function Get-CoopInviteCommand($game) {
+    return '"{0}" --coop-invite "%1"' -f (Join-Path $game 'mdk2hd.exe')
+}
+function Test-CoopFirewallRule($rule, $game) {
+    return $rule.Name -eq 'MDK2 Co-op (UDP)' -and $rule.ApplicationName -eq (Join-Path $game 'mdk2hd.exe') -and
+        $rule.Protocol -eq 17 -and $rule.Direction -eq 1
+}
+function Get-CoopFirewallRules($game) {
+    $policy = $null
+    try {
+        $policy = New-Object -ComObject HNetCfg.FwPolicy2
+        return @($policy.Rules | Where-Object { Test-CoopFirewallRule $_ $game })
+    } catch { return @() }
+    finally { if ($policy) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($policy) } }
+}
+function Get-CoopOptions($game) {
+    $exe = Join-Path $game 'mdk2hd.exe'
+    $protocol = Get-ItemProperty 'HKCU:\Software\Classes\mdk2-coop\shell\open\command' -ErrorAction SilentlyContinue
+    $rules = @(Get-CoopFirewallRules $game)
+    $profiles = 0
+    foreach ($rule in $rules) { if ($rule.Enabled -and $rule.Action -eq 1) { $profiles = $profiles -bor $rule.Profiles } }
+    return [pscustomobject]@{
+        desktop_shortcut=((Get-CoopShortcutTarget) -eq $exe)
+        allow_hosting=(($profiles -band 6) -eq 6) # Private=2, Public=4
+        invite_links=([bool]($protocol -and $protocol.'(default)' -eq (Get-CoopInviteCommand $game)))
+    }
+}
+function Set-CoopFirewall($game, [bool]$remove) {
+    $exe = Join-Path $game 'mdk2hd.exe'
+    # Keep all other rules, including rules for another copy of the game.
+    $args = 'advfirewall firewall delete rule name="MDK2 Co-op (UDP)" program="{0}" protocol=UDP dir=in' -f $exe
+    if ($remove) {
+        $result = Invoke-CoopHiddenProcess 'netsh.exe' $args
+    } else {
+        # Replace our exact rule to make retries idempotent; a single rule covers both profiles.
+        if (@(Get-CoopFirewallRules $game).Count) { [void](Invoke-CoopHiddenProcess 'netsh.exe' $args) }
+        $args = 'advfirewall firewall add rule name="MDK2 Co-op (UDP)" dir=in action=allow program="{0}" protocol=UDP profile=private,public enable=yes' -f $exe
+        $result = Invoke-CoopHiddenProcess 'netsh.exe' $args
+    }
+    if ($result.ExitCode -ne 0) { throw 'Windows Firewall could not be changed. Run Setup again and allow administrator permission, or untick Allow hosting.' }
+}
+function Set-CoopUserOptions($game, [bool]$shortcut, [bool]$invites) {
+    if ($shortcut) { New-Mdk2DesktopShortcut $game }
+    if ($invites) {
+        $root = 'HKCU:\Software\Classes\mdk2-coop'
+        New-Item -Path "$root\shell\open\command" -Force | Out-Null
+        Set-Item -LiteralPath $root -Value 'URL:MDK2 Co-op invite'
+        New-ItemProperty -LiteralPath $root -Name 'URL Protocol' -Value '' -PropertyType String -Force | Out-Null
+        Set-Item -LiteralPath "$root\shell\open\command" -Value (Get-CoopInviteCommand $game)
+    }
+}
+function Remove-CoopUserOptions($game) {
+    $options = Get-CoopOptions $game
+    if ($options.desktop_shortcut) { Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'MDK2 Co-op.lnk') }
+    if ($options.invite_links) { Remove-Item -LiteralPath 'HKCU:\Software\Classes\mdk2-coop' -Recurse }
+}
+
+function Get-CoopInstallCards($package, $settings, $data, $dirs = @(Find-AllGames)) {
+    $cards = @(); $selected = $null
+    foreach ($dir in $dirs) {
+        $build = Get-CoopGameBuild (Join-Path $dir 'mdk2hd.exe')
+        $snapshot = Get-CoopInstallStatus $dir $package $settings $data
+        $hasCoop = $snapshot.owner -ne 'none' -or (Test-CoopOurDll (Join-Path $dir 'dinput8.dll'))
+        $card = [pscustomobject]@{ path=$dir; build=$build; state=$snapshot; has_coop=$hasCoop; selected=$false }
+        $cards += $card
+        if (-not $selected -and $hasCoop) { $selected = $card }
+    }
+    if (-not $selected) { $selected = $cards | Where-Object { $_.build.Name -eq 'Steam build 3902' } | Select-Object -First 1 }
+    if (-not $selected) { $selected = $cards | Select-Object -First 1 }
+    if ($selected) { $selected.selected = $true }
+    return $cards
 }

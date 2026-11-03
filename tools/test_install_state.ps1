@@ -1,6 +1,6 @@
 # Game-free: pure policy, disposable filesystem fixtures and source mutants.
 # Windows PowerShell 5.1: powershell -NoProfile -File tools/test_install_state.ps1 -Mutants
-param([switch]$Mutants, [string]$PolicyPath)
+param([switch]$Mutants, [string]$PolicyPath, [string]$TestRoot = ([IO.Path]::GetTempPath()))
 $ErrorActionPreference = 'Stop'
 # Parse every shipped script with the actual Windows PowerShell grammar.
 foreach ($scriptFile in Get-ChildItem (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist') -Filter '*.ps1') {
@@ -23,7 +23,7 @@ function Reject($operation, $message) {
 # console probe reports a failure if Windows attached or allocated any console.
 function Test-HiddenProcess($code) {
     . ([scriptblock]::Create($code))
-    $root = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+    $root = Join-Path $TestRoot ([guid]::NewGuid().ToString())
     New-Item -ItemType Directory $root | Out-Null
     try {
         $probe = Join-Path $root 'console probe.exe'
@@ -87,7 +87,7 @@ try {
 }
 function Run-Checks($code) {
     . ([scriptblock]::Create($code))
-    $root = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+    $root = Join-Path $TestRoot ([guid]::NewGuid().ToString())
     New-Item -ItemType Directory $root | Out-Null
     try {
         $r = [pscustomobject]@{ schema=1; installed='old'; original='original'; pending='pending' }
@@ -234,11 +234,33 @@ function Run-Checks($code) {
         Require ((Get-CoopPackageFiles $pkg2) -join ',' -eq 'dinput8.dll,coop\coop.lua') 'file list read from coop-mod.json'
         Copy-Item (Join-Path $pkg2 'dinput8.dll') $g3; Copy-Item (Join-Path $pkg2 'coop\coop.lua') (Join-Path $g3 'coop')
         $st = Get-CoopInstallStatus $g3 $pkg2 $settings $data $false
-        Require ($st.owner -eq 'mod-manager' -and $st.actions.install -eq '' -and -not $st.actions.uninstall -and -not $st.actions.blocked) 'a plain copy of a release: installed by a mod manager'
+        Require ($st.owner -eq 'manual' -and $st.actions.install -eq 'Install' -and -not $st.actions.uninstall -and -not $st.actions.blocked) 'a plain copy of a release: adoption enabled'
         $g4 = Join-Path $root 'game4'; New-Item -ItemType Directory (Join-Path $g4 'coop') | Out-Null
         New-Item -ItemType HardLink -Path (Join-Path $g4 'dinput8.dll') -Target (Join-Path $pkg2 'dinput8.dll') | Out-Null
         New-Item -ItemType HardLink -Path (Join-Path $g4 'coop\coop.lua') -Target (Join-Path $pkg2 'coop\coop.lua') | Out-Null
-        Require ((Get-CoopInstallStatus $g4 $pkg2 $settings $data $false).owner -eq 'vortex') 'hard-linked release files: Vortex'
+        $st = Get-CoopInstallStatus $g4 $pkg2 $settings $data $false
+        Require ($st.owner -eq 'vortex' -and -not $st.actions.install -and -not $st.actions.uninstall) 'hard-linked release files: Vortex, left alone'
+        Reject { Adopt-CoopInstall $g4 $pkg2 } 'Vortex cannot be adopted'
+        Require (-not (Test-Path (Join-Path $g4 'dinput8.dll.coop-receipt.json'))) 'Vortex has no new receipts'
+        Adopt-CoopInstall $g3 $pkg2
+        Require ((Get-CoopOwner $g3 $pkg2) -eq 'setup') 'adopted manual install belongs to Setup'
+        Require (-not (Read-CoopReceipt (Join-Path $g3 'dinput8.dll')).original) 'adoption has no co-op original to restore'
+        Require (Remove-CoopFile (Join-Path $g3 'dinput8.dll')) 'adopted files uninstall normally'
+        Require (-not (Test-Path (Join-Path $g3 'dinput8.dll'))) 'adopted mod removed on uninstall'
+        Remove-Item (Join-Path $g3 'coop\coop.lua.coop-receipt.json')
+        # An older hand copy is recognised by its installed release manifest and updated after adoption.
+        $g5 = Join-Path $root 'game5'; New-Item -ItemType Directory (Join-Path $g5 'coop') | Out-Null
+        Copy-Item (Join-Path $pkg2 'dinput8.dll') $g5; Copy-Item (Join-Path $pkg2 'coop\coop.lua') (Join-Path $g5 'coop')
+        Copy-Item (Join-Path $pkg2 'coop-mod.json') $g5
+        Remove-Item (Join-Path $pkg2 'dinput8.dll')
+        [IO.File]::WriteAllText((Join-Path $pkg2 'dinput8.dll'), 'mdk2-coop bridge attached r2')
+        $manifest.files[0].sha256 = Get-CoopHash (Join-Path $pkg2 'dinput8.dll')
+        $manifest.version = 'v9.1.0'
+        [IO.File]::WriteAllText((Join-Path $pkg2 'coop-mod.json'), ($manifest | ConvertTo-Json -Depth 4))
+        Require ((Get-CoopOwner $g5 $pkg2) -eq 'manual') 'old manual release recognised by its own manifest'
+        Adopt-CoopInstall $g5 $pkg2
+        Install-CoopFile (Join-Path $g5 'dinput8.dll') ([IO.File]::ReadAllBytes((Join-Path $pkg2 'dinput8.dll')))
+        Require ((Get-CoopHash (Join-Path $g5 'dinput8.dll')) -eq (Get-CoopHash (Join-Path $pkg2 'dinput8.dll'))) 'older hand copy updates after adoption'
         [IO.File]::WriteAllText((Join-Path $g3 'coop\coop.lua'), 'edited')
         Require ((Get-CoopInstallStatus $g3 $pkg2 $settings $data $false).owner -eq 'none') 'changed files are not a release'
     } finally { Remove-Item -LiteralPath $root -Recurse -Force }
@@ -257,7 +279,8 @@ if ($Mutants) {
         @('$keep = $chain      # another mod', '$keep = "$target.coop-original"      # another mod'),
         @('if (Read-CoopReceipt $target) { [void](Move-CoopOriginalToChain $target) }', ''),
         @('        if ($match) {', '        if ($false) {'),
-        @("if ((Get-CoopLinkCount (Join-Path `$game 'dinput8.dll')) -gt 1) { return 'vortex' }", '')
+        @('if ((Get-CoopLinkCount (Join-Path $game ($f.path.Replace(''/'', ''\'')))) -gt 1) { return ''vortex'' }', ''),
+        @('if ($owner -eq ''manual'' -and -not $actions.blocked)', 'if ($false)')
     )
     $index = 0
     foreach ($twin in $twins) {

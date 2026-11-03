@@ -1,8 +1,7 @@
 # Setup's scriptable verbs (co-op mod standard J6, J9) against disposable fixture game folders; no game is started.
 #   MDK2-Coop-Setup.exe status [--json] [<game folder>] | install <game folder> --yes | uninstall <game folder> --yes
 #   exit codes 0 done, 1 failed, 2 usage, 3 unsupported build, 4 the game is running
-# Also: the old -StatusOnly -Yes switches, a plain copy of the release reported as a mod manager's (Setup refuses to replace
-# it and its window offers Play, not "Needs attention"), and the single-file Setup. A profile folder under -TestRoot stands
+# Also: the old -StatusOnly -Yes switches, adoption of a plain release copy, Vortex overwrite protection, and single-file Setup. A profile folder under -TestRoot stands
 # in for %LOCALAPPDATA%: the real settings.lua is never touched.
 # Mutants (-Mutants), each must fail:  running-code (a running game gives exit 1, not 4), build-code (an unknown build gives
 # exit 1, not 3), manager-overwrite (Setup installs over a mod manager's files).
@@ -41,14 +40,19 @@ function Run-Suite($pkg, $label) {
     $g1 = New-Game "$label-g1" $steam
     $r = Run-Setup $setup @('status', '--json', $g1)
     $j = Json-Of $r
+    Check ($j -and $j.installs[0].options -and $j.installs[0].options.desktop_shortcut -is [bool] -and $j.installs[0].options.allow_hosting -is [bool] -and $j.installs[0].options.invite_links -is [bool]) 'status reports all three option states'
     Check ($r.code -eq 0 -and $j -and $j.installs[0].owner -eq 'none' -and $j.installs[0].known_build -and $j.installs[0].build -eq 'Steam build 3902') "status --json before install: $($r.code) $($r.text)"
-    $r = Run-Setup $setup @('install', $g1, '--yes')
+    $r = Run-Setup $setup @('install', $g1, '--yes', '-PerUserData')
     Check ($r.code -eq 0) "install --yes exit $($r.code): $($r.text)"
     Check ((Get-FileHash (Join-Path $g1 'dinput8.dll')).Hash -eq (Get-FileHash (Join-Path $pkg 'dinput8.dll')).Hash) 'install copied dinput8.dll'
     Check (Test-Path (Join-Path $g1 'dinput8.dll.coop-receipt.json')) 'install wrote the receipt'
     Check ((Get-Content -Raw (Join-Path $env:LOCALAPPDATA 'MDK2HD\settings.lua')) -match 'coop_init') 'install wrote the loader into the test profile'
     $j = Json-Of (Run-Setup $setup @('status', '--json', $g1))
     Check ($j -and $j.installs[0].owner -eq 'setup') 'status --json after install: setup'
+    $gui = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'installer-gui.ps1') -TestOwnerPath $g1) -join ' '
+    Check ($gui -match 'button=Repair\|enabled=True') "current install can add missing selected options: $gui"
+    $gui = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'installer-gui.ps1') -TestOwnerPath $g1 -TestNoOptions) -join ' '
+    Check ($gui -match 'button=Up to date\|enabled=False') "unticked options do not require repair: $gui"
     $r = Run-Setup 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $pkg 'mdk2-coop.ps1'), '-GameDir', $g1, '-StatusOnly', '-Yes')
     $j = Json-Of $r
     Check ($r.code -eq 0 -and $j -and $j.items -and $j.actions -and $j.owner -eq 'setup') "-StatusOnly -Yes still works: $($r.code)"
@@ -70,24 +74,34 @@ function Run-Suite($pkg, $label) {
         $r = Run-Setup $setup @('install', $g3, '--yes', '-AcceptUnknownBuild')
         Check ($r.code -eq 4 -and -not (Test-Path (Join-Path $g3 'dinput8.dll'))) "game running: exit $($r.code), want 4, nothing written"
     } finally { if (-not $running.HasExited) { Stop-Process -Id $running.Id -Force } }
-    # a mod manager's install: a plain copy of the release
+    # A plain copy is adopted; a linked Vortex deployment stays in charge of its files.
     $g4 = New-Game "$label-g4" $steam
     New-Item -ItemType Directory (Join-Path $g4 'coop') | Out-Null
     Copy-Item (Join-Path $pkg 'dinput8.dll') $g4; Copy-Item (Join-Path $pkg 'coop\coop.lua') (Join-Path $g4 'coop')
-    $before = (Get-FileHash (Join-Path $g4 'dinput8.dll')).Hash
     $j = Json-Of (Run-Setup $setup @('status', '--json', $g4))
-    Check ($j -and $j.installs[0].owner -eq 'mod-manager') 'a plain copy of the release: owner mod-manager'
-    $r = Run-Setup $setup @('install', $g4, '--yes')
-    Check ($r.code -eq 1 -and -not (Test-Path (Join-Path $g4 'dinput8.dll.coop-receipt.json')) -and (Get-FileHash (Join-Path $g4 'dinput8.dll')).Hash -eq $before) "install over a mod manager's files is refused: $($r.code)"
+    Check ($j -and $j.installs[0].owner -eq 'manual' -and $j.installs[0].actions.install) 'plain copy: adoption offered'
     $gui = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'installer-gui.ps1') -TestOwnerPath $g4) -join ' '
-    Check ($gui -match 'button=By mod manager\|enabled=False\|uninstall=False\|play=True\|status=Installed by a mod manager') "Setup window for a mod manager's install: $gui"
+    Check ($gui -match 'enabled=True' -and $gui -match 'Setup will look after these files from now on') "manual adoption note: $gui"
+    $r = Run-Setup $setup @('install', $g4, '--yes')
+    $j = Json-Of (Run-Setup $setup @('status', '--json', $g4))
+    Check ($r.code -eq 0 -and $j.installs[0].owner -eq 'setup') "manual install adopted: $($r.code)"
+    Check ((Run-Setup $setup @('uninstall', $g4, '--yes')).code -eq 0 -and -not (Test-Path (Join-Path $g4 'dinput8.dll'))) 'adopted mod removed on uninstall'
+    $g5 = New-Game "$label-g5" $steam
+    New-Item -ItemType Directory (Join-Path $g5 'coop') | Out-Null
+    New-Item -ItemType HardLink -Path (Join-Path $g5 'dinput8.dll') -Target (Join-Path $pkg 'dinput8.dll') | Out-Null
+    New-Item -ItemType HardLink -Path (Join-Path $g5 'coop\coop.lua') -Target (Join-Path $pkg 'coop\coop.lua') | Out-Null
+    $before = (Get-FileHash (Join-Path $g5 'dinput8.dll')).Hash
+    $r = Run-Setup $setup @('install', $g5, '--yes')
+    Check ($r.code -eq 1 -and -not (Test-Path (Join-Path $g5 'dinput8.dll.coop-receipt.json')) -and (Get-FileHash (Join-Path $g5 'dinput8.dll')).Hash -eq $before) "Vortex overwrite refused: $($r.code)"
+    $gui = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'installer-gui.ps1') -TestOwnerPath $g5) -join ' '
+    Check ($gui -match 'button=By Vortex\|enabled=False\|uninstall=False\|play=True\|status=Installed by Vortex: update or remove it there') "Vortex window: $gui"
     return $script:failures
 }
 
 try {
     $bad = @(Run-Suite $PackageDir 'zip')
     if ($bad) { throw ('FAIL (zip Setup): ' + ($bad -join '; ')) }
-    Write-Output 'PASS: zip Setup verbs: status --json, install/uninstall --yes, exit codes 2/3/4, -StatusOnly alias, mod-manager install recognised and left alone'
+    Write-Output 'PASS: zip Setup verbs: status --json, install/uninstall --yes, exit codes 2/3/4, -StatusOnly alias, manual release adopted; Vortex recognised and left alone'
     if ($SingleFile) {
         $single = Join-Path $root 'single'
         New-Item -ItemType Directory $single | Out-Null
@@ -101,9 +115,10 @@ try {
     }
     if ($Mutants) {
         $twins = @(
+            @('manual-blocked', "if (`$owner -eq 'vortex') {", "if (`$owner -in 'manual', 'vortex') {"),
             @('running-code', "Close the game and run this again.' `$ExitRunning }", "Close the game and run this again.' }"),
             @('build-code', "to install anyway.' `$ExitUnknownBuild }", "to install anyway.' }"),
-            @('manager-overwrite', "    if (`$owner -in 'mod-manager', 'vortex') {`r`n        Fail (", "    if (`$false) {`r`n        Fail (")
+            @('manager-overwrite', "    if (`$owner -eq 'vortex') {`r`n        Fail (", "    if (`$false) {`r`n        Fail (")
         )
         foreach ($t in $twins) {
             $m = Join-Path $root ('mutant-' + $t[0])
@@ -117,6 +132,16 @@ try {
             if (-not $bad) { throw "FAIL: mutant $($t[0]) survived" }
             Write-Output "KILLED: $($t[0]) ($($bad[0]))"
         }
+        $m = Join-Path $root 'mutant-options-blocked'
+        Copy-Item $PackageDir $m -Recurse
+        $ps = Join-Path $m 'installer-gui.ps1'
+        $text = [IO.File]::ReadAllText($ps)
+        $needle = "if (`$snapshot.owner -ne 'vortex' -and -not `$snapshot.actions.blocked"
+        if (-not $text.Contains($needle)) { throw 'options mutant does not apply' }
+        [IO.File]::WriteAllText($ps, $text.Replace($needle, "if (`$false -and -not `$snapshot.actions.blocked"))
+        $bad = @(Run-Suite $m 'options-blocked')
+        if (-not $bad) { throw 'FAIL: options-blocked mutant survived' }
+        Write-Output "KILLED: options-blocked ($($bad[0]))"
     }
 } finally {
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue

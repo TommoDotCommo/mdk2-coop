@@ -28,6 +28,7 @@
 #include <ctype.h>
 #include <time.h>
 #include "bridge.h"
+#include "launcher_invite_command.h"
 #include <shellapi.h>
 #include "launcher_session.h"
 
@@ -224,6 +225,8 @@ static int font_load(void)
 /* ---- settings ---- */
 
 static char ini[MAX_PATH], player_ini[MAX_PATH], settings_lua[MAX_PATH];
+/* Setup URL links are transient input, never written to coop.ini or the clipboard. */
+static char launcher_invite_text[LI_INPUT_CAP];
 
 enum { MODE_HOST, MODE_JOIN, MODE_SOLO };
 static const char *mode_names[] = { "host", "join", "solo" };
@@ -3002,9 +3005,30 @@ void launcher_run(void)
     int shift = GetAsyncKeyState(VK_SHIFT) < 0;
 
     settings_read();
+    {
+        int argc = 0;
+        wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+        if (argv) {
+            if (li_invite_argument(argc, (const wchar_t *const *)argv, launcher_invite_text, sizeof(launcher_invite_text)) == 1) {
+                cfg.mode = MODE_JOIN;
+                /* Send links through the Join paste box's normal recognition path.
+                 * The player still presses Join to confirm. */
+#ifdef LAUNCHER_JOIN_H
+                lj_init();
+                if (li_invite_argument(argc, (const wchar_t *const *)argv, lju.paste, sizeof(lju.paste)) == 1) {
+                    coop_recognise(lju.paste, strlen(lju.paste), LJ_GAME, &lju.rec);
+                    lju.selected = -1;
+                } else {
+                    snprintf(lju.message, sizeof(lju.message), "This invite is too long. Copy the invite code from the join page.");
+                }
+#endif
+            }
+            LocalFree(argv);
+        }
+    }
     snprintf(test_ini, MAX_PATH, "%s\\coop.ini", coop_dir);
     headless = test_background && GetPrivateProfileIntA("test", "launcher", 0, test_ini);
-    if (strstr(GetCommandLineA(), "+connect_lobby")) {
+    if (!launcher_invite_text[0] && strstr(GetCommandLineA(), "+connect_lobby")) {
         logmsg("launcher: skipped, Steam started the game to join a lobby");
         return;
     }
@@ -3014,7 +3038,7 @@ void launcher_run(void)
         logmsg("launcher: skipped, couch game");
         return;
     }
-    if (!cfg.show && !(shift && !headless)) {
+    if (!cfg.show && !launcher_invite_text[0] && !(shift && !headless)) {
         logmsg("launcher: off ([launcher] show=0; hold Shift at start to show it)");
         return;
     }

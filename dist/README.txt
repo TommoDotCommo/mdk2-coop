@@ -16,11 +16,13 @@ double-click it. If you have this zip instead:
 1. Unzip the whole folder anywhere (not inside the game folder). Do not run Setup from inside the zip viewer:
    it says "Extract the whole zip first" because the files beside it are missing.
 2. Double-click MDK2-Coop-Setup.exe and choose Install, Update or Repair as offered by its status check.
-   - It finds MDK2 HD in your Steam libraries or the Overhaul Games folder (or asks for the
-     folder) and shows what it found: "Found: MDK2 HD Steam build 3902", "Found: MDK2 HD Overhaul Games build" or
+   - It lists MDK2 HD in your Steam libraries, Overhaul Games and GOG folders as cards (Browse finds other
+     folders), with its co-op state and build: "Found: MDK2 HD Steam build 3902", "Found: MDK2 HD Overhaul Games build" or
      "Found: unknown build (SHA-256 ...)". An unknown build gets a warning that co-op will stay off, and is
      installed only if you confirm. Windows asks for administrator permission if the game folder is protected.
-   - That is all it asks: host or join, Steam or a direct address are chosen in the launcher.
+   - Three ticked options add a desktop shortcut, allow UDP hosting through Windows Firewall on Private and Public
+     networks, and open invite links in the launcher. Firewall and protected-folder changes use one admin prompt.
+     Host or join, Steam or a direct address are chosen in the launcher.
 3. Choose Play MDK2 or Close when setup finishes. You can also start MDK2 HD from
    Steam or the Beamdog client as usual. The co-op launcher opens first.
 
@@ -46,9 +48,10 @@ coop-mod.json (at the zip root and in its top folder) says what the package is a
     dinput8.dll       ->  <game folder>\dinput8.dll
     coop\coop.lua     ->  <game folder>\coop\coop.lua     (create the coop folder if needed)
 If another mod's dinput8.dll is already there, rename it to dinput8.chain.dll first: the co-op DLL loads it.
-Setup recognises files a mod manager put there (the hashes of a release, without Setup's receipts) and shows "Installed by
-a mod manager" with Play; it does not change them. The in-game updater then says "Update it in your mod manager" (in
-Vortex: download the new version and enable it) with a link to the release page, and does not replace those files.
+Setup recognises a verified release copied by hand and offers Install: "Setup will look after these files from now on".
+It writes ownership receipts; later Setup and in-game updates work normally, and Uninstall removes the adopted mod.
+Hard-linked files are left to Vortex: "Installed by Vortex: update or remove it there", with Play available.
+The updater leaves unadopted files alone; run the new Setup to adopt a hand install.
 
 Setup from scripts
 ------------------
@@ -193,6 +196,8 @@ What the installer changes
 - %LOCALAPPDATA%\mdk2-coop\coop (settings, logs and co-op data; existing game-folder
   data is copied here on install without replacing files already present) and
   %LOCALAPPDATA%\mdk2-coop\update (the in-game updater's backups for Roll back)
+- optional desktop shortcut, inbound UDP Windows Firewall rule "MDK2 Co-op (UDP)", and the per-user
+  HKCU\Software\Classes\mdk2-coop invite-link handler; all removed on uninstall for the selected game
 - one loader line at the end of %LOCALAPPDATA%\MDK2HD\settings.lua (backed up first
   as settings.lua.coop-backup). The game rewrites that file when you change options;
   the mod puts the line back at the next start.
@@ -280,3 +285,14 @@ Recent history is bounded to 512 events.
 Already installed? Open setup and click Play MDK2. Create desktop shortcut adds
 a shortcut to the game and its co-op launcher. Keep Steam or the Beamdog client
 running. The launcher shows the result of a successful update check.
+
+Setup improvements
+------------------
+Setup lists all detected Steam libraries, Overhaul Games and GOG MDK2 HD copies as selectable cards, with their build and
+co-op state; Browse finds other folders. An installed co-op copy is selected first, otherwise the Steam copy.
+Before Install, three options are ticked: desktop shortcut, Allow hosting through Windows Firewall (inbound UDP for
+mdk2hd.exe on Private and Public networks), and Open invite links in the launcher (the per-user mdk2-coop:// protocol).
+Windows asks once for administrator permission for the firewall and any protected game-folder changes. Untick hosting
+if you do not want to grant permission. Uninstall removes these integrations for the selected game, keeping your saves.
+The last screen's primary button is Play MDK2. Scripted installs can request the same options with -DesktopShortcut,
+-AllowHosting and -InviteLinks; status --json includes desktop_shortcut, allow_hosting and invite_links under options.

@@ -1,6 +1,6 @@
 # User-facing installer. Only the game-file operation is ever elevated.
 param([string]$ProbePath, [ValidateSet('', 'install', 'uninstall')][string]$TestCompletion = '', [switch]$TestLayout, [string]$TestActionsPath, [string]$TestBuildGate, [string]$SetupExe,
-      [string]$TestOwnerPath)
+      [string]$TestOwnerPath, [switch]$TestNoOptions)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -9,9 +9,9 @@ $backend = Join-Path $PSScriptRoot 'mdk2-coop.ps1'
 . (Join-Path $PSScriptRoot 'install-state.ps1')
 $form = New-Object Windows.Forms.Form
 $form.Text = 'MDK2 Co-op Setup'
-$form.ClientSize = New-Object Drawing.Size(760, 540)
+$form.ClientSize = New-Object Drawing.Size(760, 680)
 $form.FormBorderStyle = 'Sizable'
-$form.MinimumSize = New-Object Drawing.Size(640, 520)
+$form.MinimumSize = New-Object Drawing.Size(776, 719)
 $form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
 $form.MaximizeBox = $false
 $form.StartPosition = 'CenterScreen'
@@ -58,78 +58,80 @@ function Style-Button($button, $primary) {
 }
 $label = New-Object Windows.Forms.Label
 $label.Text = 'Choose your MDK2 HD game folder, then install or uninstall co-op.'
-$label.SetBounds(26, 113, 585, 30)
+$label.SetBounds(26, 223, 702, 24)
 $form.Controls.Add($label)
 $path = New-Object Windows.Forms.TextBox
-$path.SetBounds(26, 154, 470, 28)
+$path.SetBounds(26, 253, 470, 28)
 $path.BackColor = [Drawing.ColorTranslator]::FromHtml('#20333d')
 $path.ForeColor = [Drawing.ColorTranslator]::FromHtml('#ffffff')
 $path.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
 $form.Controls.Add($path)
 $browse = New-Object Windows.Forms.Button
-$browse.Text = 'Browse...'; $browse.SetBounds(505, 151, 108, 32)
+$browse.Text = 'Browse...'; $browse.SetBounds(505, 250, 108, 32)
 Style-Button $browse $false
 $form.Controls.Add($browse)
 $buildLabel = New-Object Windows.Forms.Label
 $buildLabel.Name = 'BuildLabel'; $buildLabel.Text = ''
 $buildLabel.ForeColor = [Drawing.ColorTranslator]::FromHtml('#b2c2c9')
 $buildLabel.Font = New-Object Drawing.Font 'Segoe UI', 9
-$buildLabel.SetBounds(26, 186, 702, 22)
+$buildLabel.SetBounds(26, 285, 702, 22)
 $form.Controls.Add($buildLabel)
 $status = New-Object Windows.Forms.Label
 $status.Text = 'Close the game before installing. Your co-op saves and settings are kept on uninstall.'
 $status.ForeColor = [Drawing.ColorTranslator]::FromHtml('#b2c2c9')
-$status.SetBounds(26, 209, 585, 38)
+$status.SetBounds(26, 310, 702, 48)
 $form.Controls.Add($status)
 $install = New-Object Windows.Forms.Button
-$install.Text = 'Install'; $install.SetBounds(430, 480, 143, 40)
+$install.Text = 'Install'; $install.SetBounds(430, 620, 143, 40)
 $install.Anchor = 'Bottom, Right'
 Style-Button $install $true
 $form.Controls.Add($install)
 $uninstall = New-Object Windows.Forms.Button
-$uninstall.Text = 'Uninstall'; $uninstall.SetBounds(585, 480, 143, 40)
+$uninstall.Text = 'Uninstall'; $uninstall.SetBounds(585, 620, 143, 40)
 $uninstall.Anchor = 'Bottom, Right'
 Style-Button $uninstall $false
 $form.Controls.Add($uninstall)
 $inventory = New-Object Windows.Forms.ListView
 $inventory.View = 'Details'; $inventory.FullRowSelect = $true
-$inventory.SetBounds(26, 305, 702, 155); $inventory.Anchor = 'Top, Bottom, Left, Right'
+$inventory.SetBounds(26, 403, 702, 100); $inventory.Anchor = 'Top, Left, Right'
 [void]$inventory.Columns.Add('Change', 210)
 [void]$inventory.Columns.Add('Status', 100)
 [void]$inventory.Columns.Add('Details', 800)
 $form.Controls.Add($inventory)
 $refresh = New-Object Windows.Forms.Button
-$refresh.Text = 'Refresh'; $refresh.SetBounds(26, 480, 110, 40); $refresh.Anchor = 'Bottom, Left'
+$refresh.Text = 'Refresh'; $refresh.SetBounds(26, 620, 110, 40); $refresh.Anchor = 'Bottom, Left'
 Style-Button $refresh $false
 $form.Controls.Add($refresh)
 $playExisting = New-Object Windows.Forms.Button
 $playExisting.Name = 'PlayExisting'; $playExisting.Text = 'Play MDK2'
-$playExisting.SetBounds(26, 250, 143, 40); $playExisting.Enabled = $false
+$playExisting.SetBounds(26, 360, 143, 32); $playExisting.Enabled = $false
 Style-Button $playExisting $true
 $form.Controls.Add($playExisting)
 $shortcutExisting = New-Object Windows.Forms.Button
 $shortcutExisting.Text = 'Create desktop shortcut'
-$shortcutExisting.SetBounds(181, 250, 260, 40); $shortcutExisting.Enabled = $false
+$shortcutExisting.SetBounds(181, 360, 260, 32); $shortcutExisting.Enabled = $false
 Style-Button $shortcutExisting $false
 $form.Controls.Add($shortcutExisting)
+# Every detected install gets a selectable card, including unsupported builds.
+$cards = New-Object Windows.Forms.FlowLayoutPanel
+$cards.SetBounds(26, 103, 702, 110)
+$cards.Anchor = 'Top, Left, Right'; $cards.AutoScroll = $true
+$cards.FlowDirection = 'TopDown'; $cards.WrapContents = $false
+$form.Controls.Add($cards)
+$desktopOption = New-Object Windows.Forms.CheckBox
+$desktopOption.Text = 'Desktop shortcut'
+$hostingOption = New-Object Windows.Forms.CheckBox
+$hostingOption.Text = 'Allow hosting through Windows Firewall (Private and Public)'
+$inviteOption = New-Object Windows.Forms.CheckBox
+$inviteOption.Text = 'Open invite links in the launcher'
+$optionY = 515
+foreach ($option in @($desktopOption, $hostingOption, $inviteOption)) {
+    $option.Checked = $true; $option.SetBounds(26, $optionY, 702, 29)
+    $form.Controls.Add($option); $optionY += 29
+}
 function Start-Mdk2Game($dir) {
     if (-not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe') -PathType Leaf)) { throw 'Choose the folder containing mdk2hd.exe.' }
     Start-Process -FilePath (Join-Path $dir 'mdk2hd.exe') -WorkingDirectory $dir -ErrorAction Stop | Out-Null
-}
-function New-Mdk2DesktopShortcut($dir, $desktop = [Environment]::GetFolderPath('DesktopDirectory')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $dir 'mdk2hd.exe') -PathType Leaf)) { throw 'Choose the folder containing mdk2hd.exe.' }
-    $shell = New-Object -ComObject WScript.Shell
-    try {
-        $link = $shell.CreateShortcut((Join-Path $desktop 'MDK2 Co-op.lnk'))
-        $link.TargetPath = Join-Path $dir 'mdk2hd.exe'
-        $link.WorkingDirectory = $dir
-        $link.IconLocation = (Join-Path $dir 'mdk2hd.exe') + ',0'
-        $link.Description = 'Play MDK2 HD with the co-op launcher'
-        $link.Save()
-    } finally {
-        if ($link) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($link) }
-        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
-    }
 }
 function Play-Game($dir) {
     try { Start-Mdk2Game $dir; $form.Close() }
@@ -171,12 +173,18 @@ function Refresh-Status {
             $install.Enabled = [bool]$snapshot.actions.install
             $install.Text = if ($snapshot.actions.install) { $snapshot.actions.install } elseif ($snapshot.actions.blocked) { 'Needs attention' } else { 'Up to date' }
             $uninstall.Enabled = $snapshot.actions.uninstall
-            if ($snapshot.owner -in 'mod-manager', 'vortex') {
-                # not Setup's files: the mod manager updates and removes them; playing works as it is
-                $install.Text = 'By mod manager'; $install.Enabled = $false; $uninstall.Enabled = $false
-                $status.Text = 'Installed by a mod manager' + $(if ($snapshot.owner -eq 'vortex') { ' (Vortex)' } else { '' }) +
-                    '. Update or remove co-op there; Setup leaves those files alone. Click Play MDK2 to play.'
+            if ($snapshot.owner -ne 'vortex' -and -not $snapshot.actions.blocked -and -not $snapshot.actions.install -and
+                (($desktopOption.Checked -and -not $snapshot.options.desktop_shortcut) -or
+                 ($hostingOption.Checked -and -not $snapshot.options.allow_hosting) -or
+                 ($inviteOption.Checked -and -not $snapshot.options.invite_links))) {
+                $install.Enabled = $true; $install.Text = 'Repair'
             }
+            if ($snapshot.owner -eq 'vortex') {
+                # not Setup's files: the mod manager updates and removes them; playing works as it is
+                $install.Text = 'By Vortex'; $install.Enabled = $false; $uninstall.Enabled = $false
+                $status.Text = 'Installed by Vortex: update or remove it there. Click Play MDK2 to play.'
+            }
+            elseif ($snapshot.owner -eq 'manual') { $status.Text = 'Copied by hand. Setup will look after these files from now on.' }
             elseif ($snapshot.actions.blocked) { $status.Text = 'Conflicting or unreadable files need attention. Modified files are kept.' }
             elseif (-not $snapshot.actions.install) { $status.Text = 'Co-op is already installed. Click Play MDK2 to open the launcher.' }
             else { $status.Text = 'You can play MDK2 now, or install co-op below. Keep Steam or the Beamdog client running.' }
@@ -187,10 +195,11 @@ function Refresh-Status {
     }
 }
 $refresh.Add_Click({ Refresh-Status })
+foreach ($option in @($desktopOption, $hostingOption, $inviteOption)) { $option.Add_CheckedChanged({ Refresh-Status }) }
 $path.Add_TextChanged({ Refresh-Status })
 $form.Add_Activated({ Refresh-Status })
 $finish = New-Object Windows.Forms.Panel
-$finish.SetBounds(0, 91, 760, 449)
+$finish.SetBounds(0, 91, 760, 589)
 $finish.Anchor = 'Top, Bottom, Left, Right'
 $finishText = New-Object Windows.Forms.Label
 $finishText.SetBounds(26, 35, 580, 100)
@@ -210,7 +219,7 @@ $shortcut.Text = 'Create desktop shortcut'; $shortcut.SetBounds(26, 175, 280, 40
 Style-Button $shortcut $false
 $shortcut.Add_Click({ Add-DesktopShortcut $script:installedDir })
 function Show-Completion($remove) {
-    foreach ($control in @($label, $path, $browse, $buildLabel, $status, $install, $uninstall, $inventory, $refresh, $playExisting, $shortcutExisting)) { $form.Controls.Remove($control) }
+    foreach ($control in @($label, $path, $browse, $buildLabel, $status, $install, $uninstall, $inventory, $refresh, $playExisting, $shortcutExisting, $cards, $desktopOption, $hostingOption, $inviteOption)) { $form.Controls.Remove($control) }
     $finish.Controls.Remove($play)
     $finish.Controls.Remove($shortcut)
     if ($remove) {
@@ -221,7 +230,7 @@ function Show-Completion($remove) {
         $finish.Controls.Add($shortcut)
     }
     $form.Controls.Add($finish)
-    $form.AcceptButton = $close
+    $form.AcceptButton = if ($remove) { $close } else { $play }
 }
 if ($TestBuildGate) {
     # What Install would show for this game folder: the "Found:" line and, for an unknown build, the warning it must ask about.
@@ -232,15 +241,17 @@ if ($TestBuildGate) {
     $form.Dispose(); exit 0
 }
 if ($TestLayout) {
+    if (-not $desktopOption.Checked -or -not $hostingOption.Checked -or -not $inviteOption.Checked) { throw 'All three install options must start ticked' }
     foreach ($scale in @(1.0, 1.25, 1.5, 2.0)) {
         $factor = $scale / $(if ($script:previousScale) { $script:previousScale } else { 1.0 })
         $form.Scale((New-Object Drawing.SizeF($factor, $factor)))
         $script:previousScale = $scale
         $form.PerformLayout()
-        foreach ($c in @($inventory, $refresh, $install, $uninstall, $playExisting, $shortcutExisting)) {
-            if ($c.Left -lt 0 -or $c.Top -lt 0 -or $c.Right -gt $form.ClientSize.Width -or $c.Bottom -gt $form.ClientSize.Height) { throw 'Control outside setup client area' }
+        foreach ($c in @($inventory, $refresh, $install, $uninstall, $playExisting, $shortcutExisting, $cards, $desktopOption, $hostingOption, $inviteOption)) {
+            if ($c.Left -lt 0 -or $c.Top -lt 0 -or $c.Right -gt $form.ClientSize.Width -or $c.Bottom -gt $form.ClientSize.Height) { throw "Control outside setup client area at $scale : $($c.Text) $($c.Bounds) / $($form.ClientSize)" }
         }
         if ($playExisting.Right -gt $shortcutExisting.Left -or $shortcutExisting.Bottom -gt $inventory.Top) { throw 'Play controls overlap' }
+        if ($cards.Bottom -gt $label.Top -or $inventory.Bottom -gt $desktopOption.Top -or $inviteOption.Bottom -gt $install.Top) { throw 'Cards or options overlap' }
         if ($inventory.Bottom -gt $install.Top -or $refresh.Right -gt $install.Left -or $install.Right -gt $uninstall.Left) { throw 'Setup controls overlap' }
     }
     Write-Output 'PASS: setup control geometry at 100, 125, 150 and 200 percent'
@@ -249,12 +260,14 @@ if ($TestLayout) {
 if ($TestCompletion) {
     Show-Completion ($TestCompletion -eq 'uninstall')
     if (-not $finish.Controls.Contains($close) -or ($finish.Controls.Contains($play) -ne ($TestCompletion -eq 'install')) -or ($finish.Controls.Contains($shortcut) -ne ($TestCompletion -eq 'install'))) { exit 1 }
+    if ($TestCompletion -eq 'install' -and $form.AcceptButton -ne $play) { throw 'Play must be the primary completion action' }
     Write-Output "completion $TestCompletion OK"
     $form.Dispose()
     exit 0
 }
 if ($TestOwnerPath) {     # tools/test_install_state.ps1: what Setup shows for a folder, read back from the controls
     $path.Text = $TestOwnerPath
+    if ($TestNoOptions) { $desktopOption.Checked = $false; $hostingOption.Checked = $false; $inviteOption.Checked = $false }
     Refresh-Status
     Write-Output ("button=$($install.Text)|enabled=$($install.Enabled)|uninstall=$($uninstall.Enabled)|play=$($playExisting.Enabled)|status=$($status.Text)")
     exit 0
@@ -320,6 +333,13 @@ function Run-Backend($dir, $remove, $part, $elevate) {
     $arguments += ' -PerUserData'
     if ($script:acceptUnknown) { $arguments += ' -AcceptUnknownBuild' }
     if ($remove) { $arguments += ' -Uninstall' }
+    if (-not $remove) {
+        if ($part -eq 'GameFilesOnly' -and $hostingOption.Checked) { $arguments += ' -AllowHosting' }
+        if ($part -eq 'UserSettingsOnly') {
+            if ($desktopOption.Checked) { $arguments += ' -DesktopShortcut' }
+            if ($inviteOption.Checked) { $arguments += ' -InviteLinks' }
+        }
+    }
     $options = @{ FilePath = 'powershell.exe'; ArgumentList = $arguments; Wait = $true; PassThru = $true; WindowStyle = 'Hidden' }
     if ($elevate) {
         $options.Verb = 'RunAs'
@@ -350,11 +370,11 @@ function Perform($remove) {
         }
         $script:busy = $true
         $form.ControlBox = $false
-        foreach ($control in @($path, $browse, $install, $uninstall, $refresh, $playExisting, $shortcutExisting)) { $control.Enabled = $false }
+        foreach ($control in @($path, $browse, $install, $uninstall, $refresh, $playExisting, $shortcutExisting, $cards, $desktopOption, $hostingOption, $inviteOption)) { $control.Enabled = $false }
         $status.ForeColor = [Drawing.Color]::White
         $status.Text = 'Working...'; $form.Refresh()
         if (-not $remove) { Run-Backend $dir $false 'PrepareDataOnly' $false }
-        $needsAdmin = -not (Can-WriteGame $dir)
+        $needsAdmin = (-not (Can-WriteGame $dir)) -or ((-not $remove) -and $hostingOption.Checked) -or ($remove -and @(Get-CoopFirewallRules $dir).Count -gt 0)
         if ($needsAdmin) { $status.Text = 'Windows will ask for administrator permission to change the game folder.'; $form.Refresh() }
         Run-Backend $dir $remove 'GameFilesOnly' $needsAdmin
         Run-Backend $dir $remove 'UserSettingsOnly' $false
@@ -364,7 +384,7 @@ function Perform($remove) {
         $status.Text = 'Setup did not complete. You can try again.'
         [Windows.Forms.MessageBox]::Show($form, $_.Exception.Message, 'MDK2 Co-op', 'OK', 'Error') | Out-Null
     } finally {
-        foreach ($control in @($path, $browse, $install, $uninstall, $refresh, $playExisting, $shortcutExisting)) { $control.Enabled = $true }
+        foreach ($control in @($path, $browse, $install, $uninstall, $refresh, $playExisting, $shortcutExisting, $cards, $desktopOption, $hostingOption, $inviteOption)) { $control.Enabled = $true }
         $form.ControlBox = $true
         $script:busy = $false
         Refresh-Status
@@ -373,10 +393,26 @@ function Perform($remove) {
 }
 $install.Add_Click({ Perform $false })
 $uninstall.Add_Click({ Perform $true })
-try {
-    $found = Invoke-CoopHiddenProcess 'powershell.exe' ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -FindOnly -Yes' -f $backend)
-    foreach ($line in ($found.Output -split '\r?\n')) { if ("$line" -match '^Game folder: (.+)$') { $path.Text = $Matches[1]; break } }
-} catch { }
+function Refresh-Cards {
+    $cards.Controls.Clear()
+    $selected = $null; $first = $null
+    foreach ($entry in @(Get-CoopInstallCards $PSScriptRoot (Join-Path $env:LOCALAPPDATA 'MDK2HD\settings.lua') (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop'))) {
+        $dir = $entry.path; $build = $entry.build; $snapshot = $entry.state
+        $card = New-Object Windows.Forms.RadioButton
+        $card.Appearance = 'Button'; $card.AutoSize = $false; $card.Size = New-Object Drawing.Size(665, 60)
+        $state = if ($snapshot.owner -eq 'none' -and $entry.has_coop) { 'Co-op files found (unverified)' } elseif ($snapshot.owner -eq 'none') { 'Co-op not installed' } elseif ($snapshot.owner -eq 'manual') { 'Co-op copied by hand' } else { "Co-op: $($snapshot.owner)" }
+        $action = if ($snapshot.actions.blocked) { "; needs attention" } elseif ($snapshot.actions.install) { "; $($snapshot.actions.install) available" } elseif ($snapshot.owner -ne 'none') { '; up to date' } else { '' }
+        $cardBuild = if ($build.Known) { $build.Text } else { 'MDK2 HD unknown build' }
+        $card.Text = "$cardBuild  /  $state$action`r`n$dir"; $card.Tag = $dir
+        $card.Add_CheckedChanged({ if ($this.Checked) { $path.Text = [string]$this.Tag } })
+        $cards.Controls.Add($card)
+        if (-not $first) { $first = $card }
+        if ($entry.selected) { $selected = $card }
+    }
+    if (-not $selected) { $selected = $first } # Steam is enumerated first.
+    if ($selected) { $selected.Checked = $true }
+}
+try { Refresh-Cards } catch { $status.Text = 'Some installs could not be inspected. Browse to your game folder.' }
 Refresh-Status
 [void]$form.ShowDialog()
 $form.Dispose()
