@@ -3381,6 +3381,8 @@ static void run(void)
     lj_shutdown();
     if (done && !quit && lob.on && lob.host)
         lhost_close(1);         /* the game takes over the port: keep the router mapping renewed for it */
+    else if (done && !quit && lob.on && lob.has_key)
+        lhost_set_join_key(lob.key);    /* the game's join carries the invite's key (invite-only hosts check it) */
     lob_leave();
     DestroyWindow(wnd);
     wnd = NULL;

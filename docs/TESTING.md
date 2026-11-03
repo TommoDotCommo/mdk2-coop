@@ -264,14 +264,16 @@ one), sees Rejoin on Play and is offered a clipboard invite once.
 
 `tools/test_launcher_host.py` (gate `launcher-host`) covers the host side of the lobby: NAT-PMP and
 UPnP-IGD messages, the CGNAT check, firewall rule verdicts, invite routes, the lobby key, kicks,
-"Waiting for" and the pad from recorded states, with sanitisers, fuzzing and 25 source mutants;
+the game listener's invite gate, "Waiting for" and the pad from recorded states, with sanitisers, fuzzing and 27 source mutants;
 with Windows interop the router code runs against a fake IGD and NAT-PMP responder (mutant: the mapping is not
 removed on close). `tools/qa_host.sh` (feature gate `hosting`, two games) is its live check. See
 [HOSTING.md](HOSTING.md).
 
 `tools/test_network.sh` also requires four broken epoch variants to fail: premature
 epoch adoption, applying spawns during a load, blocking a same-epoch reconnect,
-and ignoring epoch zero at wraparound. The real-game epoch gate changes the world
+and ignoring epoch zero at wraparound. Over loopback UDP it checks the game listener's invite gate (an
+invite-only session refuses a new player without the lobby key or with a wrong one, keeps the player already
+in, admits the right key; the client sends its key), with the twin `invite-gate-open` that must fail. The real-game epoch gate changes the world
 with a spawn and pickup before a same-checkpoint host reset. It requires both
 worlds to reload and restore the fixture, then verifies that a same-epoch outage
 keeps that restored world. The feature profile repeats this under simulated loss.

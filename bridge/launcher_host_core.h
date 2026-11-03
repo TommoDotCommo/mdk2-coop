@@ -6,7 +6,7 @@
  *   firewall   which inbound UDP rules let the game in on the Private and Public profiles
  *   invite     the routes an invite carries, best first (C3)
  *   lobby      the hello's lobby key, who may join (invite only, kicked), refusal words, "Waiting for",
- *              (which probes an invite-only lobby answers: lj_host_reply, launcher_join.h)
+ *              the game's own gate for an invite-only session (net.c)
  *   pad        recorded XInput states into launcher actions (K3)
  * MIT licence, like the rest of the repository. */
 #ifndef LAUNCHER_HOST_CORE_H
@@ -373,6 +373,46 @@ static inline int lh_refusal_parse(const char *s, size_t n)
 /* B9: which probes an invite-only lobby answers is lj_host_reply's rule (launcher_join.h), the one answer
  * path of the launcher lobby and the game's listener. */
 
+/* The game started from an invite-only lobby (net.c): a peer the host's game does not know yet reaches it
+ * only after sending "MDKJ" + the lobby key (u32 LE) from its address; the rest is dropped. */
+#define LH_GATE_MAX 32
+#define LH_JOIN_KEY_LEN 8
+struct lh_gate { int n, next; uint32_t ip[LH_GATE_MAX]; uint16_t port[LH_GATE_MAX]; };
+static inline int lh_join_key_write(uint8_t out[LH_JOIN_KEY_LEN], uint32_t key)
+{
+    memcpy(out, "MDKJ", 4);
+    out[4] = (uint8_t)key; out[5] = (uint8_t)(key >> 8); out[6] = (uint8_t)(key >> 16); out[7] = (uint8_t)(key >> 24);
+    return LH_JOIN_KEY_LEN;
+}
+static inline int lh_join_key_parse(const uint8_t *b, size_t n, uint32_t *key)
+{
+    if (n != LH_JOIN_KEY_LEN || memcmp(b, "MDKJ", 4)) return 0;
+    *key = (uint32_t)b[4] | (uint32_t)b[5] << 8 | (uint32_t)b[6] << 16 | (uint32_t)b[7] << 24;
+    return 1;
+}
+static inline int lh_gate_find(const struct lh_gate *g, uint32_t ip, unsigned port)
+{
+    int i;
+    for (i = 0; i < g->n; i++) if (g->ip[i] == ip && g->port[i] == port) return i;
+    return -1;
+}
+/* "MDKJ" from ip:port: 1 when its key is the lobby's (the address is let in), 0 otherwise. */
+static inline int lh_gate_key(struct lh_gate *g, uint32_t secret, uint32_t ip, unsigned port, uint32_t key)
+{
+    int at;
+    if (key != secret) return 0;
+    if (lh_gate_find(g, ip, port) >= 0) return 1;
+    at = g->n < LH_GATE_MAX ? g->n++ : g->next;      /* full: the oldest address goes */
+    g->next = (at + 1) % LH_GATE_MAX;
+    g->ip[at] = ip; g->port[at] = (uint16_t)port;
+    return 1;
+}
+/* May a datagram from ip:port reach the game? known: the address already has a link (joined before). */
+static inline int lh_gate_pass(const struct lh_gate *g, int invite_only, int known, uint32_t ip, unsigned port)
+{
+    if (!invite_only || known) return 1;
+    return lh_gate_find(g, ip, port) >= 0;
+}
 /* "Waiting for Fox", "Waiting for Fox and Bob", "Waiting for Fox, Bob and 2 more"; "" when all are ready. */
 static inline int lh_waiting(char *out, size_t cap, const char *const *names, const int *ready, int n)
 {

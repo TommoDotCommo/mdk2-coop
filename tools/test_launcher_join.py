@@ -97,6 +97,8 @@ if 'lhost_probe_answer' in launcher or 'cd_answer(' in launcher or 'cd_answer(' 
     problems.append('a second probe answer path besides lj_host_reply')
 if 'lhost_cfg.invite_only' not in launcher.split('lj_host_reply(', 1)[0].rsplit('struct cd_host me', 1)[-1]:
     problems.append('the launcher lobby answers probes without its invite-only setting')
+if 'lhost_game_secret(' not in net or 'lh_gate_pass(' not in net or 'lh_join_key_write(' not in net:
+    problems.append('the game listener does not check the invite key of an invite-only session')
 if 'lp_answer(' in launcher or 'lp_answer(' in net:
     problems.append('a host listener still answers with lp_answer only')
 if '"Host address"' in launcher or '"Host address"' in join:

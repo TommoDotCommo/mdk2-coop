@@ -52,6 +52,12 @@ int lhost_join_targets(const char *text, unsigned default_port, struct sockaddr_
 int lhost_hello(char *out, size_t cap, unsigned id, int ready, int rtt, unsigned long ts, const char *version,
                 int has_key, uint32_t key, const char *name);
 
+/* The game after the launcher. Host: 1 when it started from an invite-only lobby, with that lobby's key
+ * (net.c lets in only peers that send it). Client: the invite's key, sent to the host's game. */
+int lhost_game_secret(uint32_t *secret);
+void lhost_set_join_key(uint32_t key);
+int lhost_join_key(uint32_t *key);
+
 /* Pad (K3): actions since the last call (LH_ACT_*); pad_fake states count, so tests drive it. */
 int lhost_pad_poll(DWORD now, int *actions, int cap);
 int lhost_pad_step(unsigned buttons, int lx, int ly, DWORD now, int *actions, int cap);

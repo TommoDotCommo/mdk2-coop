@@ -110,8 +110,16 @@ invite reaching `lob_open` directly (the `join` test command) sends the hello to
 
 **Kick** removes the player at once and refuses them for the rest of that lobby: by launcher id, by address
 and port, and by name (a rejoin from the same launcher has a new id and port). Another player on the same PC
-is not affected. A new lobby starts with no bans. The lobby is the only gate: the game's own listener does not
-check the secret, so a player who skips the lobby (launcher off) can still connect to the game port.
+is not affected. A new lobby starts with no bans.
+
+## The game's listener (invite only)
+
+When the game starts from an invite-only lobby, its listener (`net.c`) checks the same secret: a peer it has
+no link for is let in only after it sent `MDKJ` + the key (u32, little endian) from that address
+(`lh_gate_*` in `launcher_host_core.h`); anything else from it is dropped, and a player packet is answered
+with `MDKL K 2`. Players already in stay. The joiner's game sends its invite's key (from the lobby, or from a
+Join-list pick of an invite whose host was already in game) twice a second until welcomed. A game started
+without the launcher's lobby has no secret and does not check. Kicks stay lobby-only.
 
 ## The pad (K3)
 
@@ -143,8 +151,8 @@ The footer shows pad buttons after pad input and keys after keyboard or mouse in
 ## Testing
 
 - `python3 tools/test_launcher_host.py` (offline gate `launcher-host`): the core test with sanitisers and
-  fuzzing, the core compiled as C++, 25 core mutants (among them: the secret not checked, invite only
-  ignored, kicks forgotten or by id only, CGNAT not detected, the internet route
+  fuzzing, the core compiled as C++, 27 core mutants (among them: the secret not checked, invite only
+  ignored, the game's gate open or taking any key, kicks forgotten or by id only, CGNAT not detected, the internet route
   without its check, block rules not winning, the Public profile not needed, the pad's Start not primary).
   With Windows interop, the router code runs against a fake IGD and NAT-PMP responder on loopback (mapped,
   renewed, permanent-lease fallback, NAT-PMP fallback with a CGNAT address, silence) and four mutants must

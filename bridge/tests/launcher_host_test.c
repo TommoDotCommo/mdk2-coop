@@ -194,6 +194,29 @@ static void test_lobby(void)
     }
     CHECK(lh_refusal_parse("MDKL K 2", 8) == LH_REFUSE_INVITE && !lh_refusal_parse("MDKL K 9", 8) && !lh_refusal_parse("MDKL R 2", 8));
     CHECK(strstr(lh_refusal_text(LH_REFUSE_INVITE), "invite only") != NULL);
+    /* the game's gate (invite-only session): an unknown address needs "MDKJ" + the lobby key first */
+    {
+        struct lh_gate g;
+        uint8_t b[LH_JOIN_KEY_LEN];
+        uint32_t key = 0;
+        int i;
+        memset(&g, 0, sizeof(g));
+        CHECK(lh_join_key_write(b, 0xcafe1234u) == LH_JOIN_KEY_LEN && lh_join_key_parse(b, sizeof(b), &key) && key == 0xcafe1234u);
+        CHECK(!lh_join_key_parse(b, 7, &key) && !lh_join_key_parse((const uint8_t *)"MDKTxxxx", 8, &key));
+        CHECK(lh_gate_pass(&g, 0, 0, ip4(10, 0, 0, 7), 27900));                     /* open session: everyone */
+        CHECK(!lh_gate_pass(&g, 1, 0, ip4(10, 0, 0, 7), 27900));                    /* invite only: not without the key */
+        CHECK(lh_gate_pass(&g, 1, 1, ip4(10, 0, 0, 7), 27900));                     /* a player already in stays */
+        CHECK(!lh_gate_key(&g, 0xcafe1234u, ip4(10, 0, 0, 7), 27900, 0xcafe1235u));  /* a wrong key */
+        CHECK(!lh_gate_pass(&g, 1, 0, ip4(10, 0, 0, 7), 27900));
+        CHECK(!lh_gate_key(&g, 0xcafe1234u, ip4(10, 0, 0, 7), 27900, 0));
+        CHECK(lh_gate_key(&g, 0xcafe1234u, ip4(10, 0, 0, 7), 27900, 0xcafe1234u));
+        CHECK(lh_gate_pass(&g, 1, 0, ip4(10, 0, 0, 7), 27900));
+        CHECK(!lh_gate_pass(&g, 1, 0, ip4(10, 0, 0, 7), 27901));                    /* another port of that PC is another player */
+        CHECK(!lh_gate_pass(&g, 1, 0, ip4(10, 0, 0, 8), 27900));
+        CHECK(lh_gate_key(&g, 0xcafe1234u, ip4(10, 0, 0, 7), 27900, 0xcafe1234u) && g.n == 1);   /* again: no second entry */
+        for (i = 0; i < LH_GATE_MAX + 3; i++) lh_gate_key(&g, 0xcafe1234u, ip4(10, 1, 0, (uint8_t)i), 5000, 0xcafe1234u);
+        CHECK(g.n == LH_GATE_MAX && lh_gate_pass(&g, 1, 0, ip4(10, 1, 0, LH_GATE_MAX + 2), 5000));
+    }
     {
         const char *names[5] = { "Host", "Fox", "Bob", "Ann", "Cy" };
         int ready[5] = { 1, 0, 1, 1, 1 };

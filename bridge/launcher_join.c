@@ -435,6 +435,7 @@ static void lj_go(uint32_t ip, unsigned port, int state, const char *name, int r
     if (state != CD_IN_GAME && lob_wants()) lob_open();      /* takes lju.go_key into the hello */
     else {
         lj_remember(name, host, port, route);          /* the game connects next; the lobby is skipped */
+        if (lju.go_has_key) lhost_set_join_key(lju.go_key);
         done = 1;
     }
     changed = 1;

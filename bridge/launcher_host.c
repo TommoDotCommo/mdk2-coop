@@ -43,7 +43,10 @@ static struct {
     struct lh_bans bans;
     HANDLE thread;
     volatile LONG stop, keep;
+    int handed;                     /* the game started from this lobby */
 } H;
+static uint32_t join_key;           /* client: the invite's key for the host's game (lhost_set_join_key) */
+static int join_has_key;
 
 static void lock_make(void)
 {
@@ -236,6 +239,7 @@ void lhost_close(int keep_mapping)
         return;
     }
     H.keep = keep_mapping;
+    H.handed = keep_mapping;
     InterlockedExchange(&H.stop, 1);
     if (!keep_mapping && WaitForSingleObject(H.thread, 8000) != WAIT_OBJECT_0) {
         InterlockedIncrement(&lobby_gen);   /* it finishes (and removes any mapping) on its own, publishing nothing */
@@ -246,6 +250,24 @@ void lhost_close(int keep_mapping)
     H.open = 0;
 }
 
+/* ---- the game after the launcher (net.c) ---- */
+int lhost_game_secret(uint32_t *secret)
+{
+    *secret = H.secret;
+    return H.handed && lhost_cfg.invite_only && H.secret;
+}
+
+void lhost_set_join_key(uint32_t key)
+{
+    join_key = key;
+    join_has_key = 1;
+}
+
+int lhost_join_key(uint32_t *key)
+{
+    *key = join_key;
+    return join_has_key;
+}
 
 /* ---- the panel ---- */
 static const char *product_fix_firewall =

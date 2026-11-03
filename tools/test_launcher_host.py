@@ -21,6 +21,8 @@ CORE_MUTANTS = {
     'secret-not-checked': ('if (invite_only && (!h->has_key || h->key != secret)) return LH_REFUSE_INVITE;',
                            'if (invite_only && !h->has_key) return LH_REFUSE_INVITE;'),
     'invite-only-ignored': ('if (invite_only && (!h->has_key || h->key != secret)) return LH_REFUSE_INVITE;', ''),
+    'game-gate-open': ('if (!invite_only || known) return 1;', 'return 1;'),
+    'game-gate-any-key': ('    if (key != secret) return 0;\n    if (lh_gate_find', '    if (lh_gate_find'),
     'kick-forgotten': ('if (lh_banned(bans, h->id, ip, port, h->name)) return LH_REFUSE_KICKED;', ''),
     'kick-rejoin-by-name': ('if (name && name[0] && b->b[i].name[0] && lh_path_same(b->b[i].name, name)) return 1;', ''),
     'kick-empty-name-matches': ('if (name && name[0] && b->b[i].name[0] && lh_path_same(b->b[i].name, name)) return 1;',
