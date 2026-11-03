@@ -34,6 +34,7 @@ int gob_class(BYTE *gob) { return 1; }
 void gob_set_hp(BYTE *gob, int hp) { health = hp; }
 void gob_set_mirrored(BYTE *gob, int on) { mirrored = on; }
 void class_filter_think(int cls) { }
+const char *guide_name(int which) { return "E"; }     /* ctrlview.c: the revive key's text (t84) */
 void anim_apply(BYTE *gob, const struct snap *snap) { pose_id = snap->cur; }
 int player_connected(int slot) { return connected[slot]; }
 int player_life(int slot) { return lives[slot]; }
