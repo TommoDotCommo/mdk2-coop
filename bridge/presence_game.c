@@ -774,13 +774,15 @@ static void l_join_retry(void)
     joining.since = now_ms() / 1000;
 }
 
-/* coop_gobtree(key [, parent]): every live gob (or the children of `parent`) with its flags, scene parent, bone slot and
- * component kinds, to coop\\tree_<key>.txt. For finding what an effect or an attached visual is made of. */
+/* coop_gobtree(key [, parent [, raw]]): every live gob (or the children of `parent`) with its flags, scene parent, bone
+ * slot and component kinds, to coop\\tree_<key>.txt (raw: also the gob's first 0xb0 bytes, its model controller's and
+ * its +0x70 component's first 0x80). For finding what an effect or an attached visual is made of. */
 static void l_gobtree(void)
 {
     long len;
     const char *key = luaL_check_lstr(1, &len);
     BYTE *parent = tolua_getusertype(2, NULL);
+    int raw = (int)num_param(3);
     char path[MAX_PATH];
     FILE *f;
     int s;
@@ -799,6 +801,23 @@ static void l_gobtree(void)
                 gob_name(g)[0] ? gob_name(g) : "-", info ? gob_type(g) : -1, info ? gob_class(g) : -1,
                 *(WORD *)(g + GOB_FLAGS), (unsigned long)par, *(int *)(g + GOB_BONE_SLOT), c70 ? (int)*(DWORD *)c70 : -1,
                 *(float *)(g + GOB_POSITION), *(float *)(g + GOB_POSITION + 4), *(float *)(g + GOB_POSITION + 8));
+        if (raw) {
+            BYTE *ctl = *(BYTE **)(g + GOB_ANIM);
+            int b;
+            fputs("  gob", f);
+            for (b = 0; b < 0xb0; b += 4) fprintf(f, " %08lx", (unsigned long)*(DWORD *)(g + b));
+            fputc('\n', f);
+            if (ctl && !IsBadReadPtr(ctl, 0x80)) {
+                fputs("  ctl", f);
+                for (b = 0; b < 0x80; b += 4) fprintf(f, " %08lx", (unsigned long)*(DWORD *)(ctl + b));
+                fputc('\n', f);
+            }
+            if (c70 && !IsBadReadPtr(c70, 0x80)) {
+                fputs("  c70", f);
+                for (b = 0; b < 0x80; b += 4) fprintf(f, " %08lx", (unsigned long)*(DWORD *)(c70 + b));
+                fputc('\n', f);
+            }
+        }
     }
     fclose(f);
 }

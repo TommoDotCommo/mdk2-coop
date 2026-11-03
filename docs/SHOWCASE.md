@@ -73,12 +73,14 @@ the animations your hero has and an "All..." list of the rest.
 
 ## Gear your friends carry
 
-What a player uses, the others see: Max's jetpack on his back, and Doc's leaf blower once he has taken it up.
-(Kurt's parachute is shared the same way; it has no picture here yet.)
+What a player uses, the others see: Max's jetpack on his back, its flame while he thrusts, and Doc's leaf blower once
+he has taken it up (the item on his back, the nozzle in his hands, the puffs while he blows). Each sits where the
+player's own game puts it. The icon over the host's head in the second picture is the host's own selected item in
+Doc's inventory, not part of the teammate. (Kurt's parachute is shared the same way; it has no picture here yet.)
 
 | Max's jetpack | Doc's leaf blower |
 |---|---|
-| ![Max with his jetpack, seen by the host](showcase/jetpack.jpg) | ![Doc with the leaf blower, seen by the host](showcase/leafblower.jpg) |
+| ![The other player's Max thrusting, the jetpack's flame under the pack, seen by the host](showcase/jetpack.jpg) | ![The other player's Doc side on, the leaf blower on his back and the nozzle in his hands, seen by the host](showcase/leafblower.jpg) |
 
 ## Cutscenes and minigames together
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # More showcase scenes with two background games, each shot from the host's view (saved under
 # local/showcase/<time>-scenes/): the lounge cutscene with its time-left box, the skydive and the level 9 torpedo
-# run with the other player as a ghost, the other player with Max's jetpack (thrusting), Doc's leaf blower and Kurt's
-# open canopy, and the pad layer on View (the player list, the quick chat wheel). One boot per scene. The camera is
-# about 3 units behind the host: a teammate 3 ahead and a little to the side fills the frame.
+# run with the other player as a ghost, the other player with Max's jetpack (thrusting) and Doc's leaf blower, and the
+# pad layer on View (the player list, the quick chat wheel). One boot per scene. The camera is about 3 units behind
+# the host: a teammate 3 ahead and a little to the side fills the frame.
 # Not a test: nothing is checked.
-#   ONLY=cutscene|skydive|torpedo|jetpack|blower|canopy|pad tools/showcase_scenes.sh   (default: all)
+#   ONLY=cutscene|skydive|torpedo|jetpack|blower|pad tools/showcase_scenes.sh   (default: all)
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=2
@@ -84,11 +84,17 @@ fi
 if want jetpack; then
     boot 2 8
     sleep 8
-    # side on to the camera, so the flame under the pack shows; the first frames of the thrust, before it rises out
+    # side on to the camera, so the flame under the pack shows; held a little above where it stood while it thrusts,
+    # so it stays in the frame (the flame comes on about 0.4 s into the thrust)
     beside "${JET_AHEAD:-3}" "${JET_UP:-1}" "${JET_TURN:-90}" "${JET_SIDE:-1.5}"
-    lua 2 "coop_press(57, 2500)"
-    for i in 1 2 3; do shot jetpack_$i 0.05; done
+    lua 2 "local p = mdkGetPlayerGob().position showcase_at = { p.x, p.y, p.z + ${JET_HOLD:-2} }"
+    lua 2 "coop_press(57, 6000)"
+    ( for i in $(seq 1 70); do lua 2 'mdkGobSetPositionXYZ(mdkGetPlayerGob(), showcase_at[1], showcase_at[2], showcase_at[3])'; sleep 0.07; done ) &
+    pin=$!
+    sleep 1
+    for i in 1 2 3; do shot jetpack_$i 0.2; done
     shot jetpack_own 0 2
+    kill "$pin" 2>/dev/null; wait "$pin" 2>/dev/null
 fi
 
 if want blower; then
@@ -100,15 +106,6 @@ if want blower; then
     shot blower_idle 0.3
     lua 2 'coop_press(256, 4500)'
     for i in 1 2 3 4; do shot blower_$i 0.3; done
-fi
-
-if want canopy; then
-    boot 1 5
-    sleep 8
-    # Kurt a little ahead and above, holding jump as he falls: the canopy opens over him
-    beside "${CHUTE_AHEAD:-6}" "${CHUTE_UP:-14}" "${CHUTE_TURN:-90}" "${CHUTE_SIDE:-1.5}"
-    lua 2 'coop_press(57, 8000)'
-    for i in 1 2 3 4 5 6; do shot canopy_$i 0.5; done
 fi
 
 if want pad; then
