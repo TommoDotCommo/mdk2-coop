@@ -24,6 +24,8 @@ No game files are in this repo. Every player needs their own copy of MDK2 HD on 
 - [Reporting a problem](#reporting-a-problem)
 - [Uninstall](#uninstall)
 - [For developers](#for-developers)
+- [Code signing policy](#code-signing-policy)
+- [Privacy](#privacy)
 
 ## What you get
 
@@ -296,6 +298,29 @@ See [launcher maintenance](docs/LAUNCHER-MAINTENANCE.md) for recovery and verifi
 
 Built with the [Co-op Anything](https://github.com/cranebeaker/coop-anything) playbook; the research notes for
 this game live in its `games/mdk2-hd/NOTES.md`.
+
+## Code signing policy
+
+Windows release files (`MDK2-Coop-Setup.exe`, `dinput8.dll`, `install-policy.exe`) are being moved to signing
+through the SignPath Foundation program for open-source projects (application in progress):
+free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/). Signed builds are made by GitHub Actions from this public repository;
+nothing built on a private machine is signed.
+
+- Authors and committers: [TommoDotCommo](https://github.com/TommoDotCommo)
+- Reviewers: [TommoDotCommo](https://github.com/TommoDotCommo) (changes from other contributors are reviewed before merge)
+- Approvers (each signed release is approved by hand): [TommoDotCommo](https://github.com/TommoDotCommo)
+
+## Privacy
+
+The mod does not collect or send personal data.
+
+- Update check: the launcher asks GitHub's public releases API for this repository at most once a day. No account,
+  identifier or usage data is sent. Turn it off with the Auto-check setting on the About page.
+- Multiplayer: game and voice traffic go only to the players you choose to host or join (directly, or through
+  Steam when you use a Steam lobby).
+- Diagnostics: **Send diagnostics** writes a zip to your own Desktop, with your Windows and computer names, profile
+  folder and IP addresses replaced first. Nothing is uploaded; you decide whether to attach it to a bug report.
 
 ## License
 
