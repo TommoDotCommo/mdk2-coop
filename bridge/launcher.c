@@ -981,7 +981,7 @@ static void heading(float x, float y, float h, const char *s, DWORD tint, UINT a
  * readable), or the flat tile colour without the art */
 static void steel_fill(float x, float y, float w, float h, float k)
 {
-    int x0 = px(x), y0 = px(y), x1 = px(x + w), y1 = px(y + h), i, j;
+    int ox = px(x), oy = px(y), x0 = ox, y0 = oy, x1 = px(x + w), y1 = px(y + h), i, j;
     if (!plate.px) {
         fill(x, y, w, h, k > 0.5f ? C_TILE_HOT : C_TILE, 235);
         return;
@@ -991,9 +991,9 @@ static void steel_fill(float x, float y, float w, float h, float k)
     if (x1 > fw) x1 = fw;
     if (y1 > fh) y1 = fh;
     for (j = y0; j < y1; j++) {
-        int ty = ll_plate[1] + ll_mirror((int)((j - y0) / sc), ll_plate[3]);
+        int ty = ll_plate[1] + ll_mirror((int)((j - oy) / sc), ll_plate[3]);
         for (i = x0; i < x1; i++) {
-            int tx = ll_plate[0] + ll_mirror((int)((i - x0) / sc), ll_plate[2]);
+            int tx = ll_plate[0] + ll_mirror((int)((i - ox) / sc), ll_plate[2]);
             DWORD t = plate.px[ty * plate.w + tx];
             /* cooled toward the launcher's blue-grey so it sits with the tiles */
             fb[j * fw + i] = mix(scale_rgb(t & 0xffffff, k), C_TILE, 70);
@@ -1011,7 +1011,7 @@ static void bevel(float x, float y, float w, float h)
 }
 
 /* a label centred in a button: the game's menu font at a height that fits (launcher_look.h), with its shadow,
- * else the GDI face as without the art. gh_max 0: a secondary button; else the primary's height rule. */
+ * else the GDI face as without the art. primary: the orange button's height rule, else a secondary button's. */
 static void button_label(float x, float y, float w, float h, const char *s, DWORD c, int primary)
 {
     float gh = !font.px ? 0 : primary ? ll_primary_height(glyph_adv, s, w, h) : ll_label_height(glyph_adv, s, w, h);
@@ -1187,6 +1187,10 @@ static int button(int id, float x, float y, float w, float h, const char *s, int
         } else {
             button_label(x, y - 2, w, h, s, 0x1c0d00, 1);
         }
+    } else if (!plate.px) {   /* without the steel: as before the art */
+        fill(x, y, w, h, hot ? C_TILE_HOT : C_TILE, 235);
+        frame_rect(x, y, w, h, 1, C_FAINT, 255);
+        button_label(x, y, w, h, s, C_TEXT, 0);
     } else {
         /* secondary: the game's steel with an edge; orange marks the one under the mouse or the keyboard;
          * 2: the host's "Waiting for <names>", darker and dim (it still answers: it says who is not ready) */
@@ -1237,11 +1241,12 @@ static int toggle(int id, float x, float y, float w, const char *label, const ch
         *v = adjust ? adjust > 0 : !*v;
         changed = 1;
     }
-    if (*v)
-        fill(sx, sy, 60, 26, C_ORANGE, 255);
-    else
+    if (*v || !plate.px) {
+        fill(sx, sy, 60, 26, *v ? C_ORANGE : 0x2a3a42, 255);
+    } else {
         steel_fill(sx, sy, 60, 26, 0.34f);
-    bevel(sx, sy, 60, 26);
+        bevel(sx, sy, 60, 26);
+    }
     fill(*v ? sx + 36 : sx + 4, sy + 4, 20, 18, *v ? 0x2a1400 : C_DIM, 255);
     gdi_text(f_small, sx - 10, sy + 3, *v ? C_TEXT : C_FAINT, *v ? "On" : "Off", DT_RIGHT);
     focus_ring(id, x, y, w, ROW);
@@ -1263,7 +1268,8 @@ static int choice(int id, float x, float y, float w, const char *label, const ch
         changed = 1;
     }
     steel_fill(bx, y + 6, 200, 34, 0.36f);
-    bevel(bx, y + 6, 200, 34);
+    if (plate.px)
+        bevel(bx, y + 6, 200, 34);
     gdi_text(f_label, bx + 14, y + 10, C_DIM, "<", DT_LEFT);
     gdi_text(f_label, bx + 186, y + 10, C_DIM, ">", DT_RIGHT);
     {   /* the value sits between the arrows (140 wide): a long one gets a smaller font, never over them */
@@ -1282,6 +1288,11 @@ static int choice(int id, float x, float y, float w, const char *label, const ch
 /* the box of a text field (40 high): a dark steel inset with its underline, blue while typing */
 static void field_box(float x, float y, float w, int focused)
 {
+    if (!plate.px) {            /* as before the art */
+        fill(x, y, w, 40, focused ? 0x0d1a20 : C_TILE, 245);
+        fill(x, y + 38, w, 2, focused ? C_BLUE : C_FAINT, 255);
+        return;
+    }
     steel_fill(x, y, w, 40, focused ? 0.20f : 0.27f);
     fill(x, y, w, 2, 0x000000, 140);            /* the inset's shadow */
     fill(x, y + 38, w, 2, focused ? C_BLUE : C_FAINT, 255);
@@ -2458,7 +2469,7 @@ static void lobby_page(void)
     int i, mismatch = 0, chat_id, total_msg, start_msg, lines, waiting, hero;
     char wait_text[160];
 
-    fill(12, 84, LW - 24, LH - 96, C_PANEL, 150);    /* translucent: the title art shows through, as on Play */
+    fill(12, 84, LW - 24, LH - 96, C_PANEL, title.px ? 150 : 215);     /* the title art shows through, as on Play */
 
     /* players */
     snprintf(line, sizeof(line), "Players  %d/%d", lob.n, LOB_MAX);
@@ -2483,7 +2494,7 @@ static void lobby_page(void)
         char pill[48];
         float bx = LC1X + LC1W - 8, nx = LC1X + 26, room;
 
-        fill(LC1X, y, LC1W, row_h - 3, me ? 0x2a2014 : C_TILE, 215);
+        fill(LC1X, y, LC1W, row_h - 3, me ? 0x2a2014 : C_TILE, title.px ? 215 : 235);
         fill(LC1X, y, 5, row_h - 3, col, 255);
         if (portrait(hero, LC1X + 10, y + 2, row_h - 7, col))     /* the hero this player starts as */
             nx += row_h - 2;
@@ -2530,7 +2541,7 @@ static void lobby_page(void)
 
     /* chat */
     heading(LC2X, 92, 20, "Chat", C_TEXT, DT_LEFT);
-    fill(LC2X, 124, LC2W, 440, 0x0d1a20, 205);
+    fill(LC2X, 124, LC2W, 440, 0x0d1a20, title.px ? 205 : 235);
     frame_rect(LC2X, 124, LC2W, 440, 1, 0x22343c, 255);
     total_msg = (int)lob.comm.history_total;
     lines = 20;

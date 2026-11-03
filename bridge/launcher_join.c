@@ -705,9 +705,12 @@ static float lj_join_panel(float y)
         int on = lju.selected == idx[i], grey = r->mismatch || lj_row_full(r), hit;
         float h = 44;
         hit = control(ID + 9000 + i, PX, y, PW, h);
-        steel_fill(PX, y, PW, h - 2, over(PX, y, PW, h) ? 0.40f : 0.30f);
-        if (on) fill(PX, y, PW, h - 2, 0x2a2014, 170);     /* the chosen one: warm, as the chosen tile */
-        bevel(PX, y, PW, h - 2);
+        if (!plate.px) fill(PX, y, PW, h - 2, on ? 0x2a2014 : over(PX, y, PW, h) ? C_TILE_HOT : C_TILE, 235);
+        else {
+            steel_fill(PX, y, PW, h - 2, over(PX, y, PW, h) ? 0.40f : 0.30f);
+            if (on) fill(PX, y, PW, h - 2, 0x2a2014, 170);     /* the chosen one: warm, as the chosen tile */
+            bevel(PX, y, PW, h - 2);
+        }
         fill(PX, y, 5, h - 2, on ? C_ORANGE : grey ? 0x2a3a42 : C_BLUE, 255);
         if (on) frame_rect(PX, y, PW, h - 2, 2, C_ORANGE, 255);
         snprintf(line, sizeof(line), "%s", lj_row_name(r));
