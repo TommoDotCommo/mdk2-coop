@@ -80,7 +80,7 @@ FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
                 ("save-script-tasks", "qa_save_scripts", 2, "counts"), ("save-redirect", "qa_redirect", 2, "counts"),
                 ("level-epochs", "qa_epoch", 2, "counts"), ("enemy-targeting", "qa_ai", 2, "counts"), ("native-room-ai", "qa_room_ai", 2, "counts"),
                 ("hans-targeting", "qa_hans", 2, "counts"), ("boss-turrets", "qa_boss_turrets", 2, "counts"), ("checkpoint-items", "qa_checkpoint_items", 2, "counts"), ("flying-enemies", "qa_flyers", 2, "counts"), ("enemy-hp-sync", "qa_hpsync", 2, "counts"),
-                ("attached-canopy", "qa_presence", 3, "counts"), ("client-join", "qa_join", 2, "counts"), ("join-list", "qa_join_list", 2, "counts"),
+                ("attached-canopy", "qa_presence", 3, "counts"), ("attached-visuals", "qa_attached", 3, "counts"), ("client-join", "qa_join", 2, "counts"), ("join-list", "qa_join_list", 2, "counts"),
                 ("revive", "qa_revive", 3, "counts"), ("menu", "qa_menu", 3, "counts"),
                 ("cutscenes", "qa_cutscene", 2, "counts"), ("minigames", "qa_minigames", 2, "counts"),
                 ("level8-intro", "qa_level8_intro", 2, "counts"),

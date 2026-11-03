@@ -230,20 +230,24 @@ static void l_coop_face(void)
     if (slot < 0 || slot >= MAX_PLAYERS)
         return;
     if (!gob) {
+        gear_release(slot);
         puppets[slot] = NULL;
         return;
     }
     if (!v)
         return;
     if (puppets[slot] != gob) {
+        gear_release(slot);
         /* the puppet is driven from its player's game: skip its class logic like a mirror */
         gob_set_mirrored(gob, 1);
         class_filter_think(gob_class(gob));
     }
     puppets[slot] = gob;
     memcpy(gob + GOB_ORIENTATION, v->quat, sizeof(v->quat));
-    if (sync_anim)
+    if (sync_anim) {
         anim_apply(gob, v);
+        gear_apply(slot, gob, &v->gear);
+    }
 }
 
 /* ---- events ---- */

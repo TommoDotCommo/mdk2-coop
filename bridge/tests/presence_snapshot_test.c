@@ -21,6 +21,8 @@ int main(void)
     source.cur = source.prev = NO_ANIM;
     source.canopy.present = 1; source.canopy.cur = 66; source.canopy.prev = 67;
     source.canopy.anim[0][0] = 1;
+    source.gear.v[1].present = 1; source.gear.v[1].model = 1; source.gear.v[1].cur = 77; source.gear.v[1].prev = 65;
+    source.gear.v[1].nanims = 1; source.gear.v[1].id[0] = 77; source.gear.v[1].anim[0][0] = 1;
     for (i = 0; i < 10000; i++) {
         source.time = i * 33;
         source.canopy.cur = i%2 ? 66 : 67;
@@ -31,6 +33,8 @@ int main(void)
         decoded.time = source.time;
         assert(snap_decode(wire, n, &decoded) == n);
         assert(memcmp(&decoded.canopy, &source.canopy, sizeof(source.canopy)) == 0);
+        assert(decoded.gear.v[1].present && decoded.gear.v[1].cur == 77 && decoded.gear.v[1].prev == 65 &&
+               decoded.gear.v[1].id[0] == 77 && !decoded.gear.v[0].present);
         /* Drop one in three; add late duplicate deliveries on a full track. */
         if (i%3) track_add(&track, &decoded);
         if (i > 10 && i%7 == 0) { decoded.time -= 165; track_add(&track, &decoded); }
@@ -40,6 +44,7 @@ int main(void)
             assert(track.n <= TRACK_SNAPS);
             for(j=1;j<track.n;j++) assert(track.snaps[j-1].time <= track.snaps[j].time);
             assert(track.view.canopy.present && (track.view.canopy.cur == 66 || track.view.canopy.cur == 67));
+            assert(track.view.gear.v[1].present && track.view.gear.v[1].cur == 77);
         }
         for(j=0;j<(int)sizeof(wire);j++) { random = random*1664525u + 1013904223u; wire[j] = random >> 24; }
         snap_decode(wire, random % sizeof(wire), &decoded);

@@ -79,6 +79,8 @@ static UINT fake_profile_int(const char *section, const char *key, int def, cons
 void logmsg(const char *fmt, ...) { }
 void canopy_capture(BYTE *gob, struct canopy_state *s) { memset(s,0,sizeof(*s)); }
 void canopy_apply(BYTE *gob, const struct canopy_state *s) { }
+void gear_capture(BYTE *gob, struct gear_state *s) { memset(s,0,sizeof(*s)); }
+void gear_apply(int slot, BYTE *gob, const struct gear_state *s) { }
 int gob_hp(BYTE *gob) { return 100; }
 int gob_max_hp(BYTE *gob) { return 150; }
 BYTE *gob_by_handle(unsigned int handle) { return (BYTE *)1; }

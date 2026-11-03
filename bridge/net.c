@@ -30,7 +30,7 @@
 
 static int join_cancelled, version_mismatch, test_legacy_version;
 
-#define PLAYER_MAGIC    0x544b444d      /* "MDKT": attached canopy state; incompatible with older peers */
+#define PLAYER_MAGIC    0x564b444d      /* "MDKV": canopy and equipment (jetpack, leaf blower) visuals; incompatible with older peers */
 #define PACKET_EVENTS   7      /* 7 x 128-byte events + player state fit in one datagram */
 #define MAX_DATAGRAM    1400
 #define PLAYER_TIMEOUT_MS 10000.0
@@ -45,7 +45,7 @@ static int join_cancelled, version_mismatch, test_legacy_version;
  * count records: u8 slot, u8 flags, u8 level, u8 life, u32 id, u32 seq, u16 epoch,
  * i16 player_type, i16 hp, i16 hp_max, u8 reviving, u8 pad, u32 state time, [name, PLAYER_NAME bytes, if PK_NAME], u16 length,
  * snap_encode bytes. The name goes along about once a second. */
-#define RELAY_MAGIC     0x554b444d      /* "MDKU": records including attached canopy state */
+#define RELAY_MAGIC     0x574b444d      /* "MDKW": records including canopy and equipment visuals */
 struct relay_head {
     unsigned int magic;
     unsigned int nonce;         /* host process */
@@ -955,6 +955,7 @@ void snap_capture(BYTE *gob, struct snap *s)
     int id;
 
     canopy_capture(gob, &s->canopy);
+    gear_capture(gob, &s->gear);
     s->time = (unsigned int)now_ms();
     memcpy(s->pos, gob + GOB_POSITION, sizeof(s->pos));
     memcpy(s->quat, gob + GOB_ORIENTATION, sizeof(s->quat));
@@ -1044,6 +1045,9 @@ int snap_encode(const struct snap *s, BYTE *out, int max)
     i = canopy_encode(&s->canopy, o, (int)(end - o));
     if (!i) return 0;
     o += i;
+    i = gear_encode(&s->gear, o, (int)(end - o));
+    if (!i) return 0;
+    o += i;
     return (int)(o - out);
 }
 
@@ -1099,6 +1103,9 @@ int snap_decode(const BYTE *in, int len, struct snap *s)
         }
     }
     i = canopy_decode(p, (int)(end - p), &s->canopy);
+    if (!i) return 0;
+    p += i;
+    i = gear_decode(p, (int)(end - p), &s->gear);
     if (!i) return 0;
     p += i;
     return (int)(p - in);
