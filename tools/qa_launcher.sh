@@ -35,7 +35,7 @@ BS=(); for i in $(seq 1 24); do BS+=("key 8"); done     # backspaces: empty a fi
 
 # canvas spots (1280x720): tabs, Play page tiles, the connection selector, the UDP join fields,
 # the Play button; Settings: the section picker's arrows (Co-op, Interface, Voice and sound, Display) and rows
-T_PLAY="click 780 50"; T_SAVES="click 880 50"; T_SET="click 1000 50"; T_ABOUT="click 1130 50"
+T_PLAY="click 780 50"; T_SAVES="click 880 50"; T_SET="click 1000 50"; T_ABOUT="click 1070 50"
 HOST="click 1000 200"; JOIN="click 1000 283"; SOLO="click 1000 367"
 ADDR="click 900 532"; PORT="click 1170 532"; PLAY="click 1000 660"
 SEC_NEXT="click 1220 115"; SEC_PREV="click 1050 115"
