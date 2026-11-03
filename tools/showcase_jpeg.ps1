@@ -1,13 +1,16 @@
 # PNG -> JPEG for the showcase page, optionally with parts hidden (addresses, invite codes).
-#   powershell -File showcase_jpeg.ps1 -In shot.png -Out shot.jpg [-Quality 82] [-Hide "x,y,w,h;x,y,w,h"]
+#   powershell -File showcase_jpeg.ps1 -In shot.png -Out shot.jpg [-Quality 82] [-Hide "x,y,w,h;x,y,w,h"] [-Width 1280]
 # Each -Hide rectangle (pixels of the input) is pixelated in 12-pixel blocks, then covered with a dark veil,
 # so the text under it cannot be read back.
-param([string]$In, [string]$Out, [int]$Quality = 82, [string]$Hide = "")
+param([string]$In, [string]$Out, [int]$Quality = 82, [string]$Hide = "", [int]$Width = 0)
 Add-Type -AssemblyName System.Drawing
 $src = [System.Drawing.Image]::FromFile($In)
-$bmp = New-Object System.Drawing.Bitmap($src.Width, $src.Height, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+$w0 = $src.Width; $h0 = $src.Height
+if ($Width -gt 0 -and $Width -lt $w0) { $h0 = [int]($h0 * $Width / $w0); $w0 = $Width }
+$bmp = New-Object System.Drawing.Bitmap($w0, $h0, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
-$g.DrawImage($src, 0, 0, $src.Width, $src.Height)
+$g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$g.DrawImage($src, 0, 0, $w0, $h0)
 $g.Dispose(); $src.Dispose()
 if ($Hide -ne "") {
     foreach ($r in $Hide.Split(";")) {

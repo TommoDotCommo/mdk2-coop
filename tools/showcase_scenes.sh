@@ -22,6 +22,7 @@ boot() {   # boot <level> <checkpoint>
     mdk_kill; sleep 2
     MDK2_BACKGROUND=1 MDK2_START="$1 $2" "$here/install.sh" >/dev/null || exit 1
     mdk_boot
+    lua 1 "function showcase_pose(g) local x, y, z, w, i, j, k = coop_pose(g) return format('%f %f %f %f %f %f %f', x, y, z, w, i, j, k) end"
     lua 1 'coop_set_name("Hank")'; lua 2 'coop_set_name("Doc Hawkins")'
     lua 1 'coop_set("hud", "outline", 0) coop.hud_outline = nil'
 }
@@ -29,7 +30,7 @@ boot() {   # boot <level> <checkpoint>
 # turned to face the host
 beside() {
     local h c
-    h=$(ask 1 'format("%f %f %f %f %f %f %f", coop_pose(mdkGetPlayerGob()))'); c=$(ask 1 'format("%f %f", coop_pose(mdkGetCameraGob()))')
+    h=$(ask 1 'showcase_pose(mdkGetPlayerGob())'); c=$(ask 1 'showcase_pose(mdkGetCameraGob())')
     python3 - "$h" "$c" "$1" "$2" <<'PY' | while read -r x y z w k; do
 import math, sys
 hx, hy, hz, hw, hi, hj, hk = map(float, sys.argv[1].split()); cx, cy = map(float, sys.argv[2].split()[:2])
@@ -83,16 +84,15 @@ if want canopy; then
     lua 1 'mdkGobSetPosition(mdkGetPlayerGob(), "l1_r8doganland1")'; sleep 3
     beside 7 70
     lua 2 'qa_z0 = mdkGetPlayerGob().position.z - 70 coop_press(57, 14000)'
-    for i in 1 2 3 4 5 6; do sleep 0.8; lua 2 'local p = mdkGetPlayerGob() if p.position.z < qa_z0 + 30 then mdkGobSetPositionXYZ(p, p.position.x, p.position.y, qa_z0 + 70) end'; done
-    shot canopy 0.3
+    for i in 1 2 3 4 5 6; do lua 2 'local p = mdkGetPlayerGob() if p.position.z < qa_z0 + 30 then mdkGobSetPositionXYZ(p, p.position.x, p.position.y, qa_z0 + 70) end'; shot canopy_$i 0.4; done
 fi
 
 if want jetpack; then
     boot 2 8
     sleep 8
     beside 8 4
-    lua 2 'coop_press(57, 4500)'; sleep 1.6
-    shot jetpack 0.2
+    lua 2 'coop_press(57, 4500)'
+    for i in 1 2 3 4 5 6; do shot jetpack_$i 0.3; done
 fi
 
 if want blower; then
@@ -100,8 +100,8 @@ if want blower; then
     sleep 8
     beside 7 0
     lua 2 'coop_test_blower(mdkGetPlayerGob())'; sleep 2.5
-    lua 2 'coop_press(256, 4500)'; sleep 1.5
-    shot blower 0.2
+    lua 2 'coop_press(256, 4500)'
+    for i in 1 2 3 4 5 6; do shot blower_$i 0.3; done
 fi
 
 if want pad; then
