@@ -11,11 +11,14 @@ import sys
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import mod_manifest  # noqa: E402
 import payload  # noqa: E402
+import versioninfo  # noqa: E402
 
 EXPECTED = ['MDK2-Coop-Setup.exe', 'dinput8.dll', 'coop/coop.lua', 'mdk2-coop.ps1',
             'installer-gui.ps1', 'install-state.ps1', 'install-policy.exe', 'Couch.cmd', 'mdk2-couch.ps1',
-            'install-linux.sh', 'README.txt', 'LICENSE.txt']
+            'install-linux.sh', 'README.txt', 'LICENSE.txt', 'coop-mod.json']
+ROOT_FILES = ['coop-mod.json']      # beside the top folder, for mod managers (the updater never looks there)
 # the single-file Setup carries the zip's files except its own (payload-less) Setup.exe and the Linux script
 PAYLOAD = sorted(set(EXPECTED) - {'MDK2-Coop-Setup.exe', 'install-linux.sh'})
 SHIPPED_PE = ['MDK2-Coop-Setup.exe', 'dinput8.dll', 'install-policy.exe']
@@ -47,9 +50,11 @@ def check(archive, policy_source=None, require_signed=False):
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == checksum, 'checksum mismatch'
     root = archive.name[:-len('.zip')] + '/'
     with zipfile.ZipFile(archive) as package:
-        assert set(package.namelist()) == {root + f for f in EXPECTED}, 'unexpected release inventory'
+        assert set(package.namelist()) == {root + f for f in EXPECTED} | set(ROOT_FILES), 'unexpected release inventory'
+        version = archive.name[len('mdk2-coop-'):-len('.zip')]
         for pe in SHIPPED_PE:
             assert package.read(root + pe)[:2] == b'MZ', 'not a Windows PE'
+            assert versioninfo.read(package.read(root + pe)) == version, 'VERSIONINFO of %s is not %s' % (pe, version)
         source = policy_source or Path(__file__).resolve().parents[1] / 'dist/install-state.ps1'
         assert package.read(root + 'install-state.ps1').decode().replace('\r\n', '\n') == Path(source).read_text(), 'stale policy'
         sh = package.getinfo(root + 'install-linux.sh')
@@ -70,14 +75,16 @@ def check(archive, policy_source=None, require_signed=False):
     version, want_hash, blob = got
     assert hashlib.sha256(blob).hexdigest() == want_hash, 'embedded payload does not match its SHA-256'
     assert version == archive.name[len('mdk2-coop-'):-len('.zip')], 'embedded version differs from the zip'
+    assert versioninfo.read(setup.read_bytes()) == version, 'VERSIONINFO of the single-file Setup is not ' + version
+    mod_manifest.check(archive)
     embedded = dict(payload.unpack(blob))
     assert sorted(embedded) == PAYLOAD, 'embedded payload inventory differs'
     for f in PAYLOAD:
         assert embedded[f] == members[f], 'embedded payload differs from the zip (signed before embedding?): ' + f
     if require_signed:
         assert pe_signed(setup.read_bytes()), 'single-file Setup is not signed'
-    return ('PASS: release checksums, exact twelve-file inventory, policy payload, Windows PE headers, and the single-file Setup '
-            'whose embedded payload equals the zip' + (' (all executables signed)' if require_signed else ''))
+    return ('PASS: release checksums, exact inventory, coop-mod.json against the zip, VERSIONINFO, policy payload, Windows PE '
+            'headers, and the single-file Setup whose embedded payload equals the zip' + (' (all executables signed)' if require_signed else ''))
 
 
 if __name__ == '__main__':

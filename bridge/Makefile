@@ -1,5 +1,5 @@
 CC = i686-w64-mingw32-gcc
-CFLAGS = -O2 -Wall -Wextra -Wno-unused-parameter
+CFLAGS = -O2 -Wall -Wextra -Wno-unused-parameter $(COOP_MUTANT_CFLAGS)
 LDFLAGS = -shared -static-libgcc -Wl,--enable-stdcall-fixup -Wl,--kill-at -lws2_32 -ldxguid -lgdi32 -lwinmm -lshell32 -lwininet
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -9,20 +9,26 @@ GAME_DIR ?=
 
 SRCS = combat.c combat_core.c combat_hud.c dinput8.c game.c net.c steam.c entities.c shots.c pickups.c doors.c rooms.c frame.c input.c state.c saves.c settings.c loader.c launcher.c hud.c ctrlview.c netstats.c revive.c chat.c movie.c emote.c voice.c plist.c lua.c route.c bot.c pad.c diag.c redirect.c scripttrace.c remote.c presence.c presence_game.c
 
+# VERSIONINFO with the mod version (tools/versioninfo.py rewrites version.rc only when the version changed)
+VERSION_RC := $(shell python3 ../tools/versioninfo.py "$(VERSION)" dinput8.dll "MDK2 Co-op (DirectInput proxy)" version.rc >/dev/null && echo version.rc)
+
+version_res.o: version.rc
+	i686-w64-mingw32-windres version.rc -o $@
+
 # the diagnostics bundle script, embedded as a C string so it always matches this DLL
 diag_ps1.h: ../dist/diag.ps1
 	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r$$//' -e 's/^/"/' -e 's/$$/\\n"/' $< | \
 		{ echo 'static const char diag_script[] ='; cat; echo ';'; } > $@
 
-dinput8.dll: $(SRCS) bridge.h anim_guard.h crash_context.h combat_core.h combat_hud.h presence.h snapshot.h steam_abi.h route.h pad.h launcher_session.h launcher_profiles.h launcher_profiles_win.h launcher_update.h launcher_update_win.h launcher_voice_win.h dinput8.def diag_ps1.h
-	$(CC) $(CFLAGS) -DMOD_VERSION='"$(VERSION)"' -o $@ $(SRCS) dinput8.def $(LDFLAGS)
+dinput8.dll: $(SRCS) bridge.h anim_guard.h crash_context.h combat_core.h combat_hud.h presence.h snapshot.h steam_abi.h route.h pad.h launcher_session.h launcher_profiles.h launcher_profiles_win.h launcher_update.h launcher_update_win.h launcher_voice_win.h dinput8.def diag_ps1.h version_res.o
+	$(CC) $(CFLAGS) -DMOD_VERSION='"$(VERSION)"' -o $@ $(SRCS) version_res.o dinput8.def $(LDFLAGS)
 
 install: dinput8.dll
 	@test -n "$(GAME_DIR)" || { echo "Set GAME_DIR to a disposable test copy" >&2; exit 1; }
 	cp dinput8.dll "$(GAME_DIR)/dinput8.dll"
 
 clean:
-	rm -f dinput8.dll diag_ps1.h
+	rm -f dinput8.dll diag_ps1.h version.rc version_res.o
 
 ../local/tests/shots_test.exe: tests/shots_test.c shots.c bridge.h
 	mkdir -p ../local/tests

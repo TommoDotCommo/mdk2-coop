@@ -90,11 +90,14 @@ copy two files into the game folder (the one with `mdk2hd.exe`):
 | `coop\coop.lua` | `<game folder>\coop\coop.lua` (make the `coop` folder if it is not there) |
 
 Nothing else is needed: at its first start the mod adds its one loader line to `%LOCALAPPDATA%\MDK2HD\settings.lua`
-by itself, and the launcher keeps its settings and saves in `%LOCALAPPDATA%\mdk2-coop\coop` (or in the game
-folder's `coop` folder if that is writable). If `<game folder>\dinput8.dll` already exists, keep it as
-`dinput8.dll.coop-original` first. The other files in the zip (`Couch.cmd`, `mdk2-couch.ps1`) are for couch co-op.
-The mod does not patch the game executable. Manual uninstall: delete those two files (put the original `dinput8.dll`
-back if there was one); optionally delete the `-- >>> mdk2-coop >>>` ... `-- <<< mdk2-coop <<<` block in
+by itself, and the mod keeps its settings, logs, saves and update backups in `%LOCALAPPDATA%\mdk2-coop`: nothing is
+written into the game folder while you play. If another mod's `dinput8.dll` (an ASI loader, a widescreen fix) is
+already there, rename it to `dinput8.chain.dll`: the co-op DLL loads it after itself, so both keep working. This is
+also how mod managers (Vortex, Mod Organizer 2) install it; `coop-mod.json` in the zip lists the files with their
+SHA-256, Setup then shows "Installed by a mod manager" and the in-game updater leaves the update to the manager. The
+other files in the zip (`Couch.cmd`, `mdk2-couch.ps1`) are for couch co-op.
+The mod does not patch the game executable. Manual uninstall: delete those two files (rename `dinput8.chain.dll` back
+to `dinput8.dll` if there was one); optionally delete the `-- >>> mdk2-coop >>>` ... `-- <<< mdk2-coop <<<` block in
 `%LOCALAPPDATA%\MDK2HD\settings.lua` (it does nothing without the mod) and the `coop` folders.
 
 ### Steam Deck and Linux (Proton): untested
@@ -105,17 +108,22 @@ MDK2 HD runs through Proton, and the mod is a `dinput8.dll` proxy. Wine and Prot
 1. Install the game in Steam (desktop mode on the Deck) and run it once.
 2. Copy the files in: unzip the release on the Deck, open a terminal in the unzipped folder and run
    `sh install-linux.sh install "<game folder>"`, where the game folder is the one with `mdk2hd.exe`, for example
-   `~/.local/share/Steam/steamapps/common/"MDK 2 HD"`. It copies the two files, keeps any existing `dinput8.dll` as
-   `dinput8.dll.coop-original`, never writes through a link, and records what it did in `coop/install-linux.record`.
-   (Or copy `dinput8.dll` and `coop/coop.lua` by hand as in the table above.)
-3. In Steam, right-click MDK2 HD > Properties > General > Launch Options and enter exactly:
-   `WINEDLLOVERRIDES="dinput8=n,b" %command%`
-4. Start the game from Steam. The co-op launcher opens first. `coop/bridge.log` (or `unsupported-build.txt`) in the game
-   folder says what happened if it does not.
+   `~/.local/share/Steam/steamapps/common/"MDK 2 HD"`. It copies the two files, keeps another mod's `dinput8.dll` as
+   `dinput8.chain.dll` (any other file that was there as `<file>.coop-original`), never writes through a link, records
+   what it did in `coop/install-linux.record`, and writes `"dinput8"="native,builtin"` for `mdk2hd.exe` into the game's
+   Proton prefix (`steamapps/compatdata/213350/pfx/user.reg`, backed up first), so no launch option is needed.
+   `sh install-linux.sh status --json` says what is installed and whether that override is in place.
+3. Only if it said there is no Proton prefix yet (the game never ran): in Steam, right-click MDK2 HD > Properties >
+   General > Launch Options and enter exactly `WINEDLLOVERRIDES="dinput8=n,b" %command%` (or start the game once and
+   run step 2 again).
+4. Start the game from Steam. The co-op launcher opens first. `bridge.log` (or `unsupported-build.txt`) in the prefix's
+   `%LOCALAPPDATA%\mdk2-coop\coop` says what happened if it does not.
 
-To remove it: `sh install-linux.sh uninstall "<game folder>"` removes exactly the files it installed (a file you changed
-since is left alone), puts the original `dinput8.dll` back, and refuses to do anything without its record. Then clear
-the launch option. Please report whether it worked, with the Proton version, in an
+To remove it: `sh install-linux.sh uninstall "<game folder>" --yes` removes exactly the files it installed (a file you
+changed since is left alone), puts the original `dinput8.dll` back, takes its DLL override out of the prefix again, and
+refuses to do anything without its record. Clear the launch option if you set one. Both scripts (`install-linux.sh`
+and `MDK2-Coop-Setup.exe`) take `status --json`, `install <game folder> --yes` and `uninstall <game folder> --yes`
+with exit codes 0 done, 1 failed, 2 usage, 3 unsupported game build, 4 the game is running. Please report whether it worked, with the Proton version, in an
 [issue](https://github.com/TommoDotCommo/mdk2-coop/issues).
 
 ## Play together
@@ -280,7 +288,8 @@ what's needed:
 Open **MDK2-Coop-Setup.exe** and choose **Uninstall** (installed by hand or on Linux: see the manual steps under Install). It removes owned mod files, restores verified original files and removes the settings loader while keeping current player options. Co-op settings, logs and saves in `%LOCALAPPDATA%\mdk2-coop\coop` stay;
 delete that folder if you like. Older installs may also have data in the game folder's `coop` subfolder.
 
-What the installer changes: `<game folder>\dinput8.dll` (an earlier one is kept as `dinput8.dll.coop-original`),
+What the installer changes: `<game folder>\dinput8.dll` (another mod's earlier one is kept as `dinput8.chain.dll`,
+which the co-op DLL loads; an older copy of this mod as `dinput8.dll.coop-original`),
 `<game folder>\coop\` (the mod's script and data-location marker), and one loader line in
 `%LOCALAPPDATA%\MDK2HD\settings.lua`, backed up first as `settings.lua.coop-backup`. The game rewrites that file
 when you change its options, and the mod puts the line back at the next start. The installer copies existing

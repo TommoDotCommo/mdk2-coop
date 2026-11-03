@@ -109,8 +109,11 @@ int main(int argc, char **argv)
                 http_get_local(rel.zip_url, &status, &rl_rem, &retry_after, &zip_body, &zip_len);
                 if (status != 200) r = LU_ERR_HTTP;
                 else r = lu_verify_download(zip_body, zip_len, rel.zip_size, expected_sha);
-                if (r == LU_OK)
-                    r = lu_apply_package(game_dir, zip_body, zip_len, "mdk2-coop", cur_ver, rel.tag, fail_step);
+                if (r == LU_OK) {
+                    char data_dir[600];
+                    snprintf(data_dir, sizeof(data_dir), "%s.data", game_dir);
+                    r = lu_apply_package(game_dir, data_dir, zip_body, zip_len, "mdk2-coop", cur_ver, rel.tag, fail_step);
+                }
                 free(zip_body);
             }
         }

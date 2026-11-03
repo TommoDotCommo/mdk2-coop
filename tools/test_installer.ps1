@@ -155,15 +155,25 @@ $priorAppData = $env:LOCALAPPDATA
 try {
     $env:LOCALAPPDATA = Join-Path $root 'fake-profile'
     New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
-    & (Join-Path $loadDir 'data_loader_test.exe')
-    Check ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $loadDir 'coop\bridge.log'))) 'bridge keeps per-copy data for test and couch copies'
-    New-Item -ItemType File (Join-Path $loadDir 'coop\per-user-data') | Out-Null
+    # a player's game folder: nothing is written into it at run time (co-op mod standard J4); data an older version left
+    # in <game>\coop moves to the profile once
+    [IO.File]::WriteAllText((Join-Path $loadDir 'coop\profiles.tsv'), 'saved addresses of an older version')
     & (Join-Path $loadDir 'data_loader_test.exe')
     $userLog = Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop\bridge.log'
     Check ($LASTEXITCODE -eq 0 -and (Test-Path $userLog)) 'bridge writes player logs in the user profile'
     Check ((Get-Content $userLog -Raw) -match 'files in .*mdk2-coop\\coop') 'bridge uses profile for runtime settings'
+    Check (@(Get-ChildItem -LiteralPath (Join-Path $loadDir 'coop') -Force).Count -eq 0) 'nothing written into the game folder at run time'
+    Check ((Get-Content -Raw (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop\profiles.tsv')) -match 'older version') 'old game-folder data moved to the profile'
     & (Join-Path $loadDir 'data_loader_test.exe')
     Check (Test-Path (Join-Path $env:LOCALAPPDATA 'mdk2-coop\coop\bridge.previous.log')) 'profile log rotates on restart'
+    # a test or couch copy: a coop.ini with [test] or [couch] that a tool placed keeps the copy's data beside it
+    foreach ($section in 'test', 'couch') {
+        Remove-Item -LiteralPath (Join-Path $loadDir 'coop') -Recurse -Force
+        New-Item -ItemType Directory (Join-Path $loadDir 'coop') | Out-Null
+        [IO.File]::WriteAllText((Join-Path $loadDir 'coop\coop.ini'), "[$section]`r`nx=1`r`n")
+        & (Join-Path $loadDir 'data_loader_test.exe')
+        Check ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $loadDir 'coop\bridge.log'))) "bridge keeps per-copy data for a [$section] copy"
+    }
 } finally { $env:LOCALAPPDATA = $priorAppData }
 } else { Write-Output 'SKIP: bridge data loader fixture not supplied' }
 

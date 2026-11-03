@@ -26,27 +26,57 @@ double-click it. If you have this zip instead:
 
 If the game starts but co-op is off and a message says the game build is not known: in Steam, right-click MDK2 HD >
 Properties > Betas > choose None, then Installed Files > Verify integrity of game files. The message (and the exe's
-SHA-256 for a bug report) is also saved as coop\unsupported-build.txt.
+SHA-256 for a bug report) is also saved as %LOCALAPPDATA%\mdk2-coop\coop\unsupported-build.txt.
 
-Manual install (instead of Setup)
----------------------------------
-Close the game, then copy two files from this zip into the game folder (the one with mdk2hd.exe):
+Another mod's dinput8.dll (an ASI loader, a widescreen fix) keeps working: Setup keeps it as dinput8.chain.dll, which the
+co-op DLL loads right after itself (the game's DirectInput goes through it when it is a full dinput8 proxy). Uninstall
+puts it back as dinput8.dll. Setup from before this version kept such a file as dinput8.dll.coop-original, where nothing
+loaded it; the next Install or Update moves it to dinput8.chain.dll.
+
+Nothing is written into the game folder while you play: settings, logs, diagnostics and the updater's backups live in
+%LOCALAPPDATA%\mdk2-coop. Files an older version left in <game folder>\coop (coop.ini, saved addresses, ...) are moved
+there once at the first start; old dinput8.dll.previous backups too.
+
+Mod managers (Vortex, Mod Organizer 2) and installing by hand
+-------------------------------------------------------------
+The zip's top folder mirrors the game folder for the two files the game needs: dinput8.dll and coop\coop.lua. Copying them
+into the game folder is a complete install, deleting them a complete uninstall; the mod adds its loader line to
+%LOCALAPPDATA%\MDK2HD\settings.lua by itself at the first start (the line does nothing without the mod and may stay).
+coop-mod.json (at the zip root and in its top folder) says what the package is and lists those files with their SHA-256.
     dinput8.dll       ->  <game folder>\dinput8.dll
     coop\coop.lua     ->  <game folder>\coop\coop.lua     (create the coop folder if needed)
-If a dinput8.dll is already there, keep it as dinput8.dll.coop-original first. Nothing else is needed: the mod adds its
-loader line to %LOCALAPPDATA%\MDK2HD\settings.lua by itself at the first start. To uninstall by hand, delete those two files
-(and put the original dinput8.dll back); the loader line does nothing without the mod and may stay.
+If another mod's dinput8.dll is already there, rename it to dinput8.chain.dll first: the co-op DLL loads it.
+Setup recognises files a mod manager put there (the hashes of a release, without Setup's receipts) and shows "Installed by
+a mod manager" with Play; it does not change them. The in-game updater then says "Update it in your mod manager" (in
+Vortex: download the new version and enable it) with a link to the release page, and does not replace those files.
+
+Setup from scripts
+------------------
+MDK2-Coop-Setup.exe (and mdk2-coop.ps1, which it runs; install-linux.sh on Linux takes the same words):
+    MDK2-Coop-Setup.exe status --json [<game folder>]     what is installed and who installed it (JSON; without a folder:
+                                                           every MDK2 HD found)
+    MDK2-Coop-Setup.exe install "<game folder>" --yes      install or update, no questions
+    MDK2-Coop-Setup.exe uninstall "<game folder>" --yes    take out exactly what Setup put in, put back the originals
+Exit codes: 0 done, 1 failed, 2 usage, 3 unsupported game build (add -AcceptUnknownBuild to install anyway), 4 the game
+is running from that folder. Setup is a Windows program: to get its exit code from a prompt, run it with
+start /wait (cmd) or Start-Process -Wait -PassThru (PowerShell), and redirect its output to a file for the JSON.
+The older form still works: powershell -File mdk2-coop.ps1 -GameDir "<game folder>" -StatusOnly -Yes
 
 Steam Deck / Linux (Proton) - untested
 --------------------------------------
-Proton has its own built-in dinput8, so Steam must be told to load the mod's file first. In Steam, right-click MDK2 HD >
-Properties > General > Launch Options and enter exactly:
+Proton has its own built-in dinput8, so the game must be told to load the mod's file first. In this unzipped folder run:
+    sh install-linux.sh install "<game folder>" --yes
+(the game folder is the one with mdk2hd.exe, e.g. ~/.local/share/Steam/steamapps/common/"MDK 2 HD"). It copies the two
+files, keeps another mod's dinput8.dll as dinput8.chain.dll (any other file that was there as <file>.coop-original), notes
+what it did in coop/install-linux.record and, when the game's Proton prefix exists (it does after the first start), writes
+the DLL override for mdk2hd.exe into steamapps/compatdata/213350/pfx/user.reg (a backup first): no launch option to type.
+Without a prefix it prints the launch option instead; you can also set it by hand: right-click MDK2 HD > Properties >
+General > Launch Options:
     WINEDLLOVERRIDES="dinput8=n,b" %command%
-Put the two files in with: sh install-linux.sh install "<game folder>"   (run in this unzipped folder; the game folder is the
-one with mdk2hd.exe, e.g. ~/.local/share/Steam/steamapps/common/"MDK 2 HD"). It keeps an existing dinput8.dll as
-dinput8.dll.coop-original and notes what it did in coop/install-linux.record. Remove it again with:
-sh install-linux.sh uninstall "<game folder>"   (it removes only the files it installed). Not tested on a real Steam Deck
-yet: please report how it went at https://github.com/TommoDotCommo/mdk2-coop/issues
+    sh install-linux.sh status --json ["<game folder>"]      what is installed (and whether the override is in place)
+    sh install-linux.sh uninstall "<game folder>" --yes      removes only the files it installed, and its override
+Exit codes as for Setup above. Not tested on a real Steam Deck yet: please report how it went at
+https://github.com/TommoDotCommo/mdk2-coop/issues
 
 The launcher
 ------------
@@ -98,7 +128,7 @@ No port forwarding or public IP is needed. Everyone needs Steam online, the Stea
 transport, and a compatible mod version. If the overlay is disabled, share the
 lobby ID. Start the game before accepting invites. The mod uses MDK2 HD's own
 Steam connection and AppID; do not replace steam_api.dll or add an AppID override.
-Errors and lobby status appear on the Session page and in coop\bridge.log.
+Errors and lobby status appear on the Session page and in %LOCALAPPDATA%\mdk2-coop\coop\bridge.log.
 
 Direct UDP (optional)
 ---------------------
@@ -155,12 +185,14 @@ if you like. Older installs may also have data in the game folder's coop subfold
 
 What the installer changes
 --------------------------
-- <game folder>\dinput8.dll (the mod; any earlier dinput8.dll is kept as
-  dinput8.dll.coop-original and put back on uninstall)
+- <game folder>\dinput8.dll (the mod; another mod's dinput8.dll is kept as dinput8.chain.dll,
+  which the co-op DLL loads, an older copy of this mod as dinput8.dll.coop-original; either is put
+  back on uninstall)
 - <game folder>\coop\coop.lua and the per-user-data marker; replaced originals
   use .coop-original and deployed files have .coop-receipt.json hash receipts
 - %LOCALAPPDATA%\mdk2-coop\coop (settings, logs and co-op data; existing game-folder
-  data is copied here on install without replacing files already present)
+  data is copied here on install without replacing files already present) and
+  %LOCALAPPDATA%\mdk2-coop\update (the in-game updater's backups for Roll back)
 - one loader line at the end of %LOCALAPPDATA%\MDK2HD\settings.lua (backed up first
   as settings.lua.coop-backup). The game rewrites that file when you change options;
   the mod puts the line back at the next start.

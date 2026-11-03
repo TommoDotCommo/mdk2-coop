@@ -4,6 +4,9 @@
 #   mdk2-coop-<version>.zip (+ .sha256)  the same files for a manual install or Nexus: dinput8.dll, coop\coop.lua, the
 #                                     scripts, the couch launcher, install-linux.sh, README.txt and LICENSE.txt. The updater in the
 #                                     launcher reads this zip; the Setup.exe inside it needs the files beside it.
+#                                     coop-mod.json (what the package is: tools/mod_manifest.py) sits at the zip root and in
+#                                     its top folder; every shipped exe and dll carries a VERSIONINFO with the version.
+#   NEXUS-<version>.txt               the copy note for Nexus Mods: the same zip, the same version string (no upload)
 #   tools/release.sh            version from `git describe --tags --always`
 #   tools/release.sh v0.1.0     explicit version
 # Code signing: set SIGN_CMD to a command template that signs one file in place; {file} is replaced by the (quoted) path.
@@ -48,13 +51,15 @@ elif [[ "$SIGN_CMD" != *'{file}'* ]]; then
 fi
 mutant="${RELEASE_MUTANT:-}"        # tools/test_release_signing.sh only: 'late-sign' signs the payload files after embedding
 
-if [ -z "${RELEASE_REUSE_DLL:-}" ]; then   # tools/test_release_signing.sh only: the signing scenarios do not need a fresh DLL each time
+# RELEASE_REUSE_DLL (tests only): keep bridge/dinput8.dll when it is already built for this version (its VERSIONINFO says so)
+if [ -z "${RELEASE_REUSE_DLL:-}" ] || [ ! -f "$here/bridge/dinput8.dll" ] ||
+   [ "$(python3 "$here/tools/versioninfo.py" --read "$here/bridge/dinput8.dll" 2>/dev/null)" != "$ver" ]; then
     make -s -B -C "$here/bridge" VERSION="$ver"
 fi
 rm -rf "$stage" "$work" "$out/$name.zip" "$out/MDK2-Coop-Setup.exe"
 mkdir -p "$stage/coop" "$work"
 cp "$here/bridge/dinput8.dll" "$stage/"
-"$here/tools/build_install_policy.sh" "$stage/install-policy.exe"
+MOD_VERSION="$ver" "$here/tools/build_install_policy.sh" "$stage/install-policy.exe"
 sed 's/\r$//; s/$/\r/' "$here/lua/coop_dev.lua" > "$stage/coop/coop.lua"
 for f in mdk2-coop.ps1 installer-gui.ps1 install-state.ps1 Couch.cmd mdk2-couch.ps1; do
     sed 's/\r$//; s/$/\r/' "$here/dist/$f" > "$stage/$f"; done
@@ -64,25 +69,32 @@ sed 's/\r$//' "$here/dist/install-linux.sh" > "$stage/install-linux.sh"
 chmod 755 "$stage/install-linux.sh"
 
 # The Setup that sits inside the zip: no payload, it starts the scripts beside it.
+python3 "$here/tools/versioninfo.py" "$ver" MDK2-Coop-Setup.exe "MDK2 Co-op Setup" "$work/version.rc"
+i686-w64-mingw32-windres "$work/version.rc" -o "$work/version-res.o"
 (cd "$here/dist" && i686-w64-mingw32-windres installer.rc -o "$work/installer-res.o")
 i686-w64-mingw32-gcc -Os -Wall -Wextra -mwindows -o "$stage/MDK2-Coop-Setup.exe" \
-    "$here/dist/installer.c" "$work/installer-res.o" -lshell32
+    "$here/dist/installer.c" "$work/installer-res.o" "$work/version-res.o" -lshell32
 
 # Sign everything that ships, before the payload is hashed and embedded.
 if [ "$mutant" != late-sign ]; then
     sign_files "$stage/dinput8.dll" "$stage/install-policy.exe" "$stage/MDK2-Coop-Setup.exe"
 fi
 
+# coop-mod.json: what this package is, the files it puts into the game folder and their hashes (signed bytes). Inside the
+# top folder (Setup, the updater and diagnostics read it there; it is also in the single-file Setup's payload) and at the
+# zip root (for mod managers; the updater only extracts the two members it names, so neither copy disturbs it).
+python3 "$here/tools/mod_manifest.py" "$ver" "$stage" > "$stage/coop-mod.json"
+
 # The single-file Setup: every file of the zip except the zip's own Setup.exe and the Linux script, as one verified payload.
 payload=(dinput8.dll=dinput8.dll coop/coop.lua=coop/coop.lua mdk2-coop.ps1=mdk2-coop.ps1 installer-gui.ps1=installer-gui.ps1
          install-state.ps1=install-state.ps1 install-policy.exe=install-policy.exe Couch.cmd=Couch.cmd mdk2-couch.ps1=mdk2-couch.ps1
-         README.txt=README.txt LICENSE.txt=LICENSE.txt)
+         README.txt=README.txt LICENSE.txt=LICENSE.txt coop-mod.json=coop-mod.json)
 args=()
 for spec in "${payload[@]}"; do args+=("${spec%%=*}=$stage/${spec#*=}"); done
 python3 "$here/tools/payload.py" pack "$work" "$ver" "${args[@]}"
 i686-w64-mingw32-windres "$work/setup.rc" -o "$work/setup-res.o"
 i686-w64-mingw32-gcc -Os -Wall -Wextra -mwindows -o "$out/MDK2-Coop-Setup.exe" \
-    "$here/dist/installer.c" "$work/setup-res.o" -lshell32
+    "$here/dist/installer.c" "$work/setup-res.o" "$work/version-res.o" -lshell32
 if [ "$mutant" = late-sign ]; then
     sign_files "$stage/dinput8.dll" "$stage/install-policy.exe" "$stage/MDK2-Coop-Setup.exe"
 fi
@@ -98,7 +110,12 @@ for root, _, files in os.walk(sys.argv[1]):
         info = zipfile.ZipInfo.from_file(path)       # keeps the executable bit of install-linux.sh
         with open(path, "rb") as fh:
             z.writestr(info, fh.read(), compress_type=zipfile.ZIP_DEFLATED)
+with open(os.path.join(sys.argv[1], "coop-mod.json"), "rb") as fh:   # the copy at the root, for mod managers
+    z.writestr(zipfile.ZipInfo("coop-mod.json", date_time=info.date_time), fh.read(), compress_type=zipfile.ZIP_DEFLATED)
 z.close()' "$name")
 (cd "$out" && sha256sum "$name.zip" > "$name.zip.sha256")
+# One version everywhere: GitHub Releases is canonical; Nexus gets this very zip under the same version string.
+python3 "$here/tools/mod_manifest.py" --nexus-note "$out/$name.zip" > "$out/NEXUS-$ver.txt"
 echo "$out/MDK2-Coop-Setup.exe ($(du -h "$out/MDK2-Coop-Setup.exe" | cut -f1))"
 echo "$out/$name.zip ($(du -h "$out/$name.zip" | cut -f1))"
+echo "$out/NEXUS-$ver.txt"

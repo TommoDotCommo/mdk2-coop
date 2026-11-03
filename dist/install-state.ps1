@@ -82,19 +82,96 @@ function Write-CoopReceipt($target, $receipt) {
     [IO.File]::WriteAllText($temp, ($receipt | ConvertTo-Json -Compress))
     Move-Item -LiteralPath $temp -Destination "$target.coop-receipt.json" -Force
 }
+# Another mod's dinput8.dll (an ASI loader, a widescreen fix) is kept as dinput8.chain.dll, which the co-op DLL loads after
+# itself; anything else Setup replaces is kept as <file>.coop-original. The receipt's "original" hash says which file is the
+# original either way, so the receipt format is the same.
+$script:CoopMark = 'mdk2-coop bridge attached'
+function Test-CoopOurDll($file) {
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return $false }
+    return [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($file)).Contains($script:CoopMark)
+}
+function Get-CoopChainPath($target) {
+    if ((Split-Path -Leaf $target) -ne 'dinput8.dll') { return $null }
+    return Join-Path (Split-Path -Parent $target) 'dinput8.chain.dll'
+}
+function Get-CoopKeptPath($target) {
+    $chain = Get-CoopChainPath $target
+    if ($chain -and -not (Test-Path -LiteralPath "$target.coop-original") -and (Test-Path -LiteralPath $chain)) { return $chain }
+    return "$target.coop-original"
+}
+# Setup before this release kept another mod's dinput8.dll as dinput8.dll.coop-original, where nothing loaded it: move it to
+# dinput8.chain.dll (verified) so it works again. A copy of this mod stays where it is (chaining it would run the mod twice).
+function Move-CoopOriginalToChain($target) {
+    $chain = Get-CoopChainPath $target
+    $old = "$target.coop-original"
+    if (-not $chain -or -not (Test-Path -LiteralPath $old -PathType Leaf) -or (Test-Path -LiteralPath $chain)) { return $false }
+    Assert-CoopRegularPath $old; Assert-CoopRegularPath $chain
+    if (Test-CoopOurDll $old) { return $false }
+    $hash = Get-CoopHash $old
+    Copy-Item -LiteralPath $old -Destination $chain -ErrorAction Stop
+    if ((Get-CoopHash $chain) -ne $hash) { Remove-Item -LiteralPath $chain; throw 'Chain copy verification failed' }
+    Remove-Item -LiteralPath $old
+    return $true
+}
+
+# coop-mod.json (tools/mod_manifest.py): the files the package puts into the game folder, with their hashes. Setup reads its
+# file list from the package's copy; a copy in the game folder (a mod manager installed the whole package) names that release.
+$script:CoopDefaultFiles = @('dinput8.dll', 'coop\coop.lua')      # the layout before coop-mod.json
+function Read-CoopManifest($folder) {
+    $file = Join-Path $folder 'coop-mod.json'
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return $null }
+    try { $m = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json } catch { return $null }
+    if ($m.schema -ne 1 -or -not $m.files) { return $null }
+    foreach ($f in $m.files) { if ("$($f.path)" -notmatch '^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$' -or "$($f.sha256)" -notmatch '^[a-f0-9]{64}$') { return $null } }
+    return $m
+}
+function Get-CoopPackageFiles($package) {
+    $m = Read-CoopManifest $package
+    if (-not $m) { return $script:CoopDefaultFiles }
+    return @($m.files | ForEach-Object { "$($_.path)".Replace('/', '\') })
+}
+# Who installed the files: 'setup' (receipts), 'vortex' (no receipt, release files hard-linked), 'mod-manager' (no receipt,
+# the files of a known release copied in), or 'none' (not installed, or files Setup cannot place).
+function Get-CoopLinkCount($file) {
+    try {
+        $out = (& fsutil.exe hardlink list $file 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $out) { return @($out).Count }
+    } catch { }
+    return 1
+}
+function Get-CoopOwner($game, $package) {
+    $manifests = @(@(Read-CoopManifest $package; Read-CoopManifest $game) | Where-Object { $_ })
+    $files = Get-CoopPackageFiles $package
+    foreach ($relative in $files) { if (Test-Path -LiteralPath (Join-Path $game "$relative.coop-receipt.json")) { return 'setup' } }
+    foreach ($m in $manifests) {
+        $match = $true
+        foreach ($f in $m.files) {
+            $target = Join-Path $game ("$($f.path)".Replace('/', '\'))
+            try { $h = Get-CoopHash $target } catch { $h = $null }
+            if ($h -ne "$($f.sha256)") { $match = $false; break }
+        }
+        if ($match) {
+            if ((Get-CoopLinkCount (Join-Path $game 'dinput8.dll')) -gt 1) { return 'vortex' }
+            return 'mod-manager'
+        }
+    }
+    return 'none'
+}
+
 function Get-CoopObservation($target, $expected) {
     try {
         Assert-CoopRegularPath $target
         if (Test-Path -LiteralPath "$target.coop-backup") { throw 'Legacy backup conflict' }
         Assert-CoopRegularPath "$target.coop-receipt.json"
-        Assert-CoopRegularPath "$target.coop-original"
+        $kept = Get-CoopKeptPath $target
+        Assert-CoopRegularPath $kept
         $receipt = Read-CoopReceipt $target
         $observed = Get-CoopHash $target
-        $backup = Get-CoopHash "$target.coop-original"
+        $backup = Get-CoopHash $kept
         $state = Get-CoopFileState $expected $observed $receipt $backup
-        return [pscustomobject]@{ path=$target; status=$state; receipt=$receipt; observed=$observed; expected=$expected; backup=$backup }
+        return [pscustomobject]@{ path=$target; status=$state; receipt=$receipt; observed=$observed; expected=$expected; backup=$backup; kept=$kept }
     } catch {
-        return [pscustomobject]@{ path=$target; status='unknown'; receipt=$null; observed=$null; expected=$expected; backup=$null }
+        return [pscustomobject]@{ path=$target; status='unknown'; receipt=$null; observed=$null; expected=$expected; backup=$null; kept=$null }
     }
 }
 function Assert-CoopRegularPath($target) {
@@ -119,6 +196,7 @@ function Install-CoopFile($target, [byte[]]$bytes) {
     Assert-CoopRegularPath $target
     if (Test-Path -LiteralPath "$target.coop-backup") { throw "Legacy backup preserved: $target.coop-backup. Resolve this before changing the file." }
     foreach ($suffix in '.coop-original', '.coop-receipt.json', '.coop-receipt.json.tmp', '.coop-stage') { Assert-CoopRegularPath "$target$suffix" }
+    if (Read-CoopReceipt $target) { [void](Move-CoopOriginalToChain $target) }
     $sha = [Security.Cryptography.SHA256]::Create()
     try { $expected = ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
     $o = Get-CoopObservation $target $expected
@@ -129,8 +207,15 @@ function Install-CoopFile($target, [byte[]]$bytes) {
         # Journal intent before replacing anything. A crash leaves the original in place.
         # Preserve even an identical unowned file; equality does not establish ownership.
         if ($o.observed) {
-            Copy-Item -LiteralPath $target -Destination "$target.coop-original" -ErrorAction Stop
-            if ((Get-CoopHash "$target.coop-original") -ne $o.observed) { throw 'Original backup verification failed' }
+            $keep = "$target.coop-original"
+            $chain = Get-CoopChainPath $target
+            if ($chain -and -not (Test-CoopOurDll $target)) {
+                if (Test-Path -LiteralPath $chain) { throw "$chain already exists. Keep the file and resolve it first." }
+                $keep = $chain      # another mod's dinput8.dll: the co-op DLL loads it from there
+            }
+            Assert-CoopRegularPath $keep
+            Copy-Item -LiteralPath $target -Destination $keep -ErrorAction Stop
+            if ((Get-CoopHash $keep) -ne $o.observed) { throw 'Original backup verification failed' }
         }
         $r = [pscustomobject]@{ schema=1; original=$o.observed; installed=$expected; pending=$null }
     }
@@ -153,12 +238,14 @@ function Remove-CoopFile($target) {
     if ($o.status -in 'modified', 'conflict', 'unknown', 'unmanaged') { throw "Refusing to remove $target ($($o.status)); user changes were preserved." }
     if ($r.original) {
         # Keep the backup until restoration is complete, permitting retry after interruption.
-        Copy-Item -LiteralPath "$target.coop-original" -Destination "$target.coop-stage" -Force
+        $kept = Get-CoopKeptPath $target
+        Copy-Item -LiteralPath $kept -Destination "$target.coop-stage" -Force
         Move-Item -LiteralPath "$target.coop-stage" -Destination $target -Force
         if ((Get-CoopHash $target) -ne $r.original) { throw 'Restoration verification failed' }
     } elseif (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target }
     Remove-Item -LiteralPath "$target.coop-receipt.json"
-    if (Test-Path -LiteralPath "$target.coop-original") { Remove-Item -LiteralPath "$target.coop-original" }
+    if ($r.original -and (Test-Path -LiteralPath $kept)) { Remove-Item -LiteralPath $kept }
+    elseif (Test-Path -LiteralPath "$target.coop-original") { Remove-Item -LiteralPath "$target.coop-original" }
     return $true
 }
 
@@ -198,7 +285,8 @@ function Get-CoopDataPlan($game, $data) {
 }
 function Get-CoopInstallStatus($game, $package, $settings, $data, $perUser = $true) {
     $rows = @(); $owned = $false
-    $files = @('dinput8.dll', 'coop\coop.lua')
+    $files = @(Get-CoopPackageFiles $package)
+    $owner = Get-CoopOwner $game $package
     if ($perUser) { $files += 'coop\per-user-data' }
     foreach ($relative in $files) {
         $target = Join-Path $game $relative
@@ -210,7 +298,9 @@ function Get-CoopInstallStatus($game, $package, $settings, $data, $perUser = $tr
             $rows += [pscustomobject]@{ item=$relative; status=$o.status; detail='Deployed payload; original restored on uninstall' }
             $rows += [pscustomobject]@{ item="$relative.coop-receipt.json"; status=$(if ($o.receipt) { 'current' } elseif ($o.status -eq 'unknown') { 'unknown' } else { 'missing' }); detail='Ownership journal, created before replacement; retired on uninstall' }
             if ($o.receipt -and $o.receipt.original) {
-                $rows += [pscustomobject]@{ item="$relative.coop-original"; status=$(if ($o.backup -eq $o.receipt.original) { 'current' } else { 'conflict' }); detail='Verified original; kept until restoration succeeds' }
+                $isChain = $o.kept -and (Split-Path -Leaf $o.kept) -eq 'dinput8.chain.dll'
+                $rows += [pscustomobject]@{ item=$(if ($isChain) { 'dinput8.chain.dll' } else { "$relative.coop-original" }); status=$(if ($o.backup -eq $o.receipt.original) { 'current' } else { 'conflict' })
+                    detail=$(if ($isChain) { "Another mod's dinput8.dll: the co-op DLL loads it; put back on uninstall" } else { 'Verified original; kept until restoration succeeds' }) }
             }
             foreach ($suffix in '.coop-backup', '.coop-stage', '.coop-receipt.json.tmp') {
                 if (Test-Path -LiteralPath "$target$suffix") {
@@ -235,9 +325,13 @@ function Get-CoopInstallStatus($game, $package, $settings, $data, $perUser = $tr
         } catch { $rows += [pscustomobject]@{ item='User data migration'; status='unknown'; detail='Could not inspect all runtime files; no action is safe' } }
     }
     $actions = Get-CoopActions @($rows | ForEach-Object { $_.status }) $owned
+    if ($owner -in 'mod-manager', 'vortex') {
+        # a mod manager's files: it updates and removes them; Setup shows that and offers Play
+        $actions = [pscustomobject]@{ install=''; uninstall=$false; blocked=$false }
+    }
     $iniPath = if ($perUser) { Join-Path $data 'coop.ini' } else { Join-Path $game 'coop\coop.ini' }
     $rows += [pscustomobject]@{ item='coop.ini'; status=$(if (Test-Path -LiteralPath $iniPath) { 'present' } else { 'default on launch' }); detail='Existing co-op settings preserved; only explicit CLI flags edit [net] and [launcher] mode' }
     $rows += [pscustomobject]@{ item='settings.lua.coop-backup'; status=$(if (Test-Path -LiteralPath "$settings.coop-backup") { 'present' } else { 'will create' }); detail='First settings snapshot, retained for manual recovery' }
     $rows += [pscustomobject]@{ item='Registry, shortcuts, game executable, existing saves'; status='untouched'; detail='No registry, shortcut or executable changes; original saves never overwritten or removed' }
-    return [pscustomobject]@{ schema=1; items=$rows; actions=$actions }
+    return [pscustomobject]@{ schema=1; owner=$owner; items=$rows; actions=$actions }
 }
