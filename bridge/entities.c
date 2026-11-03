@@ -43,6 +43,9 @@ struct ent {
     unsigned char died;         /* host: the game ran this actor's OnDie (it was killed, not just removed) */
     short hp_told;              /* host: the hp the clients last heard (SPAWN, APPLY or HPSYNC) */
     double last_sent;
+    float seen[3];              /* client: where the mirror was left at the end of the last frame */
+    unsigned char seen_ok;
+    double blown_sent;          /* client: when this mirror's blown position was last reported */
 };
 
 /* The visible, damageable generator needs host animation/lifetime too. Merely
@@ -59,6 +62,8 @@ static int replicated_object(BYTE *gob)
  * game's own checks. Each host tick compares the hp with what the clients were told and sends an APPLY that
  * carries only the hp (HPSYNC_PART, damage 0) when they differ. */
 int test_no_hpsync;             /* coop.ini [test] no_hpsync=1 (background test mode): the old bug, for tools/qa_hpsync.sh's MUTANT=nosync */
+
+int test_no_blowsync;           /* coop.ini [test] no_blowsync=1 (background test mode): the old bug, for tools/qa_items.sh's MUTANT=noblowsync */
 
 int test_keep_attached;         /* coop.ini [test] keep_attached=1 (background test mode): the old bug, for tools/qa_flyers.sh's MUTANT=attached */
 
@@ -196,6 +201,9 @@ void ents_init(void)
     snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
     test_keep_attached = test_background && GetPrivateProfileIntA("test", "keep_attached", 0, ini) != 0;
     test_no_hpsync = test_background && GetPrivateProfileIntA("test", "no_hpsync", 0, ini) != 0;
+    test_no_blowsync = test_background && GetPrivateProfileIntA("test", "no_blowsync", 0, ini) != 0;
+    if (test_no_blowsync)
+        logmsg("test: a client's leaf blower is not reported to the host");
     if (test_no_hpsync)
         logmsg("ents: hp changes without a hit are not sent ([test] no_hpsync=1)");
     if (test_keep_attached)
@@ -443,9 +451,74 @@ void ents_receive(const void *buf, int len)
     }
 }
 
+/* Doc's leaf blower pushes with a volume the game builds on its own Doc (the `blower` gob); nobody else has one, so on
+ * the host a client's blowing moved nothing, and the client's push on its mirror was overwritten by the host's snapshot
+ * (or stayed there, a mirror the host never moved again). The engine's push is the truth about where the enemy goes (it
+ * knows the walls), so a client playing Doc reports where its engine left a mirror it moved near him, and the host takes
+ * that place (blown_event). Nothing else moves a mirror here: it is put at the host's place every frame. The blow itself
+ * is not read from an animation (the ready pose changes with the item in his hands). */
+#define DOC_TYPE        102
+#define BLOWN_REACH     40.0f           /* a mirror this near Doc is a candidate */
+#define BLOWN_STEP_MAX  6.0f            /* the engine's push in one frame is far under this */
+#define BLOWN_MS        66.0
+
+static int doc_blowing(void)
+{
+    return !test_no_blowsync && gob_alive(local_player) && gob_type(local_player) == DOC_TYPE;
+}
+
+static void blown_check(struct ent *e, BYTE *gob, int blowing)
+{
+    const float *p = (const float *)(gob + GOB_POSITION), *me = (const float *)(local_player + GOB_POSITION);
+    float d[3], mine[3];
+    struct event ev;
+    double now;
+    int i;
+
+    if (!blowing || !e->seen_ok || !gob_is_actor(gob))
+        return;
+    for (i = 0; i < 3; i++) {
+        d[i] = p[i] - e->seen[i];
+        mine[i] = p[i] - me[i];
+    }
+    if (d[0] * d[0] + d[1] * d[1] + d[2] * d[2] < 0.0004f || d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > BLOWN_STEP_MAX * BLOWN_STEP_MAX ||
+        mine[0] * mine[0] + mine[1] * mine[1] + mine[2] * mine[2] > BLOWN_REACH * BLOWN_REACH)
+        return;
+    now = now_ms();
+    if (now - e->blown_sent < BLOWN_MS)
+        return;
+    e->blown_sent = now;
+    event_init(&ev, EV_BLOWN);
+    ev.netid = e->id;
+    memcpy(ev.pos, p, sizeof(ev.pos));
+    event_send(&ev, TO_ALL);
+}
+
+/* Host: a client's blower left this actor here. Taken when it is a live actor, near where the host has it (the
+ * blower moves an enemy a few units in a few frames) and the client's hero stands near it. */
+void blown_event(const struct event *e, int sender)
+{
+    BYTE *gob = gob_by_handle(e->netid);
+    const float *p, *who;
+    float dx, dy, dz;
+
+    if (!role_host || sender <= 0 || sender >= MAX_PLAYERS || e->epoch != cur_epoch || !gob_alive(gob) ||
+        !gob_is_actor(gob) || gob_hp(gob) <= 0 || !gob_alive(puppets[sender]))
+        return;
+    p = (const float *)(gob + GOB_POSITION);
+    who = (const float *)(puppets[sender] + GOB_POSITION);
+    dx = e->pos[0] - p[0]; dy = e->pos[1] - p[1]; dz = e->pos[2] - p[2];
+    if (dx * dx + dy * dy + dz * dz > 20.0f * 20.0f)
+        return;
+    dx = e->pos[0] - who[0]; dy = e->pos[1] - who[1]; dz = e->pos[2] - who[2];
+    if (dx * dx + dy * dy + dz * dz > (BLOWN_REACH + 20.0f) * (BLOWN_REACH + 20.0f))
+        return;
+    gob_set_position(gob, e->pos[0], e->pos[1], e->pos[2]);
+}
+
 void ents_client_frame(void)
 {
-    int i;
+    int i, blowing = doc_blowing();
 
     for (i = 0; i < nents; i++) {
         struct ent *e = &ents[i];
@@ -456,14 +529,21 @@ void ents_client_frame(void)
             gob_set_mirrored(e->gob, 0);
             e->gob = NULL;
         }
-        if (!gob || !e->track.n)
+        if (!gob) {
+            e->seen_ok = 0;
             continue;
-        ent_detach(gob);
-        track_update(&e->track, host_clock_offset());
-        gob_set_position(gob, e->track.view.pos[0], e->track.view.pos[1], e->track.view.pos[2]);
-        memcpy(gob + GOB_ORIENTATION, e->track.view.quat, sizeof(e->track.view.quat));
-        if (sync_anim)
-            anim_apply(gob, &e->track.view);
+        }
+        blown_check(e, gob, blowing);
+        if (e->track.n) {
+            ent_detach(gob);
+            track_update(&e->track, host_clock_offset());
+            gob_set_position(gob, e->track.view.pos[0], e->track.view.pos[1], e->track.view.pos[2]);
+            memcpy(gob + GOB_ORIENTATION, e->track.view.quat, sizeof(e->track.view.quat));
+            if (sync_anim)
+                anim_apply(gob, &e->track.view);
+        }
+        memcpy(e->seen, gob + GOB_POSITION, sizeof(e->seen));
+        e->seen_ok = 1;
     }
 }
 
