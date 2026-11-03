@@ -364,7 +364,7 @@ static inline int coop_recognise(const char *text, size_t len, const char *game,
     /* Links: the join page (code in the fragment) or the <mod>-coop:// handler. */
     for (i = 0; i < len && i < 32 && (ci_alnum((unsigned char)s[i]) || s[i] == '+' || s[i] == '-' || s[i] == '.'); i++) {}
     if (i && i + 3 <= len && !memcmp(s + i, "://", 3)) {
-        const char *hash = memchr(s, '#', len), *code;
+        const char *hash = (const char *)memchr(s, '#', len), *code;
         size_t n;
         if (hash) { code = hash + 1; n = (size_t)(s + len - code); }
         else if (i > 5 && !memcmp(s + i - 5, "-coop", 5)) {
@@ -388,7 +388,7 @@ static inline int coop_recognise(const char *text, size_t len, const char *game,
     }
     if (len >= 17 && len <= 19 && cr_digits(s, len, UINT64_MAX, &lobby)) { r->lobby = lobby; return r->kind = CR_STEAM_LOBBY; }
     if (cr_ipv4(s, len, r->ip, &used)) {
-        const char *slash = memchr(s + used, '/', len - used);
+        const char *slash = (const char *)memchr(s + used, '/', len - used);
         size_t port_end = slash ? (size_t)(slash - s) : len;
         if (cr_port(s + used, port_end - used, &r->port)) {
             size_t n = slash ? len - port_end - 1 : 0;
@@ -401,7 +401,7 @@ static inline int coop_recognise(const char *text, size_t len, const char *game,
         memset(r, 0, sizeof(*r)); r->error = CI_NOT_RECOGNISED; return r->kind = CR_ERROR;
     }
     {
-        const char *colon = memchr(s, ':', len);
+        const char *colon = (const char *)memchr(s, ':', len);
         size_t host_end = colon ? (size_t)(colon - s) : len;
         int labels;
         if (cr_port(s + host_end, len - host_end, &r->port) && (labels = cr_hostname(s, host_end, r->host)) > 0) {
