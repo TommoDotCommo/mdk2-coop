@@ -99,7 +99,7 @@ lcmd 1 "$T_PLAY" "$PLAY"; wait_log 1 "^lobby: open as host" 15
 lcmd 3 "$T_PLAY" "$HOST" "$PLAY"; wait_log 3 "^lobby: open as host" 15
 lcmd 2 "$T_PLAY"; sleep 6; lshot 2 join                      # both lobbies listed
 lcmd 2 "clipboard Doc Hawkins is hosting MDK2 Co-op. Join: https://example.invalid/join/#$fake"; sleep 1; lshot 2 offer
-lcmd 2 "click 1000 283"; sleep 1                              # back to the plain join list, then into Hank's lobby
+lcmd 2 "click 1000 410"; lcmd 3 "click 220 652"; sleep 8     # Not now; the second host leaves, so Join goes to Hank's lobby
 lcmd 2 "$PLAY"; wait_log 2 "^lobby: connected to the host" 20; wait_log 1 "^lobby: Alice joined" 15
 lcmd 2 "say Over here: the door is open"; sleep 1.5
 lcmd 2 "primary"; sleep 1.5
