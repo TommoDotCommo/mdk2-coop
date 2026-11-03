@@ -23,6 +23,7 @@ int role_host=1, cur_epoch=7, test_background, my_slot=1;
 static unsigned lua_getparam(int n) {return 1;}
 static double lua_getnumber(unsigned n) {return 0;}
 char coop_dir[260]=".";
+static unsigned GetPrivateProfileIntA(const char *s, const char *k, int d, const char *f) {(void)s;(void)k;(void)f;return (unsigned)d;}   /* [hud] dps: the default */
 static BYTE target[32], puppet[32], *puppets[16];
 static int fake_hp=100, fake_kind=200, presses[256], connected=1;
 static double stamp=100;
@@ -90,12 +91,12 @@ int main(void)
     combat_event(&confirmation,0); CB_CHECK(combat.size==0);
     role_host=1; combat_applied(0,target,42,200,100,0,2049,pos);
     CB_CHECK(combat.lines[0].e.flags==CB_KILL && combat.total[0]==100);
-    CB_CHECK(!meter); /* collapsed by default */
-    presses[29]=presses[50]=1; combat_frame(1); CB_CHECK(meter);
-    combat_frame(1); CB_CHECK(meter); /* edge triggered */
+    CB_CHECK(!meter); /* off by default ([hud] dps 0) */
+    presses[29]=presses[50]=1; combat_frame(1); CB_CHECK(meter==1); /* Ctrl+M: one line */
+    combat_frame(1); CB_CHECK(meter==1); /* edge triggered */
     CB_CHECK(cbh_panel_alpha(&combat,&hud,stamp)==1.0f); /* the toggle shows the panel */
-    { double keep=stamp; stamp=100000; presses[50]=0; combat_frame(1); presses[50]=1; combat_frame(1); CB_CHECK(!meter); CB_CHECK(cbh_panel_alpha(&combat,&hud,stamp)==1.0f); /* shown between fights */ presses[50]=0; combat_frame(1); presses[50]=1; combat_frame(1); CB_CHECK(meter); CB_CHECK(cbh_panel_alpha(&combat,&hud,stamp+CBH_PEEK_MS+1)<1.0f); stamp=keep; }
-    presses[50]=0; combat_frame(1); presses[50]=1; combat_frame(1); CB_CHECK(!meter);
+    { double keep=stamp; stamp=100000; presses[50]=0; combat_frame(1); presses[50]=1; combat_frame(1); CB_CHECK(meter==2); CB_CHECK(cbh_panel_alpha(&combat,&hud,stamp)==1.0f); /* expanded, shown between fights */ presses[50]=0; combat_frame(1); presses[50]=1; combat_frame(1); CB_CHECK(!meter); /* off again */ CB_CHECK(cbh_panel_alpha(&combat,&hud,stamp+CBH_PEEK_MS+1)<1.0f); stamp=keep; }
+    presses[50]=0; combat_frame(1); presses[50]=1; combat_frame(1); CB_CHECK(meter==1); /* the cycle starts over */
     presses[50]=0; presses[19]=1; combat_frame(1); CB_CHECK(combat.total[0]==0 && combat.size==1);
     presses[19]=0;
     f=tmpfile(); CB_CHECK(f!=NULL); combat_dump(f); CB_CHECK(ftell(f)>0); fclose(f);

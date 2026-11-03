@@ -146,8 +146,8 @@ def run():
             'hud-feed-host': ('    cbh_note(&hud, &c, attacker == my_slot, clock_ms());\n', ''),
             'hud-feed-client': ('        cbh_note(&hud, &c, c.attacker == my_slot, clock_ms());\n', ''),
             'hud-mine': ('cbh_note(&hud, &c, c.attacker == my_slot, clock_ms());', 'cbh_note(&hud, &c, 1, clock_ms());'),
-            'toggle-peek': ('{ meter = !meter; cbh_peek(&hud, clock_ms()); }', '{ meter = !meter; }'),
-            'meter-default': ('static int meter, keys[3];', 'static int meter = 1, keys[3];'),
+            'toggle-peek': ('{ meter = (meter + 1) % 3; cbh_peek(&hud, clock_ms()); }', '{ meter = (meter + 1) % 3; }'),
+            'meter-default': ('GetPrivateProfileIntA("hud", "dps", 0, ini)', 'GetPrivateProfileIntA("hud", "dps", 1, ini)'),
             'epoch-hud': ('cbh_reset(&hud); epoch = cur_epoch;', 'epoch = cur_epoch;'),
             'reset-dedupe': ('combat.started = 0; dirty = 1;', 'combat.started = 0; dirty = 1; memset(&combat.guard, 0, sizeof(combat.guard));'),
         }
