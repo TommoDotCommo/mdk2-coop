@@ -480,16 +480,17 @@ void chat_osk_draw(int w, int h)
  * others connected. */
 void chat_frame(int allowed)
 {
-    int chat_down, ping_down;
+    int chat_down, ping_down, was_open;
 
     if (!msg_hook_handle)
         msg_hook_handle = SetWindowsHookExA(WH_GETMESSAGE, msg_hook, NULL, GetCurrentThreadId());
     if (open_line && !allowed)
         close_line();
+    was_open = open_line;
     if (input_pad_chat() && allowed && !open_line)
         pad_open();
-    if (open_line && pad_line)
-        pad_typing();
+    if (was_open && open_line && pad_line)
+        pad_typing();                   /* not in the frame it opened: the press that opened it is not a key */
     chat_down = allowed && !open_line && gamekey_down(GK_CHAT);
     ping_down = allowed && !open_line && gamekey_down(GK_PING);
     if (chat_down && !was_chat_down) {
