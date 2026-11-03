@@ -82,9 +82,9 @@ if want canopy; then
     boot 1 5
     sleep 8
     lua 1 'mdkGobSetPosition(mdkGetPlayerGob(), "l1_r8doganland1")'; sleep 3
-    beside 7 70
-    lua 2 'qa_z0 = mdkGetPlayerGob().position.z - 70 coop_press(57, 14000)'
-    for i in 1 2 3 4 5 6; do lua 2 'local p = mdkGetPlayerGob() if p.position.z < qa_z0 + 30 then mdkGobSetPositionXYZ(p, p.position.x, p.position.y, qa_z0 + 70) end'; shot canopy_$i 0.4; done
+    beside 7 0
+    lua 2 'local p = mdkGetPlayerGob() qa_z0 = p.position.z mdkGobSetPositionXYZ(p, p.position.x, p.position.y, qa_z0 + 70) coop_press(57, 14000)'
+    for i in 1 2 3 4 5 6; do shot canopy_$i 0.3; lua 2 'local p = mdkGetPlayerGob() if p.position.z < qa_z0 + 30 then mdkGobSetPositionXYZ(p, p.position.x, p.position.y, qa_z0 + 70) end'; done
 fi
 
 if want jetpack; then
