@@ -13,6 +13,7 @@ MUTANTS = {
     'host-chat-flood': ('!ls_chat_check_flood_and_seq(host, now, seq)', '0'),
     'host-chat-phase': ('if (!s->host || (s->phase != LS_LOBBY && s->phase != LS_COUNTDOWN) ||\n        !c->nmembers',
                         'if (0 || !c->nmembers'),
+    'roster-level-dropped': ('level >= 1 && level <= 12 ? level : 0);', '0);'),
     'unvalidated-roster': (' || !valid ||', ' || 0 ||'),
     'oversized-countdown': (' || left > 3000', ''),
     'negative-countdown': (' || left < -1', ''),

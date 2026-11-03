@@ -79,7 +79,8 @@ check "lobby host: in the game's look (labels $(val lobby_host look_game_labels)
 check "lobby host: the hero of level 1 (Kurt) known"                    test "$(val lobby_host look_hero)" = 1
 check "lobby host: a portrait in each player's row ($(val lobby_host look_portraits))" test "$(val lobby_host look_portraits)" = 2
 check "lobby guest: in the game's look (labels $(val lobby_guest look_game_labels))" art_ok lobby_guest 3
-check "lobby guest: no hero claimed (its roster does not say the level)" test "$(val lobby_guest look_portraits)" = 0
+check "lobby guest: the host's hero (Kurt, from the roster's level) and a portrait in each row ($(val lobby_guest look_portraits))" \
+      bash -c "[ '$(val lobby_guest look_hero)' = 1 ] && [ '$(val lobby_guest look_portraits)' = 2 ]"
 python3 "$here/tga2png.py" "$(dir 1)/coop/look_lobby_host.tga" "$out/lobby_host.png" 2>/dev/null
 python3 "$here/tga2png.py" "$(dir 2)/coop/look_lobby_guest.tga" "$out/lobby_guest.png" 2>/dev/null
 rm -f "$(dir 1)/coop/look_lobby_host.tga" "$(dir 2)/coop/look_lobby_guest.tga"

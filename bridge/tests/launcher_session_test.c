@@ -19,6 +19,18 @@ int main(void)
     uint8_t vflags = 0;
     uint32_t now;
 
+    {   /* the roster header carries the host's level; old hosts say nothing, old guests read four numbers */
+        char h[96];
+        unsigned long e = 0, k = 0;
+        int l = 0, c = 0, lv = 9, hn = ls_roster_head(h, sizeof(h), 1234, 56, -1, 3, 7);
+        assert(hn > 0 && !strcmp(h, "MDKL R 1234 56 -1 3 7\n"));
+        assert(ls_roster_head_parse(h, &e, &k, &l, &c, &lv) && e == 1234 && k == 56 && l == -1 && c == 3 && lv == 7);
+        assert(ls_roster_head_parse("MDKL R 5 6 7 2\nA|1|1|0|v\n", &e, &k, &l, &c, &lv) && c == 2 && lv == 0);   /* older host */
+        assert(ls_roster_head_parse("MDKL R 5 6 7 2 99\n", &e, &k, &l, &c, &lv) && lv == 0);      /* out of range: none */
+        assert(!ls_roster_head_parse("MDKL R 5 6 7\n", &e, &k, &l, &c, &lv));
+        assert(sscanf(h + 7, "%lu %lu %d %d", &e, &k, &l, &c) == 4 && c == 3);                     /* the older guest's parse */
+        assert(ls_roster_head(h, sizeof(h), 1, 2, 3, 4, 0) > 0 && strstr(h, " 4 0\n"));
+    }
     ls_open(&s, 0, 100);
     assert(s.phase == LS_WAITING);
     old = s;
