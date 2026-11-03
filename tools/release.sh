@@ -51,7 +51,9 @@ elif [[ "$SIGN_CMD" != *'{file}'* ]]; then
 fi
 mutant="${RELEASE_MUTANT:-}"        # tools/test_release_signing.sh only: 'late-sign' signs the payload files after embedding
 
-if [ -z "${RELEASE_REUSE_DLL:-}" ]; then   # tools/test_release_signing.sh only: the signing scenarios do not need a fresh DLL each time
+# RELEASE_REUSE_DLL (tests only): keep bridge/dinput8.dll when it is already built for this version (its VERSIONINFO says so)
+if [ -z "${RELEASE_REUSE_DLL:-}" ] || [ ! -f "$here/bridge/dinput8.dll" ] ||
+   [ "$(python3 "$here/tools/versioninfo.py" --read "$here/bridge/dinput8.dll" 2>/dev/null)" != "$ver" ]; then
     make -s -B -C "$here/bridge" VERSION="$ver"
 fi
 rm -rf "$stage" "$work" "$out/$name.zip" "$out/MDK2-Coop-Setup.exe"

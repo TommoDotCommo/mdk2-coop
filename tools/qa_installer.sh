@@ -33,6 +33,13 @@ mkdir -p "$fixtures/single"
 cp "$out/release/MDK2-Coop-Setup.exe" "$fixtures/single/"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_installer_startup.ps1")" -PackageDir "$(wslpath -w "$fixtures/setup-package")" -SingleFile "$(wslpath -w "$fixtures/single/MDK2-Coop-Setup.exe")"
 python3 "$here/tools/test_setup_exe.py"
+# the scriptable verbs (status --json, install/uninstall --yes, exit codes) of the zip's and the single-file Setup, with mutants
+mkdir -p "$fixtures/verbs"
+(cd "$fixtures/verbs" && python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(".")' "$out/release/mdk2-coop-v0.0.0-qa.zip")
+python3 "$here/tools/fixtures/make_build_fixtures.py" "$fixtures/verbs/builds" >/dev/null
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_setup_verbs.ps1")" \
+    -PackageDir "$(wslpath -w "$fixtures/verbs/mdk2-coop-v0.0.0-qa")" -Fixtures "$(wslpath -w "$fixtures/verbs/builds")" \
+    -TestRoot "$(wslpath -w "$fixtures/verbs")" -SingleFile "$(wslpath -w "$fixtures/single/MDK2-Coop-Setup.exe")" -Mutants
 # plain build messages at install: synthetic fixture exes, mutants
 python3 "$here/tools/fixtures/make_build_fixtures.py" "$fixtures/builds"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_installer_builds.ps1")" \
