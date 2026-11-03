@@ -6,7 +6,12 @@
  *  - the copy inside the zip has no payload and starts the scripts beside it. If they are missing (Setup was double-clicked
  *    inside the zip without extracting) it says what to do instead.
  * "Setup.exe /extract <new folder>" writes the payload to a folder and stops: for tests and for anyone who wants to read the
- * scripts first. MDK2_COOP_SETUP_LOG=<file> makes messages go to that file instead of a message box (tests). */
+ * scripts first. MDK2_COOP_SETUP_LOG=<file> makes messages go to that file instead of a message box (tests).
+ * Scriptable verbs (co-op mod standard J9), run by mdk2-coop.ps1 without a window, waiting for it and returning its exit code:
+ *   Setup.exe status [--json] [<game folder>] | install <game folder> --yes | uninstall <game folder> --yes
+ *   exit codes 0 done, 1 failed (including a damaged Setup), 2 usage, 3 unsupported game build, 4 the game is running.
+ * Output goes to Setup's own standard output (redirect it: Setup.exe status --json > status.json), else to the console of
+ * the command prompt it was started from. */
 #include <windows.h>
 #include <wchar.h>
 #include <stdio.h>
@@ -133,6 +138,62 @@ static void start_gui(const wchar_t *dir, int *code)   /* the Setup exe's own pa
     CloseHandle(process.hProcess);
 }
 
+/* A verb: mdk2-coop.ps1 in dir with the arguments as given; the exit code is the script's. */
+static int run_verb(const wchar_t *dir, int argc, wchar_t **argv)
+{
+    wchar_t powershell[MAX_PATH], cmd[4096];
+    STARTUPINFOW startup = { 0 };
+    PROCESS_INFORMATION process = { 0 };
+    DWORD code = EXIT_FAIL;
+    HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE), err = GetStdHandle(STD_ERROR_HANDLE);
+    int i;
+    if (!GetSystemDirectoryW(powershell, MAX_PATH) || wcslen(powershell) + 40 >= MAX_PATH) return EXIT_FAIL;
+    wcscat(powershell, L"\\WindowsPowerShell\\v1.0\\powershell.exe");
+    if (swprintf(cmd, 4096, L"\"%ls\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%ls\\mdk2-coop.ps1\"", powershell, dir) < 0)
+        return EXIT_FAIL;
+    for (i = 1; i < argc; i++) {
+        size_t n = wcslen(cmd);
+        if (wcschr(argv[i], L'"') || n + wcslen(argv[i]) + 4 >= 4096) return EXIT_USAGE;
+        swprintf(cmd + n, 4096 - n, L" \"%ls", argv[i]);
+        {   /* a folder ending in backslashes: double them, or the closing quote would be escaped */
+            size_t k = wcslen(argv[i]), b = 0;
+            while (b < k && argv[i][k - 1 - b] == L'\\') b++;
+            n = wcslen(cmd);
+            if (n + b + 2 >= 4096) return EXIT_USAGE;
+            while (b--) cmd[n++] = L'\\';
+            cmd[n++] = L'"';
+            cmd[n] = 0;
+        }
+    }
+    if (!out || out == INVALID_HANDLE_VALUE) {     /* not redirected: the console of the prompt that started Setup */
+        if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+            out = CreateFileW(L"CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+            err = out;
+        }
+    }
+    startup.cb = sizeof(startup);
+    if (out && out != INVALID_HANDLE_VALUE) {
+        SetHandleInformation(out, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+        if (err && err != INVALID_HANDLE_VALUE) SetHandleInformation(err, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+        startup.dwFlags = STARTF_USESTDHANDLES;
+        startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+        startup.hStdOutput = out;
+        startup.hStdError = err && err != INVALID_HANDLE_VALUE ? err : out;
+    }
+    if (!CreateProcessW(powershell, cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, dir, &startup, &process))
+        return EXIT_FAIL;
+    WaitForSingleObject(process.hProcess, INFINITE);
+    GetExitCodeProcess(process.hProcess, &code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return (int)code;
+}
+
+static int is_verb(int argc, wchar_t **argv)
+{
+    return argv && argc >= 2 && (!wcscmp(argv[1], L"status") || !wcscmp(argv[1], L"install") || !wcscmp(argv[1], L"uninstall"));
+}
+
 static int exists(const wchar_t *dir, const wchar_t *name)
 {
     wchar_t path[MAX_PATH];
@@ -141,7 +202,7 @@ static int exists(const wchar_t *dir, const wchar_t *name)
     return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES;
 }
 
-static int run_beside(const wchar_t *self)
+static int run_beside(const wchar_t *self, int argc, wchar_t **argv)
 {
     static const wchar_t *need[] = { L"installer-gui.ps1", L"mdk2-coop.ps1", L"install-state.ps1", L"install-policy.exe",
                                      L"dinput8.dll", L"coop\\coop.lua" };
@@ -160,13 +221,14 @@ static int run_beside(const wchar_t *self)
         say(L"Setup cannot find the files that belong with it.\n\nExtract the whole zip first (right-click the zip, Extract All, "
             L"then open the extracted folder), or download the single MDK2-Coop-Setup.exe from the release page: "
             L"that one needs no extracting.");
-        return EXIT_NO_FILES;
+        return is_verb(argc, argv) ? EXIT_FAIL : EXIT_NO_FILES;
     }
+    if (is_verb(argc, argv)) return run_verb(dir, argc, argv);
     start_gui(dir, &code);
     return code;
 }
 
-static int run_payload(const wchar_t *explicit_leaf)
+static int run_payload(const wchar_t *explicit_leaf, int argc, wchar_t **argv)
 {
     const unsigned char *blob, *ver;
     DWORD len, verlen = 0;
@@ -176,9 +238,9 @@ static int run_payload(const wchar_t *explicit_leaf)
     size_t i;
     if (code == EXIT_DAMAGED) {
         say(L"This Setup file is damaged (its contents do not match their checksum). Download MDK2-Coop-Setup.exe again.");
-        return code;
+        return is_verb(argc, argv) ? EXIT_FAIL : code;
     }
-    if (code) return code;
+    if (code) return is_verb(argc, argv) ? EXIT_FAIL : code;
     if (explicit_leaf) {
         if (wcslen(explicit_leaf) >= MAX_PATH - 100 || !CreateDirectoryW(explicit_leaf, NULL)) return EXIT_FAIL;
         wcscpy(leaf, explicit_leaf);
@@ -207,7 +269,8 @@ static int run_payload(const wchar_t *explicit_leaf)
         if (n >= 100) { say(L"Setup found too many old working folders in %LOCALAPPDATA%\\mdk2-coop\\setup. Delete them and try again."); return EXIT_FAIL; }
     }
     code = write_files(leaf, files, count);
-    if (code) { say(L"Setup could not unpack its files into your profile folder."); return code; }
+    if (code) { say(L"Setup could not unpack its files into your profile folder."); return is_verb(argc, argv) ? EXIT_FAIL : code; }
+    if (is_verb(argc, argv)) return run_verb(leaf, argc, argv);
     start_gui(leaf, &code);
     return code;
 }
@@ -220,9 +283,9 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command, int sh
     wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     (void)instance; (void)previous; (void)command; (void)show;
     hasPayload = resource(RES_PAYLOAD, &size) != NULL;
-    if (argv && argc == 3 && !wcscmp(argv[1], L"/extract")) return hasPayload ? run_payload(argv[2]) : EXIT_NO_FILES;
-    if (argc != 1) return EXIT_USAGE;
-    if (hasPayload) return run_payload(NULL);
+    if (argv && argc == 3 && !wcscmp(argv[1], L"/extract")) return hasPayload ? run_payload(argv[2], 0, NULL) : EXIT_NO_FILES;
+    if (argc != 1 && !is_verb(argc, argv)) return EXIT_USAGE;
+    if (hasPayload) return run_payload(NULL, argc, argv);
     if (!GetModuleFileNameW(NULL, self, MAX_PATH)) return EXIT_FAIL;
-    return run_beside(self);
+    return run_beside(self, argc, argv);
 }

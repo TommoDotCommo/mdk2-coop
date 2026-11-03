@@ -196,6 +196,51 @@ function Run-Checks($code) {
         [IO.File]::WriteAllText((Join-Path $game 'dinput8.dll'), 'foreign-dll')
         $st = Get-CoopInstallStatus $game $pkg $settings $data $false
         Require ($st.actions.install -eq '' -and -not $st.actions.uninstall -and $st.actions.blocked) 'modified blocked status'
+        # Another mod's dinput8.dll is kept as dinput8.chain.dll (the co-op DLL loads it) and comes back on uninstall.
+        $g2 = Join-Path $root 'game2'; New-Item -ItemType Directory $g2 | Out-Null
+        $dll = Join-Path $g2 'dinput8.dll'
+        [IO.File]::WriteAllText($dll, 'asi-loader')
+        $asi = Get-CoopHash $dll
+        Install-CoopFile $dll ([Text.Encoding]::ASCII.GetBytes('mdk2-coop bridge attached v2'))
+        Require ((Get-CoopHash (Join-Path $g2 'dinput8.chain.dll')) -eq $asi -and -not (Test-Path "$dll.coop-original")) 'foreign dinput8.dll kept as dinput8.chain.dll'
+        Require ((Get-CoopObservation $dll (Get-CoopHash $dll)).status -eq 'current') 'chained install is current'
+        Install-CoopFile $dll ([Text.Encoding]::ASCII.GetBytes('mdk2-coop bridge attached v3'))
+        Require ((Get-CoopHash (Join-Path $g2 'dinput8.chain.dll')) -eq $asi) 'update keeps the chain file'
+        Require (Remove-CoopFile $dll) 'uninstall over a chain'
+        Require ((Get-CoopHash $dll) -eq $asi -and -not (Test-Path (Join-Path $g2 'dinput8.chain.dll'))) 'the chained dinput8.dll comes back'
+        # An old copy of this mod is a backup, never a chain (it would run the mod twice).
+        [IO.File]::WriteAllText($dll, 'old mdk2-coop bridge attached')
+        Install-CoopFile $dll ([Text.Encoding]::ASCII.GetBytes('mdk2-coop bridge attached v2'))
+        Require ((Test-Path "$dll.coop-original") -and -not (Test-Path (Join-Path $g2 'dinput8.chain.dll'))) 'an old copy of the mod is not chained'
+        Require (Remove-CoopFile $dll) 'uninstall over an old copy'
+        # Setup before this release kept another mod's DLL as .coop-original: the next install moves it to the chain name.
+        [IO.File]::WriteAllText($dll, 'widescreen-fix')
+        $fix = Get-CoopHash $dll
+        Install-CoopFile $dll ([Text.Encoding]::ASCII.GetBytes('mdk2-coop bridge attached v2'))
+        Move-Item (Join-Path $g2 'dinput8.chain.dll') "$dll.coop-original"
+        Install-CoopFile $dll ([Text.Encoding]::ASCII.GetBytes('mdk2-coop bridge attached v3'))
+        Require ((Get-CoopHash (Join-Path $g2 'dinput8.chain.dll')) -eq $fix -and -not (Test-Path "$dll.coop-original")) 'old .coop-original migrated to dinput8.chain.dll'
+        Require (Remove-CoopFile $dll) 'uninstall after migration'
+        Require ((Get-CoopHash $dll) -eq $fix) 'migrated original comes back'
+        # Files of a known release without receipts: a mod manager's (hard-linked: Vortex). Play, not "Needs attention".
+        $pkg2 = Join-Path $root 'pkg2'; $g3 = Join-Path $root 'game3'
+        New-Item -ItemType Directory (Join-Path $pkg2 'coop'), (Join-Path $g3 'coop') | Out-Null
+        [IO.File]::WriteAllText((Join-Path $pkg2 'dinput8.dll'), 'mdk2-coop bridge attached r1')
+        [IO.File]::WriteAllText((Join-Path $pkg2 'coop\coop.lua'), 'lua-r1')
+        $manifest = @{ schema=1; id='mdk2-coop'; version='v9.0.0'; files=@(
+            @{ path='dinput8.dll'; sha256=(Get-CoopHash (Join-Path $pkg2 'dinput8.dll')); size=1 },
+            @{ path='coop/coop.lua'; sha256=(Get-CoopHash (Join-Path $pkg2 'coop\coop.lua')); size=1 }) }
+        [IO.File]::WriteAllText((Join-Path $pkg2 'coop-mod.json'), ($manifest | ConvertTo-Json -Depth 4))
+        Require ((Get-CoopPackageFiles $pkg2) -join ',' -eq 'dinput8.dll,coop\coop.lua') 'file list read from coop-mod.json'
+        Copy-Item (Join-Path $pkg2 'dinput8.dll') $g3; Copy-Item (Join-Path $pkg2 'coop\coop.lua') (Join-Path $g3 'coop')
+        $st = Get-CoopInstallStatus $g3 $pkg2 $settings $data $false
+        Require ($st.owner -eq 'mod-manager' -and $st.actions.install -eq '' -and -not $st.actions.uninstall -and -not $st.actions.blocked) 'a plain copy of a release: installed by a mod manager'
+        $g4 = Join-Path $root 'game4'; New-Item -ItemType Directory (Join-Path $g4 'coop') | Out-Null
+        New-Item -ItemType HardLink -Path (Join-Path $g4 'dinput8.dll') -Target (Join-Path $pkg2 'dinput8.dll') | Out-Null
+        New-Item -ItemType HardLink -Path (Join-Path $g4 'coop\coop.lua') -Target (Join-Path $pkg2 'coop\coop.lua') | Out-Null
+        Require ((Get-CoopInstallStatus $g4 $pkg2 $settings $data $false).owner -eq 'vortex') 'hard-linked release files: Vortex'
+        [IO.File]::WriteAllText((Join-Path $g3 'coop\coop.lua'), 'edited')
+        Require ((Get-CoopInstallStatus $g3 $pkg2 $settings $data $false).owner -eq 'none') 'changed files are not a release'
     } finally { Remove-Item -LiteralPath $root -Recurse -Force }
 }
 Run-Checks $source
@@ -208,7 +253,11 @@ if ($Mutants) {
         @("if (`$o.status -in 'modified', 'conflict', 'unknown', 'unmanaged')", 'if ($false)'),
         @("if (-not `$r) { return `$false }", 'if ($false) { return $false }'),
         @("if (`$r.schema -ne 1 -or", 'if ($false -and'),
-        @('if ((Get-Item -LiteralPath $p -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)', 'if ($false)')
+        @('if ((Get-Item -LiteralPath $p -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)', 'if ($false)'),
+        @('$keep = $chain      # another mod', '$keep = "$target.coop-original"      # another mod'),
+        @('if (Read-CoopReceipt $target) { [void](Move-CoopOriginalToChain $target) }', ''),
+        @('        if ($match) {', '        if ($false) {'),
+        @("if ((Get-CoopLinkCount (Join-Path `$game 'dinput8.dll')) -gt 1) { return 'vortex' }", '')
     )
     $index = 0
     foreach ($twin in $twins) {

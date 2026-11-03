@@ -1,5 +1,6 @@
 # User-facing installer. Only the game-file operation is ever elevated.
-param([string]$ProbePath, [ValidateSet('', 'install', 'uninstall')][string]$TestCompletion = '', [switch]$TestLayout, [string]$TestActionsPath, [string]$TestBuildGate, [string]$SetupExe)
+param([string]$ProbePath, [ValidateSet('', 'install', 'uninstall')][string]$TestCompletion = '', [switch]$TestLayout, [string]$TestActionsPath, [string]$TestBuildGate, [string]$SetupExe,
+      [string]$TestOwnerPath)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -170,7 +171,13 @@ function Refresh-Status {
             $install.Enabled = [bool]$snapshot.actions.install
             $install.Text = if ($snapshot.actions.install) { $snapshot.actions.install } elseif ($snapshot.actions.blocked) { 'Needs attention' } else { 'Up to date' }
             $uninstall.Enabled = $snapshot.actions.uninstall
-            if ($snapshot.actions.blocked) { $status.Text = 'Conflicting or unreadable files need attention. Modified files are kept.' }
+            if ($snapshot.owner -in 'mod-manager', 'vortex') {
+                # not Setup's files: the mod manager updates and removes them; playing works as it is
+                $install.Text = 'By mod manager'; $install.Enabled = $false; $uninstall.Enabled = $false
+                $status.Text = 'Installed by a mod manager' + $(if ($snapshot.owner -eq 'vortex') { ' (Vortex)' } else { '' }) +
+                    '. Update or remove co-op there; Setup leaves those files alone. Click Play MDK2 to play.'
+            }
+            elseif ($snapshot.actions.blocked) { $status.Text = 'Conflicting or unreadable files need attention. Modified files are kept.' }
             elseif (-not $snapshot.actions.install) { $status.Text = 'Co-op is already installed. Click Play MDK2 to open the launcher.' }
             else { $status.Text = 'You can play MDK2 now, or install co-op below. Keep Steam or the Beamdog client running.' }
         } catch { $status.Text = 'Could not inspect this folder. No changes were made.' }
@@ -244,6 +251,12 @@ if ($TestCompletion) {
     if (-not $finish.Controls.Contains($close) -or ($finish.Controls.Contains($play) -ne ($TestCompletion -eq 'install')) -or ($finish.Controls.Contains($shortcut) -ne ($TestCompletion -eq 'install'))) { exit 1 }
     Write-Output "completion $TestCompletion OK"
     $form.Dispose()
+    exit 0
+}
+if ($TestOwnerPath) {     # tools/test_install_state.ps1: what Setup shows for a folder, read back from the controls
+    $path.Text = $TestOwnerPath
+    Refresh-Status
+    Write-Output ("button=$($install.Text)|enabled=$($install.Enabled)|uninstall=$($uninstall.Enabled)|play=$($playExisting.Enabled)|status=$($status.Text)")
     exit 0
 }
 if ($TestActionsPath) {
