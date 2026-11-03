@@ -41,8 +41,8 @@ static struct {
     struct lhw_router router;
     struct lhw_fw fw;
     struct lh_bans bans;
-    HANDLE thread;
-    volatile LONG stop, keep;
+    HANDLE thread, kept;            /* kept: the worker that renews the mapping for the game (lhost_close(1)) */
+    volatile LONG stop, keep, game_end;
     int handed;                     /* the game started from this lobby */
 } H;
 static uint32_t join_key;           /* client: the invite's key for the host's game (lhost_set_join_key) */
@@ -201,11 +201,9 @@ static DWORD WINAPI worker(void *param)
         lhw_router_close(&router, &rcfg);
         logmsg("host: router mapping of UDP %u removed", port);
     }
-    if (mapped && H.keep && gen == lobby_gen) {   /* the game took over the port: keep renewing until the process ends */
-        for (;;) {
-            Sleep(1000);
-            lhw_router_renew(&router, &rcfg, GetTickCount());
-        }
+    if (mapped && H.keep && gen == lobby_gen) {   /* the game took over the port: renewed while it runs */
+        lhw_router_keep(&router, &rcfg, &H.game_end, 250);     /* until the game quits (lhost_game_end) */
+        logmsg("host: router mapping of UDP %u removed: the game quits", port);
     }
     EnterCriticalSection(&lk);
     if (gen == lobby_gen && H.router_state == RT_MAPPED) H.router_state = RT_OFF;
@@ -245,12 +243,15 @@ void lhost_close(int keep_mapping)
         InterlockedIncrement(&lobby_gen);   /* it finishes (and removes any mapping) on its own, publishing nothing */
         logmsg("host: the checks did not finish in time");
     }
-    CloseHandle(H.thread);
+    if (keep_mapping)
+        H.kept = H.thread;                  /* lhost_game_end waits for it to remove the mapping */
+    else
+        CloseHandle(H.thread);
     H.thread = NULL;
     H.open = 0;
 }
 
-/* ---- the game after the launcher (net.c) ---- */
+/* ---- the game after the launcher (net.c, input.c) ---- */
 int lhost_game_secret(uint32_t *secret)
 {
     *secret = H.secret;
@@ -267,6 +268,17 @@ int lhost_join_key(uint32_t *key)
 {
     *key = join_key;
     return join_has_key;
+}
+
+void lhost_game_end(void)
+{
+    if (!H.kept)
+        return;
+    InterlockedExchange(&H.game_end, 1);
+    if (WaitForSingleObject(H.kept, 3000) != WAIT_OBJECT_0)
+        logmsg("host: the router mapping was not removed in time (it lapses with its lease)");
+    CloseHandle(H.kept);
+    H.kept = NULL;
 }
 
 /* ---- the panel ---- */

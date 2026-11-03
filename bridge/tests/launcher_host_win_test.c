@@ -144,9 +144,18 @@ static DWORD WINAPI natpmp_loop(void *unused)
     return 0;
 }
 
+/* the game's side of the hand-off: lhw_router_keep on its own thread until the game "quits" */
+static struct { struct lhw_router r; const struct lhw_router_cfg *cfg; volatile LONG end; } kept;
+static DWORD WINAPI keep_loop(void *unused)
+{
+    lhw_router_keep(&kept.r, kept.cfg, &kept.end, 100);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     WSADATA wsa;
+    int adds;
     unsigned ssdp_port, natpmp_port, silent_port;
     HANDLE threads[3];
     struct lhw_router_cfg cfg;
@@ -183,6 +192,20 @@ int main(int argc, char **argv)
     lhw_router_close(&r, &cfg);
     CHECK(!fake.upnp_mapped && fake.upnp_deletes == 1 && r.method == LHW_NONE);
     printf("upnp: %s\n", r.said);
+
+    /* 1b. handed to the game: renewed while it runs, removed when it quits */
+    CHECK(lhw_router_open(&kept.r, &cfg, 27916) && fake.upnp_mapped);
+    kept.cfg = &cfg;
+    adds = fake.upnp_adds;
+    {
+        HANDLE t = CreateThread(NULL, 0, keep_loop, NULL, 0, NULL);
+        Sleep(1400);
+        CHECK(fake.upnp_mapped && fake.upnp_adds > adds);        /* the game runs: renewed, still mapped */
+        InterlockedExchange(&kept.end, 1);                       /* the game quits */
+        CHECK(WaitForSingleObject(t, 5000) == WAIT_OBJECT_0);
+        CloseHandle(t);
+    }
+    CHECK(!fake.upnp_mapped && fake.upnp_deletes == 2);
 
     /* 2. a router that keeps only permanent mappings (725): asked again with lease 0, never renewed */
     fake.upnp_refuse_lease = 1;

@@ -52,9 +52,9 @@ While a lobby is open, the host asks the router to forward its UDP port to this 
 
 The mapping is renewed at half its lease. **Leave lobby** and quitting the launcher remove it
 (`DeletePortMapping`, or a NAT-PMP mapping with lifetime 0). When the lobby starts the game, the game takes
-over the port and the mapping is kept and renewed while the game runs; when the game closes, the router drops
-it when its lease ends (at most an hour later). A router that only takes permanent mappings keeps that one
-until the host's next lobby removes it.
+over the port and the mapping is kept and renewed while the game runs. When the game quits (its
+`ExitProcess`, hooked by the bridge), the mapping is removed first (`lhost_game_end`, at most 3 s); a game that
+is killed or crashes leaves it to the router, which drops it when its lease ends (at most an hour later).
 
 A WAN address in 100.64.0.0/10 is carrier-grade NAT; a private one means another router in front. Either way
 the internet route is left out of invites and the panel says to use Steam or Tailscale.
@@ -155,8 +155,9 @@ The footer shows pad buttons after pad input and keys after keyboard or mouse in
   ignored, the game's gate open or taking any key, kicks forgotten or by id only, CGNAT not detected, the internet route
   without its check, block rules not winning, the Public profile not needed, the pad's Start not primary).
   With Windows interop, the router code runs against a fake IGD and NAT-PMP responder on loopback (mapped,
-  renewed, permanent-lease fallback, NAT-PMP fallback with a CGNAT address, silence) and four mutants must
-  fail, among them **mapping not removed on close**. The firewall reader reads the real rules (read only).
+  renewed, permanent-lease fallback, the mapping handed to the game renewed and removed when it quits, NAT-PMP
+  fallback with a CGNAT address, silence) and five mutants must fail, among them **mapping not removed on
+  close** and **kept mapping not removed when the game quits**. The firewall reader reads the real rules (read only).
 - `tools/qa_host.sh` (feature gate `hosting`, two games): the panel's Same network check, the router asked and
   its answer recorded (and removed on Leave when it mapped), the client joining with the invite code only,
   invite only refusing an address without the code, Kick, Mute me (the host receives no voice frames), the pad

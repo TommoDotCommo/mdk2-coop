@@ -57,6 +57,8 @@ WIN_MUTANTS = {
                                      '    else if (r->method == LHW_NATPMP) lhw_natpmp_map(r, c, 0);\n', '    (void)a;\n'),
     'no-natpmp-fallback': ('    if (r->method == LHW_NONE) lhw_natpmp_map(r, c, c->lease ? c->lease : LH_LEASE_S);\n', ''),
     'never-renewed': ('if (r->method == LHW_UPNP ? lhw_upnp_map(r, c) : lhw_natpmp_map(r, c, r->lease)) r->mapped_at = now;', ''),
+    'kept-mapping-not-removed-on-quit': ('        lhw_router_renew(r, c, GetTickCount());\n    }\n    lhw_router_close(r, c);\n',
+                                         '        lhw_router_renew(r, c, GetTickCount());\n    }\n'),
     'no-permanent-retry': ('if (a.error == 725 && lhw_upnp_call(r, c, LH_SOAP_ADD, 0, &a)) lease = 0;', 'if (0) lease = 0;'),
 }
 

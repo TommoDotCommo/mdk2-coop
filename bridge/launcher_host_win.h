@@ -263,6 +263,16 @@ static inline void lhw_router_close(struct lhw_router *r, const struct lhw_route
     else if (r->method == LHW_NATPMP) lhw_natpmp_map(r, c, 0);
     r->method = LHW_NONE;
 }
+/* After the lobby handed the port to the game: renewed while the game runs, removed when *end is set
+ * (the game quits). */
+static inline void lhw_router_keep(struct lhw_router *r, const struct lhw_router_cfg *c, volatile LONG *end, DWORD step_ms)
+{
+    while (!InterlockedCompareExchange(end, 0, 0)) {
+        Sleep(step_ms);
+        lhw_router_renew(r, c, GetTickCount());
+    }
+    lhw_router_close(r, c);
+}
 
 /* ---- firewall (read only) ---- */
 #define LHW_FW_RULES 64
