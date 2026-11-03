@@ -136,7 +136,9 @@ Keys (the Modern preset, the default; change them in Options > Co-op > Controls)
 - WASD move, Space jump (jetpack, parachute), left mouse fire, right mouse sniper mode,
   Q / E or the mouse wheel change item, F opens the inventory.
 - T chat (Enter sends, Esc cancels), V or middle mouse ping, hold R next to a downed
-  teammate to revive, hold B to talk.
+  teammate to revive, hold B or the mouse side button to talk.
+- Hold Tab for the player list (ping, state, mute, voice volume; Watch when you are out
+  of the fight). [ and ] watch the previous / next player when you are out of the fight.
 - Hold H for the emote wheel (its last slot, All..., lists every animation), hold J
   for the character wheel (switch to Kurt, Max or Doc at any time). Point and let go.
 - Backspace votes to skip a cutscene. Hold F1 (in the launcher or in game) for the Mod
@@ -172,17 +174,16 @@ may need repair before the installation is complete.
 Settings in the game
 --------------------
 Options > Co-op (on the title screen, or Esc > Options while playing):
-- Players: who is in the game, with ping.
-- Session: your name, startup role and transport (restart to apply), Steam lobby
+- Session: who is in the game with ping (Players), your name, startup role and transport (restart to apply), Steam lobby
   status/ID, invites and joining, or the UDP host address. On the host: Resume co-op
   and Save now. Change lobbies from the title screen. If a Steam lobby closes,
   clients can accept a new invite or press Esc on the waiting screen to join by ID.
-- Gameplay (the host's settings count): friendly fire, difficulty (Story, Normal, Hard,
+- Co-op rules (was Gameplay; the host's settings count): friendly fire, difficulty (Story, Normal, Hard,
   Nightmare, or enemy health, damage and revive times one by one), how often co-op saves
   are made, back to the level's hero after a level you switched hero in, and developer
   keys (leave off: the F-keys are developer shortcuts that change the level for
   everyone; F2 always puts a marker in the logs).
-- Interface (your own): players on screen (names over heads and a panel with
+- Players and interface (was Interface; your own): players on screen (names over heads and a panel with
   everyone's health), outlines of the other players through walls (off by default),
   the cutscene timer, friends in minigames, and the emote wheel, character wheel,
   text chat and pings, each of which can be switched off.
@@ -193,7 +194,7 @@ Options > Co-op (on the title screen, or Esc > Options while playing):
   cutscene), gamepad, menus and system. Select an action and press a key to change
   it; the first change starts Custom as a copy of the preset you were on. Delete clears an
   action. Your Custom keys are kept separately, so Original and Modern are always there.
-- Voice chat: hold B (changed on the Controls page) and players near you hear you. Turn it
+- Voice and sound (was Voice chat): hold B or the mouse side button (changed on the Controls page) and players near you hear you. Turn it
   off, set its volume, and on the host choose how far voices carry.
 
 Known issues

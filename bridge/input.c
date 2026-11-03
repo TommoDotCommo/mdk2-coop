@@ -115,10 +115,21 @@ static struct { int code[2], vk[2]; } gamekeys[GK_COUNT] = {
     { { 20, -1 }, { 'T', 0 } },
     { { 47, 258 }, { 'V', VK_MBUTTON } },
     { { 19, -1 }, { 'R', 0 } },
-    { { 48, -1 }, { 'B', 0 } },
+    { { 48, 259 }, { 'B', VK_XBUTTON1 } },
     { { 35, -1 }, { 'H', 0 } },
     { { 36, -1 }, { 'J', 0 } },
+    { { 15, -1 }, { VK_TAB, 0 } },
+    { { 26, -1 }, { VK_OEM_4, 0 } },
+    { { 27, -1 }, { VK_OEM_6, 0 } },
 };
+
+/* the player list (plist.c) takes the left button too: a click there is not a shot */
+static int buttons_held;
+
+void input_buttons_hold(int on)
+{
+    buttons_held = on;
+}
 
 /* the emote wheel (emote.c) holds the mouse back from the game while it is open and steers with it */
 static int mouse_held;
@@ -394,6 +405,8 @@ static BYTE code_state(struct dev *d, int code)
 {
     if (d->kind == DEV_KEYBOARD)
         return code < 256 && held(code) ? 0x80 : 0;
+    if (code == MOUSE_BUTTON0 && buttons_held)
+        return 0;
     return code >= MOUSE_BUTTON0 && held(code) ? 0x80 : 0;
 }
 
@@ -426,6 +439,8 @@ static HRESULT WINAPI dev_get_state(void *self, DWORD size, void *out)
     }
     if (d->kind == DEV_KEYBOARD && chat_blocks_keys())
         memset(out, 0, size);               /* typing a chat line: the game sees no keys */
+    if (d->kind == DEV_MOUSE && buttons_held && size > 12)
+        ((BYTE *)out)[12] = 0;
     if (d->kind == DEV_MOUSE && mouse_held && size >= 8) {
         held_dx += ((LONG *)out)[0];        /* emote wheel open: the movement steers it, not the camera */
         held_dy += ((LONG *)out)[1];
@@ -470,8 +485,11 @@ static HRESULT WINAPI dev_get_data(void *self, DWORD objsize, DIDEVICEOBJECTDATA
                         e->dwData = 0;
                     }
                 }
-                else if (d->kind == DEV_MOUSE && e->dwOfs >= 12 && e->dwOfs < 20)
+                else if (d->kind == DEV_MOUSE && e->dwOfs >= 12 && e->dwOfs < 20) {
                     capture_code(256 + e->dwOfs - 12, e->dwData & 0x80);
+                    if (buttons_held && e->dwOfs == 12)
+                        e->dwData = 0;
+                }
             }
         }
         return hr;
@@ -897,7 +915,8 @@ int input_lua_key(int k, int *code, int *vk)
     return *code >= 0;
 }
 
-/* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1, GK_REVIVE 2, GK_VOICE 3, GK_EMOTE 4 or GK_CHAR 5; keys
+/* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1, GK_REVIVE 2, GK_VOICE 3, GK_EMOTE 4, GK_CHAR 5,
+ * GK_LIST 6, GK_WATCHP 7 or GK_WATCHN 8; keys
  * are Lua's (input_lua_key; the wheel cannot be used) */
 static void l_coop_game_keys(void)
 {

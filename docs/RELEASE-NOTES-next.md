@@ -28,3 +28,31 @@ Not final: edit the version, merge into the release's notes file and delete this
   handler when it is unloaded.
 - New offline gates: `setup-core`, `linux-install`, `release-signing`, `update-layout`, `release-package`; new live
   gates: the Setup exe checks in `installer` and `build-message`.
+
+## Shared co-op keys, the player list and menu names
+
+**Keys that moved or are new** (only defaults move; a key you set yourself stays):
+
+- **Hold Tab: player list.** One row per player: colour, number, name, host mark, speaking light, ping, hero, distance and
+  state (loading, down, out, watching). With the mouse: Mute, voice volume - / +, and Watch when you are out of the fight.
+  The camera and the fire button wait while it is open; letting go of Tab closes it. The strip in the top left stays
+  (Options > Co-op > Players and interface > Players on screen).
+- **Push to talk: B or the mouse side button.** The side button is new; B stays.
+- **[ and ]: watch the previous / next player** when you are out of the fight (left mouse still steps to the next one).
+- **Open inventory: F only** in the Modern preset (it lost Tab, which is the player list now). The Original preset keeps the
+  game's own keys. A Custom slot that is an untouched copy of the old Modern preset moves off Tab too; any Custom slot
+  you changed keeps what you set (and the bridge log says so if Tab is still open-inventory there).
+- The shared keys (F1, F2, T, V, middle mouse, B, side button, H, Tab, [ and ]) can no longer be given to another action on
+  the Controls page ("Tab is reserved for Player list").
+- The quick guide (hold F1) now writes every co-op key line from your current bindings.
+
+**Menu pages renamed, in the launcher's order** (Options > Co-op): *Session* (now includes *Players*), *Co-op rules*
+(was Gameplay; Difficulty stays inside it), *Players and interface* (was Interface), *Voice and sound* (was Voice chat),
+*Controls*. The launcher's Settings sections are named the same (*Co-op rules*, *Players and interface*) and its
+"Voice chat volume" row is now **Voice volume**, as in the game.
+
+**Same words everywhere:** "Fox joined", "Fox left" appear as notices; the waiting screen says "Reconnecting to Fox"; leaving a
+co-op game from the pause menu says what happens: "The others keep playing" (client) or "Everyone returns to the lobby" (host).
+
+New gates: `coop-keys` (key table, migration of saved bindings, guide lines, notices; with mutants), `player-list-core`
+(the list's state machine; with mutants), watch-key cases in `revive-core`; live: `shared-keys`.

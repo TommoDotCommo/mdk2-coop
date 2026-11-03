@@ -48,7 +48,7 @@
 
 static int life = LIFE_ALIVE;
 static double life_since, last_frame, down_ms;
-static int riding, reviving = -1, revive_lock, spect = -1, fire_was;
+static int riding, reviving = -1, revive_lock, spect = -1, fire_was, watch_was[2];
 static double revive_from;
 static float body[3];               /* where we went down or died */
 static const char *actions[8];      /* for Lua, oldest first */
@@ -87,15 +87,15 @@ static int life_of(int slot)
     return l == LIFE_SPECTATING ? LIFE_DEAD : l;
 }
 
-/* a living teammate: the next one round after `after`, else the nearest to p (any if p is
- * NULL); -1 if none */
-static int nearest_alive(const float *p, int after)
+/* a living teammate: the next one round after `after` (before it when dir is -1), else the nearest to p
+ * (any if p is NULL); -1 if none */
+static int nearest_alive_dir(const float *p, int after, int dir)
 {
     int s, best = -1;
     float bd = 0.0f;
 
     for (s = 0; s < MAX_PLAYERS; s++) {
-        int k = after >= 0 ? (after + 1 + s) % MAX_PLAYERS : s;
+        int k = after >= 0 ? (after + MAX_PLAYERS + dir * (1 + s)) % MAX_PLAYERS : s;
         float *q;
         if (k == my_slot || !player_connected(k) || life_of(k) != LIFE_ALIVE || !(q = pos_of(k)))
             continue;
@@ -107,6 +107,11 @@ static int nearest_alive(const float *p, int after)
         }
     }
     return best;
+}
+
+static int nearest_alive(const float *p, int after)
+{
+    return nearest_alive_dir(p, after, 1);
 }
 
 /* ---- the pose ---- */
@@ -439,7 +444,7 @@ static void downed_frame(double dt)
 
 static void dead_frame(double now)
 {
-    int fire = input_down(KEY_NEXT, VK_LBUTTON);
+    int fire = input_down(KEY_NEXT, VK_LBUTTON), pv, nx;
     char l1[96];
     float *t, *q;
 
@@ -449,10 +454,21 @@ static void dead_frame(double now)
         fire_was = fire;
         return;
     }
+    pv = gamekey_down(GK_WATCHP);       /* [ and ]: the previous / next teammate (the shared watch keys) */
+    nx = gamekey_down(GK_WATCHN);
     if (spect < 0 || life_of(spect) != LIFE_ALIVE || !player_connected(spect))
         spect = nearest_alive(body, -1);
     else if (fire && !fire_was)
         spect = nearest_alive(NULL, spect);
+    else if (pv && !watch_was[0]) {
+        spect = nearest_alive_dir(NULL, spect, -1);
+        logmsg("revive: watch previous -> player %d", spect + 1);
+    } else if (nx && !watch_was[1]) {
+        spect = nearest_alive_dir(NULL, spect, 1);
+        logmsg("revive: watch next -> player %d", spect + 1);
+    }
+    watch_was[0] = pv;
+    watch_was[1] = nx;
     fire_was = fire;
     if (spect < 0 || !(t = pos_of(spect))) {
         if (!riding)
@@ -479,7 +495,23 @@ static void dead_frame(double now)
         memcpy(local_player + GOB_ORIENTATION, q, 16);
     }
     snprintf(l1, sizeof(l1), "Dead: watching %s", player_name(spect));
-    hud_status(l1, "Back when your area is clear or at a checkpoint. Click: next player", -1.0f);
+    hud_status(l1, "Back when your area is clear or at a checkpoint. [ ] or click: another player", -1.0f);
+}
+
+/* the player list's Watch: out of the fight (spectating), look through that teammate's eyes; 1 if it took */
+int revive_watch(int slot)
+{
+    if (life != LIFE_DEAD || !riding || slot == my_slot || slot < 0 || slot >= MAX_PLAYERS ||
+        !player_connected(slot) || life_of(slot) != LIFE_ALIVE || !pos_of(slot))
+        return 0;
+    spect = slot;
+    return 1;
+}
+
+/* who we watch while out of the fight, else -1 */
+int revive_watching(void)
+{
+    return life == LIFE_DEAD && riding ? spect : -1;
 }
 
 void revive_frame(void)
@@ -538,6 +570,7 @@ void revive_level_reset(void)
     riding = 0;
     reviving = -1;
     spect = -1;
+    watch_was[0] = watch_was[1] = 0;
     memset(dead_known, 0, sizeof(dead_known));
     wipe_since = 0.0;
     wiped = 0;

@@ -276,7 +276,7 @@ static void capture_service(void)
         if (now < next)
             return;
         next = now + 1000.0 * FRAME / RATE;
-        if (now < tone_until) {
+        if (now < tone_until || ptt) {      /* the push to talk key itself sends the tone: tests prove the key */
             for (i = 0; i < FRAME; i++)
                 frame[i] = (short)(8000 * sin(2 * 3.14159265 * 440 * i / RATE));
             tx_push(frame, 0);
@@ -471,6 +471,38 @@ void voice_receive(int from, const void *buf, int len)
         forward(slot, &p);
 }
 
+/* the player list's mute and volume per speaker (this game only; cleared when the player leaves) */
+static unsigned char spk_mute[MAX_PLAYERS];
+static unsigned char spk_vol[MAX_PLAYERS];      /* % of normal; 0 = not set = 100 */
+
+int voice_muted(int slot)
+{
+    return slot >= 0 && slot < MAX_PLAYERS && spk_mute[slot];
+}
+
+void voice_set_muted(int slot, int on)
+{
+    if (slot >= 0 && slot < MAX_PLAYERS)
+        spk_mute[slot] = on != 0;
+}
+
+int voice_player_volume(int slot)
+{
+    return slot >= 0 && slot < MAX_PLAYERS && spk_vol[slot] ? spk_vol[slot] : 100;
+}
+
+void voice_set_player_volume(int slot, int pct)
+{
+    if (slot >= 0 && slot < MAX_PLAYERS)
+        spk_vol[slot] = (unsigned char)(pct < 10 ? 10 : pct > 200 ? 200 : pct);
+}
+
+/* frames we have sent (tests: the push to talk key reached the network) */
+unsigned int voice_tx_frames(void)
+{
+    return tx_frames;
+}
+
 /* volume of a speaker `slot` for us: full close up, fading to nothing at the speaker's range */
 static float gain_for(int slot)
 {
@@ -478,7 +510,7 @@ static float gain_for(int slot)
     float near_d, d, t, g;
     int range = spk[slot].range;
 
-    if (!player_in_level(slot))
+    if (!player_in_level(slot) || spk_mute[slot])
         return 0.0f;
     if (!range)
         g = 1.0f;
@@ -490,7 +522,7 @@ static float gain_for(int slot)
         t = d <= near_d ? 0.0f : (d - near_d) / (range - near_d);
         g = t >= 1.0f ? 0.0f : (1.0f - t) * (1.0f - t);
     }
-    return g * cfg_volume / 100.0f;
+    return g * cfg_volume / 100.0f * voice_player_volume(slot) / 100.0f;
 }
 
 /* once per frame, game thread: key, gains, and frames the worker has queued */
@@ -504,8 +536,11 @@ void voice_frame(void)
         return;
     down = cfg_enabled && (gamekey_down(GK_VOICE) || now < tone_until);
     ptt = down && have_remote;
-    for (s = 0; s < MAX_PLAYERS; s++)
+    for (s = 0; s < MAX_PLAYERS; s++) {
+        if (!player_connected(s))
+            spk_mute[s] = spk_vol[s] = 0;
         spk[s].target = gain_for(s);
+    }
     for (;;) {
         struct voice_packet p;
 
@@ -573,6 +608,21 @@ static void l_coop_voice_info(void)
     lua_pushnumber(spk[slot].lost);
 }
 
+/* coop_voice_tx() -> frames we have sent; coop_voice_mute(slot[, on]) -> muted (sets when on is given) */
+static void l_coop_voice_tx(void)
+{
+    lua_pushnumber(voice_tx_frames());
+}
+
+static void l_coop_voice_mute(void)
+{
+    int slot = (int)num_param(1);
+
+    if (lua_getparam(2))
+        voice_set_muted(slot, num_param(2) != 0.0);
+    lua_pushnumber(voice_muted(slot));
+}
+
 static void l_coop_voice_talking(void)
 {
     lua_pushnumber(voice_talking((int)num_param(1)));
@@ -583,4 +633,6 @@ void voice_lua_init(void)
     tolua_function(NULL, "coop_voice_test", l_coop_voice_test);
     tolua_function(NULL, "coop_voice_info", l_coop_voice_info);
     tolua_function(NULL, "coop_voice_talking", l_coop_voice_talking);
+    tolua_function(NULL, "coop_voice_tx", l_coop_voice_tx);
+    tolua_function(NULL, "coop_voice_mute", l_coop_voice_mute);
 }

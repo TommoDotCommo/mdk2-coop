@@ -60,11 +60,12 @@ check "the pad follows Modern: jump Space, sniper the right mouse"  has "^pad ke
 check "Modern: sniper is the right mouse, zoom on the wheel" bash -c "[ '$(bound sniper)' = '1001 -1' ] && [ '$(bound zoomin)' = '1008 17' ]"
 check "Modern: chat T, ping V / middle mouse, revive R"   bash -c "[ '$(bound chat)' = '20 -1' ] && [ '$(bound ping)' = '47 1002' ] && [ '$(bound revive)' = '19 -1' ]"
 check "chat, ping and revive keys reach the bridge"       has "^game keys 1: 47/258"
-check "Modern: push to talk B, handed to the bridge"     bash -c "[ '$(bound voice)' = '48 -1' ] && grep -qE '^game keys 3: 48/-1' '$(mdk_log 1)'"
+check "Modern: push to talk B and the side button, handed to the bridge"     bash -c "[ '$(bound voice)' = '48 1003' ] && grep -qE '^game keys 3: 48/259' '$(mdk_log 1)'"
 lua 'coop.EditCustom() coop.custom.chat = { 34, -1 } coop.custom.revive = { 35, -1 } coop.ApplyControls()'; sleep 1
 check "a custom chat key is handed to the bridge (G)"     has "^game keys 0: 34/-1"
 check "a custom revive key is handed to the bridge (H)"   has "^game keys 2: 35/-1"
-check "the F1 quick guide receives the custom keys"       has "^guide keys: Custom [|] jump Space [|] sniper Right mouse [|] revive H [|] chat G"
+check "the F1 quick guide receives the custom keys"       has "^guide keys: Custom [|] jump Space [|] sniper Right mouse"
+check "  ... and the co-op ones (revive H) from the same bindings"  has "^guide names: revive H [|] voice B / Side mouse [|] list Tab [|] [0-9]+ co-op lines"
 lua 'coop.SetPreset("modern")'; sleep 1
 check "back on Modern the bridge has T again"             has "^game keys 0: 20/-1"
 check "preset kept in coop.ini"                           eq "$(ini preset)" modern

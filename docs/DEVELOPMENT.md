@@ -56,7 +56,7 @@ small: the game reads it into an 8 KB stack buffer and crashes (0xc0000409) if i
     tools/inject.sh         # install (backs up settings.lua once to settings.lua.coop-backup)
     tools/inject.sh --off   # remove the settings.lua line
 
-In game (developer keys: Options > Co-op > Gameplay, on in the test installs, off for players):
+In game (developer keys: Options > Co-op > Co-op rules, on in the test installs, off for players):
 F9 BioWare debug menu, F6 / F7 next / previous checkpoint (host),
 F8 next level (host), F2 marker in every log (always on), F11 log anim states to bridge.log, F5 (host) spawn a Doganboy ahead (coop_dog1, 2, ...), F3 deal 200 lava damage to yourself, F1 (host) spawn a Poopsy named coop_spawn (same name each time), F4 teleport to the next test spot (level 1's decoy item, door dr1_03, then 400 units below you).
 Room changes are logged to bridge.log as they happen.
@@ -197,7 +197,7 @@ has played in it (names), the most players at once, when it was last played and 
 the clients' games keep it, so each player's launcher can show who they played with.
 - A client whose game crashes comes back as the same player and loads its own copy of the newest save
   of that level; the host then sends its world again (enemies with hp, taken items).
-- A client whose connection drops sees "Connection to the host lost - reconnecting" (input goes to
+- A client whose connection drops sees "Reconnecting to <host>" (input goes to
   that message, nothing moves in its world without the host) and plays on when the host is heard
   again, without reloading anything; after 10 s the host drops its puppet and takes it back when it
   returns.
@@ -207,12 +207,12 @@ the clients' games keep it, so each player's launcher can show who they played w
   (each level start and checkpoint) is newer than its last save, and Resume starts that checkpoint
   instead of going back a level.
 
-On screen (`bridge/hud.c`, Options > Co-op > Interface > Players on screen, `[hud] show`): a panel at
+On screen (`bridge/hud.c`, Options > Co-op > Players and interface > Players on screen, `[hud] show`): a panel at
 the top left with each other player's number, name, health bar and hp, character, distance (game
 units; Kurt is about 1.45 tall) and ping, "loading" while they are not in our level; and a name tag over
 each partner's head, pinned to the screen edge with an arrow when they are out of view, stacked when
 they overlap. Both show through walls (no depth test), and each partner also gets a coloured capsule
-outline (a flat one when downed) sized from their position, off by default (Options > Co-op > Interface > Player
+outline (a flat one when downed) sized from their position, off by default (Options > Co-op > Players and interface > Player
 outlines, `[hud] outline=1`); it is a fixed-size outline, not the character's real silhouette. Drawn into the back buffer in the SwapBuffers hook (screenshots include it) with the
 fixed-function pipeline of the game's legacy GL context (Windows font through wglUseFontBitmaps), with
 the game's shader program, framebuffer, texture unit, matrices and attributes put back. The tags
@@ -261,24 +261,25 @@ once the title screen is up, as a new session. The choice is written to `coop.in
 (`level`, `cp`, `sid`) and `coop_dev.lua` uses it once and clears it. In game, Options > Co-op > Session >
 "Start at level..." does the same from the host's menu, mid-session too.
 
-Options > Co-op (the game's own menus, on the title screen and in the pause menu's Options):
-- Players: everyone connected, with player number, name and ping (the host measures every client, a
-  client its host).
-- Session: your name (`coop\player.ini`, the others see it at once), host or join (next start), the
+Options > Co-op (the game's own menus, on the title screen and in the pause menu's Options). The pages are named and
+ordered like the launcher's Settings sections (`coop.page_names` in `lua/coop_dev.lua`): Session, Co-op rules, Players
+and interface, Voice and sound, Controls. The launcher row names match (`tools/test_coop_keys.py` checks both).
+- Session: Players (everyone connected, with player number, name and ping: the host measures every client, a
+  client its host), your name (`coop\player.ini`, the others see it at once), host or join (next start), the
   transport (next start), Steam lobby status/ID, invites, lobby joining/leaving, or the UDP
   host's address (a client reconnects at once); Resume co-op and Save now on the host. Change lobbies
   from the title screen. A disconnected Steam client can accept a new invite or press Esc on the
   waiting screen to join by ID; its next LEVEL reloads the host's world, including at the same checkpoint.
-- Gameplay (`coop.ini`; the host's settings count): friendly fire (off by default; hits between
+- Co-op rules (was Gameplay; `coop.ini`; the host's settings count): friendly fire (off by default; hits between
   players arrive as enemy gun damage, since the game ignores a player hitting a player), difficulty
   (see below), co-op save interval, back to the level's hero after a level you switched hero in (`[game] char_follow`)
   and developer keys (Num 1, F3-F11 and the F9 debug menu; off for players, on in the test installs; F1 holds open the
   Mod Quick Guide and F2 stays on as the report marker).
-- Interface (each player's own; all on by default except the outlines): players on screen (`[hud] show`), player
+- Players and interface (was Interface; each player's own; all on by default except the outlines): players on screen (`[hud] show`), player
   outlines (`[hud] outline`), the cutscene timer (`[hud] movietimer`; off leaves the skip key and the votes), friends in
   minigames (`[features] ghosts`), and the emote wheel, character wheel, text chat and pings (`[features] emotes`,
   `charwheel`, `chat`, `pings`: off takes the action's keys away), the gamepad (`[pad] enabled`, next start).
-- Difficulty (Gameplay > Difficulty; `[game]` keys, the host's values rule and reach the clients as they join
+- Difficulty (Co-op rules > Difficulty; `[game]` keys, the host's values rule and reach the clients as they join
   and whenever they change): presets Story, Normal (default), Hard and Nightmare, or each setting on its own, which
   shows as Custom. Settings: friendly fire, enemy health (`enemy_hp`, % of normal), more health per extra player
   (`enemy_scale`, set when an enemy first appears, so a change mid-level only reaches enemies not yet seen), damage
@@ -367,9 +368,23 @@ between the two updates either side; `[sim]` fakes latency, jitter and loss for 
 player moves, bridge.log gets a `smooth:` line every 2 s (step size mean/sd/max, stalled frames, cv = sd/mean;
 lower is smoother).
 
+## Shared co-op keys and the player list
+
+The keys shared by every co-op mod are reserved in `coop.reserved` (F1, F2, T, V, middle mouse, B, mouse side button, H, Tab,
+[ and ]): the Controls page refuses to give them to another action. Hold Tab (`GK_LIST`, `bridge/plist.c`) opens the player
+list: it holds the mouse back from the game (`input_mouse_hold`, `input_buttons_hold`: no camera turn, no shot), steers a
+pointer with it, and per row has Mute, voice volume - / + (`voice_set_muted`, `voice_set_player_volume`, this game only) and,
+when you are out of the fight, Watch (`revive_watch`). Kick (host only) is a TODO: the session has no way to put a client
+out and keep it out. `[` and `]` step the spectated player (`revive.c`). The quick guide's co-op lines come from
+`coop.GuideLines()` (`coop_guide_line`), never from strings in the bridge. Saved Custom bindings migrate once
+(`coop.MigrateControls`, `[controls_custom] v=2`): only an untouched copy of the old Modern preset loses Tab on open
+inventory; a Custom slot the player changed keeps every key. The words of the notices are `coop.words`.
+Tests: `tools/test_coop_keys.py` (Lua 3.1, with mutants), `tools/test_plist.sh`, the watch cases of `tools/test_revive.sh`,
+and live `tools/qa_coopkeys.sh`.
+
 ## Voice chat
 
-Proximity voice: hold the push-to-talk key (**B**; change it on the Co-op tab of **Options > Co-op > Controls**) and players
+Proximity voice: hold the push-to-talk key (**B** or the mouse side button; change it on the Co-op tab of **Options > Co-op > Controls**) and players
 near you hear you, quieter the further away you are and not at all beyond the hearing range. A speaker is marked
 by a speaker icon over their head, a green name in the players panel, and **MIC** at the bottom right for you.
 The host decides the range (Short, Medium, Long, Everywhere). The mic opens the first time you press the key, using
@@ -498,7 +513,7 @@ on, F8 skips to the next level.
 
 Character wheel: hold J (Options > Co-op > Controls), move the mouse to Kurt, Max or Doc and let go to
 switch to them on the spot, keeping the same share of hp (letting go in the middle changes nothing; "Level's own" goes back to the hero the
-level gave you). Your partner's puppet becomes the same hero. With Options > Co-op > Gameplay > "Back to
+level gave you). Your partner's puppet becomes the same hero. With Options > Co-op > Co-op rules > "Back to
 level's hero" on (the default) the next level load puts you back on the game's hero; off keeps your choice.
 Levels with Hyde (6, 12) keep the game's pair. Kurt and Max are wider than Doc: switching away from Doc against a
 wall can leave the new hero stuck in it, so for a few seconds after a switch, while you hold a move key and have not

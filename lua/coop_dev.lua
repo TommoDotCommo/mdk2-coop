@@ -101,6 +101,7 @@ end
 -- and rebinds (select an action, press a key). Keys are DirectInput scan codes; the mouse is
 -- 1000 left, 1001 right, 1002 middle, 1008 wheel up, 1009 wheel down; -1 is unbound.
 -- ---------------------------------------------------------------------------------------
+-- BEGIN KEYTABLE (tools/test_coop_keys.py runs this block with stubs)
 coop.keynames = {
     [1]="Esc", [2]="1", [3]="2", [4]="3", [5]="4", [6]="5", [7]="6", [8]="7", [9]="8", [10]="9", [11]="0",
     [12]="-", [13]="=", [14]="Backspace", [15]="Tab", [16]="Q", [17]="W", [18]="E", [19]="R", [20]="T",
@@ -158,23 +159,28 @@ coop.actions = {
     { id="dright", name="Inventory right", page="doc",    group=5, short="Right",  long="Inventory right", coms={ COM_DOCINVENRIGHT } },
     -- the co-op features that read the keyboard themselves (the bridge, coop_game_keys): gk is
     -- theirs; the mouse buttons work for them, the wheel does not
-    -- feat: the [features] switch (Options > Co-op > Interface, the launcher) that can take the action's keys away
-    { id="chat",   name="Chat",   page="coop", group=8, short="Chat",   long="Open the chat line (Enter sends, Esc cancels)", coms={}, gk=0, feat="chat" },
-    { id="ping",   name="Ping",   page="coop", group=8, short="Ping",   long="Ping what you aim at: a marker for everyone", coms={}, gk=1, feat="pings" },
-    { id="revive", name="Revive", page="coop", group=8, short="Revive", long="Hold beside a downed teammate to stand them up", coms={}, gk=2 },
-    { id="voice",  name="Push to talk", page="coop", group=8, short="Talk", long="Hold to talk: players near you hear you (Options > Co-op > Voice chat)", coms={}, gk=3 },
-    { id="emote",  name="Emote wheel", page="coop", group=8, short="Emote", long="Hold, move the mouse to an emote and let go to play it (moving ends it)", coms={}, gk=4, feat="emotes" },
-    { id="char",   name="Character wheel", page="coop", group=8, short="Char", long="Hold, move the mouse to Kurt, Max or Doc and let go to switch to them", coms={}, gk=5, feat="charwheel" },
+    -- feat: the [features] switch (Options > Co-op > Players and interface, the launcher) that can take the action's keys away
+    -- guide: the quick guide's line for the action (hold: "Hold <key>"); the guide's key text comes from the
+    -- bindings, never from a string in the bridge (coop.SyncGuideKeys) --
+    { id="chat",   name="Chat",   page="coop", group=8, short="Chat",   long="Open the chat line (Enter sends, Esc cancels)", coms={}, gk=0, feat="chat", guide="Open text chat (Enter sends, Esc cancels)" },
+    { id="ping",   name="Ping",   page="coop", group=8, short="Ping",   long="Ping what you aim at: a marker for everyone", coms={}, gk=1, feat="pings", guide="Ping aimed enemy or spot for everyone (6 s)" },
+    { id="revive", name="Revive", page="coop", group=8, short="Revive", long="Hold beside a downed teammate to stand them up", coms={}, gk=2, hold=1, guide="Hold 3 s beside a downed teammate to revive" },
+    { id="voice",  name="Push to talk", page="coop", group=8, short="Talk", long="Hold to talk: players near you hear you (Options > Co-op > Voice and sound)", coms={}, gk=3, hold=1, guide="Push to talk (proximity voice chat)" },
+    { id="emote",  name="Emote wheel", page="coop", group=8, short="Emote", long="Hold, move the mouse to an emote and let go to play it (moving ends it)", coms={}, gk=4, feat="emotes", hold=1, wheel=1, guide="Emote wheel (let go to play; All... = full list)" },
+    { id="char",   name="Character wheel", page="coop", group=8, short="Char", long="Hold, move the mouse to Kurt, Max or Doc and let go to switch to them", coms={}, gk=5, feat="charwheel", hold=1, wheel=1, guide="Character wheel: switch to Kurt, Max or Doc" },
+    { id="list",   name="Player list", page="coop", group=8, short="List", long="Hold to list everyone: ping, state, mute, volume, watch; let go to close", coms={}, gk=6, hold=1, guide="Player list: ping, state, mute, volume, watch" },
+    { id="watchp", name="Watch previous", page="coop", group=8, short="Watch<", long="Out of the fight: watch the previous teammate", coms={}, gk=7, guide="" },
+    { id="watchn", name="Watch next", page="coop", group=8, short="Watch>", long="Out of the fight: watch the next teammate (left mouse also does)", coms={}, gk=8, guide="" },
     -- the game's abort-movie command: with others watching, a vote to skip (coop_dev.lua "Cutscenes") --
-    { id="skip",   name="Skip cutscene", page="coop", group=8, short="Skip", long="In a cutscene: vote to skip it; press again to take the vote back", coms={ COM_ABORTMOVIE } },
+    { id="skip",   name="Skip cutscene", page="coop", group=8, short="Skip", long="In a cutscene: vote to skip it; press again to take the vote back", coms={ COM_ABORTMOVIE }, guide="Vote to skip cutscene (any key shows timer)" },
 }
 
 -- actions in use together: a key may not do two things in the same set --
 coop.sets = {
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "kinvl", "kinvr", "kuse", "kclose", "sniper", "chat", "ping", "revive", "voice", "emote", "char" },
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "minvl", "minvr", "mequip", "munequip", "chat", "ping", "revive", "voice", "emote", "char" },
-    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "dup", "ddown", "dleft", "dright", "chat", "ping", "revive", "voice", "emote", "char" },
-    { "sniper", "zoomin", "zoomout", "strl", "strr", "shoot", "jump", "chat", "ping", "revive", "voice", "emote", "char" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "kinvl", "kinvr", "kuse", "kclose", "sniper", "chat", "ping", "revive", "voice", "emote", "char", "list", "watchp", "watchn" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "minvl", "minvr", "mequip", "munequip", "chat", "ping", "revive", "voice", "emote", "char", "list", "watchp", "watchn" },
+    { "fwd", "back", "strl", "strr", "turnl", "turnr", "lookup", "lookdn", "jump", "shoot", "dup", "ddown", "dleft", "dright", "chat", "ping", "revive", "voice", "emote", "char", "list", "watchp", "watchn" },
+    { "sniper", "zoomin", "zoomout", "strl", "strr", "shoot", "jump", "chat", "ping", "revive", "voice", "emote", "char", "list", "watchp", "watchn" },
 }
 
 -- the presets: id = { key 1, key 2 } --
@@ -185,17 +191,19 @@ coop.preset_original = {
     sniper = { 57, -1 }, zoomin = { 200, 17 }, zoomout = { 208, 31 },
     minvl = { 26, 1008 }, minvr = { 27, 1009 }, mequip = { 18, 16 }, munequip = { 16, 18 },
     dup = { 27, 1008 }, ddown = { 26, 1009 }, dleft = { 12, 16 }, dright = { 13, 18 },
-    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 }, emote = { 35, -1 }, char = { 36, -1 },
+    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, 1003 }, emote = { 35, -1 }, char = { 36, -1 },
+    list = { 15, -1 }, watchp = { 26, -1 }, watchn = { 27, -1 },
     skip = { 14, -1 },
 }
 coop.preset_modern = {
     fwd = { 17, 200 }, back = { 31, 208 }, strl = { 30, 203 }, strr = { 32, 205 }, turnl = { 44, -1 }, turnr = { 46, -1 },
     lookup = { 199, -1 }, lookdn = { 207, -1 }, jump = { 57, -1 }, shoot = { 1000, -1 },
-    kinvl = { 16, 1008 }, kinvr = { 18, 1009 }, kuse = { 33, 15 }, kclose = { 34, -1 },
+    kinvl = { 16, 1008 }, kinvr = { 18, 1009 }, kuse = { 33, -1 }, kclose = { 34, -1 },
     sniper = { 1001, -1 }, zoomin = { 1008, 17 }, zoomout = { 1009, 31 },
     minvl = { 16, 1008 }, minvr = { 18, 1009 }, mequip = { 33, -1 }, munequip = { 34, -1 },
     dup = { 34, 1008 }, ddown = { 33, 1009 }, dleft = { 16, -1 }, dright = { 18, -1 },
-    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 }, emote = { 35, -1 }, char = { 36, -1 },
+    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, 1003 }, emote = { 35, -1 }, char = { 36, -1 },
+    list = { 15, -1 }, watchp = { 26, -1 }, watchn = { 27, -1 },
     skip = { 14, -1 },
 }
 coop.preset_names = { original = "Original", modern = "Modern", custom = "Custom" }
@@ -230,6 +238,65 @@ end
 
 function coop.SaveCustom(id)
     coop_set("controls_custom", id, format("%d,%d", coop.custom[id][1], coop.custom[id][2]))
+end
+
+-- The shared co-op keys (the same in every co-op mod): no other action may take them (rebinding refuses),
+-- whatever the preset. F1 and F2 are fixed. The Original preset keeps the game's own [ and ] for Max's and Doc's
+-- inventories: the watch keys only act while you are out of the fight, when those do nothing --
+coop.reserved = {
+    [59] = "f1", [60] = "f2", [20] = "chat", [47] = "ping", [1002] = "ping", [48] = "voice", [1003] = "voice",
+    [35] = "emote", [15] = "list", [26] = "watchp", [27] = "watchn",
+}
+coop.reserved_names = { f1 = "Quick guide (F1)", f2 = "Bug marker (F2)" }
+
+-- the action that owns key `code` as a shared key, unless it is `id` itself, else nil --
+function coop.Reserved(id, code)
+    local o = coop.reserved[code]
+    if (o and o ~= id) then return o end
+    return nil
+end
+
+-- Moved defaults (2026-11): open inventory lost Tab in the Modern preset. A saved Custom slot is the player's own;
+-- it is only moved when it is, key for key, the untouched copy of the old Modern preset (the saved file cannot say
+-- who set a key, only that it is not the preset's), and the move is marked done (controls_custom v=2) --
+coop.old_modern = {
+    fwd = { 17, 200 }, back = { 31, 208 }, strl = { 30, 203 }, strr = { 32, 205 }, turnl = { 44, -1 }, turnr = { 46, -1 },
+    lookup = { 199, -1 }, lookdn = { 207, -1 }, jump = { 57, -1 }, shoot = { 1000, -1 },
+    kinvl = { 16, 1008 }, kinvr = { 18, 1009 }, kuse = { 33, 15 }, kclose = { 34, -1 },
+    sniper = { 1001, -1 }, zoomin = { 1008, 17 }, zoomout = { 1009, 31 },
+    minvl = { 16, 1008 }, minvr = { 18, 1009 }, mequip = { 33, -1 }, munequip = { 34, -1 },
+    dup = { 34, 1008 }, ddown = { 33, 1009 }, dleft = { 16, -1 }, dright = { 18, -1 },
+    chat = { 20, -1 }, ping = { 47, 1002 }, revive = { 19, -1 }, voice = { 48, -1 }, emote = { 35, -1 }, char = { 36, -1 },
+    skip = { 14, -1 },
+}
+
+function coop.MigrateControls()
+    if (coop_get("controls_custom", "v", "") == "2") then return end
+    local saved, same = 0, 1
+    local i, a = next(coop.old_modern, nil)
+    while (i) do
+        local v = coop_get("controls_custom", i, "")
+        if (v ~= "") then
+            saved = 1
+            if (v ~= format("%d,%d", a[1], a[2])) then same = nil end
+        else
+            same = nil          -- an action missing from the file: not a full copy of Modern
+        end
+        i, a = next(coop.old_modern, i)
+    end
+    if (saved == 0) then
+        coop_set("controls_custom", "v", "2")
+        return
+    end
+    local k = coop.custom["kuse"]
+    if (same and k[1] == 15) then k[1] = k[2]; k[2] = -1 elseif (same and k[2] == 15) then k[2] = -1 end
+    if (same) then
+        coop.SaveCustom("kuse")
+        coop_log("controls: custom open inventory moved off Tab (an untouched copy of the old Modern preset)")
+    elseif (k[1] == 15 or k[2] == 15) then
+        coop_log("controls: custom open inventory still has Tab (your own change, kept); the player list also uses Tab")
+    end
+    coop_set("controls_custom", "v", "2")
 end
 
 -- the keys of one action in the active preset --
@@ -325,6 +392,37 @@ function coop.KeyText(k)
     return t
 end
 
+-- the quick guide's co-op lines, from the bindings (coop.actions + the keys in use), in this order. F1 and
+-- F2 are fixed keys. The bridge draws what it is given and has no key text of its own for these --
+coop.guide_order = { "chat", "ping", "voice", "emote", "list", "watch", "revive", "char", "skip" }
+
+function coop.GuideAdd(lines, key, desc)
+    lines.n = lines.n + 1
+    lines[lines.n] = { key, desc }
+end
+
+function coop.GuideLines()
+    local lines = { n = 0 }
+    coop.GuideAdd(lines, "Hold F1", "Show this Quick Guide overlay at any time")
+    coop.GuideAdd(lines, "F2", "Mark a problem: log marker + screenshot + 60 s flight dump")
+    local i, id = next(coop.guide_order, nil)
+    while (i) do
+        if (id == "watch") then
+            local p, q = coop.Keys("watchp"), coop.Keys("watchn")
+            coop.GuideAdd(lines, format("%s / %s", coop.ShortKeyText(p), coop.ShortKeyText(q)), "Out of the fight (down, out, spectating): watch previous / next teammate; left mouse = next")
+        else
+            local a = coop.ActionById(id)
+            local k = coop.Keys(id)
+            local t = coop.KeyText(k)
+            if (a.hold) then t = "Hold " .. t end
+            if (a.wheel) then t = t .. " + Mouse" end
+            coop.GuideAdd(lines, t, a.guide)
+        end
+        i, id = next(coop.guide_order, i)
+    end
+    return lines
+end
+
 function coop.SyncGuideKeys()
     local s, t = coop.ShortKeyText, coop.KeyText
     local k = coop.Keys
@@ -343,15 +441,18 @@ function coop.SyncGuideKeys()
         format("%s / %s", s(k("zoomin")), s(k("zoomout"))),
         format("%s / %s, %s open, %s close", s(k("kinvl")), s(k("kinvr")), s(k("kuse")), s(k("kclose"))),
         format("%s / %s, %s equip, %s stow", s(k("minvl")), s(k("minvr")), s(k("mequip")), s(k("munequip"))),
-        format("%s / %s U/D, %s / %s L/R", s(k("dup")), s(k("ddown")), s(k("dleft")), s(k("dright"))),
-        t(k("chat")),
-        t(k("ping")),
-        t(k("revive")),
-        t(k("voice")),
-        t(k("emote")),
-        t(k("char")),
-        t(k("skip"))
+        format("%s / %s U/D, %s / %s L/R", s(k("dup")), s(k("ddown")), s(k("dleft")), s(k("dright")))
     )
+    -- the co-op keys, and the names the guide's text uses for them (revive, skip, voice, wheels)
+    coop_guide_clear()
+    local lines = coop.GuideLines()
+    local i = 1
+    while (i <= lines.n) do
+        coop_guide_line(lines[i][1], lines[i][2])
+        i = i + 1
+    end
+    coop_guide_names(coop.KeyText(k("revive")), coop.KeyText(k("voice")), coop.KeyText(k("emote")),
+        coop.KeyText(k("char")), coop.KeyText(k("skip")), coop.KeyText(k("list")))
 end
 
 -- the action using key `code` in a set with action `id`, if any --
@@ -408,12 +509,55 @@ function coop.EditCustom()
     coop.SetPreset("custom")
 end
 
+-- The words for the same events in every co-op mod (one table; %s is a player's name). Notices use these, and
+-- nothing else spells them. --
+coop.words = {
+    joined = "%s joined",
+    left = "%s left",
+    lost = "Lost %s, waiting up to 30 s",
+    reconnecting = "Reconnecting to %s",
+    version = "%s has a different version (%s)",
+    leave_client = "The others keep playing",
+    leave_host = "Everyone returns to the lobby",
+}
+
+-- "Fox joined" / "Fox left": a line in the chat area on every game when someone comes or goes. The first look
+-- only learns who is here (a client does not announce the host that was already there). --
+coop.known = {}
+coop.known_seen = nil
+coop.notice_n = 0
+function coop.NoticeTick()
+    coop.notice_n = coop.notice_n + 1
+    if (coop.notice_n < 15) then return end
+    coop.notice_n = 0
+    local me = coop_slot()
+    if (not me) then return end
+    local _, slots = coop_players()
+    local s = 0
+    while (s < slots) do
+        if (s ~= me) then
+            local name = coop_player_info(s)
+            if (name and not coop.known[s]) then
+                coop.known[s] = name
+                if (coop.known_seen) then coop_notice(format(coop.words.joined, name)) end
+            elseif (not name and coop.known[s]) then
+                coop_notice(format(coop.words.left, coop.known[s]))
+                coop.known[s] = nil
+            end
+        end
+        s = s + 1
+    end
+    coop.known_seen = 1
+end
+
+-- END KEYTABLE
 coop.preset = coop_get("controls", "preset", "")
 if (coop.preset ~= "original" and coop.preset ~= "modern" and coop.preset ~= "custom") then
     -- before presets there was [controls] modern (default on)
     if (coop_get("controls", "modern", "1") == "1") then coop.preset = "modern" else coop.preset = "original" end
 end
 coop.LoadCustom()
+coop.MigrateControls()
 coop.ApplyControls()
 
 -- Couch co-op ([couch] in coop.ini, written by dist/mdk2-couch.ps1): this
@@ -444,7 +588,7 @@ end
 omMakeCommand(COM_SAVEINSTANT, "", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_LOADINSTANT, "", CON_BUTTON_FALL, 0, 0)
 
--- Developer keys ([controls] devkeys, Options > Co-op > Gameplay; off for players, on in
+-- Developer keys ([controls] devkeys, Options > Co-op > Co-op rules; off for players, on in
 -- the test installs): Num 1 hit / spawn, F3 lava, F4 teleport, F5 Doganboy, F6 / F7 / F8
 -- checkpoints and levels for everyone, F9 BioWare debug menu, F10 test error, F11 anim log,
 -- PgDn / PgUp (keypad 6 / 4) step through the player's animations as emotes (Home / End, keypad 9 / 7,
@@ -1659,6 +1803,7 @@ function coop.LookTick()
 end
 function coop.Tick()
     coop.ControlsCheck()
+    coop.NoticeTick()
     if (coop.lookq) then coop.LookTick() end
     -- host autostart (tools/play.sh <level> <cp>): once the title screen has been up a while
     -- and coop.autostart_players others have joined (or a minute has gone by), load the start
@@ -1713,16 +1858,17 @@ function coop.Tick()
     end
 end
 
--- the players panel ([hud] show, Options > Co-op > Gameplay): in a level, no menu up --
+-- the players panel ([hud] show, Options > Co-op > Co-op rules): in a level, no menu up --
 coop.hud_on = (coop_get("hud", "show", "1") == "1")
 coop.hud_outline = (coop_get("hud", "outline", "0") == "1")
 function coop.HudTick()
-    local show = 0
-    if (coop.hud_on and coop.level and coop.level >= 1 and not coop.waiting and not coop.mv and
+    local show, ingame = 0, 0
+    if (coop.level and coop.level >= 1 and not coop.waiting and not coop.mv and
         not Save.movietocancel and not Save.inminigame and not (gamecontrol and gamecontrol.showmenu == 1)) then
-        show = 1
+        ingame = 1                  -- the player list (hold Tab) needs this, not the strip's switch
+        if (coop.hud_on) then show = 1 end
     end
-    coop_hud(show, mdkGetCameraGob(), coop.hud_outline and 1 or 0)
+    coop_hud(show, mdkGetCameraGob(), coop.hud_outline and 1 or 0, ingame)
 end
 
 -- slot whose puppet gob is, or nil --
@@ -3030,7 +3176,7 @@ function coop.WaitTick()
     if (coop_transport() == "steam" and coop_steam_lobby() == "") then
         why = "Steam lobby disconnected - accept an invite or press Esc"
     elseif (silent > 2000) then
-        why = "Connection to the host lost - reconnecting"
+        why = format(coop.words.reconnecting, coop_player_name(0) or "the host")
     elseif (hlevel < 1) then
         why = "The host left the level - waiting for the host"
     end
@@ -3618,30 +3764,69 @@ function coop.BackItem(m, page)
 end
 
 -- main page --
+-- Leaving a co-op game from the pause menu (Quit): the game's own "Quit?" box, with what happens to the others
+-- under it. Rebuilt each time it opens, so a solo game keeps the plain box. --
+function coop.LeaveYes()
+    mdkPauseGame(0)
+    mdkStartLevel(0,0)
+    gamecontrol.showmenu = 0
+    mdkDialogSetHide(0)
+    mdkShowMouse(0,0)
+    newconscheme = "game"
+    chSndSwitchMusic(-1)
+    chControlSetActiveVMU(-1)
+end
+
+function coop.LeaveNote()
+    local others = coop_players()
+    if (not coop.level or coop.level < 1 or not others or others < 1) then return nil end
+    if (coop_role() == "host") then return coop.words.leave_host end
+    return coop.words.leave_client
+end
+
+function coop.PrepareLeave()
+    local note = coop.LeaveNote()
+    if (not note and not coop.leave_built) then return end
+    mdkClearMenu(menu.quitconfirm)
+    local yes = mdkCreateMenuItemW(menu.quitconfirm, strings.yes)
+    yes.Select = function() coop.LeaveYes() end
+    local no = mdkCreateMenuItemW(menu.quitconfirm, strings.no)
+    no.Select = function() menu.SwitchDlg("pause") end
+    if (note) then
+        coop.Heading(menu.quitconfirm, note)
+        coop_log("leave: " .. note)
+    end
+    coop.leave_built = 1
+end
+
+coop.switchdlg_orig = menu.SwitchDlg
+menu.SwitchDlg = function(name, zero)
+    if (name == "quitconfirm") then coop.PrepareLeave() end
+    coop.switchdlg_orig(name, zero)
+end
+
+-- Names and order as the launcher's Settings sections (E4): Session, Co-op rules, Players and interface,
+-- Voice and sound, Controls. Players is part of Session. --
+coop.page_names = { session = "Session", rules = "Co-op rules", ui = "Players and interface",
+    voice = "Voice and sound", controls = "Controls", players = "Players" }
+
 function coop.BuildMain()
     mdkClearMenu(menu.coop)
     coop.Heading(menu.coop, "Co-op")
-    local item = mdkCreateMenuItem(menu.coop, "Players")
-    item.Select = function(self) coop.ShowPage("coopplayers") end
-    item = mdkCreateMenuItem(menu.coop, "Session")
+    local item = mdkCreateMenuItem(menu.coop, coop.page_names.session)
     item.Select = function(self) coop.ShowPage("coopsession") end
-    item = mdkCreateMenuItem(menu.coop, "Gameplay")
+    item = mdkCreateMenuItem(menu.coop, coop.page_names.rules)
     item.Select = function(self) coop.ShowPage("coopgame") end
-    item = mdkCreateMenuItem(menu.coop, "Interface")
+    item = mdkCreateMenuItem(menu.coop, coop.page_names.ui)
     item.Select = function(self) coop.ShowPage("coopui") end
-    item = mdkCreateMenuItem(menu.coop, "Controls")
-    item.Select = function(self) coop.ShowPage("coopctrl") end
-    item = mdkCreateMenuItem(menu.coop, "Voice chat")
+    item = mdkCreateMenuItem(menu.coop, coop.page_names.voice)
     item.Select = function(self) coop.ShowPage("coopvoice") end
+    item = mdkCreateMenuItem(menu.coop, coop.page_names.controls)
+    item.Select = function(self) coop.ShowPage("coopctrl") end
     item = mdkCreateMenuItemW(menu.coop, strings.opt_ok)
     mdkMenuItemStayInCenterPlease(item)
     mdkMenuItemSetSponge(item, 0.03)
     item.Select = function(self) menu.coop.Cancel() end
-end
-
-menu.coop.Cancel = function()
-    menu.SwitchDlg("options", 0)
-    mdkShowMouse(1,0)
 end
 
 -- players page: everyone connected, refreshed every second --
@@ -3665,14 +3850,14 @@ function coop.BuildPlayers()
     end
     if (not me) then coop.Heading(menu.coopplayers, "Not connected to a host yet") end
     coop.players_built = coop_time()
-    coop.BackItem(menu.coopplayers, "coop")
+    coop.BackItem(menu.coopplayers, "coopsession")
 end
 
 menu.coopplayers.Update = function()
     if (coop_time() - (coop.players_built or 0) >= 1) then coop.BuildPlayers() end
 end
 
-menu.coopplayers.Cancel = function() coop.ShowPage("coop") end
+menu.coopplayers.Cancel = function() coop.ShowPage("coopsession") end
 
 -- text entry (the save menu's way): a box at the bottom, the menu waits for Enter or Esc --
 function coop.EditText(m, text, onaccept)
@@ -3709,7 +3894,9 @@ function coop.BuildSession()
             coop_join_retry()
         end
     end
-    local item = mdkCreateMenuItem(m, "Name: " .. coop_name())
+    local item = mdkCreateMenuItem(m, coop.page_names.players)
+    item.Select = function(self) coop.ShowPage("coopplayers") end
+    item = mdkCreateMenuItem(m, "Name: " .. coop_name())
     item.Select = function(self)
         coop.EditText(menu.coopsession, coop_name(), function(text) coop_set_name(text) end)
     end
@@ -3722,7 +3909,7 @@ function coop.BuildSession()
         else coop_set("net", "role", "client") end
         coop.role_changed = 1
         coop.BuildSession()
-        mdkMenuSetHighlighted(menu.coopsession, 2)
+        mdkMenuSetHighlighted(menu.coopsession, 3)
     end
 
     local transport = coop_get("net", "transport", "udp")
@@ -4046,7 +4233,7 @@ end
 function coop.BuildGame()
     local m = menu.coopgame
     mdkClearMenu(m)
-    coop.Heading(m, "Gameplay")
+    coop.Heading(m, coop.page_names.rules)
 
     local item = mdkCreateMenuItem(m, "Friendly fire")
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "friendly_fire", "0")) or 0)
@@ -4099,7 +4286,7 @@ end
 function coop.BuildInterface()
     local m = menu.coopui
     mdkClearMenu(m)
-    coop.Heading(m, "Interface")
+    coop.Heading(m, coop.page_names.ui)
     coop.CheckItem(m, "Players on screen", "hud", "show", "1", function(on) coop.hud_on = on end)
     coop.CheckItem(m, "Player outlines", "hud", "outline", "0", function(on) coop.hud_outline = on end)
     coop.CheckItem(m, "Cutscene timer", "hud", "movietimer", "1", function(on) coop.movietimer = on end)
@@ -4403,6 +4590,11 @@ function coop.PollRebind()
     if (k == -1) then return end
     if (k ~= 1 and coop.ActionById(id).gk and (k == 1008 or k == 1009)) then
         coop.ctrlnote = "  (the wheel cannot be used for " .. coop.MenuName(coop.ActionById(id)) .. ")"
+    elseif (k ~= 1 and coop.Reserved(id, k)) then
+        local o = coop.Reserved(id, k)
+        local oname = coop.reserved_names[o]
+        if (not oname) then oname = coop.MenuName(coop.ActionById(o)) end
+        coop.ctrlnote = "  (" .. coop.KeyName(k) .. " is reserved for " .. oname .. ")"
     elseif (k ~= 1) then
         local other = coop.Conflict(id, k)
         if (other) then
@@ -4454,7 +4646,7 @@ coop.voice_ranges = { [0] = 25, [1] = 50, [2] = 100, [3] = 0 }
 function coop.BuildVoice()
     local m = menu.coopvoice
     mdkClearMenu(m)
-    coop.Heading(m, "Voice chat")
+    coop.Heading(m, coop.page_names.voice)
 
     local item = mdkCreateMenuItem(m, "Voice chat")
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("voice", "enabled", "1")) or 1)

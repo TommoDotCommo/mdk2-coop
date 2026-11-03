@@ -596,6 +596,14 @@ BYTE *hud_camera(void)
 }
 
 /* one colour per player, for chat names and pings */
+static void slot_colour(int slot, float *c);
+void hud_slot_colour(int slot, float *c) { slot_colour(slot, c); }
+const char *hud_hero_name(int type) { return character(type); }
+float hud_dist_to_slot(int s)
+{
+    return s >= 0 && s < MAX_PLAYERS && gob_alive(puppets[s]) ? dist_to(puppets[s]) : -1.0f;
+}
+
 static void slot_colour(int slot, float *c)
 {
     static const float pal[16][3] = { { 0.95f, 0.85f, 0.4f }, { 0.45f, 0.85f, 1.0f }, { 0.55f, 1.0f, 0.55f },
@@ -747,6 +755,9 @@ static char caption1[96], caption2[96];
 /* coop_banner: the cutscene line (coop_dev.lua, "Cutscenes"), drawn whether or not the panel shows */
 static char banner1[96], banner2[96];
 static float banner_progress = -1.0f;
+
+static int ingame_flag;         /* coop_hud's 4th argument: in a level with no menu, whatever [hud] show says */
+int hud_ingame(void) { return ingame_flag; }
 
 static int dump_rows;           /* coop_hud_dump: log the next frame's rows */
 static int dump_status;         /* and its status lines */
@@ -1211,7 +1222,7 @@ void hud_frame(HDC dc)
     chat_frame(have_remote && shown);
     combat_frame(have_remote && shown);
     /* the panel and tags follow coop_hud's "shown"; the revive status shows whenever it is set */
-    if (!guide_on() && !ctrlview_on() && !emote_wheel_open() && !(caption1[0] && emote_active() >= 0) && !banner1[0] && !banner2[0] && !mbox[0][0] && !mbox[1][0] &&
+    if (!guide_on() && !ctrlview_on() && !plist_on() && !emote_wheel_open() && !(caption1[0] && emote_active() >= 0) && !banner1[0] && !banner2[0] && !mbox[0][0] && !mbox[1][0] &&
         (!have_remote || (!shown && !status1[0] && !status2[0] && !voice_talking(-1))))
         return;
     if (ready < 0)
@@ -1275,6 +1286,7 @@ void hud_frame(HDC dc)
     draw_movie_box(w, h);
     draw_status(w, h);
     ctrlview_draw(w, h);
+    plist_draw(w, h);
     guide_draw(w, h);
     fsel = 0;
     frames_drawn++;
@@ -1301,6 +1313,8 @@ static void l_coop_hud(void)
     camera = tolua_getusertype(2, NULL);
     o = lua_getparam(3);
     outlines = o && lua_isnumber(o) && lua_getnumber(o) != 0.0;
+    o = lua_getparam(4);
+    ingame_flag = o && lua_isnumber(o) && lua_getnumber(o) != 0.0;
 }
 
 /* a string argument, or "" */
