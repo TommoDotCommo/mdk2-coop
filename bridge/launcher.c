@@ -235,7 +235,7 @@ static struct {
     char name[PLAYER_NAME], lobby[24], host[64], port[8], listen[8];
 } cfg;
 
-/* the switches of Options > Co-op (Gameplay, Interface, Voice chat), as coop.ini keys: section, key, default */
+/* the switches of Options > Co-op (Co-op rules, Players and interface, Voice and sound), as coop.ini keys: section, key, default */
 static const struct { const char *section, *key; int dflt; int *v; } switches[] = {
     { "game", "char_follow", 1, &cfg.char_follow }, { "controls", "devkeys", 0, &cfg.devkeys },
     { "hud", "outline", 0, &cfg.outline }, { "hud", "movietimer", 1, &cfg.movietimer },
@@ -257,7 +257,7 @@ static const char *voice_range_names[] = { "Short", "Medium", "Long", "Everywher
 static const char *sound_calls[3] = { "chSndSetEffectsVolume", "chSndMusicVolume", "chSndSetVoiceVolume" };
 static int sound[3], sound_read[3];          /* 0..10, tenths */
 
-/* The difficulty presets of Options > Co-op > Gameplay > Difficulty (coop.diffpresets in
+/* The difficulty presets of Options > Co-op > Co-op rules > Difficulty (coop.diffpresets in
  * coop_dev.lua: keep the two the same). Values of the [game] keys in diff_keys order; a key
  * that is not in coop.ini counts as Normal's. Custom: the keys match no preset, kept as they are. */
 #define NDIFF 7
@@ -2372,13 +2372,13 @@ static void draw_full_guide(void)
     lg_line(c3, &y3, "- Hold J (Character wheel) to switch between Kurt, Max or Doc", C_TEXT);
     lg_line(c3, &y3, "  at any time during gameplay.", C_DIM);
     lg_line(c3, &y3, "- 'Back to level's hero' returns you to the stage's default hero", C_TEXT);
-    lg_line(c3, &y3, "  when the next level loads (toggle in Settings / Gameplay).", C_DIM);
+    lg_line(c3, &y3, "  when the next level loads (toggle in Settings / Co-op rules).", C_DIM);
     lg_line(c3, &y3, "- 4 Difficulty Presets + Custom (host's setting applies to all):", C_TEXT);
     lg_line(c3, &y3, "  Story:     FF Off, 75% HP,  +0%/p,  50% dmg, 60s down, 2s rev", C_DIM);
     lg_line(c3, &y3, "  Normal:    FF Off, 100% HP, +50%/p, 100% dmg, 30s down, 3s rev", C_DIM);
     lg_line(c3, &y3, "  Hard:      FF Off, 125% HP, +75%/p, 150% dmg, 20s down, 4s rev", C_DIM);
     lg_line(c3, &y3, "  Nightmare: FF On,  150% HP, +100%/p, 200% dmg, 10s down, 5s rev", C_DIM);
-    lg_line(c3, &y3, "  Custom:    Tune each setting in Esc > Options > Co-op > Gameplay", C_DIM);
+    lg_line(c3, &y3, "  Custom:    Tune each setting in Esc > Options > Co-op > Co-op rules", C_DIM);
 
     y3 += 5.0f;
     lg_sec(c3, &y3, cw, "HUD, VOICE CHAT, PING & EMOTES", C_BLUE);
