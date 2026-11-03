@@ -45,7 +45,7 @@ def load(path):
             state['events'][key] = values
         elif f[0] == 'ent' and len(f) >= 8 and f[2] != 'gone':
             state['entities'][' '.join(f[7:])] = (int(f[1], 16), int(f[3]))
-    if state['meter'] not in (0, 1) or len(state['players']) != 16 or state['size'] != len(state['events']):
+    if state['meter'] not in (0, 1, 2) or len(state['players']) != 16 or state['size'] != len(state['events']):
         raise ValueError('missing or inconsistent combat state')
     if state['me'] not in range(1, 17) or state['role'] not in ('host', 'client'):
         raise ValueError('missing process identity')
@@ -136,7 +136,7 @@ def main():
     parser.add_argument('--tol', type=float, default=1)
     parser.add_argument('--idle', action='store_true')
     parser.add_argument('--reset', action='store_true')
-    parser.add_argument('--meter', type=int, choices=(0, 1))
+    parser.add_argument('--meter', type=int, choices=(0, 1, 2))
     args = parser.parse_args()
     try:
         if not math.isfinite(args.tol) or args.tol < 0:

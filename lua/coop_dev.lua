@@ -165,7 +165,7 @@ coop.actions = {
     { id="chat",   name="Chat",   page="coop", group=8, short="Chat",   long="Open the chat line (Enter sends, Esc cancels)", coms={}, gk=0, feat="chat", guide="Open text chat (Enter sends, Esc cancels)" },
     { id="ping",   name="Ping",   page="coop", group=8, short="Ping",   long="Ping what you aim at: a marker for everyone", coms={}, gk=1, feat="pings", guide="Ping aimed enemy or spot for everyone (6 s)" },
     { id="revive", name="Revive", page="coop", group=8, short="Revive", long="Hold beside a downed teammate to stand them up", coms={}, gk=2, hold=1, guide="Hold 3 s beside a downed teammate to revive" },
-    { id="voice",  name="Push to talk", page="coop", group=8, short="Talk", long="Hold to talk: players near you hear you (Options > Co-op > Voice and sound)", coms={}, gk=3, hold=1, guide="Push to talk (proximity voice chat)" },
+    { id="voice",  name="Push to talk", page="coop", group=8, short="Talk", long="Hold to talk: players near you hear you (see Voice and sound)", coms={}, gk=3, hold=1, guide="Push to talk (proximity voice chat)" },
     { id="emote",  name="Emote wheel", page="coop", group=8, short="Emote", long="Hold, move the mouse to an emote and let go to play it (moving ends it)", coms={}, gk=4, feat="emotes", hold=1, wheel=1, guide="Emote wheel (let go to play; All... = full list)" },
     { id="char",   name="Character wheel", page="coop", group=8, short="Char", long="Hold, move the mouse to Kurt, Max or Doc and let go to switch to them", coms={}, gk=5, feat="charwheel", hold=1, wheel=1, guide="Character wheel: switch to Kurt, Max or Doc" },
     { id="list",   name="Player list", page="coop", group=8, short="List", long="Hold to list everyone: ping, state, mute, volume, watch; let go to close", coms={}, gk=6, hold=1, guide="Player list: ping, state, mute, volume, watch" },
@@ -459,7 +459,7 @@ function coop.GuideLines()
     while (i) do
         if (id == "watch") then
             local p, q = coop.Keys("watchp"), coop.Keys("watchn")
-            coop.GuideAdd(lines, format("%s / %s", coop.ShortKeyText(p), coop.ShortKeyText(q)), "Out of the fight (down, out, spectating): watch previous / next teammate; left mouse = next", coop.PadGuideText("watch"))
+            coop.GuideAdd(lines, format("%s / %s", coop.ShortKeyText(p), coop.ShortKeyText(q)), "Out of the fight: watch previous / next teammate", coop.PadGuideText("watch"))
         else
             local a = coop.ActionById(id)
             local k = coop.Keys(id)
@@ -4010,6 +4010,9 @@ function coop.BuildSession()
             item = mdkCreateMenuItem(m, "Leave Steam lobby")
             item.Select = function(self) coop_steam_leave(); coop.BuildSession() end
         end
+    elseif (coop_role() == "host") then
+        -- the host has no host to find: say which port friends reach it on (the address row is a client's) --
+        item = mdkCreateMenuItem(m, "Listening on UDP port " .. coop_get("net", "listen_port", "27900"))
     else
         local host, port = coop_get("net", "peer_host", "127.0.0.1"), coop_get("net", "peer_port", "27900")
         item = mdkCreateMenuItem(m, "Host address: " .. host .. ":" .. port)
@@ -4307,18 +4310,15 @@ function coop.BuildGame()
     mdkClearMenu(m)
     coop.Heading(m, coop.page_names.rules)
 
-    local item = mdkCreateMenuItem(m, "Friendly fire")
+    -- the launcher's order (E4); the host decides each of these (E2) --
+    local item = mdkCreateMenuItem(m, "Friendly fire (host decides)")
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "friendly_fire", "0")) or 0)
     item.Select = function(self, n) coop_set("game", "friendly_fire", n) end
 
-    item = mdkCreateMenuItem(m, "Back to level's hero")
-    mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "char_follow", "1")) or 1)
-    item.Select = function(self, n) coop_set("game", "char_follow", n) end
-
-    item = mdkCreateMenuItem(m, "Difficulty: " .. coop.DiffPresetName())
+    item = mdkCreateMenuItem(m, "Difficulty (host decides): " .. coop.DiffPresetName())
     item.Select = function(self) coop.ShowPage("coopdiff") end
 
-    item = mdkCreateMenuItem(m, "Co-op save every")
+    item = mdkCreateMenuItem(m, "Co-op save every (host decides)")
     mdkMenuItemAddComboBox(item)
     mdkMenuItemAddComboString(item, "1 min")
     mdkMenuItemAddComboString(item, "2 min")
@@ -4330,6 +4330,10 @@ function coop.BuildGame()
         coop_set("save", "interval", coop.save_interval)
     end
     item.Dec = item.Inc
+
+    item = mdkCreateMenuItem(m, "Back to level's hero (host decides)")
+    mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "char_follow", "1")) or 1)
+    item.Select = function(self, n) coop_set("game", "char_follow", n) end
 
     item = mdkCreateMenuItem(m, "Developer keys")
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("controls", "devkeys", "0")) or 0)
@@ -4759,7 +4763,7 @@ function coop.BuildVoice()
     item.Inc = function(self) coop_set("voice", "volume", coop.voice_volumes[mdkMenuItemGetWidgitValue(self)]) end
     item.Dec = item.Inc
 
-    item = mdkCreateMenuItem(m, "Hearing range (host)")
+    item = mdkCreateMenuItem(m, "Hearing range (host decides)")
     mdkMenuItemAddComboBox(item)
     mdkMenuItemAddComboString(item, "Short")
     mdkMenuItemAddComboString(item, "Medium")

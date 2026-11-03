@@ -8,6 +8,7 @@ double now_ms(void) { return 1000; }
 void logmsg(const char *fmt, ...) { (void)fmt; }
 void hud_frame(HDC dc) { (void)dc; }
 void launcher_run(void) {}
+void lhost_game_end(void) {}
 int chat_blocks_keys(void) { return 0; }
 int pad_read(int index, struct pad_raw *out) { return 0; }
 void pad_map(const struct pad_raw *p, unsigned prev, float dt, float look, struct pad_out *out)

@@ -128,3 +128,24 @@ and the glyph switch; `coop-keys` checks the guide's pad lines; live: `pad-layer
 - **Vortex and Mod Organizer 2.** Every release carries a Vortex game extension (`mdk2hd-vortex-extension.zip`) and an
   MO2 game plugin (`game_mdk2hd.py`) for MDK2 HD, so the managers install the release zip with no extra step and start the
   game with the co-op launcher. README, Install > Mod managers. The MO2 side is untested under its virtual file system.
+
+## Menu review
+
+- **Host decides.** Every row the host's choice counts for says so in both places: the launcher's hint reads "Host decides"
+  and the in-game rows end in "(host decides)" (friendly fire, difficulty, co-op save interval, back to the level's hero,
+  hearing range). Options > Co-op > Co-op rules now lists them in the launcher's order.
+- **Open lobby.** The big button on Play says "Open lobby" when hosting opens the lobby (it said Host, or Continue when a
+  save was picked).
+- **Text that fitted badly.** The Settings section picker no longer runs "Players and interface" over its arrows, and
+  About keeps a long (development) version clear of its heading.
+- **Session page, host.** A host saw "Host address: 127.0.0.1:27900", a client's row; it now says "Listening on UDP port <port>".
+- **Quick guide and Controls page.** Lines that were cut off at 1280x720 (emote wheel, custom rules, interface, voice chat,
+  watch previous / next, push to talk) are shorter; both guides say Help moved to About and the launcher switch to Settings > Launcher.
+- **DPS meter.** Off by default; Players and interface > DPS meter (launcher or in game) turns it on within two seconds
+  as one line; Ctrl+M cycles off, line, full. The launcher hint now says so; the README and the combat notes were still
+  describing the old always-on line.
+- Tests: `ui-layout` now reads the launcher and the menu source (the four tabs, every Settings section above the
+  status line, row order and "host decides" tags in launcher and game, the DPS row, the Open lobby label, text-fit
+  guards; 10 mutants); `qa_combat.sh` follows the three-step Ctrl+M cycle. `tools/menu_review.sh` captures every
+  launcher page, the lobby as host and guest, and every Options > Co-op page at 1280x720 and 1920x1080, and checks the
+  DPS switch and Ctrl+M live.

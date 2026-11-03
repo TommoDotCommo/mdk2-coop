@@ -281,16 +281,22 @@ layer needs it.
 
 In the launcher's **Settings** tab, or in game under **Options > Co-op** (on the title screen, or Esc > Options), whose pages are named like the launcher's sections:
 
-- **Co-op rules** (was Co-op / Gameplay; the host's choice counts): friendly fire, difficulty, how often co-op saves are made,
-  back to the level's hero after a level you switched hero in, controls preset, gamepad, developer keys.
+- **Co-op rules** (was Co-op / Gameplay; the host decides, tagged "host decides"): friendly fire, difficulty, how often co-op
+  saves are made, back to the level's hero after a level you switched hero in, and (launcher) who can see your lobby.
 - **Difficulty**: Story, Normal, Hard, Nightmare, or each setting on its own: enemy health, extra enemy health per
   player, damage you take and deal, time before you bleed out and time to revive.
-- **Players and interface** (was Interface; your own): players on screen, player outlines through walls (off by default), the cutscene
-  timer, friends in minigames, and the emote wheel, character wheel, text chat and pings, each of which can be
-  switched off.
+- **Players and interface** (was Interface; your own): players on screen, player outlines through walls (off by default), the
+  DPS meter (off by default; Ctrl+M cycles off, one line, full), the cutscene timer, friends in minigames, and the emote
+  wheel, character wheel, text chat and pings, each of which can be switched off. In game this page also has the gamepad
+  switch (next start) and the developer keys.
 - **Voice and sound**: voice chat on or off, its volume, the hearing range (host), and the game's effects, music
   and speech levels.
-- **Display**: windowed or fullscreen, resolution, show the launcher at start.
+- **Controls** (launcher): the preset and the gamepad switch. In game the Controls page shows the keyboard and the
+  rebinding.
+- **Display**: windowed or fullscreen, resolution.
+- **Network** (launcher): the port, finding games on your network and on Tailscale, the router port while hosting, your
+  internet address in invites.
+- **Launcher** (launcher): show the launcher at start, check for updates, offer pre-releases, developer keys.
 - **Session** (in game; the list of Players is part of it): your name, host or join and the connection type (both next start), Steam lobby status,
   invites, joining by lobby ID, or the UDP host's address. On the host: Resume co-op and Save now.
 
@@ -424,8 +430,9 @@ MIT, see [LICENSE](LICENSE). It covers this repo's code only; MDK2 HD itself is 
 
 Floating damage numbers (coloured per player, merging rapid hits into one growing number), a
 hitmarker and a kill ticker show host-confirmed enemy HP loss. A small damage panel at the right
-edge starts as one line (your DPS and the team's); Ctrl+M expands it to a bar per player with
-DPS, totals and the fight timer, and it fades out after the fight. Ctrl+R resets local counters;
+edge is off until you turn on Players and interface > DPS meter (launcher or in game); it is then one line
+(your DPS and the team's), and Ctrl+M cycles off, line and a bar per player with
+DPS, totals and the fight timer; it fades out after the fight. Ctrl+R resets local counters;
 Ctrl+D dumps recent history to `combat.txt` in the mod data folder (the newest 512 events are
 also saved automatically).
 See [combat feedback](docs/COMBAT.md) for format, authority, limits and verification status.
