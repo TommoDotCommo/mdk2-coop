@@ -98,6 +98,24 @@ def check_primary_button(src, fails):
         fails.append("the primary button does not read Open lobby / Play solo")
 
 
+def check_guide_text(ctrl, launcher, fails):
+    """E4: the quick guides name the pages where they are now, and the lines that were cut off at 1280x720 stay short."""
+    for stale in ("Launcher > Help", "Settings > Display toggles launcher", "Help tab"):
+        if stale in ctrl or stale in launcher:
+            fails.append(f"a quick guide still says {stale!r}")
+    for cut in ("opens paged browser", "enemy HP & scaling, damage, down/revive time", "Toggle HUD, outlines, timer, ghosts, wheels",
+                "proximity audio (16 kHz); Short / Med / Long / All"):
+        if cut in ctrl:
+            fails.append(f"the in-game guide line is cut off at 1280x720: {cut!r}")
+
+
+def check_controls_lines(lua, fails):
+    """The Controls page's line list is cut off at 1280x720 beyond about 70 characters of text: the push-to-talk line was."""
+    for m in re.finditer(r'long="([^"]+)"', lua):
+        if "Voice and sound" in m.group(1) and len(m.group(1)) > 62:
+            fails.append(f"a Controls line is too long for 1280x720 and ends in 'sou.': {m.group(1)!r}")
+
+
 def check_text_fit(src, fails):
     """Long values never run over the chooser's arrows; the About version never runs over its heading."""
     ch = src[src.index("static int choice(int id"):]
@@ -124,10 +142,16 @@ MUTANTS = {
     "primary-says-host": ('lob_wants() ? "Open lobby" :', 'lob_wants() ? "Host" :'),
     "dps-row-gone": ('"DPS meter", "One line; Ctrl+M in game: off, line, full"', '"Meter", "One line; Ctrl+M in game: off, line, full"'),
 }
+GUIDE_MUTANTS = {
+    "guide-help-tab": ("Launcher > About > Send diagnostics", "Launcher > Help > Send diagnostics"),
+    "guide-cut-line": ('"Friendly fire, enemy HP, damage, revive times"', '"Friendly fire, enemy HP & scaling, damage, down/revive time"'),
+}
 LUA_MUTANTS = {
     "game-untagged": ('"Co-op save every (host decides)"', '"Co-op save every"'),
     "game-order": ('item = mdkCreateMenuItem(m, "Difficulty (host decides): "', 'item = mdkCreateMenuItem(m, "Zzz: "'),
     "host-address-row": ('elseif (coop_role() == "host") then\n        -- the host has no host', 'elseif (coop_role() == "nobody") then\n        -- the host has no host'),
+    "controls-line-cut": ('long="Hold to talk: players near you hear you (see Voice and sound)"',
+                          'long="Hold to talk: players near you hear you (Options > Co-op > Voice and sound)"'),
     "dps-default-on": ('coop.CheckItem(m, "DPS meter", "hud", "dps", "0"', 'coop.CheckItem(m, "DPS meter", "hud", "dps", "1"'),
 }
 
@@ -181,6 +205,9 @@ def test_launcher_layout():
     check_menu_parity(src, lua, combat, fails)
     check_text_fit(src, fails)
     check_primary_button(src, fails)
+    ctrl = (ROOT / "bridge/ctrlview.c").read_text()
+    check_guide_text(ctrl, src, fails)
+    check_controls_lines(lua, fails)
     assert not fails, "\n".join(fails)
     for name, (old, new) in MUTANTS.items():
         assert src.count(old) == 1, f"mutant {name}: expected one match, found {src.count(old)}"
@@ -191,10 +218,16 @@ def test_launcher_layout():
         check_text_fit(m, bad)
         check_primary_button(m, bad)
         assert bad, f"mutant {name} was NOT caught"
+    for name, (old, new) in GUIDE_MUTANTS.items():
+        assert ctrl.count(old) == 1, f"mutant {name}: expected one match, found {ctrl.count(old)}"
+        bad = []
+        check_guide_text(ctrl.replace(old, new), src, bad)
+        assert bad, f"mutant {name} was NOT caught"
     for name, (old, new) in LUA_MUTANTS.items():
         assert lua.count(old) == 1, f"mutant {name}: expected one match, found {lua.count(old)}"
         bad = []
         check_menu_parity(src, lua.replace(old, new), combat, bad)
+        check_controls_lines(lua.replace(old, new), bad)
         assert bad, f"mutant {name} was NOT caught"
 
 
@@ -237,4 +270,4 @@ if __name__ == "__main__":
     test_launcher_layout()
     test_installer_layout()
     print("PASS: launcher and setup UI layout, menu parity and text-fit checks at 100%, 125%, 150%, 200%, 300% "
-          f"({len(MUTANTS) + len(LUA_MUTANTS)} mutants caught)")
+          f"({len(MUTANTS) + len(LUA_MUTANTS) + len(GUIDE_MUTANTS)} mutants caught)")

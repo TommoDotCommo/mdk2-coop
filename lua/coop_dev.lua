@@ -165,7 +165,7 @@ coop.actions = {
     { id="chat",   name="Chat",   page="coop", group=8, short="Chat",   long="Open the chat line (Enter sends, Esc cancels)", coms={}, gk=0, feat="chat", guide="Open text chat (Enter sends, Esc cancels)" },
     { id="ping",   name="Ping",   page="coop", group=8, short="Ping",   long="Ping what you aim at: a marker for everyone", coms={}, gk=1, feat="pings", guide="Ping aimed enemy or spot for everyone (6 s)" },
     { id="revive", name="Revive", page="coop", group=8, short="Revive", long="Hold beside a downed teammate to stand them up", coms={}, gk=2, hold=1, guide="Hold 3 s beside a downed teammate to revive" },
-    { id="voice",  name="Push to talk", page="coop", group=8, short="Talk", long="Hold to talk: players near you hear you (Options > Co-op > Voice and sound)", coms={}, gk=3, hold=1, guide="Push to talk (proximity voice chat)" },
+    { id="voice",  name="Push to talk", page="coop", group=8, short="Talk", long="Hold to talk: players near you hear you (see Voice and sound)", coms={}, gk=3, hold=1, guide="Push to talk (proximity voice chat)" },
     { id="emote",  name="Emote wheel", page="coop", group=8, short="Emote", long="Hold, move the mouse to an emote and let go to play it (moving ends it)", coms={}, gk=4, feat="emotes", hold=1, wheel=1, guide="Emote wheel (let go to play; All... = full list)" },
     { id="char",   name="Character wheel", page="coop", group=8, short="Char", long="Hold, move the mouse to Kurt, Max or Doc and let go to switch to them", coms={}, gk=5, feat="charwheel", hold=1, wheel=1, guide="Character wheel: switch to Kurt, Max or Doc" },
     { id="list",   name="Player list", page="coop", group=8, short="List", long="Hold to list everyone: ping, state, mute, volume, watch; let go to close", coms={}, gk=6, hold=1, guide="Player list: ping, state, mute, volume, watch" },
@@ -409,7 +409,7 @@ function coop.GuideLines()
     while (i) do
         if (id == "watch") then
             local p, q = coop.Keys("watchp"), coop.Keys("watchn")
-            coop.GuideAdd(lines, format("%s / %s", coop.ShortKeyText(p), coop.ShortKeyText(q)), "Out of the fight (down, out, spectating): watch previous / next teammate; left mouse = next")
+            coop.GuideAdd(lines, format("%s / %s", coop.ShortKeyText(p), coop.ShortKeyText(q)), "Out of the fight: watch previous / next teammate")
         else
             local a = coop.ActionById(id)
             local k = coop.Keys(id)

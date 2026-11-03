@@ -2626,7 +2626,7 @@ static void draw_full_guide(void)
     lg_line(c3, &y3, "  one PC with per-window gamepad routing and Player 1 audio.", C_DIM);
     lg_line(c3, &y3, "- Press F2 in game to write a synchronized marker & screenshot", C_TEXT);
     lg_line(c3, &y3, "  across every connected player's log.", C_DIM);
-    lg_line(c3, &y3, "- Help tab > Send diagnostics creates an anonymized Desktop zip.", C_TEXT);
+    lg_line(c3, &y3, "- About tab > Send diagnostics creates an anonymized Desktop zip.", C_TEXT);
 
     y3 += 5.0f;
     lg_sec(c3, &y3, cw, "DEVELOPER KEYS (WHEN ENABLED)", C_DIM);

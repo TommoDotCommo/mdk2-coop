@@ -739,23 +739,23 @@ void guide_draw(int w, int h)
     guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Character wheel:", buf);
     guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Health & unstick:", "Keeps your HP % and nudges you free if stuck near walls");
     guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Level's hero:", "Hyde levels (6, 12) keep their pair; option resets next level");
-    snprintf(buf, sizeof(buf), "Hold %s: play hero animations; All... opens paged browser", gd.emote);
+    snprintf(buf, sizeof(buf), "Hold %s: hero animations; All... = full list", gd.emote);
     guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Emote wheel:", buf);
     guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Difficulty:", "Story, Normal, Hard, Nightmare or Custom (host rules)");
-    guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Custom rules:", "Friendly fire, enemy HP & scaling, damage, down/revive time");
+    guide_item(cx, &y, colw, h, rowh, G_SNIPER, "Custom rules:", "Friendly fire, enemy HP, damage, revive times");
 
     guide_sec(cx, &y, colw, h, rowh, G_MENU, "HUD, VOICE CHAT, COUCH CO-OP & BUG REPORTS");
     snprintf(buf, sizeof(buf), "Top-left strip; hold %s for the full list: mute, volume, watch", gd.list[0] ? gd.list : "Tab");
     guide_item(cx, &y, colw, h, rowh, G_MENU, "Players panel:", buf);
     guide_item(cx, &y, colw, h, rowh, G_MENU, "Tags & outlines:", "Overhead names (edge arrows off-screen) & wall outlines");
-    guide_item(cx, &y, colw, h, rowh, G_MENU, "Players and interface:", "Toggle HUD, outlines, timer, ghosts, wheels, chat & pings");
-    snprintf(buf, sizeof(buf), "Hold %s: proximity audio (16 kHz); Short / Med / Long / All", gd.voice);
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "Players and interface:", "Switch the HUD extras on / off");
+    snprintf(buf, sizeof(buf), "Hold %s: nearby voices; the host sets the range", gd.voice);
     guide_item(cx, &y, colw, h, rowh, G_MENU, "Voice chat:", buf);
     guide_item(cx, &y, colw, h, rowh, G_MENU, "Controls menu:", "Visual key/mouse/pad map; Original, Modern & Custom");
     guide_item(cx, &y, colw, h, rowh, G_MENU, "Couch co-op:", "Run Couch.cmd for 2-4 split-screen players on 1 PC (pads)");
     guide_item(cx, &y, colw, h, rowh, G_MENU, "F2 bug marker:", "Writes MARK to all logs + screenshot + 60 s flight dump");
-    guide_item(cx, &y, colw, h, rowh, G_MENU, "Diagnostics:", "Launcher > Help > Send diagnostics zips redacted logs");
-    guide_item(cx, &y, colw, h, rowh, G_MENU, "Launcher start:", "Settings > Display toggles launcher (hold Shift to force)");
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "Diagnostics:", "Launcher > About > Send diagnostics (redacted zip)");
+    guide_item(cx, &y, colw, h, rowh, G_MENU, "Launcher start:", "Settings > Launcher > Show at start (Shift: force)");
 
     hud_font_use(1);
     fit(buf, sizeof(buf), "Hold F1: Quick Guide   |   F2: Bug marker & screenshot   |   Esc > Options > Co-op: Session, Co-op rules, Players and interface, Voice and sound, Controls",
