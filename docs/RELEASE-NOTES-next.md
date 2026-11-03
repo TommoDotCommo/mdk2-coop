@@ -110,6 +110,8 @@ New gates: `coop-keys` (key table, migration of saved bindings, guide lines, not
 - **Text that fitted badly.** The Settings section picker no longer runs "Players and interface" over its arrows, and
   About keeps a long (development) version clear of its heading.
 - **Session page, host.** A host saw "Host address: 127.0.0.1:27900", a client's row; it now says "Listening on UDP port <port>".
+- **Quick guide and Controls page.** Lines that were cut off at 1280x720 (emote wheel, custom rules, interface, voice chat,
+  watch previous / next, push to talk) are shorter; both guides say Help moved to About and the launcher switch to Settings > Launcher.
 - **DPS meter.** Off by default; Players and interface > DPS meter (launcher or in game) turns it on within two seconds
   as one line; Ctrl+M cycles off, line, full. The launcher hint now says so; the README and the combat notes were still
   describing the old always-on line.
