@@ -89,7 +89,8 @@ FEATURES = [Gate(name, ("bash", f"tools/{script}.sh"), players, result=result)
                 ("combat-startup", "qa_combat_startup", 1, "counts"), ("combat", "qa_combat", 3, "counts"), ("hud", "qa_hud", 3, "counts"), ("chat", "qa_chat", 3, "counts"),
                 ("voice", "qa_voice", 3, "counts"), ("projectiles", "qa_shots", 3, "projectiles"),
                 ("native-projectiles", "qa_shots_native", 3, "counts"),
-                ("installer", "qa_installer", 1, "installer"), ("build-message", "qa_build_message", 1, "counts")]]
+                ("installer", "qa_installer", 1, "installer"), ("build-message", "qa_build_message", 1, "counts"),
+                ("updater-live", "qa_update_live", 1, "exit")]]
 CAMPAIGN = Gate("campaign", ("bash", "tools/sweep.sh"), 2, 5400, "sweep")
 LOSSY = Gate("lossy-projectiles", ("bash", "tools/qa_shots_native.sh"), 3, 600, "counts", "80 30 3")
 LOSSY_COMBAT = Gate("lossy-combat", ("bash", "tools/qa_combat.sh"), 3, 600, "counts", "80 30 3")
