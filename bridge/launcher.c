@@ -35,6 +35,7 @@
 #include "guide_keys.h"
 #include "launcher_host.h"
 #include "launcher_host_core.h"
+#include "launcher_look.h"
 
 #ifndef MOD_VERSION
 #define MOD_VERSION "dev"
@@ -50,6 +51,50 @@ int coop_enabled = 1;           /* 0: the player chose solo, coop_init does noth
 
 static struct image title, font;
 static float glyph_adv[256];                /* font.lua dim[col][row]: advance in cells */
+static struct image plate, hero_art[LL_HEROES];     /* the buttons' steel, the heroes' panels (launcher_look.h) */
+/* what the last pass drew in the game's look, for the test dump: labels in the menu font or the GDI face, labels wider
+ * than their button, portraits */
+static struct { int game_labels, gdi_labels, overflow, portraits; } look;
+
+/* Where the members the launcher wants sit in the tar, found in one pass (tar_index): the tar is large, and
+ * every member looked up on its own is another pass over its headers */
+#define TAR_INDEX 12
+static struct { const char *name; __int64 pos; DWORD size; } tar_at[TAR_INDEX];
+static int tar_nat;
+
+static void tar_index(const char *const *names, int n)
+{
+    char path[MAX_PATH], hdr[512], field[13];
+    __int64 pos = 0;
+    int i, left = n;
+    FILE *f;
+
+    for (i = 0; i < n && tar_nat < TAR_INDEX; i++) {
+        tar_at[tar_nat].name = names[i];
+        tar_at[tar_nat].pos = -1;
+        tar_nat++;
+    }
+    snprintf(path, MAX_PATH, "%s\\mdk2.tar", game_dir);
+    if (!(f = fopen(path, "rb")))
+        return;
+    while (left && fread(hdr, 1, 512, f) == 512 && hdr[0]) {
+        unsigned long long sz;
+        memcpy(field, hdr + 124, 12);
+        field[12] = 0;
+        sz = strtoull(field, NULL, 8);
+        hdr[99] = 0;
+        for (i = 0; i < tar_nat; i++)
+            if (tar_at[i].pos < 0 && _stricmp(hdr, tar_at[i].name) == 0 && sz < 64 << 20) {
+                tar_at[i].pos = pos + 512;
+                tar_at[i].size = (DWORD)sz;
+                left--;
+            }
+        pos += 512 + ((sz + 511) & ~511ull);
+        if (_fseeki64(f, pos, SEEK_SET))
+            break;
+    }
+    fclose(f);
+}
 
 /* One member of <game dir>\mdk2.tar (plain ustar), malloc'd, or NULL */
 static BYTE *tar_read(const char *name, DWORD *size)
@@ -58,10 +103,27 @@ static BYTE *tar_read(const char *name, DWORD *size)
     __int64 pos = 0;
     BYTE *data = NULL;
     FILE *f;
+    int i;
 
+    for (i = 0; i < tar_nat && _stricmp(tar_at[i].name, name); i++)
+        ;
+    if (i < tar_nat && tar_at[i].pos < 0)
+        return NULL;                /* looked for in the index pass: not in this tar */
     snprintf(path, MAX_PATH, "%s\\mdk2.tar", game_dir);
     if (!(f = fopen(path, "rb")))
         return NULL;
+    if (i < tar_nat) {
+        DWORD n = tar_at[i].size;
+        if (!_fseeki64(f, tar_at[i].pos, SEEK_SET) && (data = malloc(n + 1)) && fread(data, 1, n, f) == n) {
+            data[n] = 0;
+            *size = n;
+        } else {
+            free(data);
+            data = NULL;
+        }
+        fclose(f);
+        return data;
+    }
     while (fread(hdr, 1, 512, f) == 512 && hdr[0]) {
         unsigned long long n;
         memcpy(field, hdr + 124, 12);
@@ -861,10 +923,7 @@ static void draw_background(void)
 /* The game's menu font, cell 32x32, h logical pixels high */
 static float title_width(const char *s, float h)
 {
-    float w = 0;
-    for (; *s; s++)
-        w += glyph_adv[(BYTE)toupper((BYTE)*s)] * h + h * 0.06f;
-    return w;
+    return ll_title_width(glyph_adv, s, h);
 }
 
 static void title_glyphs(float x, float y, float h, const char *s, DWORD tint, int alpha)
@@ -901,6 +960,7 @@ static void title_glyphs(float x, float y, float h, const char *s, DWORD tint, i
 }
 
 static void gdi_text(HFONT f, float x, float y, DWORD c, const char *s, UINT align);
+static float gdi_width(HFONT f, const char *s);
 
 /* heading in the game's font (with a shadow), or bold GDI text without the art */
 static void heading(float x, float y, float h, const char *s, DWORD tint, UINT align)
@@ -915,6 +975,80 @@ static void heading(float x, float y, float h, const char *s, DWORD tint, UINT a
         x -= title_width(s, h);
     title_glyphs(x + 2, y + 2, h, s, 0, 170);
     title_glyphs(x, y, h, s, tint, 255);
+}
+
+/* The steel of buttons and choosers: the game's diamond plate at brightness k (about 0.3 to 0.6, so labels stay
+ * readable), or the flat tile colour without the art */
+static void steel_fill(float x, float y, float w, float h, float k)
+{
+    int ox = px(x), oy = px(y), x0 = ox, y0 = oy, x1 = px(x + w), y1 = px(y + h), i, j;
+    if (!plate.px) {
+        fill(x, y, w, h, k > 0.5f ? C_TILE_HOT : C_TILE, 235);
+        return;
+    }
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > fw) x1 = fw;
+    if (y1 > fh) y1 = fh;
+    for (j = y0; j < y1; j++) {
+        int ty = ll_plate[1] + ll_mirror((int)((j - oy) / sc), ll_plate[3]);
+        for (i = x0; i < x1; i++) {
+            int tx = ll_plate[0] + ll_mirror((int)((i - ox) / sc), ll_plate[2]);
+            DWORD t = plate.px[ty * plate.w + tx];
+            /* cooled toward the launcher's blue-grey so it sits with the tiles */
+            fb[j * fw + i] = mix(scale_rgb(t & 0xffffff, k), C_TILE, 70);
+        }
+    }
+}
+
+/* a raised steel edge: light above and left, dark below and right */
+static void bevel(float x, float y, float w, float h)
+{
+    fill(x, y, w, 1, 0xc8d4d8, 90);
+    fill(x, y + 1, 1, h - 2, 0xc8d4d8, 60);
+    fill(x, y + h - 1, w, 1, 0x000000, 200);
+    fill(x + w - 1, y + 1, 1, h - 2, 0x000000, 150);
+}
+
+/* a label centred in a button: the game's menu font at a height that fits (launcher_look.h), with its shadow,
+ * else the GDI face as without the art. primary: the orange button's height rule, else a secondary button's. */
+static void button_label(float x, float y, float w, float h, const char *s, DWORD c, int primary)
+{
+    float gh = !font.px ? 0 : primary ? ll_primary_height(glyph_adv, s, w, h) : ll_label_height(glyph_adv, s, w, h);
+    if (gh > 0) {
+        float tw = title_width(s, gh), tx = x + (w - tw) / 2, ty = y + (h - gh) / 2 + gh * 0.09f;
+        title_glyphs(tx + 1, ty + 1, gh, s, 0, 160);
+        title_glyphs(tx, ty, gh, s, c, 255);
+        look.game_labels++;
+        if (tw > w - 2)
+            look.overflow++;
+    } else {
+        HFONT f = primary ? f_big : f_label;
+        gdi_text(f, x + w / 2, y + (h - (primary ? 40 : 24)) / 2, c, s, DT_CENTER);
+        look.gdi_labels++;
+        if (gdi_width(f, s) > w)
+            look.overflow++;
+    }
+}
+
+/* hero l's face from the game's comic panel, a square d wide at x, y, framed in the player's colour */
+static int portrait(int hero, float x, float y, float d, DWORD frame)
+{
+    const struct ll_portrait *p = &ll_portraits[hero];
+    const struct image *img = &hero_art[hero];
+    int x0 = px(x), y0 = px(y), n = px(d), i, j;
+    if (hero <= LL_HERO_NONE || hero >= LL_HEROES || !img->px || p->x + p->size > img->w || p->y + p->size > img->h)
+        return 0;
+    for (j = 0; j < n; j++) {
+        if (y0 + j < 0 || y0 + j >= fh)
+            continue;
+        for (i = 0; i < n; i++)
+            if (x0 + i >= 0 && x0 + i < fw)
+                fb[(y0 + j) * fw + x0 + i] = sample(img, p->x + (i + 0.5f) * p->size / n, p->y + (j + 0.5f) * p->size / n) & 0xffffff;
+    }
+    frame_rect(x - 1, y - 1, d + 2, d + 2, 1, frame, 255);
+    look.portraits++;
+    return 1;
 }
 
 static HFONT make_font(int h, int weight, const char *name)
@@ -1043,17 +1177,28 @@ static int button(int id, float x, float y, float w, float h, const char *s, int
         press_label[0] = 0;
         hit = 1;
     }
-    if (primary) {
+    if (primary == 1) {
+        float gh = font.px ? ll_primary_height(glyph_adv, s, w, h) : 0;
         fill(x, y, w, h, hot ? 0xffa640 : C_ORANGE, 255);
         fill(x, y + h - 4, w, 4, 0xc0600c, 255);
-        if (font.px)
+        if (gh >= 34) {         /* the tall ones exactly as always */
             title_glyphs(x + (w - title_width(s, 34)) / 2, y + (h - 34) / 2 + 3, 34, s, 0x1c0d00, 255);
-        else
-            gdi_text(f_big, x + w / 2, y + (h - 40) / 2, 0x1c0d00, s, DT_CENTER);
-    } else {
+            look.game_labels++;
+        } else {
+            button_label(x, y - 2, w, h, s, 0x1c0d00, 1);
+        }
+    } else if (!plate.px) {   /* without the steel: as before the art */
         fill(x, y, w, h, hot ? C_TILE_HOT : C_TILE, 235);
         frame_rect(x, y, w, h, 1, C_FAINT, 255);
-        gdi_text(f_label, x + w / 2, y + (h - 24) / 2, C_TEXT, s, DT_CENTER);
+        button_label(x, y, w, h, s, C_TEXT, 0);
+    } else {
+        /* secondary: the game's steel with an edge; orange marks the one under the mouse or the keyboard;
+         * 2: the host's "Waiting for <names>", darker and dim (it still answers: it says who is not ready) */
+        int off = primary == 2, lit = !off && (hot || (focus == id && kb_focus));
+        steel_fill(x, y, w, h, off ? 0.30f : hot ? 0.60f : 0.44f);
+        bevel(x, y, w, h);
+        fill(x, y, 3, h, off ? 0x2a3a42 : lit ? C_ORANGE : 0x6f8088, 255);
+        button_label(x + 2, y, w - 2, h, s, off ? 0xb0c0c6 : lit ? 0xffd6a0 : C_TEXT, 0);
     }
     focus_ring(id, x, y, w, h);
     if (focus == id)
@@ -1096,7 +1241,12 @@ static int toggle(int id, float x, float y, float w, const char *label, const ch
         *v = adjust ? adjust > 0 : !*v;
         changed = 1;
     }
-    fill(sx, sy, 60, 26, *v ? C_ORANGE : 0x2a3a42, 255);
+    if (*v || !plate.px) {
+        fill(sx, sy, 60, 26, *v ? C_ORANGE : 0x2a3a42, 255);
+    } else {
+        steel_fill(sx, sy, 60, 26, 0.34f);
+        bevel(sx, sy, 60, 26);
+    }
     fill(*v ? sx + 36 : sx + 4, sy + 4, 20, 18, *v ? 0x2a1400 : C_DIM, 255);
     gdi_text(f_small, sx - 10, sy + 3, *v ? C_TEXT : C_FAINT, *v ? "On" : "Off", DT_RIGHT);
     focus_ring(id, x, y, w, ROW);
@@ -1117,7 +1267,9 @@ static int choice(int id, float x, float y, float w, const char *label, const ch
         *v = (*v + d + n) % n;
         changed = 1;
     }
-    fill(bx, y + 6, 200, 34, C_TILE, 235);
+    steel_fill(bx, y + 6, 200, 34, 0.36f);
+    if (plate.px)
+        bevel(bx, y + 6, 200, 34);
     gdi_text(f_label, bx + 14, y + 10, C_DIM, "<", DT_LEFT);
     gdi_text(f_label, bx + 186, y + 10, C_DIM, ">", DT_RIGHT);
     {   /* the value sits between the arrows (140 wide): a long one gets a smaller font, never over them */
@@ -1131,6 +1283,19 @@ static int choice(int id, float x, float y, float w, const char *label, const ch
     }
     focus_ring(id, x, y, w, ROW);
     return d != 0;
+}
+
+/* the box of a text field (40 high): a dark steel inset with its underline, blue while typing */
+static void field_box(float x, float y, float w, int focused)
+{
+    if (!plate.px) {            /* as before the art */
+        fill(x, y, w, 40, focused ? 0x0d1a20 : C_TILE, 245);
+        fill(x, y + 38, w, 2, focused ? C_BLUE : C_FAINT, 255);
+        return;
+    }
+    steel_fill(x, y, w, 40, focused ? 0.20f : 0.27f);
+    fill(x, y, w, 2, 0x000000, 140);            /* the inset's shadow */
+    fill(x, y + 38, w, 2, focused ? C_BLUE : C_FAINT, 255);
 }
 
 /* a one-line text field; digits limits it to a number */
@@ -1161,8 +1326,7 @@ static int field(int id, float x, float y, float w, const char *label, char *buf
         }
         ntyped = 0;
     }
-    fill(x, y + 24, w, 40, focus == id ? 0x0d1a20 : C_TILE, 245);
-    fill(x, y + 62, w, 2, focus == id ? C_BLUE : C_FAINT, 255);
+    field_box(x, y + 24, w, focus == id);
     if (buf[0])
         gdi_text(f_body, x + 12, y + 33, C_TEXT, buf, DT_LEFT);
     else if (placeholder)
@@ -2281,6 +2445,16 @@ static void lob_primary(void)
     changed = 1;
 }
 
+/* The hero everyone starts as: the chosen level's (the host knows it; a guest's roster does not say) */
+static int lob_hero(void)
+{
+    if (!lob.host)
+        return LL_HERO_NONE;
+    if (sel >= 0 && sel < nsessions)
+        return ll_hero_of_level(sessions[sel].level);
+    return ll_hero_of_level(start_set ? start_level : 1);
+}
+
 /* D1: three columns: players | chat | "Friends can join by" above "What to play" */
 #define LC1X 24
 #define LC1W 392
@@ -2292,10 +2466,10 @@ static void lobby_page(void)
     float y, row_h;
     char line[220];
     DWORD now = GetTickCount();
-    int i, mismatch = 0, chat_id, total_msg, start_msg, lines, waiting;
+    int i, mismatch = 0, chat_id, total_msg, start_msg, lines, waiting, hero;
     char wait_text[160];
 
-    fill(12, 84, LW - 24, LH - 96, C_PANEL, 215);
+    fill(12, 84, LW - 24, LH - 96, C_PANEL, title.px ? 150 : 215);     /* the title art shows through, as on Play */
 
     /* players */
     snprintf(line, sizeof(line), "Players  %d/%d", lob.n, LOB_MAX);
@@ -2310,6 +2484,7 @@ static void lobby_page(void)
     }
     y = 126;
     row_h = lob.n > 12 ? 26.0f : 34.0f;
+    hero = lob_hero();
     for (i = 0; i < lob.n; i++) {
         const struct lob_member *m = &lob.m[i];
         struct ls_member_comm *cm = ls_comm_find(&lob.comm, m->id);
@@ -2317,14 +2492,13 @@ static void lobby_page(void)
         int talking = me ? ls_local_talking(&lob.comm, now) : ls_member_talking(cm, now);
         DWORD col = ls_color_rgb((uint8_t)(i % LS_COLORS));
         char pill[48];
-        float bx = LC1X + LC1W - 8;
+        float bx = LC1X + LC1W - 8, nx = LC1X + 26, room;
 
-        fill(LC1X, y, LC1W, row_h - 3, me ? 0x2a2014 : C_TILE, 235);
+        fill(LC1X, y, LC1W, row_h - 3, me ? 0x2a2014 : C_TILE, title.px ? 215 : 235);
         fill(LC1X, y, 5, row_h - 3, col, 255);
-        fill(LC1X + 12, y + (row_h - 3) / 2 - 4, 8, 8, talking ? 0x5ae085 : 0x26363d, 255);     /* speaking light */
-        snprintf(line, sizeof(line), "%s%s%s", i == 0 ? "[host] " : "", m->name, me ? " (you)" : "");
-        clip_text(line, 170);
-        gdi_text(f_small, LC1X + 26, y + (row_h - 24) / 2, talking ? 0x5ae085 : C_TEXT, line, DT_LEFT);
+        if (portrait(hero, LC1X + 10, y + 2, row_h - 7, col))     /* the hero this player starts as */
+            nx += row_h - 2;
+        fill(nx - 14, y + (row_h - 3) / 2 - 4, 8, 8, talking ? 0x5ae085 : 0x26363d, 255);     /* speaking light */
         if (i == 0)
             snprintf(pill, sizeof(pill), "host");
         else if (!same)
@@ -2347,6 +2521,11 @@ static void lobby_page(void)
             bx -= 4;
         }
         gdi_text(f_tiny, bx - 4, y + (row_h - 18) / 2, !same ? C_BAD : m->ready || i == 0 ? C_BLUE : C_DIM, pill, DT_RIGHT);
+        /* the name: up to 170 wide, never into the state on its right */
+        room = bx - 4 - gdi_width(f_tiny, pill) - 8 - nx;
+        snprintf(line, sizeof(line), "%s%s%s", i == 0 ? "[host] " : "", m->name, me ? " (you)" : "");
+        clip_text(line, room < 170 ? room : 170);
+        gdi_text(f_small, nx, y + (row_h - 24) / 2, talking ? 0x5ae085 : C_TEXT, line, DT_LEFT);
         if (!same)
             mismatch++;
         y += row_h;
@@ -2362,7 +2541,7 @@ static void lobby_page(void)
 
     /* chat */
     heading(LC2X, 92, 20, "Chat", C_TEXT, DT_LEFT);
-    fill(LC2X, 124, LC2W, 440, 0x0d1a20, 235);
+    fill(LC2X, 124, LC2W, 440, 0x0d1a20, title.px ? 205 : 235);
     frame_rect(LC2X, 124, LC2W, 440, 1, 0x22343c, 255);
     total_msg = (int)lob.comm.history_total;
     lines = 20;
@@ -2485,7 +2664,7 @@ static void lobby_page(void)
         gdi_text(f_small, PX, LOB_BTN_Y - 26, C_DIM, "Nobody has joined yet: copy the invite.", DT_LEFT);
     }
     if (lob.host) {
-        if (button(ID, PX, LOB_BTN_Y, PW, 64, lob.start_at ? "Starting..." : waiting ? wait_text : "Start game", !waiting))
+        if (button(ID, PX, LOB_BTN_Y, PW, 64, lob.start_at ? "Starting..." : waiting ? wait_text : "Start game", waiting ? 2 : 1))
             lob_primary();
     } else if (button(ID, PX, LOB_BTN_Y, PW, 64, lob.ready ? "Not ready" : "Ready", 1)) {
         lob_primary();
@@ -2715,7 +2894,7 @@ static void lobby_full(void)
         return;
     lobby_page();
     if (lob.on) {
-        gdi_text(f_tiny, 24, LH - 26, C_FAINT, pad_last ? (lob.host ?
+        gdi_text(f_small, 24, 690, C_FAINT, pad_last ? (lob.host ?
                  "A select   B back   LB/RB tabs   Start: start game   X: copy invite   hold Y: quick guide" :
                  "A select   B back   LB/RB tabs   Start: ready   hold Y: quick guide") :
                  (lob.host ? "Hold F1: quick guide   Enter: start   Esc: leave the lobby" : "Hold F1: quick guide   Enter: ready   Esc: leave the lobby"),
@@ -2732,6 +2911,7 @@ static void render(void)
 
     nids = nhits = 0;
     focus_label[0] = 0;
+    memset(&look, 0, sizeof(look));
     memcpy(fb, bg, fw * fh * 4);
 
     /* the Join side scans only while its list, Recent hosts or Play (Rejoin) is shown, never in a lobby */
@@ -3245,6 +3425,12 @@ static void test_commands(void)
                             fi < nids ? fi : -1, nids, pad_last, guide_open, lob.refused, lob.has_key,
                             inet_ntoa(lob.hostaddr.sin_addr), ntohs(lob.hostaddr.sin_port), cfg.section, focus_label,
                             lob.mute_me, lob.deafen);
+                    /* the game's look on this page (the last pass): what is drawn from the player's mdk2.tar */
+                    fprintf(state, "look_title=%d\nlook_font=%d\nlook_steel=%d\nlook_heroes=%d\nlook_game_labels=%d\n"
+                                   "look_gdi_labels=%d\nlook_overflow=%d\nlook_portraits=%d\nlook_hero=%d\n",
+                            title.px != NULL, font.px != NULL, plate.px != NULL,
+                            (hero_art[1].px != NULL) + (hero_art[2].px != NULL) + (hero_art[3].px != NULL),
+                            look.game_labels, look.gdi_labels, look.overflow, look.portraits, lob.on ? lob_hero() : 0);
                 }
                 if (lob.on && lob.host)
                     lhost_dump(state);
@@ -3314,6 +3500,35 @@ static void canvas_free(void)
     title.px = font.px = NULL;
 }
 
+/* The game's art from the player's own mdk2.tar, all found in one pass; each piece is optional ([test]
+ * launcher_art=0: none, as without mdk2.tar) */
+static void art_load(void)
+{
+    static const char *names[] = { "Titlescreen_PC.dds", "font.lua", "font.dds", "mdk2.str", LL_PLATE_FILE,
+                                   "l0apanel004.dds", "l0xpanel003.dds", "l0ypanel004.dds" };
+    char tini[MAX_PATH];
+    int h, heroes = 0;
+
+    snprintf(tini, MAX_PATH, "%s\\coop.ini", coop_dir);
+    if (headless && !GetPrivateProfileIntA("test", "launcher_art", 1, tini)) {
+        logmsg("launcher: art off ([test] launcher_art=0)");
+        return;
+    }
+    tar_index(names, (int)(sizeof(names) / sizeof(names[0])));
+    if (!dds_load("Titlescreen_PC.dds", &title))
+        logmsg("launcher: no title art");
+    if (!font_load())
+        logmsg("launcher: no menu font");
+    if (!dds_load(LL_PLATE_FILE, &plate) || plate.w < ll_plate[0] + ll_plate[2] || plate.h < ll_plate[1] + ll_plate[3]) {
+        free(plate.px);
+        plate.px = NULL;
+        logmsg("launcher: no steel for the buttons");
+    }
+    for (h = 1; h < LL_HEROES; h++)
+        heroes += dds_load(ll_portraits[h].file, &hero_art[h]);
+    logmsg("launcher: art: title %d, font %d, steel %d, heroes %d", title.px != NULL, font.px != NULL, plate.px != NULL, heroes);
+}
+
 static void run(void)
 {
     WNDCLASSA wc;
@@ -3350,10 +3565,7 @@ static void run(void)
         return;
     }
     fonts_make();
-    if (!dds_load("Titlescreen_PC.dds", &title))
-        logmsg("launcher: no title art");
-    if (!font_load())
-        logmsg("launcher: no menu font");
+    art_load();
     draw_background();
     focus = -1;
     pass();

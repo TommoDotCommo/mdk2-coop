@@ -20,7 +20,7 @@ diag_ps1.h: ../dist/diag.ps1
 	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r$$//' -e 's/^/"/' -e 's/$$/\\n"/' $< | \
 		{ echo 'static const char diag_script[] ='; cat; echo ';'; } > $@
 
-dinput8.dll: $(SRCS) bridge.h anim_guard.h crash_context.h combat_core.h combat_hud.h presence.h snapshot.h steam_abi.h route.h pad.h launcher_session.h launcher_invite_command.h launcher_profiles.h launcher_join.h launcher_join.c launcher_host.h launcher_host_core.h launcher_host_win.h coop_invite.h coop_discover.h coop_discover_win.h launcher_update.h launcher_update_win.h launcher_voice_win.h guide_keys.h dinput8.def diag_ps1.h version_res.o
+dinput8.dll: $(SRCS) bridge.h anim_guard.h crash_context.h combat_core.h combat_hud.h presence.h snapshot.h steam_abi.h route.h pad.h launcher_session.h launcher_invite_command.h launcher_profiles.h launcher_join.h launcher_join.c launcher_host.h launcher_host_core.h launcher_host_win.h coop_invite.h coop_discover.h coop_discover_win.h launcher_update.h launcher_update_win.h launcher_voice_win.h launcher_look.h guide_keys.h dinput8.def diag_ps1.h version_res.o
 	$(CC) $(CFLAGS) -DMOD_VERSION='"$(VERSION)"' -o $@ $(SRCS) version_res.o dinput8.def $(LDFLAGS)
 
 install: dinput8.dll
@@ -51,13 +51,27 @@ test-pad: ../local/tests/pad_test.exe ../local/tests/pad_test_mutant.exe
 	@if ../local/tests/pad_test_mutant.exe >/dev/null; then echo "MUTANT pad-no-swallow passed: the test cannot see it" >&2; exit 1; \
 	else echo "mutant pad-no-swallow: fails as it must"; fi
 
+../local/tests/launcher_look_test.exe: tests/launcher_look_test.c launcher_look.h
+	mkdir -p ../local/tests
+	$(CC) $(CFLAGS) -o $@ tests/launcher_look_test.c -static-libgcc
+
+../local/tests/launcher_look_test_mutant.exe: tests/launcher_look_test.c launcher_look.h
+	mkdir -p ../local/tests
+	$(CC) $(CFLAGS) -DCOOP_MUTANT_LOOK_NO_FIT -o $@ tests/launcher_look_test.c -static-libgcc
+
+# the launcher's game look: labels fit their buttons; the mutant (labels never shrink) must fail
+test-launcher-look: ../local/tests/launcher_look_test.exe ../local/tests/launcher_look_test_mutant.exe
+	../local/tests/launcher_look_test.exe
+	@if ../local/tests/launcher_look_test_mutant.exe >/dev/null; then echo "MUTANT look-no-fit passed: the test cannot see it" >&2; exit 1; \
+	else echo "mutant look-no-fit: fails as it must"; fi
+
 test-revive:
 	../tools/test_revive.sh
 
 test-combat:
 	python3 ../tools/test_combat.py
 
-.PHONY: install clean test-shots test-pad test-revive test-combat
+.PHONY: install clean test-shots test-pad test-launcher-look test-revive test-combat
 
 ../local/tests/redirect_test.exe: tests/redirect_test.c redirect.c bridge.h
 	mkdir -p ../local/tests
