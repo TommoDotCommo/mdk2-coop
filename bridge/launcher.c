@@ -2091,9 +2091,8 @@ static void lob_poll(void)
             lob.n = count;
             memcpy(lob.m, roster, lob.n * sizeof(roster[0]));
             lob_sync_comm();
-            if (!lob.connected && (lob.hostaddr.sin_addr.s_addr != from.sin_addr.s_addr || lob.hostaddr.sin_port != from.sin_port ||
-                                   lob.ntargets > 1)) {
-                /* C4: the first route that answered; the game connects there too */
+            if (!lob.connected) {
+                /* C4: the first route that answered; the game connects there too (peer_host is a bare address) */
                 lob.hostaddr = from;
                 lob.ntargets = 0;
                 snprintf(cfg.host, sizeof(cfg.host), "%s", inet_ntoa(from.sin_addr));
@@ -2366,9 +2365,9 @@ static void lobby_page(void)
             float h;
             gdi_text(f_tiny_b, PX, y, c, mark, DT_LEFT);
             gdi_text(f_tiny_b, PX + 26, y, C_TEXT, r->title, DT_LEFT);
-            h = gdi_para(f_tiny, PX + 140, y, PW - 140, r->state == LHOST_OFF ? C_DIM : C_TEXT, r->result);
+            h = gdi_para(f_tiny, PX + 152, y, PW - 152, r->state == LHOST_OFF ? C_DIM : C_TEXT, r->result);
             if (r->fix[0] && r->state != LHOST_OK)
-                h += gdi_para(f_tiny, PX + 140, y + h, PW - 140, C_DIM, r->fix);
+                h += gdi_para(f_tiny, PX + 152, y + h, PW - 152, C_DIM, r->fix);
             y += (h > 18 ? h : 18) + 6;
         }
         y += 4;
@@ -2379,8 +2378,11 @@ static void lobby_page(void)
                 snprintf(lob.invite_status, sizeof(lob.invite_status), "No invite yet: no network route found.");
             changed = 1;
         }
-        if (choice(ID, PX + 180, y - 7, PW - 180, "", NULL, visibility, 2, &lhost_cfg.invite_only))
+        if (button(ID, PX + 180, y, PW - 180, 32, visibility[lhost_cfg.invite_only != 0], 0)) {   /* B9 */
+            lhost_cfg.invite_only = !lhost_cfg.invite_only;
             lhost_settings_save(ini);
+            changed = 1;
+        }
         y += 38;
         if (lhost_invite(lob_name(), msg, sizeof(msg), code, sizeof(code)))
             y += gdi_para(f_tiny, PX, y, PW, C_DIM, lob.invite_status[0] ? lob.invite_status : code) + 6;
