@@ -25,6 +25,7 @@ No game files are in this repo. Every player needs their own copy of MDK2 HD on 
 - [Uninstall](#uninstall)
 - [For developers](#for-developers)
 - [Code signing policy](#code-signing-policy)
+- [If Windows warns you](#if-windows-warns-you)
 - [Privacy](#privacy)
 
 ## What you get
@@ -301,15 +302,22 @@ this game live in its `games/mdk2-hd/NOTES.md`.
 
 ## Code signing policy
 
-Windows release files (`MDK2-Coop-Setup.exe`, `dinput8.dll`, `install-policy.exe`) are being moved to signing
-through the SignPath Foundation program for open-source projects (application in progress):
-free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
-[SignPath Foundation](https://signpath.org/). Signed builds are made by GitHub Actions from this public repository;
-nothing built on a private machine is signed.
+Release files are **not code-signed yet**. We applied to the SignPath Foundation program for open-source projects
+(free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/)); it asks for more public adoption first, so we will reapply after the
+public beta. Signed builds will be made by GitHub Actions from this public repository, each approved by the
+maintainer; nothing built on a private machine will be signed. Every download has a SHA-256 sidecar.
 
 - Authors and committers: [TommoDotCommo](https://github.com/TommoDotCommo)
 - Reviewers: [TommoDotCommo](https://github.com/TommoDotCommo) (changes from other contributors are reviewed before merge)
 - Approvers (each signed release is approved by hand): [TommoDotCommo](https://github.com/TommoDotCommo)
+
+## If Windows warns you
+
+Because the files are new and not signed yet, Windows may stop Setup with **"Windows protected your PC"**: click
+**More info**, then **Run anyway**. If Microsoft Defender quarantines a file, it is a false positive: we report every
+release's files to Microsoft. Check the file's SHA-256 against the `.sha256` file on the release page, then restore it
+from Windows Security > Protection history, or install by hand from the zip instead (no Setup needed).
 
 ## Privacy
 
