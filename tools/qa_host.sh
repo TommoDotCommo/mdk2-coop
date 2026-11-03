@@ -152,6 +152,7 @@ check "host: game started"                             wait_log 1 "^launcher: pl
 check "client: game started"                           wait_log 2 "^launcher: play, join over UDP" 15
 check "client joined the game"                         wait_log 2 "^we are player [0-9]+" 60
 check "game: invite only, the client's game let in by its key" wait_log 1 "^invite only: .* has the invite" 5
+check "game: the key came before any player packet"   bash -c "! grep -q '^invite only: refused' '$(mdk_log 1)'"
 
 for i in 1 2; do cp "$(mdk_log "$i")" "$out/game$i.log"; done
 mdk_kill

@@ -2953,8 +2953,7 @@ static void pad_action(int a)
         break;
     case LH_ACT_PRIMARY:
         if (lob.on) lob_primary();
-        else if (lob_wants()) lob_open();
-        else done = 1;
+        else play_primary();        /* what the primary button says: Join <name>, Join invite, Host, Play solo */
         pass();
         present();
         break;

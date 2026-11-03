@@ -124,8 +124,8 @@ class Launchers:
         assert at < 3, f'{host} is row {at} on screen; only three rows are shown'
         self.command(2, f'click 1000 {430 + 44 * at + 20}')
         self.expect(2, 'row selected, primary says who', **{'join.selected': i, 'join.primary': f'Join {host}'})
-        self.command(2, 'click 1000 660')
-        self.expect(2, 'joined from the list', timeout=8, **{'launcher.lobby': 1, 'launcher.connected': 1})
+        self.command(2, 'pad 0x0010 0 0', 'pad 0 0 0')     # the pad's Start is the primary button (K3)
+        self.expect(2, 'joined from the list with the pad', timeout=8, **{'launcher.lobby': 1, 'launcher.connected': 1})
         self.expect(1, 'host sees the joiner', timeout=6, **{'launcher.players': 2})
         state = self.expect(2, 'recent host remembered after the join', **{'recents.count': 1, 'recent0.name': host,
                                                                           'recent0.route': 'lan', 'recent0.port': self.port})
