@@ -346,7 +346,9 @@ enum { UP_IDLE, UP_CHECKING, UP_CURRENT, UP_AVAILABLE, UP_DOWNLOADING,
 #define button(...) 0
 #define open_url(...) ((void)0)
 #define ShellExecuteA(...) ((void)0)
-int update_state, update_rollback_ready, changed, seen;
+#define LU_OWNER_SETUP 0
+#define RELEASES_PAGE ""
+int update_state, update_rollback_ready, changed, seen, update_owner;
 struct { int auto_enabled, include_prereleases; } update_sched = {1, 1};
 struct { char notes[180]; } update_rel;
 char update_msg[220];
