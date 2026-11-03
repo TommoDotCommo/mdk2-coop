@@ -13,6 +13,11 @@ int chat_blocks_keys(void) { return 0; }
 int pad_read(int index, struct pad_raw *out) { return 0; }
 void pad_map(const struct pad_raw *p, unsigned prev, float dt, float look, struct pad_out *out)
 { memset(out, 0, sizeof(*out)); }
+/* the co-op pad layer (t84): this test has no pad (pad_read returns 0), so the layer never acts */
+const struct pad_line pad_layer_lines[] = { { "", "", "" } };
+const int pad_layer_count = 0;
+void padlayer_step(struct padlayer *s, unsigned buttons, double now, struct padlayer_out *o) { memset(o, 0, sizeof(*o)); }
+int pad_glyphs(int was, const struct pad_raw *p, unsigned prev_buttons, int key_pressed) { return key_pressed ? 0 : was; }
 
 static HRESULT WINAPI real_state(void *self, DWORD size, void *out)
 {
