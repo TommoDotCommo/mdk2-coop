@@ -219,8 +219,21 @@ The **emote wheel** offers each hero the animations they have; its last slot, **
 animation, a page at a time. The **character wheel** switches you to Kurt, Max or Doc on the spot, keeping your
 share of health; **Level's own** goes back to the hero the level gave you.
 
-A **gamepad** (Xbox style) works too: left stick moves, right stick looks, right trigger fires, left trigger is
-sniper mode, A jumps, X revives, Y opens the inventory, Back pings, the bumpers change item, B or Start pauses.
+A **gamepad** (Xbox style, Steam Deck) works too: left stick moves, right stick looks, right trigger fires, left trigger
+is sniper mode, A jumps, X revives, Y opens the inventory, the bumpers change item, B or Menu (Start) pauses, holding
+the right stick click talks. **View** (Back) is the co-op button:
+
+| On a pad | Does |
+|---|---|
+| Tap View | Ping what you aim at |
+| Hold View | Player list (right stick and RT: mute, volume, watch) |
+| View + D-pad up / LB / RB | Emote wheel / character wheel / quick chat (Ready, Wait for me, ...): right stick picks, let go of View to choose |
+| View + D-pad down | Chat: Steam's keyboard, or one on screen (A types, Menu sends, B cancels) |
+| View + D-pad left / right | Watch the previous / next player when you are out of the fight |
+| View + Y | Mod Quick Guide |
+
+While View is held the D-pad does not move you. After pad input the hints show pad buttons and voice is open mic (Voice
+mode: Automatic; Push to talk and Open mic are the other choices).
 
 ## Settings
 
