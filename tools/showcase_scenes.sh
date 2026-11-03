@@ -83,6 +83,8 @@ if want canopy; then
     sleep 8
     lua 1 'mdkGobSetPosition(mdkGetPlayerGob(), "l1_r8doganland1")'; sleep 3
     beside 12 0
+    mdk_press "$(mdk_pid 1)" 199 1 900 100 &          # Home: the host looks up at the canopy
+    sleep 0.3
     lua 2 'local p = mdkGetPlayerGob() qa_z0 = p.position.z mdkGobSetPositionXYZ(p, p.position.x, p.position.y, qa_z0 + 16) coop_press(57, 14000)'
     for i in 1 2 3 4 5 6; do shot canopy_$i 0.3; lua 2 'local p = mdkGetPlayerGob() if p.position.z < qa_z0 + 5 then mdkGobSetPositionXYZ(p, p.position.x, p.position.y, qa_z0 + 16) end'; done
 fi
