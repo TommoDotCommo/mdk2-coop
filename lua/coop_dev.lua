@@ -4378,6 +4378,7 @@ function coop.DpsItem(m)
     mdkMenuItemSetWidgitValue(item, v)
     item.Inc = function(self) coop_set("hud", "dps", mdkMenuItemGetWidgitValue(self)) end
     item.Dec = item.Inc
+    coop.dps_item = item
     return item
 end
 

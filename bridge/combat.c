@@ -167,7 +167,9 @@ void combat_frame(int allowed)
                 /* the setting follows the screen: the launcher's and the menu's chooser show what Ctrl+M left */
                 snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
                 snprintf(val, sizeof(val), "%d", meter);
+#ifndef COOP_MUTANT_DPS_NO_WRITEBACK    /* tools/qa_session_menu.sh MUTANT=nowriteback: the old behaviour, Ctrl+M leaves coop.ini alone */
                 WritePrivateProfileStringA("hud", "dps", val, ini);
+#endif
                 dps_setting = meter; dps_read_at = clock_ms();
             }
             if (i == 1) reset_meter();

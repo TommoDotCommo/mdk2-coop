@@ -20,8 +20,8 @@ What you see, all drawn from the same confirmed events and the same counters:
 - **Damage panel**: a compact corner panel at the right of the screen, set in from the edge by 2.5 percent of the width (at least 12 pixels) and below the top 36 percent where the game's tutorial and dialog boxes appear, at most 15 percent of the
   screen width and 20 percent of its height (positions are fractions of the window, text sizes
   follow the window height, so it scales with resolution; the mod has no separate UI scale).
-  It is *off by default* (`[hud] dps` 0; Players and interface > DPS meter in the launcher or in game, applied within
-  two seconds, turns it on as one thin line, `DPS  You 30  Team 108`, which is 1). Ctrl+M cycles off, line, expanded (2):
+  It is *off by default* (`[hud] dps` 0; Players and interface > DPS meter, an Off / Line / Full chooser in the launcher and in game, applied within
+  two seconds; Line is one thin line, `DPS  You 30  Team 108`, which is 1). Ctrl+M cycles off, line, expanded (2) and writes the value back to `coop.ini`, so the chooser shows what the screen does:
   a `Damage` title with the fight timer, a column-label line (`Total` over the small damage
   number, `DPS` over the large one), then one bar per player, longest first, with the
   player's name in their colour. The bar is the

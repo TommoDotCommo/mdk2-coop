@@ -149,3 +149,18 @@ and the glyph switch; `coop-keys` checks the guide's pad lines; live: `pad-layer
   guards; 10 mutants); `qa_combat.sh` follows the three-step Ctrl+M cycle. `tools/menu_review.sh` captures every
   launcher page, the lobby as host and guest, and every Options > Co-op page at 1280x720 and 1920x1080, and checks the
   DPS switch and Ctrl+M live.
+
+## Menu review follow-ups
+
+- **Session page: Copy invite and Leave.** The host's Options > Co-op > Session has Copy invite (the same text and code
+  as the launcher's button, from the lobby the game started from) and, in a game, everyone has Leave, which asks the same
+  one question as Esc > Quit: "Everyone returns to the lobby" for the host, "The others keep playing" for a guest.
+- **DPS meter is Off / Line / Full** in the launcher and in game (`[hud] dps`, off by default). Ctrl+M writes the new
+  value back, so the chooser always agrees with the screen.
+- **Developer keys** show in game only when developer mode is on, last in Players and interface (they are no longer among
+  the host's Co-op rules). The switch stays in the launcher's Settings > Launcher.
+- **The launcher's F1 guide reads the in-game key table.** Its co-op lines are generated from it
+  (`tools/gen_guide_keys.py` writes `bridge/guide_keys.h`; `tools/test_coop_keys.py` fails when it is stale), so hold Tab
+  (player list) and [ ] (watch) appear and the keys stay in step.
+- Checks: `tools/qa_session_menu.sh` (two games; Copy invite decoded by `tools/invite_decode.py`, Leave asks once, Ctrl+M
+  write-back, with a mutant), plus mutants in `tools/test_ui_layout.py` and `tools/test_coop_keys.py`.
