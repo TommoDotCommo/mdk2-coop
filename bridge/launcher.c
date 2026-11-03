@@ -1617,7 +1617,7 @@ static void diag_poll(void)
 static void page_about(void)
 {
     float y = 92;
-    char line[240];
+    char line[240], notes[180];
     int st, rb, auto_en;
 
     update_init();
@@ -1627,6 +1627,7 @@ static void page_about(void)
     auto_en = update_sched.auto_enabled;
     snprintf(line, sizeof(line), "%s", update_msg[0] ? update_msg :
              (auto_en ? "Checks GitHub for updates at most once a day (Settings > Launcher)." : "Automatic update checks are off (Settings > Launcher)."));
+    snprintf(notes, sizeof(notes), "%.160s", update_rel.notes);
     LeaveCriticalSection(&update_lock);
 
     heading(PX, y, 28, "MDK2 HD Co-op", C_TEXT, DT_LEFT);
@@ -1644,7 +1645,6 @@ static void page_about(void)
     y += 24;
     y += gdi_para(f_small, PX, y, PW, st == UP_ERROR ? C_BAD : st == UP_CURRENT ? C_BLUE : (st == UP_AVAILABLE || st == UP_APPLIED) ? C_ORANGE : C_DIM, line) + 4;
     if (st == UP_AVAILABLE) {
-        char notes[180];
         EnterCriticalSection(&update_lock);
         snprintf(notes, sizeof(notes), "What's new: %.140s", update_rel.notes[0] ? update_rel.notes : "Release package verified via .sha256 sidecar.");
         LeaveCriticalSection(&update_lock);
@@ -2428,6 +2428,8 @@ static void lobby_page(void)
     if (lob.address_status[0])
         gdi_para(f_tiny, PX, LH - 192, PW - 150, C_DIM, lob.address_status);
     waiting = lob.host ? lob_waiting(wait_text, sizeof(wait_text)) : 0;
+    if (waiting && (font.px ? title_width(wait_text, 34) : gdi_width(f_big, wait_text)) > PW - 24)
+        snprintf(wait_text, sizeof(wait_text), "Waiting for %d players", waiting);
     if (lob.start_at) {
         int left = (int)(lob.start_at - now);
         snprintf(line, sizeof(line), "Starting in %d...", left > 0 ? (left + 999) / 1000 : 0);
