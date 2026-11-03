@@ -20,7 +20,7 @@ GAME_FILES = ['dinput8.dll', 'coop/coop.lua']
 # game builds the mod switches on for (bridge/build_sigs.h decides at run time; these are the exe files seen so far)
 BUILDS = [
     {'name': 'Overhaul Games build', 'sha256': '6b8b2400988cdd11ed2c0b701ad382b613e83c88b6d243446f51e0bd541aa956'},
-    {'name': 'Steam build 3902', 'sha256': None},
+    {'name': 'Steam build 3902', 'sha256': 'bf5faa81b18837b4c07f35941b107e5c23caa8b105536ccd9c8e5a8e37357f43'},
 ]
 KEYS = ['schema', 'id', 'name', 'version', 'game', 'proxy', 'proton', 'files', 'user_data', 'homepage', 'updates']
 
