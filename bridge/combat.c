@@ -11,7 +11,7 @@ static struct cb_guard reports, outgoing;
 static unsigned short epoch;
 static unsigned int serial;
 /* meter: 0 hidden (default), 1 one thin line, 2 expanded. [hud] dps in coop.ini sets it (re-read every 2 s, so the launcher
- * and the in-game Interface toggle apply live); Ctrl+M cycles it until the setting changes. The dump keeps the old header fields. */
+ * and the in-game Interface toggle apply live); Ctrl+M cycles it and writes the new value back, so the chooser and the screen agree. The dump keeps the old header fields. */
 static int meter, keys[3], dps_setting = -1;
 static uint64_t dps_read_at;
 static unsigned int source_serial;
@@ -161,7 +161,15 @@ void combat_frame(int allowed)
     for (i = 0; i < 3; i++) {
         int down = ctrl && input_down(codes[i], vks[i]);
         if (down && !keys[i]) {
-            if (i == 0) { meter = (meter + 1) % 3; cbh_peek(&hud, clock_ms()); }
+            if (i == 0) {
+                char ini[MAX_PATH], val[4];
+                meter = (meter + 1) % 3; cbh_peek(&hud, clock_ms());
+                /* the setting follows the screen: the launcher's and the menu's chooser show what Ctrl+M left */
+                snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
+                snprintf(val, sizeof(val), "%d", meter);
+                WritePrivateProfileStringA("hud", "dps", val, ini);
+                dps_setting = meter; dps_read_at = clock_ms();
+            }
             if (i == 1) reset_meter();
             if (i == 2) dump_file();
         }

@@ -78,16 +78,53 @@ def check_menu_parity(src, lua, combat, fails):
     before = lua[:lua.index('mdkCreateMenuItem(m, "Host address: "')] if sess else ""
     if 'elseif (coop_role() == "host") then' not in before[-900:] or "Listening on UDP port" not in before[-600:]:
         fails.append("Session page shows a host the Host address row (a client's) instead of its port")
-    # the DPS meter: a switch in both places, off by default, in the same section; Ctrl+M cycles off, line, full
+    # the DPS meter (b): an Off / Line / Full chooser in both places, off by default, in the same section; Ctrl+M cycles the
+    # same three and writes the value back, so the chooser and the screen agree
     ui = dict((l, h) for l, h in rows["Players and interface"])
     if "DPS meter" not in ui or "Ctrl+M" not in ui["DPS meter"]:
         fails.append("launcher has no DPS meter row that names Ctrl+M")
-    if 'coop.CheckItem(m, "DPS meter", "hud", "dps", "0"' not in lua:
-        fails.append("in-game Players and interface has no DPS meter switch, off by default")
-    if '{ "hud", "dps", 0, &cfg.dps }' not in src:
-        fails.append("launcher DPS meter does not write [hud] dps, off by default")
+    if 'choice(ID, PX, y, PW, "DPS meter"' not in src or '"Off", "Line", "Full"' not in src:
+        fails.append("launcher DPS meter is not an Off / Line / Full chooser")
+    if 'put_int("hud", "dps", cfg.dps)' not in src or 'GetPrivateProfileIntA("hud", "dps", 0, ini)' not in src:
+        fails.append("launcher DPS meter does not read and write [hud] dps, off by default")
+    iface = lua[lua.index("function coop.DpsItem(m)"):]
+    iface = iface[:iface.index("\nend\n")]
+    if not all(f'mdkMenuItemAddComboString(item, "{w}")' in iface for w in ("Off", "Line", "Full")) or \
+            'coop_get("hud", "dps", "0")' not in iface or 'coop_set("hud", "dps", mdkMenuItemGetWidgitValue(self))' not in iface:
+        fails.append("in-game DPS meter is not an Off / Line / Full chooser on [hud] dps, off by default")
+    page = lua[lua.index("function coop.BuildInterface()"):]
+    page = page[:page.index("\nend\n")]
+    if "coop.DpsItem(m)" not in page:
+        fails.append("in-game Players and interface has no DPS meter chooser")
     if 'GetPrivateProfileIntA("hud", "dps", 0, ini)' not in combat or "meter = (meter + 1) % 3" not in combat:
         fails.append("the bridge does not read [hud] dps live (default off) or Ctrl+M does not cycle off, line, full")
+    cycle = combat[combat.index("meter = (meter + 1) % 3"):]
+    cycle = cycle[:cycle.index("keys[i] = down")]
+    if 'WritePrivateProfileStringA("hud", "dps"' not in cycle or "dps_setting = meter" not in cycle:
+        fails.append("Ctrl+M does not write the new [hud] dps back, so the chooser and the screen can disagree")
+    # developer keys (c): in game only when developer mode is on, last in Players and interface; never among the host's rows
+    if "Developer keys" in lua[lua.index("function coop.BuildGame()"):lua.index("menu.coopgame.Cancel")]:
+        fails.append("in-game Co-op rules still has the Developer keys row")
+    dev = page.find('coop.CheckItem(m, "Developer keys"')
+    gate = page.find('if (coop_get("controls", "devkeys", "0") == "1") then')
+    items = [m.start() for m in re.finditer(r"coop\.(CheckItem|DpsItem)\(m", page)]
+    if dev < 0 or gate < 0 or gate > dev or "end" not in page[dev:page.index("coop.BackItem", dev)]:
+        fails.append("the in-game Developer keys row is not shown only in developer mode")
+    elif dev != max(items):
+        fails.append("the in-game Developer keys row is not the last of Players and interface")
+    if '"Developer keys"' not in src:
+        fails.append("the launcher lost its Developer keys row")
+    # the Session page (a): Copy invite for the host (the launcher's invite, through the bridge) and Leave with the Esc confirmation
+    sess = lua[lua.index("function coop.BuildSession()"):]
+    sess = sess[:sess.index("\nend\n")]
+    start = sess.find('    if (coop_role() == "host") then\n        item = mdkCreateMenuItem(m, "Start at level...")')
+    hostrows = sess[start:sess.index("\n    end\n", start)] if start >= 0 else ""
+    if 'coop.invite_note or "Copy invite"' not in hostrows or "coop_invite_copy()" not in hostrows:
+        fails.append("the Session page has no Copy invite row among the host's rows")
+    if '"Leave"' not in sess or 'menu.SwitchDlg("quitconfirm")' not in sess or "coop.level >= 1" not in sess[sess.index('"Leave"') - 200:sess.index('"Leave"')]:
+        fails.append("the Session page has no Leave row that opens the Esc confirmation while in a game")
+    if "leave_host" not in lua or "leave_client" not in lua:
+        fails.append("the leave confirmation lost its words for the host or a guest")
 
 
 def check_primary_button(src, fails):
@@ -140,7 +177,8 @@ MUTANTS = {
                        'toggle(ID, PX, y, PW, "Back to level\'s hero", "Host decides", &cfg.char_follow);'
                        '\n        y += ROW + 2;\n        toggle(ID, PX, y, PW, "Friendly fire", "Host decides", &cfg.friendly_fire);'),
     "primary-says-host": ('lob_wants() ? "Open lobby" :', 'lob_wants() ? "Host" :'),
-    "dps-row-gone": ('"DPS meter", "One line; Ctrl+M in game: off, line, full"', '"Meter", "One line; Ctrl+M in game: off, line, full"'),
+    "dps-row-gone": ('"DPS meter", "Ctrl+M in game changes it too"', '"Meter", "Ctrl+M in game changes it too"'),
+    "dps-back-to-switch": ('choice(ID, PX, y, PW, "DPS meter", "Ctrl+M in game changes it too", dps_names, 3, &cfg.dps);', 'toggle(ID, PX, y, PW, "DPS meter", "Ctrl+M in game changes it too", &cfg.dps);'),
 }
 GUIDE_MUTANTS = {
     "guide-help-tab": ("Launcher > About > Send diagnostics", "Launcher > Help > Send diagnostics"),
@@ -152,7 +190,17 @@ LUA_MUTANTS = {
     "host-address-row": ('elseif (coop_role() == "host") then\n        -- the host has no host', 'elseif (coop_role() == "nobody") then\n        -- the host has no host'),
     "controls-line-cut": ('long="Hold to talk: players near you hear you (see Voice and sound)"',
                           'long="Hold to talk: players near you hear you (Options > Co-op > Voice and sound)"'),
-    "dps-default-on": ('coop.CheckItem(m, "DPS meter", "hud", "dps", "0"', 'coop.CheckItem(m, "DPS meter", "hud", "dps", "1"'),
+    "dps-default-on": ('local v = tonumber(coop_get("hud", "dps", "0")) or 0', 'local v = tonumber(coop_get("hud", "dps", "1")) or 0'),
+    "dps-switch-again": ("    coop.DpsItem(m)\n", '    coop.CheckItem(m, "DPS meter", "hud", "dps", "0", nil)\n'),
+    "no-copy-invite-row": ('coop.invite_note or "Copy invite"', 'coop.invite_note or "Copy link"'),
+    "invite-for-guests": ('        -- the launcher\'s Copy invite: the same text and code', '    end\n    if (coop_role() ~= "nobody") then\n        -- the launcher\'s Copy invite: the same text and code'),
+    "no-leave-row": ('item = mdkCreateMenuItem(m, "Leave")', 'item = mdkCreateMenuItem(m, "Quit")'),
+    "leave-without-confirm": ('item.Select = function(self) menu.SwitchDlg("quitconfirm") end', 'item.Select = function(self) coop.LeaveYes() end'),
+    "dev-row-always": ('    if (coop_get("controls", "devkeys", "0") == "1") then\n        coop.CheckItem(m, "Developer keys"', '    if (1) then\n        coop.CheckItem(m, "Developer keys"'),
+    "dev-row-in-rules": ('    item = mdkCreateMenuItem(m, "Back to level\'s hero (host decides)")', '    item = mdkCreateMenuItem(m, "Developer keys")\n    item = mdkCreateMenuItem(m, "Back to level\'s hero (host decides)")'),
+}
+COMBAT_MUTANTS = {
+    "ctrl-m-not-written-back": ('WritePrivateProfileStringA("hud", "dps", val, ini);', 'val[0] = val[0];'),
 }
 
 
@@ -223,6 +271,11 @@ def test_launcher_layout():
         bad = []
         check_guide_text(ctrl.replace(old, new), src, bad)
         assert bad, f"mutant {name} was NOT caught"
+    for name, (old, new) in COMBAT_MUTANTS.items():
+        assert combat.count(old) == 1, f"mutant {name}: expected one match, found {combat.count(old)}"
+        bad = []
+        check_menu_parity(src, lua, combat.replace(old, new), bad)
+        assert bad, f"mutant {name} was NOT caught"
     for name, (old, new) in LUA_MUTANTS.items():
         assert lua.count(old) == 1, f"mutant {name}: expected one match, found {lua.count(old)}"
         bad = []
@@ -270,4 +323,4 @@ if __name__ == "__main__":
     test_launcher_layout()
     test_installer_layout()
     print("PASS: launcher and setup UI layout, menu parity and text-fit checks at 100%, 125%, 150%, 200%, 300% "
-          f"({len(MUTANTS) + len(LUA_MUTANTS) + len(GUIDE_MUTANTS)} mutants caught)")
+          f"({len(MUTANTS) + len(LUA_MUTANTS) + len(GUIDE_MUTANTS) + len(COMBAT_MUTANTS)} mutants caught)")

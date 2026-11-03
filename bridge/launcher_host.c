@@ -395,7 +395,7 @@ int lhost_invite(const char *name, char *message, size_t cap, char *code, size_t
     v.secret = H.secret;
     v.port = (uint16_t)H.port;
     LeaveCriticalSection(&lk);
-    if (!H.open || !v.n || !ci_encode(&v, "MDK2", c, sizeof(c))) return 0;
+    if (!(H.open || H.handed) || !v.n || !ci_encode(&v, "MDK2", c, sizeof(c))) return 0;
     if (code) snprintf(code, code_cap, "%s", c);
     return ci_message(name && name[0] ? name : "Player", "MDK2", LHOST_JOIN_PAGE, c, message, cap);
 }

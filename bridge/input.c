@@ -671,6 +671,7 @@ void input_wrap_dinput(void *di)
 static WNDPROC wndproc_orig;
 static HWND game_wnd;
 static int place_x, place_y;    /* window position, physical pixels */
+HWND input_game_window(void) { return game_wnd; }
 
 /* The game only ever sees itself as the active, focused window */
 static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)

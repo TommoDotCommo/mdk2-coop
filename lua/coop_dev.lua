@@ -419,9 +419,9 @@ end
 -- F2 are fixed keys. The bridge draws what it is given and has no key text of its own for these --
 coop.guide_order = { "chat", "ping", "voice", "emote", "list", "watch", "revive", "char", "skip" }
 
-function coop.GuideAdd(lines, key, desc, pad)
+function coop.GuideAdd(lines, key, desc, pad, label)
     lines.n = lines.n + 1
-    lines[lines.n] = { key, desc, pad or "" }
+    lines[lines.n] = { key, desc, pad or "", label or "" }
 end
 
 -- the pad's co-op layer (View) is one table, the bridge's (bridge/pad.c pad_layer_lines): its buttons for an
@@ -453,13 +453,13 @@ end
 
 function coop.GuideLines()
     local lines = { n = 0 }
-    coop.GuideAdd(lines, "Hold F1", "Show this Quick Guide overlay at any time", coop.PadGuideText("f1"))
-    coop.GuideAdd(lines, "F2", "Mark a problem: log marker + screenshot + 60 s flight dump")
+    coop.GuideAdd(lines, "Hold F1", "Show this Quick Guide overlay at any time", coop.PadGuideText("f1"), "Quick guide")
+    coop.GuideAdd(lines, "F2", "Mark a problem: log marker + screenshot + 60 s flight dump", "", "Mark a problem")
     local i, id = next(coop.guide_order, nil)
     while (i) do
         if (id == "watch") then
             local p, q = coop.Keys("watchp"), coop.Keys("watchn")
-            coop.GuideAdd(lines, format("%s / %s", coop.ShortKeyText(p), coop.ShortKeyText(q)), "Out of the fight: watch previous / next teammate", coop.PadGuideText("watch"))
+            coop.GuideAdd(lines, format("%s / %s", coop.ShortKeyText(p), coop.ShortKeyText(q)), "Out of the fight: watch previous / next teammate", coop.PadGuideText("watch"), "Watch previous / next")
         else
             local a = coop.ActionById(id)
             local k = coop.Keys(id)
@@ -468,7 +468,7 @@ function coop.GuideLines()
             if (a.wheel) then t = t .. " + Mouse" end
             local pt = coop.PadGuideText(id)
             if (id == "voice") then pt = coop.PadTalkText() end
-            coop.GuideAdd(lines, t, a.guide, pt)
+            coop.GuideAdd(lines, t, a.guide, pt, a.name)
         end
         i, id = next(coop.guide_order, i)
     end
@@ -660,7 +660,7 @@ end
 omMakeCommand(COM_SAVEINSTANT, "", CON_BUTTON_FALL, 0, 0)
 omMakeCommand(COM_LOADINSTANT, "", CON_BUTTON_FALL, 0, 0)
 
--- Developer keys ([controls] devkeys, Options > Co-op > Co-op rules; off for players, on in
+-- Developer keys ([controls] devkeys, switched on in the launcher; Options > Co-op > Players and interface shows the row only then; off for players, on in
 -- the test installs): Num 1 hit / spawn, F3 lava, F4 teleport, F5 Doganboy, F6 / F7 / F8
 -- checkpoints and levels for everyone, F9 BioWare debug menu, F10 test error, F11 anim log,
 -- PgDn / PgUp (keypad 6 / 4) step through the player's animations as emotes (Home / End, keypad 9 / 7,
@@ -4051,6 +4051,18 @@ function coop.BuildSession()
                 coop.BuildSession()
             end
         end
+        -- the launcher's Copy invite: the same text and code (the lobby the game started from keeps its findings) --
+        item = mdkCreateMenuItem(m, coop.invite_note or "Copy invite")
+        item.Select = function(self)
+            if (coop_invite_copy()) then coop.invite_note = "Invite copied, paste it to friends"
+            else coop.invite_note = "No invite: host from the launcher's lobby" end
+            coop.BuildSession()
+        end
+    end
+    -- Leave: the pause menu's Quit confirmation (coop.PrepareLeave), which says what happens to the others --
+    if (coop.level and coop.level >= 1) then
+        item = mdkCreateMenuItem(m, "Leave")
+        item.Select = function(self) menu.SwitchDlg("quitconfirm") end
     end
     coop.BackItem(m, "coop")
 end
@@ -4155,6 +4167,7 @@ end
 menu.coopsession.Cancel = function()
     if (not menu.coopsession.editing) then
         coop.save_note = nil
+        coop.invite_note = nil
         coop.ShowPage("coop")
     end
 end
@@ -4335,13 +4348,6 @@ function coop.BuildGame()
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "char_follow", "1")) or 1)
     item.Select = function(self, n) coop_set("game", "char_follow", n) end
 
-    item = mdkCreateMenuItem(m, "Developer keys")
-    mdkMenuItemAddCheckBox(item, tonumber(coop_get("controls", "devkeys", "0")) or 0)
-    item.Select = function(self, n)
-        coop_set("controls", "devkeys", n)
-        coop.ApplyDevKeys(n == 1)
-    end
-
     coop.BackItem(m, "coop")
 end
 
@@ -4359,13 +4365,29 @@ function coop.CheckItem(m, label, section, key, dflt, apply)
     return item
 end
 
+-- the DPS meter: Off / Line / Full, [hud] dps as the launcher's chooser has it. Ctrl+M cycles the same three and
+-- writes the value back (bridge/combat.c), so this row, the launcher and the screen agree --
+function coop.DpsItem(m)
+    local item = mdkCreateMenuItem(m, "DPS meter")
+    mdkMenuItemAddComboBox(item)
+    mdkMenuItemAddComboString(item, "Off")
+    mdkMenuItemAddComboString(item, "Line")
+    mdkMenuItemAddComboString(item, "Full")
+    local v = tonumber(coop_get("hud", "dps", "0")) or 0
+    if (v < 0 or v > 2) then v = 0 end
+    mdkMenuItemSetWidgitValue(item, v)
+    item.Inc = function(self) coop_set("hud", "dps", mdkMenuItemGetWidgitValue(self)) end
+    item.Dec = item.Inc
+    return item
+end
+
 function coop.BuildInterface()
     local m = menu.coopui
     mdkClearMenu(m)
     coop.Heading(m, coop.page_names.ui)
     coop.CheckItem(m, "Players on screen", "hud", "show", "1", function(on) coop.hud_on = on end)
     coop.CheckItem(m, "Player outlines", "hud", "outline", "0", function(on) coop.hud_outline = on end)
-    coop.CheckItem(m, "DPS meter", "hud", "dps", "0", nil)
+    coop.DpsItem(m)
     coop.CheckItem(m, "Cutscene timer", "hud", "movietimer", "1", function(on) coop.movietimer = on end)
     coop.CheckItem(m, "Friends in minigames", "features", "ghosts", "1", nil)
     coop.CheckItem(m, "Emote wheel", "features", "emotes", "1", function(on) coop.ApplyControls() end)
@@ -4373,6 +4395,10 @@ function coop.BuildInterface()
     coop.CheckItem(m, "Text chat", "features", "chat", "1", function(on) coop.ApplyControls() end)
     coop.CheckItem(m, "Pings", "features", "pings", "1", function(on) coop.ApplyControls() end)
     coop.CheckItem(m, "Gamepad (next start)", "pad", "enabled", "1", nil)
+    -- developer mode (switched on in the launcher: Settings > Launcher) adds its keys here, last --
+    if (coop_get("controls", "devkeys", "0") == "1") then
+        coop.CheckItem(m, "Developer keys", "controls", "devkeys", "0", function(on) coop.ApplyDevKeys(on) end)
+    end
     coop.BackItem(m, "coop")
 end
 
