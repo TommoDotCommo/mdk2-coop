@@ -237,6 +237,7 @@ def test_launcher_layout():
     # Common resolutions: (work_w, work_h, desc)
     resolutions = [
         (1280, 720, "1280x720 100%"),
+        (1280, 800, "1280x800 100% (Steam Deck)"),
         (1600, 900, "1600x900 125%"),
         (1920, 1080, "1920x1080 150%"),
         (2560, 1440, "2560x1440 200%"),
@@ -353,5 +354,5 @@ def test_installer_layout():
 if __name__ == "__main__":
     test_launcher_layout()
     test_installer_layout()
-    print("PASS: launcher and setup UI layout, menu parity and text-fit checks at 100%, 125%, 150%, 200%, 300% "
+    print("PASS: launcher and setup UI layout, menu parity and text-fit checks at 1280x720, 1280x800 and 100%, 125%, 150%, 200%, 300% "
           f"({len(MUTANTS) + len(LUA_MUTANTS) + len(GUIDE_MUTANTS) + len(COMBAT_MUTANTS)} mutants caught)")
