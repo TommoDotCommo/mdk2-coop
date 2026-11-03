@@ -119,6 +119,14 @@ with tempfile.TemporaryDirectory(prefix='coop-discovery-') as temp:
             if r.returncode:
                 raise SystemExit(f'FAIL: {compiler} cannot compile the shared headers\n{r.stderr}')
             print(f'PASS: shared headers compile as C++ ({compiler})')
+    if shutil.which('x86_64-w64-mingw32-g++'):
+        wcpp = temp / 'wcpp.cc'
+        wcpp.write_text('#include "coop_discover_win.h"\nint main(){static struct cdw_adapter a[4];static char b[64];'
+                        'return cdw_adapters(a,4)+cdw_tailscale_status(b,64,10);}\n')
+        r = run(['x86_64-w64-mingw32-g++', '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(BRIDGE), '-c', str(wcpp), '-o', str(temp / 'wcpp.o')])
+        if r.returncode:
+            raise SystemExit(f'FAIL: the Windows adapter header does not compile as 64-bit C++\n{r.stderr}')
+        print('PASS: Windows adapter header compiles as 64-bit C++')
     win = shutil.which('powershell.exe') and shutil.which('i686-w64-mingw32-gcc')
     if not win:
         print('SKIP: Windows adapter self-test (needs MinGW and Windows interop)')

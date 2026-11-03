@@ -31,7 +31,7 @@ typedef void (WINAPI *cdw_attr_delete_fn)(void *);
 
 /* Every unicast IPv4 address of every adapter that is up (Ethernet, Wi-Fi, VPN/TAP, WireGuard,
  * Tailscale, Hyper-V switches), loopback excluded. Returns the count, or -1 if unavailable. */
-static int cdw_adapters(struct cdw_adapter *out, int max)
+static inline int cdw_adapters(struct cdw_adapter *out, int max)
 {
     typedef ULONG (WINAPI *gaa_fn)(ULONG, ULONG, PVOID, PIP_ADAPTER_ADDRESSES, PULONG);
     HMODULE lib = LoadLibraryExA("iphlpapi.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -76,9 +76,9 @@ static inline int cdw_adapter_list(const struct cdw_adapter *w, int n, struct cd
 
 /* tailscale.exe: each PATH folder, then %ProgramW6432% (the 64-bit Program Files a 32-bit process
  * does not see as %ProgramFiles%), then %ProgramFiles%. The current folder is never searched. */
-static int cdw_tailscale_path(char *path, size_t cap)
+static inline int cdw_tailscale_path(char *path, size_t cap)
 {
-    static char env[32768];
+    char env[32768];                       /* on the caller's stack: callers run on worker threads */
     static const char *const roots[] = { "ProgramW6432", "ProgramFiles" };
     char *dir, *next;
     DWORD n = GetEnvironmentVariableA("PATH", env, sizeof(env));
@@ -107,7 +107,7 @@ static int cdw_tailscale_path(char *path, size_t cap)
 /* Runs `tailscale status --json` with no window, stdout into out (cap bytes, NUL-terminated).
  * Returns the byte count, 0 when Tailscale is not installed, -1 on failure or timeout (the child
  * is then ended through its own process handle). Only the pipe handle is inherited. */
-static int cdw_tailscale_status(char *out, size_t cap, DWORD timeout_ms)
+static inline int cdw_tailscale_status(char *out, size_t cap, DWORD timeout_ms)
 {
     char path[MAX_PATH], cmd[MAX_PATH + 32];
     SECURITY_ATTRIBUTES sa;
@@ -182,7 +182,7 @@ static int cdw_tailscale_status(char *out, size_t cap, DWORD timeout_ms)
  * on_reply. bind_ip 0 = any local address (production); tests bind a loopback address.
  * Returns the number of queries sent, or -1 when no socket could be opened. */
 typedef void (*cdw_reply_fn)(void *ctx, int candidate, uint32_t ip, unsigned port, const struct cd_reply *reply, uint32_t rtt);
-static int cdw_scan(const struct cd_candidates *c, uint32_t nonce, const char *game_id, DWORD window_ms, uint32_t bind_ip,
+static inline int cdw_scan(const struct cd_candidates *c, uint32_t nonce, const char *game_id, DWORD window_ms, uint32_t bind_ip,
                     cdw_reply_fn on_reply, void *ctx, volatile LONG *stop)
 {
     SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
