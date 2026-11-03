@@ -43,6 +43,11 @@ def pe_signed(data):
     return offset != 0 and size != 0 and offset + size <= len(data)
 
 
+def check_metadata(data, version, name):
+    assert versioninfo.read(data, 'ProductName') == 'MDK2 Co-op', 'ProductName of %s is not MDK2 Co-op' % name
+    assert versioninfo.read(data) == version, 'ProductVersion of %s is not %s' % (name, version)
+
+
 def check(archive, policy_source=None, require_signed=False):
     archive = resolve_archive(archive)
     checksum, name = archive.with_name(archive.name + '.sha256').read_text().split()
@@ -54,7 +59,7 @@ def check(archive, policy_source=None, require_signed=False):
         version = archive.name[len('mdk2-coop-'):-len('.zip')]
         for pe in SHIPPED_PE:
             assert package.read(root + pe)[:2] == b'MZ', 'not a Windows PE'
-            assert versioninfo.read(package.read(root + pe)) == version, 'VERSIONINFO of %s is not %s' % (pe, version)
+            check_metadata(package.read(root + pe), version, pe)
         source = policy_source or Path(__file__).resolve().parents[1] / 'dist/install-state.ps1'
         assert package.read(root + 'install-state.ps1').decode().replace('\r\n', '\n') == Path(source).read_text(), 'stale policy'
         sh = package.getinfo(root + 'install-linux.sh')
@@ -75,7 +80,7 @@ def check(archive, policy_source=None, require_signed=False):
     version, want_hash, blob = got
     assert hashlib.sha256(blob).hexdigest() == want_hash, 'embedded payload does not match its SHA-256'
     assert version == archive.name[len('mdk2-coop-'):-len('.zip')], 'embedded version differs from the zip'
-    assert versioninfo.read(setup.read_bytes()) == version, 'VERSIONINFO of the single-file Setup is not ' + version
+    check_metadata(setup.read_bytes(), version, 'single-file Setup')
     mod_manifest.check(archive)
     embedded = dict(payload.unpack(blob))
     assert sorted(embedded) == PAYLOAD, 'embedded payload inventory differs'

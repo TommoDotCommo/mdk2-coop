@@ -45,7 +45,11 @@ work around that check.
    is built into the DLL and shown on the launcher's About tab. A `.sha256` file is generated for each of the two assets.
    With `SIGN_CMD` set the script signs every exe and dll first (see [LAUNCHER-MAINTENANCE.md](LAUNCHER-MAINTENANCE.md)),
    otherwise it warns that the release is unsigned. Check it with `python3 tools/check_release_package.py <zip> [--require-signed]`.
-4. Tag and publish: `gh release create v0.x.y local/release/MDK2-Coop-Setup.exe local/release/MDK2-Coop-Setup.exe.sha256 local/release/mdk2-coop-v0.x.y.zip local/release/mdk2-coop-v0.x.y.zip.sha256` (`--prerelease` for alphas).
+4. The [release workflow](../.github/workflows/release.yml) builds a pushed `v*` tag (or an existing tag supplied through
+   manual dispatch) on GitHub-hosted Linux. It always uploads checked unsigned downloads. Once SignPath is configured,
+   approve both signing requests and review the resulting **draft** GitHub release before publishing manually
+   (`--prerelease` for alphas). See [Code signing](LAUNCHER-MAINTENANCE.md#code-signing) for setup, pinned toolchain,
+   skipped Windows-only gates and reproducibility limits. Local builds are for development; Foundation signing uses CI.
 
 ## Dev harness
 

@@ -159,40 +159,89 @@ which then points into the new DLL's code. The current DLL removes its handler w
 
 ## Code signing
 
-Windows SmartScreen and antivirus heuristics treat an unsigned exe that starts PowerShell with
-`-ExecutionPolicy Bypass` with suspicion. A code-signing certificate fixes the first and helps with the second.
-`tools/release.sh` is ready for one; nothing in the repository holds a certificate.
+The release route is SignPath Foundation (application in progress). Free code signing provided by
+[SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+The [code signing policy](../README.md#code-signing-policy) identifies the author, reviewer and release approver.
+Signing does not guarantee that SmartScreen or antivirus will accept a new release immediately.
+
+### One-time maintainer setup
+
+1. Create the SignPath account with **MFA**, complete the Foundation application, and connect this public GitHub
+   repository as a [trusted build source](https://docs.signpath.io/trusted-build-systems/github).
+2. Create project `mdk2-coop` and signing policy `release-signing`. Require **manual approval** by the maintainer
+   for every request; do not enable automatic approval. Restrict the policy to this repository's release workflow
+   on GitHub-hosted runners and reviewed release tags. Give the API token submitter access only.
+3. Configure the default artifact configuration to accept the ZIP produced by `actions/upload-artifact` with PE
+   files at its root. It must sign exactly the matching `dinput8.dll`, `install-policy.exe` and `MDK2-Coop-Setup.exe`
+   when present, allow the one-Setup stage B artifact, and preserve their names. Enforce ProductName `MDK2 Co-op`
+   and the release ProductVersion. Stage A has three binaries; stage B has only the single-file Setup.
+4. Store the submitter token as repository **secret** `SIGNPATH_API_TOKEN`, and the organization ID as repository
+   **variable** `SIGNPATH_ORGANIZATION_ID`. Optional variables `SIGNPATH_PROJECT_SLUG` and
+   `SIGNPATH_SIGNING_POLICY_SLUG` override the defaults above. No certificate or private key belongs in GitHub secrets
+   or this repository; SignPath holds the signing certificate.
+
+The action's exact inputs and artifact download behavior are described in its
+[pinned action definition](https://github.com/SignPath/github-action-submit-signing-request/blob/c92b958760219087e01f8d67a1669ed57afe2627/action.yml).
+The initial project/artifact configuration must be checked in the SignPath account before the first signed release.
+
+### Each release
+
+After the normal regression/review gates, push the approved `v*` release tag, or dispatch
+[release.yml](../.github/workflows/release.yml) with an **existing tag** in `version`. The workflow validates that
+HEAD equals that tag; arbitrary versions are refused. Tagging, signing approval and publishing remain maintainer actions.
+
+1. GitHub Actions builds from the public tag using the same `tools/release.sh` as local packaging. It runs the portable
+   `qa_all.py offline` gates. Windows/PowerShell-only gates and Windows-only subtests are named in the job summary;
+   this CI run does not replace Windows or live-game release checks. Gate logs are uploaded even on failure.
+2. It always builds, checks and uploads `unsigned-<version>` downloads. With either signing credential unset, it
+   ends there, with an explicit skip summary and **no GitHub release**.
+3. With signing configured, `release.sh <version> prepare` builds the three package binaries. Stage A uploads them
+   as one GitHub artifact, then the pinned SignPath action submits it and **waits for manual approval** (up to two hours).
+   Review the source tag and request, then approve it in SignPath.
+4. The signed files are downloaded, cryptographically verified with `osslsigncode`, and used by
+   `RELEASE_REQUIRE_SIGNED=1 release.sh <version> assemble`. The manifest and payload hash cover signed bytes;
+   the single-file Setup is built from that payload without rebuilding the three signed binaries.
+5. Stage B uploads only that outer Setup. Review and approve the second request in SignPath. After download and
+   signature verification, `RELEASE_REQUIRE_SIGNED=1 release.sh <version> finalize` verifies the assembly inputs,
+   writes the zip and checksum sidecars and runs `check_release_package.py --require-signed`.
+6. Only a successful signed run creates a **draft GitHub release** containing the zip, single-file Setup and both
+   `.sha256` files. Review it and publish manually. A run never publishes an existing draft, and refuses to overwrite
+   an existing release. Download signed assets from `signed-<version>` if a draft must be prepared separately.
+
+`check_release_package.py` checks ProductName and a common ProductVersion for every shipped DLL/exe, signed payload
+copies equal to the zip, inventory, hashes and certificate-table presence. This structural signature check is **not**
+cryptographic validation: CI also runs `osslsigncode verify` on every SignPath output before using it.
+PowerShell scripts are plain text; archives and checksum sidecars are not Authenticode-signed.
+
+### Reproduction and local signing fixtures
+
+The workflow pins Ubuntu 24.04 (instead of the moving `ubuntu-latest` label), Python 3.12.8, the cross GCC packages
+13.2.0-6ubuntu1+26.1, MinGW headers 11.0.1-3build1, and cross binutils 2.41.90.20240122-1ubuntu1+11.4 from Ubuntu's
+2024-05-01 snapshot. Action revisions are commit-pinned. It forces the Win32 thread-model compiler alternatives.
+`SOURCE_DATE_EPOCH` is the source commit time; PE linker timestamps are zero, ZIP timestamps use that epoch in UTC,
+entries are sorted, and archive modes are normalized (the Linux installer remains executable).
+
+For a local Linux reproduction with those prerequisites installed, use a fresh clone with tags:
 
 ```sh
-# a command template that signs one file in place; {file} is replaced by the quoted path
-SIGN_CMD='osslsigncode sign -pkcs12 "$HOME/sign.p12" -pass "$SIGN_PASS" -h sha256 -t http://timestamp.digicert.com -in {file} -out {file}.signed && mv {file}.signed {file}' \
-SIGN_VERIFY_CMD='osslsigncode verify -in {file}' \
-  bash tools/release.sh v0.x.y
-# signtool from a Windows shell works too: SIGN_CMD='signtool.exe sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 /a {file}'
-python3 tools/check_release_package.py local/release/mdk2-coop-v0.x.y.zip --require-signed
+git checkout <release-tag>
+export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+python3 .github/scripts/linux-gates.py
+RELEASE_OUT=local/release-unsigned bash tools/release.sh <release-tag>
+python3 tools/check_release_package.py local/release-unsigned/mdk2-coop-<release-tag>.zip
 ```
 
-What the script does when `SIGN_CMD` is set: signs `dinput8.dll`, `install-policy.exe` and the zip's `MDK2-Coop-Setup.exe`
-**before** the single-file Setup's payload is hashed and embedded (so the embedded copies are the signed ones, and the
-receipts and the updater's hashes cover signed bytes); builds and signs the single-file `MDK2-Coop-Setup.exe` last; after
-each signature it checks that the file now carries a certificate table, plus `SIGN_VERIFY_CMD` if you set one; any failure
-aborts the release. Unset `SIGN_CMD`, and it builds unsigned with a warning. `--require-signed` fails unless every shipped
-exe and dll (and the embedded copies, which must equal the zip's) is signed. The scripts (`*.ps1`) are not signed: a signed
-Setup that starts them with Bypass is the common installer pattern, and the zip's scripts are plain text.
-`tools/test_release_signing.sh` proves the hook with a fake signer, including a `RELEASE_MUTANT=late-sign` build that the
-checker must reject.
+Unsigned downloads should repeat byte for byte with the same source, version, toolchain and compression libraries.
+The GitHub runner image itself, native compilers used only by test fixtures, and dependency/security updates are not
+bit-for-bit pinned. Python's zlib version may affect archive compression. Different toolchains are not expected to
+produce identical binaries. Authenticode signatures, signing timestamps and therefore signed archives/checksums are
+**not reproducible**. GitHub's artifact transport ZIP also has its own metadata; compare the downloads inside it.
 
-Routes for the certificate (the owner chooses):
-
-- **SignPath Foundation**: free for open-source projects; a hosted signer with an approval workflow, so `SIGN_CMD` would call
-  their CLI/API with the built file (their rules: public repository, OSI licence, a build you can show; apply on their site).
-- **Certum "Open Source Code Signing"**: a cheap yearly certificate on a smart card or a cloud token; it works with
-  `osslsigncode`/`signtool`.
-- **Azure Trusted Signing** (about USD 10 a month): a Microsoft-run service; check its current eligibility for individual
-  developers in your country. It signs with `signtool` plus its dlib, which fits `SIGN_CMD`.
-
-A new certificate has no SmartScreen reputation at first; the warning fades after enough downloads (an EV certificate skips
-that wait but costs much more). Signing alone does not stop an antivirus false positive on the first release.
+Local `SIGN_CMD` / `SIGN_VERIFY_CMD` templates remain available for development fixtures (each replaces `{file}` with a
+quoted path). Foundation release signing uses only the CI artifacts above. Unset `SIGN_CMD` builds unsigned with a warning.
+`tools/test_release_signing.sh` uses a fake local SignPath step, never contacts the service, and proves the two approval
+boundaries, signed-before-hashing order and unsigned reproducibility. Late signing, skipped stages and replacement of a
+stage A file after assembly must fail. The fake certificates are deliberately not cryptographic signatures.
 
 ## Submitting a false positive to Microsoft Defender (wdsi)
 

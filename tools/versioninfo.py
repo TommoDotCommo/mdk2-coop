@@ -32,9 +32,9 @@ def script(version, name, description):
             % (n, n, '2' if name.lower().endswith('.dll') else '1', values))
 
 
-def read(data):
-    """The ProductVersion string of a PE file's VERSIONINFO, or None."""
-    key = 'ProductVersion\0'.encode('utf-16-le')
+def read(data, field="ProductVersion"):
+    """A string field of a PE file's VERSIONINFO, or None."""
+    key = (field + '\0').encode('utf-16-le')
     i = data.find(key)
     if i < 0:
         return None

@@ -314,9 +314,16 @@ this game live in its `games/mdk2-hd/NOTES.md`.
 
 Windows release files (`MDK2-Coop-Setup.exe`, `dinput8.dll`, `install-policy.exe`) are being moved to signing
 through the SignPath Foundation program for open-source projects (application in progress):
-free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
 [SignPath Foundation](https://signpath.org/). Signed builds are made by GitHub Actions from this public repository;
-nothing built on a private machine is signed.
+nothing built on a private machine is signed. The [release workflow](.github/workflows/release.yml) builds a public
+release tag and waits for approval of two requests: first `dinput8.dll`, `install-policy.exe` and the zip's Setup,
+then the single-file Setup containing that signed payload. Every binary has ProductName **MDK2 Co-op** and the same
+ProductVersion. PowerShell scripts and archives are not signed; the download assets have SHA-256 sidecars.
+
+Until the application is approved and signing is configured, workflow artifacts are explicitly unsigned. Signed runs
+create a **draft** release for the maintainer to review and publish by hand. See the
+[signing setup and release procedure](docs/LAUNCHER-MAINTENANCE.md#code-signing).
 
 - Authors and committers: [TommoDotCommo](https://github.com/TommoDotCommo)
 - Reviewers: [TommoDotCommo](https://github.com/TommoDotCommo) (changes from other contributors are reviewed before merge)

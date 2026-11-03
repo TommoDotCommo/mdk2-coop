@@ -13,4 +13,4 @@ trap 'rm -f "$resource" "$vres" "$vrc"' EXIT
 version="${MOD_VERSION:-$(git -C "$root" describe --tags --always --dirty 2>/dev/null || echo dev)}"
 rm -f "$vrc"; python3 "$root/tools/versioninfo.py" "$version" install-policy.exe "MDK2 Co-op Setup policy helper" "$vrc"
 i686-w64-mingw32-windres "$vrc" -o "$vres"
-i686-w64-mingw32-gcc -O2 -Wall -Wextra -Werror -I"$root/bridge" -o "${1:-$root/dist/install-policy.exe}" "$root/dist/install-policy.c" "$resource" "$vres"
+i686-w64-mingw32-gcc -Wl,--no-insert-timestamp -O2 -Wall -Wextra -Werror -I"$root/bridge" -o "${1:-$root/dist/install-policy.exe}" "$root/dist/install-policy.c" "$resource" "$vres"
