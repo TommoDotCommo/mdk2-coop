@@ -1730,6 +1730,7 @@ static struct {
     /* a joiner: every route of the invite (or the one address), the invite's key; refused: LH_REFUSE_* */
     struct sockaddr_in targets[LHOST_TARGETS];
     int ntargets, has_key, refused;
+    int mute_me, deafen;            /* D4: send no voice / play no voice, this lobby */
     uint32_t key;
     char invite_status[160];
 } lob;
@@ -1959,7 +1960,7 @@ static void lob_poll(void)
                                 if (lob.m[i].id == relay_ids[r])
                                     sendto(lob.s, buf, n, 0, (struct sockaddr *)&lob.m[i].addr, sizeof(lob.m[i].addr));
                     }
-                    if (played && cfg.voice)
+                    if (played && cfg.voice && !lob.deafen)
                         lv_play_frame(cfg.voice_out_dev, pcm_out);
                     changed = 1;
                 }
@@ -2152,7 +2153,7 @@ static void lob_poll(void)
         int frame_ptt = 0;
         while (lv_capture_frame(cfg.voice_in_dev, cfg.voice_mode, ptt_down, lob.comm.local_was_sending, now, pcm_in, &frame_ptt)) {
             uint8_t vflags = 0;
-            if (ls_voice_should_send(&lob.comm, cfg.voice_mode, frame_ptt, pcm_in, LS_VOICE_VAD_DEFAULT, now, &vflags)) {
+            if (!lob.mute_me && ls_voice_should_send(&lob.comm, cfg.voice_mode, frame_ptt, pcm_in, LS_VOICE_VAD_DEFAULT, now, &vflags)) {
                 struct ls_voice_pkt vpkt;
                 ls_voice_pack(&lob.comm, lob.id, vflags, pcm_in, &vpkt);
                 if (lob.host) {
@@ -2258,8 +2259,12 @@ static void lobby_page(void)
     /* players */
     snprintf(line, sizeof(line), "Players  %d/%d", lob.n, LOB_MAX);
     heading(LC1X, 92, 20, line, C_TEXT, DT_LEFT);
-    if (button(ID, LC1X + LC1W - 168, 88, 168, 28, cfg.voice_mode ? "Voice: open mic" : "Voice: push to talk", 0)) {
-        cfg.voice_mode = !cfg.voice_mode;
+    if (button(ID, LC1X + LC1W - 236, 88, 112, 28, lob.mute_me ? "Unmute me" : "Mute me", 0)) {
+        lob.mute_me = !lob.mute_me;
+        changed = 1;
+    }
+    if (button(ID, LC1X + LC1W - 116, 88, 116, 28, lob.deafen ? "Undeafen" : "Deafen", 0)) {
+        lob.deafen = !lob.deafen;
         changed = 1;
     }
     y = 126;
@@ -3164,9 +3169,10 @@ static void test_commands(void)
                     for (fi = 0; fi < nids && ids[fi] != focus; fi++)
                         ;
                     fprintf(state, "focus_index=%d\nfocus_count=%d\npad_last=%d\nguide=%d\nrefused=%d\nhas_key=%d\nhost_addr=%s:%u\n"
-                                   "section=%d\nfocus_label=%s\n",
+                                   "section=%d\nfocus_label=%s\nmute_me=%d\ndeafen=%d\n",
                             fi < nids ? fi : -1, nids, pad_last, guide_open, lob.refused, lob.has_key,
-                            inet_ntoa(lob.hostaddr.sin_addr), ntohs(lob.hostaddr.sin_port), cfg.section, focus_label);
+                            inet_ntoa(lob.hostaddr.sin_addr), ntohs(lob.hostaddr.sin_port), cfg.section, focus_label,
+                            lob.mute_me, lob.deafen);
                 }
                 if (lob.on && lob.host)
                     lhost_dump(state);

@@ -8,7 +8,8 @@
 #      client joins with the invite code only (no address typed), and the lobby key went with its hello
 #   3. invite only: the client joining by address without the code is refused with the invite-only words;
 #      with the code it gets in; Kick removes it with "The host removed you" and it stays out of that lobby
-#   4. the pad: LB/RB change tabs, the D-pad walks the focus to "Start game", A starts the countdown
+#   4. Mute me sends no voice (the host receives none), Unmute sends again
+#   5. the pad: LB/RB change tabs, the D-pad walks the focus to "Start game", A starts the countdown
 #   tools/qa_host.sh            about 2 minutes, 2 game copies (see tools/mdk.sh)
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -117,7 +118,7 @@ lcmd 1 "visibility 0" "$PLAY"
 check "host: a new lobby"                              wait_state 1 10 launcher.lobby=1 launcher.players=1
 lcmd 2 "join $lan"
 
-# 4. the pad: tabs, then the focus to Start, A starts
+# 4. and 5. Mute me, then the pad: tabs, the focus to Start, A starts
 lcmd 1 "pad 0x0200 0 0" "pad 0 0 0"
 check "pad: RB to Saves"                               state_is 1 launcher.page=1 launcher.pad_last=1
 lcmd 1 "pad 0x0100 0 0" "pad 0 0 0"
@@ -126,6 +127,12 @@ shot 1 pad_lobby
 check "host: Start waits while nobody joined"          state_is 1 launcher.countdown=0
 lcmd 2 "$PLAY"
 check "client: joins the host's new lobby"            wait_state 2 15 launcher.connected=1
+# D4: Mute me sends no voice; unmuted, the host hears the client again
+lcmd 2 "press Mute me" "voice 600"; sleep 2
+check "mute me: set on the client"                     state_is 2 launcher.mute_me=1
+check "mute me: the host received no voice"            state_is 1 player1.voice_frames=0
+lcmd 2 "press Unmute me" "voice 600"; sleep 2
+check "unmuted: the host hears the client"             state_is 1 "player1.voice_frames>=5"
 lcmd 2 "key 13"
 check "host: client ready"                             wait_state 1 10 player1.ready=1
 reached=0

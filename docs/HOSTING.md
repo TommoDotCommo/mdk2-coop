@@ -17,7 +17,8 @@ describes that host side. The join side (the paste box, the list of games found)
 The lobby takes the whole window, in three columns:
 
 1. **Players**: colour, host mark, speaking light, ready state and ping, Mute, and for the host **Kick**.
-   **Leave lobby** is always one click.
+   Above them **Mute me** (send no voice) and **Deafen** (play no voice), for this lobby; push to talk or open
+   mic is Settings > Voice and sound > Lobby voice mode. **Leave lobby** is always one click.
 2. **Chat**.
 3. **Friends can join by** (host only), then **What to play** (the host's save or level; the Saves tab
    chooses it). The host's big button reads **Waiting for Fox and Bob** until everyone is ready, then
@@ -144,5 +145,5 @@ The footer shows pad buttons after pad input and keys after keyboard or mouse in
   fail, among them **mapping not removed on close**. The firewall reader reads the real rules (read only).
 - `tools/qa_host.sh` (feature gate `hosting`, two games): the panel's Same network check, the router asked and
   its answer recorded (and removed on Leave when it mapped), the client joining with the invite code only,
-  invite only refusing an address without the code, Kick, the pad from tabs to Start game, and the game
-  starting with the client joined. Everything is asserted from `launcher-state.ini`.
+  invite only refusing an address without the code, Kick, Mute me (the host receives no voice frames), the pad
+  from tabs to Start game, and the game starting with the client joined. Everything is asserted from `launcher-state.ini`.
