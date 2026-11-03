@@ -248,6 +248,152 @@ void anim_trim_init(void)
     logmsg("animation update hook %s", anim_update_orig ? "installed" : "NOT installed (trimming before the scene update instead)");
 }
 
+/* ---- guarded position setter ----
+ * mdkGobSetPositionXYZ hands its gob to the native setter (0x40dda0) without a null check, and mdkGetPlayerGob answers
+ * nil while no level is loaded (the title screen, a load in progress): the setter then stores to address 0x18, an
+ * access violation at mdk2hd.exe+0xdda8. A script or test command that races a level change hit it. The setter ignores a
+ * null gob now. */
+typedef void (__cdecl *set_position_t)(BYTE *gob, float x, float y, float z);
+static set_position_t set_position_orig;
+int setpos_guard_on = 1;
+int setpos_blocked;
+
+static void __cdecl set_position_hook(BYTE *gob, float x, float y, float z)
+{
+    if (!gob && setpos_guard_on) {
+        if (setpos_blocked++ < 5)
+            logmsg("setpos guard: position set on a null gob ignored (%.1f %.1f %.1f)", x, y, z);
+        return;
+    }
+    set_position_orig(gob, x, y, z);
+}
+
+void setpos_guard_init(void)
+{
+    static const BYTE prologue[8] = { 0x8b, 0x44, 0x24, 0x04, 0xd9, 0x44, 0x24, 0x08 };   /* mov eax,[esp+4]; fld [esp+8] */
+
+    set_position_orig = (set_position_t)hook_code((BYTE *)0x40dda0, prologue, sizeof(prologue), set_position_hook);
+    logmsg("position setter guard %s", set_position_orig ? "installed" : "NOT installed (unexpected code)");
+}
+
+/* ---- scene pass guard ----
+ * The per-frame scene function (mdk2hd.exe+0x56fe0, called with the scene global 0x5484c0) walks the scene's vector of
+ * gob handles twice. The first walk skips a handle the gob table no longer resolves; the second (at +0x570b6) uses the
+ * lookup's answer without that check, so a handle left behind by a destroyed gob (a scenery object shot to pieces)
+ * is a read of address 0x64 and a crash of the host at mdk2hd.exe+0x570bd. A code cave makes the second walk skip
+ * such a handle the way the first one does. */
+#define SCENE_PASS_SITE     0x4570bd
+#define SCENE_GLOBAL        0x5484c0
+#define SCENE_VEC_SIZE      0x80
+#define SCENE_VEC_DATA      0x88
+int scene_guard_on;
+int scene_stale_skipped;        /* handles the guard stepped over (the cave increments it) */
+static DWORD scene_stale_last;  /* the last such handle (the cave stores it) */
+static int scene_stale_logged;
+static BYTE scene_orig[6];
+static BYTE scene_patch[6];
+
+static void scene_patch_write(const BYTE *bytes)
+{
+    DWORD old;
+
+    VirtualProtect((void *)SCENE_PASS_SITE, 6, PAGE_EXECUTE_READWRITE, &old);
+    memcpy((void *)SCENE_PASS_SITE, bytes, 6);
+    VirtualProtect((void *)SCENE_PASS_SITE, 6, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void *)SCENE_PASS_SITE, 6);
+}
+
+void scene_guard_set(int on)
+{
+    if (!scene_patch[0]) {
+        logmsg("scene guard: not installed");
+        return;
+    }
+    scene_patch_write(on ? scene_patch : scene_orig);
+    scene_guard_on = on;
+}
+
+void scene_guard_init(void)
+{
+    static const BYTE expect[6] = { 0x8b, 0x47, 0x64, 0x83, 0xc4, 0x04 };   /* mov eax,[edi+0x64]; add esp,4 */
+    BYTE *cave;
+    DWORD site = SCENE_PASS_SITE;
+
+    if (memcmp((void *)site, expect, 6) != 0) {
+        logmsg("scene guard: NOT installed (unexpected code)");
+        return;
+    }
+    cave = VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!cave)
+        return;
+    cave[0] = 0x8b; cave[1] = 0x04; cave[2] = 0x24;                         /* mov eax,[esp]: the handle just looked up */
+    cave[3] = 0x83; cave[4] = 0xc4; cave[5] = 0x04;                         /* add esp,4 */
+    cave[6] = 0x85; cave[7] = 0xff;                                         /* test edi,edi */
+    cave[8] = 0x74; cave[9] = 0x08;                                         /* jz skip */
+    cave[10] = 0x8b; cave[11] = 0x47; cave[12] = 0x64;                      /* mov eax,[edi+0x64] */
+    cave[13] = 0xe9; *(DWORD *)(cave + 14) = (site + 6) - (DWORD)(cave + 18);   /* back to cmp [eax+0x60],0 */
+    cave[18] = 0xa3; *(DWORD *)(cave + 19) = (DWORD)&scene_stale_last;      /* mov [last],eax */
+    cave[23] = 0xff; cave[24] = 0x05; *(DWORD *)(cave + 25) = (DWORD)&scene_stale_skipped;   /* inc [counter] */
+    cave[29] = 0xe9; *(DWORD *)(cave + 30) = 0x45710b - (DWORD)(cave + 34);  /* the loop's next handle */
+    memcpy(scene_orig, expect, 6);
+    scene_patch[0] = 0xe9;
+    *(DWORD *)(scene_patch + 1) = (DWORD)cave - (site + 5);
+    scene_patch[5] = 0x90;
+    scene_guard_set(1);
+    logmsg("scene guard installed");
+}
+
+/* Once per frame: say when the scene pass met a stale handle, and whether the bridge deleted that gob (a natural
+ * occurrence is how the cause of the crash this guard covers will be found). */
+void scene_guard_report(void)
+{
+    static int seen;
+
+    if (scene_stale_skipped == seen)
+        return;
+    seen = scene_stale_skipped;
+    if (scene_stale_logged++ < 20) {
+        DWORD h = scene_stale_last;
+        int i, ours = 0;
+
+        for (i = 0; i < MAX_DOOMED && i < ndoomed; i++)
+            if (doomed[i].handle == h)
+                ours = 1;
+        logmsg("scene guard: stale handle %08lx (slot %lu) in the scene pass, %d so far; deleted by the bridge: %s", (unsigned long)h,
+               (unsigned long)(h & 0xffff), seen, ours ? "yes" : "no");
+    }
+}
+
+/* Test hook: plant a handle the gob table does not resolve at the end of the scene's handle vector (on), or put the
+ * real one back (off). Returns 1 if the vector could be changed. */
+int scene_test_stale(int on)
+{
+    static DWORD *slot, saved;
+    DWORD *scene = *(DWORD **)SCENE_GLOBAL;
+    DWORD size, *data;
+
+    if (!on) {
+        if (!slot)
+            return 0;
+        data = *(DWORD **)((BYTE *)scene + SCENE_VEC_DATA);
+        size = *(DWORD *)((BYTE *)scene + SCENE_VEC_SIZE);
+        if (data && slot >= data && slot < data + size && *slot == 0x7ffe0005)
+            *slot = saved;
+        slot = NULL;
+        return 1;
+    }
+    if (!scene || slot)
+        return 0;
+    size = *(DWORD *)((BYTE *)scene + SCENE_VEC_SIZE);
+    data = *(DWORD **)((BYTE *)scene + SCENE_VEC_DATA);
+    if (!size || !data || size > 100000)
+        return 0;
+    slot = data + size - 1;
+    saved = *slot;
+    *slot = 0x7ffe0005;                         /* generation 0x7ffe: no live gob has it */
+    return 1;
+}
+
 int gob_alive(BYTE *gob)
 {
     return gob && gob_slot(gob) >= 0 && !gob_doomed(gob);

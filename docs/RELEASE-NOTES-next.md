@@ -187,3 +187,11 @@ and the glyph switch; `coop-keys` checks the guide's pad lines; live: `pad-layer
   shrink must fail), new `tools/test_ui_layout.py` checks with two mutants, and `tools/qa_launcher_look.sh` (two games:
   every page in the game's look with no label wider than its button, the portraits on the host, the guest and the Saves cards, and the same pages with
   `[test] launcher_art=0` drawn as before).
+
+## Crash guards
+- **A position set on a missing object** (a script or test command racing a level change, `mdk2hd.exe+0xdda8`) is
+  ignored instead of crashing the game.
+- **A stale object handle in the per-frame scene pass** (a shot-up scenery object, `mdk2hd.exe+0x570bd`) is skipped
+  the way the pass's first walk already skips it, instead of crashing the host.
+- Both checks verify the game's code bytes first and stay off on an unrecognised build. Checks: `tools/qa_setpos_guard.sh`
+  and `tools/qa_scene_guard.sh`, each with an unguarded mutant that must crash at the same site.

@@ -108,6 +108,15 @@ DWORD *anim_state(void *gob, int id);
 int anim_trim(BYTE *gob);
 void anim_trim_all(void);
 void anim_trim_init(void);
+void setpos_guard_init(void);
+void scene_guard_init(void);
+void scene_guard_set(int on);
+void scene_guard_report(void);
+int scene_test_stale(int on);
+extern int scene_guard_on;
+extern int scene_stale_skipped; /* stale handles the scene pass guard stepped over */
+extern int setpos_guard_on;     /* tests switch it off to prove the guard matters (coop_setposguard) */
+extern int setpos_blocked;      /* position sets on a null gob that the guard ignored */
 extern int anim_trim_on;        /* [test] anim_trim=0 or coop_animtrim(0) switch the overflow guard off */
 extern int anim_guard_on;       /* tests switch it off to prove the guard matters (coop_animguard) */
 const char *gob_name(BYTE *gob);
