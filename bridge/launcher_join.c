@@ -705,7 +705,9 @@ static float lj_join_panel(float y)
         int on = lju.selected == idx[i], grey = r->mismatch || lj_row_full(r), hit;
         float h = 44;
         hit = control(ID + 9000 + i, PX, y, PW, h);
-        fill(PX, y, PW, h - 2, on ? 0x2a2014 : over(PX, y, PW, h) ? C_TILE_HOT : C_TILE, 235);
+        steel_fill(PX, y, PW, h - 2, over(PX, y, PW, h) ? 0.40f : 0.30f);
+        if (on) fill(PX, y, PW, h - 2, 0x2a2014, 170);     /* the chosen one: warm, as the chosen tile */
+        bevel(PX, y, PW, h - 2);
         fill(PX, y, 5, h - 2, on ? C_ORANGE : grey ? 0x2a3a42 : C_BLUE, 255);
         if (on) frame_rect(PX, y, PW, h - 2, 2, C_ORANGE, 255);
         snprintf(line, sizeof(line), "%s", lj_row_name(r));
@@ -952,8 +954,7 @@ static int lj_text_box(int id, float x, float y, float w, const char *label, cha
         }
         ntyped = 0;
     }
-    fill(x, y + 24, w, 40, focus == id ? 0x0d1a20 : C_TILE, 245);
-    fill(x, y + 62, w, 2, focus == id ? C_BLUE : C_FAINT, 255);
+    field_box(x, y + 24, w, focus == id);
     while (buf[start] && gdi_width(f_body, buf + start) > w - 30) start++;
     snprintf(shown, sizeof(shown), "%s%s", start ? "..." : "", buf + start);
     if (buf[0]) gdi_text(f_body, x + 12, y + 33, C_TEXT, shown, DT_LEFT);

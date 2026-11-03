@@ -165,7 +165,30 @@ def check_text_fit(src, fails):
         fails.append("About does not keep the version clear of the heading")
 
 
+def check_game_look(src, fails):
+    """The game's look (launcher_look.h): every button label is fitted in the menu font or drawn in the GDI face, the
+    short orange buttons fit theirs, and a lobby name never runs into the player's state on its right."""
+    bl = src[src.index("static void button_label("):]
+    bl = bl[:bl.index("\n}\n")]
+    if "ll_label_height(glyph_adv, s, w, h)" not in bl or "ll_primary_height(glyph_adv, s, w, h)" not in bl or \
+            "gdi_text(f, " not in bl:
+        fails.append("button labels are not fitted to their button (ll_label_height / ll_primary_height, GDI fallback)")
+    bt = src[src.index("static int button(int id"):]
+    bt = bt[:bt.index("\n}\n")]
+    if "button_label(x + 2, y, w - 2, h, s," not in bt or "if (gh >= 34)" not in bt:
+        fails.append("button() draws a label without fitting it")
+    lp = src[src.index("static void lobby_page(void)"):]
+    lp = lp[:lp.index("\n}\n")]
+    if "room = bx - 4 - gdi_width(f_tiny, pill) - 8 - nx;" not in lp or "clip_text(line, room < 170 ? room : 170);" not in lp:
+        fails.append("a long lobby name can run into the player's state (ready, ping, version)")
+    if "if (!plate.px) {" not in src or "if (!font.px) {" not in src:
+        fails.append("the steel or the menu font has no fallback without mdk2.tar")
+
+
 MUTANTS = {
+    "label-not-fitted": ("float gh = !font.px ? 0 : primary ? ll_primary_height(glyph_adv, s, w, h) : ll_label_height(glyph_adv, s, w, h);",
+                         "float gh = !font.px ? 0 : h * 0.6f;"),
+    "lobby-name-over-state": ("clip_text(line, room < 170 ? room : 170);", "clip_text(line, 170);"),
     "tenth-interface-row": ('toggle(ID, PX, y, PW, "Pings", "Mark a spot for everyone", &cfg.pings);',
                             'toggle(ID, PX, y, PW, "Pings", "Mark a spot for everyone", &cfg.pings);\n        y += ROW + 2;\n'
                             '        toggle(ID, PX, y, PW, "Extra", NULL, &cfg.pings);\n        y += ROW + 2;\n'
@@ -247,12 +270,19 @@ def test_launcher_layout():
         lob_btn = LH - 100
         rows = [float(v) for v in re.findall(r"row_h = lob\.n > 12 \? ([\d.]+)f : ([\d.]+)f", src)[0]]
         assert px(126 + 16 * rows[0]) <= px(lob_btn), f"{desc}: 16 lobby members overflow into the buttons"
+        # the hero's portrait sits inside its row, and the name after it leaves room before the Mute / Kick buttons
+        for rh in rows:
+            assert rh - 7 >= 12 and px(2 + rh - 7) <= px(rh - 3), f"{desc}: the portrait does not fit a {rh} row"
+            name_x = 26 + rh - 2
+            buttons_x = 392 - 8 - 44 - 4 - 50 - 4
+            assert px(name_x + 60) < px(buttons_x), f"{desc}: no room for a name beside the portrait in a {rh} row"
 
     fails = []
     check_settings_fit(src, fails)
     check_menu_parity(src, lua, combat, fails)
     check_text_fit(src, fails)
     check_primary_button(src, fails)
+    check_game_look(src, fails)
     ctrl = (ROOT / "bridge/ctrlview.c").read_text()
     check_guide_text(ctrl, src, fails)
     check_controls_lines(lua, fails)
@@ -265,6 +295,7 @@ def test_launcher_layout():
         check_menu_parity(m, lua, combat, bad)
         check_text_fit(m, bad)
         check_primary_button(m, bad)
+        check_game_look(m, bad)
         assert bad, f"mutant {name} was NOT caught"
     for name, (old, new) in GUIDE_MUTANTS.items():
         assert ctrl.count(old) == 1, f"mutant {name}: expected one match, found {ctrl.count(old)}"
