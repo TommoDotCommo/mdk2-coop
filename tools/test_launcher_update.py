@@ -310,7 +310,7 @@ with tempfile.TemporaryDirectory() as temp:
 # Execute the shipped About-page renderer with game-free UI stubs. A successful
 # check has no release notes, which used to trigger a stray write clearing line.
 launcher = (ROOT / 'bridge/launcher.c').read_text()
-about = launcher.split('static void page_about(void)', 1)[1].split('\n/* ---- lobby', 1)[0]
+about = launcher.split('static void page_about(void)', 1)[1].split('\n/* ---- lobby', 1)[0].split('\nstatic int lob_wants(void);', 1)[0]
 shim = r"""
 #include <stdio.h>
 #include <string.h>
@@ -354,6 +354,9 @@ char diag_msg[MAX_PATH];
 static int diag_bundle_start(void) { return 0; }
 struct { int auto_enabled, include_prereleases; } update_sched = {1, 1};
 struct { char notes[180]; } update_rel;
+struct { int px; } font;
+static float title_width(const char *s, float h) { return 200; }
+static float gdi_width(int f, const char *s) { return 100; }
 char update_msg[220];
 int gdi_para(int font, float x, float y, float width, int color, const char *text) {
     if (!strcmp(text, update_msg) && text[0]) seen++;
@@ -389,7 +392,7 @@ with tempfile.TemporaryDirectory() as temp:
         source = directory / 'about.c'
         source.write_text(shim + body + main)
         binary = directory / 'about'
-        subprocess.run(['cc', '-std=c99', '-w', str(source), '-o', str(binary)], check=True)
+        subprocess.run(["cc", "-std=c99", "-w", str(source), "-o", str(binary)], check=True)
         result = subprocess.run([str(binary)])
         assert (result.returncode != 0) == mutant, 'About update status visibility regression'
     print('PASS: About renders update results; status-clearing mutant caught')
