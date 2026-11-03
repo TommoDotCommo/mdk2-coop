@@ -358,8 +358,11 @@ int main(void)
             *(DWORD *)(puff + GOB_TARGET) = gob_handle(gob_slot(built));
             /* the owner's game shows and hides them itself (Max's thrust code shows the jetpack's flame), the puppet
              * never runs that code: the owner's bits are copied onto the puppet's sub-gobs, read back by a capture */
-            *(WORD *)(puff + GOB_FLAGS) = 0x2a; g.v[1].subs = 0; gear_apply(1, bodies[1], &g);
+            *(WORD *)(puff + GOB_FLAGS) = 0x2a; g.v[1].subs = 1; gear_apply(1, bodies[1], &g);
+            g.v[1].subs = 0; fake_ticks += 7; gear_apply(1, bodies[1], &g);
             assert(*(WORD *)(puff + GOB_FLAGS) == 0x22 && gear_subs_left[1][1] == 0);
+            assert(gear_subs_known[1][1] && gear_subs_at[1][1] == fake_ticks);          /* when it changed here */
+            fake_ticks += 5; gear_apply(1, bodies[1], &g); assert(gear_subs_at[1][1] == fake_ticks - 5);   /* unchanged */
             gear_capture(bodies[1], &h); assert(h.v[1].subs == 0);
             g.v[1].subs = 1; gear_apply(1, bodies[1], &g);
             assert(*(WORD *)(puff + GOB_FLAGS) == 0x2a && gear_subs_left[1][1] == 1);

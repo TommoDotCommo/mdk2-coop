@@ -3,15 +3,15 @@
 # flame while thrusting) and Doc's leaf blower (the item and its air puffs). Each is a separate gob the game builds
 # on the player's body; every peer reads it from its own gob table: alive, attached to that player's body, on the
 # same bone, shown, and in the owner's animation (jetpack: 62 idle, 77 thrusting; blower: 65 idle, 77 blowing), with
-# the sub-gobs its model made shown or hidden as on the owner's side (the jetpack's flame while thrusting), and within
-# 0.3 units / 15 degrees of where the owner's game puts it in the body's frame (tools/presence_check.py); it must be
+# the sub-gobs its model made shown or hidden as on the owner's side (the jetpack's flame while thrusting), and on the
+# pose of the bone the owner's game puts it on (within 0.02 units / 3 degrees, tools/presence_check.py); it must be
 # gone on every peer when it ends on the owner's side. Players start in different rooms, at least 300 units
 # apart (asserted from the dumps, tools/targeting_geometry.py). Three scenarios, one boot each: Kurt (level 1),
 # Max (level 2) and Doc (level 3), every peer taking its turn as the owner.
 #   MUTANT=gear    peers never build the equipment gobs of other players: must fail
 #   MUTANT=canopy  peers never copy the canopy state: must fail
 #   MUTANT=shown   peers leave the canopy's drawn/hidden bit to the game's room handling: must fail
-#   MUTANT=subs    peers leave the item's sub-gobs (the jetpack's flame) as the model made them: must fail
+#   MUTANT=subs    peers leave the item's sub-gobs to the copied animation (the flame comes on late): must fail
 #   MUTANT=gearbone  peers build the items on another bone of the body: must fail
 #   ONLY=kurt|max|doc  one scenario only (the default runs all three)
 set -euo pipefail
@@ -90,9 +90,12 @@ for owner in 1 2 3; do
     settle "max_idle_$owner" gear --owner "$owner" --name maxjetpack --expect 62
     lua "$owner" 'coop_press(57,4500)'
     sleep 1.5
-    settle "max_thrust_$owner" gear --owner "$owner" --name maxjetpack --expect 77
+    # the owner's game shows the flame the moment the thrust starts (and hides it when it ends); a puppet left to its
+    # copied animation followed 0.36 s or more late: every peer's flame changes within 200 ms of the owner's
+    # (measured about 100 ms)
+    settle "max_thrust_$owner" gear --owner "$owner" --name maxjetpack --expect 77 --lag 200
     sleep 5
-    settle "max_rest_$owner" gear --owner "$owner" --name maxjetpack --expect 62
+    settle "max_rest_$owner" gear --owner "$owner" --name maxjetpack --expect 62 --lag 200
     lua "$owner" 'omGobDelete(coop_child(mdkGetPlayerGob(),"maxjetpack"))'
     settle "max_gone_$owner" gear --owner "$owner" --name maxjetpack --absent
 done

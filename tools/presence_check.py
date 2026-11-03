@@ -98,11 +98,11 @@ def canopy(dumps, owner, expected):
         assert abs(float(r[7])-float(source[7])) < .25
 
 
-GEAR_FIELDS = {'chute': 6}         # every other visual's row has the eleven fields the equipment dump writes
-# How far a peer's copy of an item may sit from where the owner's game puts it, in the body's own frame (the
-# animations on the two sides are a frame or two apart): measured up to 0.05 units and 15 degrees (Max's idle sway) on
-# the player's build; another bone or a turned item is far outside
-POSE_UNITS, POSE_DEGREES = 0.3, 35.0
+GEAR_FIELDS = {'chute': 6}         # every other visual's row has the twelve fields the equipment dump writes
+# How far a peer's copy of an item may sit from where the owner's game puts it: its offset and turn from the bone the
+# owner's game puts it on (found by name on the same body at the same moment, so the two sides' animations do not
+# matter). Measured 0.000 units on the owner and every peer; the wrong bone is 0.06 units away for Doc, 0.07 for Max.
+POSE_UNITS, POSE_DEGREES = 0.02, 3.0
 
 
 def qmul(a, b):
@@ -113,10 +113,12 @@ def qmul(a, b):
 
 
 def relative_pose(row):
-    """A gearpose row (bone, item position and orientation w x y z, body position and orientation) as the item's
-    offset and turn in the body's frame."""
-    v = list(map(float, row[3:]))
-    assert len(v) == 14 and all(math.isfinite(x) for x in v), 'truncated gearpose row'
+    """A gearpose row (bone slot, item position and orientation w x y z, the named bone's slot, position and
+    orientation) as the item's offset and turn in that bone's frame."""
+    assert len(row) == 18, 'truncated gearpose row'
+    v = list(map(float, row[3:10] + row[11:18]))
+    assert all(math.isfinite(x) for x in v), 'nonfinite gearpose row'
+    assert int(row[10]) >= 0, 'the bone the item belongs on was not found'
     gp, gq, bp, bq = v[0:3], v[3:7], v[7:10], v[10:14]
     n = math.sqrt(sum(x*x for x in bq)) or 1
     inv = (bq[0]/n, -bq[1]/n, -bq[2]/n, -bq[3]/n)
@@ -134,14 +136,16 @@ def pose_gap(a, b):
     return dist, math.degrees(2 * math.acos(min(1.0, dot)))
 
 
-def gear(dumps, owner, name, expect=None, hidden=0, absent=False):
+def gear(dumps, owner, name, expect=None, hidden=0, absent=False, lag=None):
     """An equipment visual of player `owner` (a gob attached to its body), as every process reads it from its own
-    gob table: alive, on that body, bone slot, shown or hidden, animation. `absent`: it is gone everywhere."""
+    gob table: alive, on that body, bone slot, shown or hidden, animation, its model's sub-gobs, and its offset from
+    the bone the owner's game puts it on. `absent`: it is gone everywhere. `lag` (ms): each peer's sub-gobs last changed within that long of the
+    owner's (the processes share one clock), so a flame that comes on late on a peer fails even once it has caught up."""
     assert len(dumps) >= 2
     assert len({number(d, 'me') for d in dumps}) == len(dumps)
     assert sum(number(d, 'me') == owner for d in dumps) == 1
     assert len({number(d, 'level') for d in dumps}) == 1 and number(dumps[0], 'level') > 0
-    bones, subs, poses = set(), {}, {}
+    bones, subs, poses, changed = set(), {}, {}, {}
     for d in dumps:
         rows = [r for r in d.get('gear', []) if int(r[0]) == owner and r[1] == name]
         if absent:
@@ -149,7 +153,7 @@ def gear(dumps, owner, name, expect=None, hidden=0, absent=False):
             continue
         assert len(rows) == 1, f'{name} of player {owner} is missing in a process'
         r = rows[0]
-        assert len(r) == GEAR_FIELDS.get(name, 11), 'truncated gear row'
+        assert len(r) == GEAR_FIELDS.get(name, 12), 'truncated gear row'
         assert int(r[2]) == 1, 'visual is not alive'
         assert int(r[4]) == 1, 'visual is not attached to its player body'
         assert int(r[3]) == hidden, 'visual hidden state is wrong' if hidden == 0 else 'visual is not hidden'
@@ -161,12 +165,16 @@ def gear(dumps, owner, name, expect=None, hidden=0, absent=False):
             continue
         me = number(d, 'me')
         subs[me] = r[10]
+        changed[me] = int(r[11])
         pose = [p for p in d.get('gearpose', []) if int(p[0]) == owner and p[1] == name]
         assert len(pose) == 1, f'{name} of player {owner} has no pose row in a process'
         poses[me] = relative_pose(pose[0])
     if subs:
         # the model's sub-gobs (the jetpack's flame, the blower's puffs) shown and hidden as on the owner's side
         assert len(set(subs.values())) == 1, f'{name} sub-gobs differ from the owner\'s (count/hidden bits): {subs}'
+        if lag is not None:
+            late = {me: at - changed[owner] for me, at in changed.items() if abs(at - changed[owner]) > lag}
+            assert not late, f'{name} sub-gobs changed on a peer this many ms after the owner: {late}'
         for me, pose in poses.items():
             dist, angle = pose_gap(pose, poses[owner])
             assert dist <= POSE_UNITS and angle <= POSE_DEGREES, \
@@ -192,6 +200,7 @@ def main():
     parser.add_argument('--name')
     parser.add_argument('--hidden', type=int, default=0)
     parser.add_argument('--absent', action='store_true')
+    parser.add_argument('--lag', type=int)
     args = parser.parse_args()
     try:
         rows = [load(p) for p in args.files]
@@ -199,7 +208,7 @@ def main():
             assert len(rows) == 4
             ai(*rows, host_near=args.kind == 'ai-host')
         elif args.kind == 'canopy': canopy(rows, args.owner, args.expect)
-        elif args.kind == 'gear': gear(rows, args.owner, args.name, args.expect, args.hidden, args.absent)
+        elif args.kind == 'gear': gear(rows, args.owner, args.name, args.expect, args.hidden, args.absent, args.lag)
         else:
             assert len(rows) == 1
             join(rows[0], args.expect)
