@@ -103,6 +103,27 @@ The mod does not patch the game executable. Manual uninstall: delete those two f
 to `dinput8.dll` if there was one); optionally delete the `-- >>> mdk2-coop >>>` ... `-- <<< mdk2-coop <<<` block in
 `%LOCALAPPDATA%\MDK2HD\settings.lua` (it does nothing without the mod) and the `coop` folders.
 
+### Mod managers
+
+The zip is a drop-in package, so any manager that puts its files in the game folder works. Neither Vortex nor Mod
+Organizer 2 knows MDK2 HD yet, so every release also carries a small game extension for each (the `mod-managers` assets on
+the release page). Install the mod from the release zip (or from Nexus Mods, where it is the same zip with the same
+version). Setup then shows "Installed by a mod manager" with a Play button, and updates come from the manager: the
+launcher's update check says "Update it in your mod manager" instead of replacing files.
+
+- **Vortex**: Settings > Extensions > Install From File, choose `mdk2hd-vortex-extension.zip`, restart Vortex, then
+  add *MDK2 HD* (found through Steam, or Manually Locate for the Overhaul Games build). Drag the release zip onto Vortex
+  and enable it; Deploy. The extension lifts `dinput8.dll` and `coop\coop.lua` out of the zip's top folder, so there is
+  no installer step. Start the game from Vortex with *MDK2 Co-op launcher* (the co-op launcher is part of the game's start,
+  so this is the game started normally) or from Steam.
+- **Mod Organizer 2**: copy `game_mdk2hd.py` into `<MO2>\plugins\basic_games\games\`, restart MO2 and create an
+  *MDK2 HD* instance. Install the zip as a mod (the plugin unfolds the top folder and drops Setup and the other helper
+  files), then run the *MDK2 Co-op launcher* executable from MO2. Not tested yet: MO2 runs the game inside its virtual
+  file system (usvfs), and Windows must load the mod's `dinput8.dll` through it. If the co-op launcher does not open when
+  you start the game from MO2, use the Root Builder plugin to deploy the two files into the real game folder, or install by
+  hand (above).
+- **By hand**: see Manual install above.
+
 ### Steam Deck and Linux (Proton): untested
 
 MDK2 HD runs through Proton, and the mod is a `dinput8.dll` proxy. Wine and Proton have their own built-in

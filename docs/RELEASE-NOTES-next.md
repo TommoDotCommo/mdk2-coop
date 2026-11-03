@@ -99,3 +99,9 @@ New gates: `coop-keys` (key table, migration of saved bindings, guide lines, not
   numbers still join.
 - Under the hood: the launcher lobby and the game answer the new CPQ2 probe next to CPQ1, at most 10 replies a
   second per address. New gates: `launcher-join` (offline, 24 mutants), `join-list` (live, two games).
+
+## Mod managers
+
+- **Vortex and Mod Organizer 2.** Every release carries a Vortex game extension (`mdk2hd-vortex-extension.zip`) and an
+  MO2 game plugin (`game_mdk2hd.py`) for MDK2 HD, so the managers install the release zip with no extra step and start the
+  game with the co-op launcher. README, Install > Mod managers. The MO2 side is untested under its virtual file system.
