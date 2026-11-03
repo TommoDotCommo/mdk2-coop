@@ -41,8 +41,15 @@ test-shots: ../local/tests/shots_test.exe
 	mkdir -p ../local/tests
 	$(CC) $(CFLAGS) -o $@ tests/pad_test.c -static-libgcc
 
-test-pad: ../local/tests/pad_test.exe
+../local/tests/pad_test_mutant.exe: tests/pad_test.c pad.c pad.h
+	mkdir -p ../local/tests
+	$(CC) $(CFLAGS) -DCOOP_MUTANT_PAD_NO_SWALLOW -o $@ tests/pad_test.c -static-libgcc
+
+# the mutant (the D-pad not swallowed while View is held) must fail the same test
+test-pad: ../local/tests/pad_test.exe ../local/tests/pad_test_mutant.exe
 	../local/tests/pad_test.exe
+	@if ../local/tests/pad_test_mutant.exe >/dev/null; then echo "MUTANT pad-no-swallow passed: the test cannot see it" >&2; exit 1; \
+	else echo "mutant pad-no-swallow: fails as it must"; fi
 
 test-revive:
 	../tools/test_revive.sh

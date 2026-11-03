@@ -29,7 +29,7 @@ int main(void)
     CHECK(down(&o, 57) && down(&o, 28) && down(&o, 19) && down(&o, 1) && down(&o, 256) && down(&o, 257));
     p.buttons = PAD_BACK;                             /* ping */
     pad_map(&p, 0, 0.016f, 700, &o);
-    CHECK(down(&o, 47) && !down(&o, 19));
+    CHECK(!down(&o, 47) && !down(&o, 19));        /* View is the co-op layer now, not a key */
     memset(&p, 0, sizeof(p));
     p.rx = 32767; p.ry = 32767;                       /* full right and up, 1 s */
     pad_map(&p, 0, 1.0f, 700, &o);
@@ -49,6 +49,83 @@ int main(void)
     pad_bind(PA_JUMP, -1); pad_bind(PA_SNIPER, -1); pad_bind(PA_FWD, -1);
     pad_map(&p, 0, 0.016f, 700, &o);
     CHECK(down(&o, 57) && down(&o, 17) && down(&o, 257));
-    printf(fails ? "%d failed\n" : "pad mapping: all passed\n", fails);
+    pad_bind(PA_FWD, -1);
+
+    /* the co-op layer on View, from recorded pad states: { buttons, ms since the start } per frame */
+    {
+        struct padlayer L;
+        struct padlayer_out lo;
+        unsigned prev = 0;
+        int i, pings = 0, lists = 0, moved = 0, emote = 0, quick = 0, chats = 0, guide = 0, watchn = 0, ch = 0;
+        /* a tap: View for 100 ms -> one ping, no list */
+        static const struct { unsigned b; int t; } tap[] = { { 0, 0 }, { PAD_BACK, 16 }, { PAD_BACK, 50 },
+            { PAD_BACK, 116 }, { 0, 133 }, { 0, 150 } };
+        /* a hold: View for 600 ms with the D-pad up pressed at 400 ms -> list, then the emote wheel until View goes */
+        static const struct { unsigned b; int t; } hold[] = { { PAD_BACK, 0 }, { PAD_BACK, 100 }, { PAD_BACK, 300 },
+            { PAD_BACK | PAD_UP, 400 }, { PAD_BACK, 450 }, { PAD_BACK, 600 }, { 0, 616 } };
+
+        memset(&L, 0, sizeof(L));
+        memset(&p, 0, sizeof(p));
+        for (i = 0; i < (int)(sizeof(tap) / sizeof(tap[0])); i++) {
+            p.buttons = tap[i].b;
+            pad_frame(&L, &p, prev, 0.016f, 700, tap[i].t, &o, &lo);
+            prev = p.buttons;
+            pings += !!(lo.gk & (1u << GK_PING));
+            lists += !!(lo.gk & (1u << GK_LIST));
+            CHECK(!down(&o, 47));                     /* View never presses the ping key for the game */
+        }
+        CHECK(pings == 1 && lists == 0);
+        memset(&L, 0, sizeof(L));
+        prev = 0;
+        pings = lists = 0;
+        for (i = 0; i < (int)(sizeof(hold) / sizeof(hold[0])); i++) {
+            p.buttons = hold[i].b;
+            pad_frame(&L, &p, prev, 0.016f, 700, hold[i].t, &o, &lo);
+            prev = p.buttons;
+            pings += !!(lo.gk & (1u << GK_PING));
+            if (i == 1) CHECK(!(lo.gk & (1u << GK_LIST)));      /* 100 ms: not a hold yet */
+            if (i == 2) CHECK(lo.gk & (1u << GK_LIST));         /* 300 ms: the player list */
+            lists += !!(lo.gk & (1u << GK_LIST));
+            emote += !!(lo.gk & (1u << GK_EMOTE));
+            moved += down(&o, 200) || down(&o, 17);
+        }
+        CHECK(pings == 0 && lists == 1);
+        CHECK(emote == 3);                            /* latched from the press until View is let go */
+        CHECK(moved == 0);                            /* the D-pad did not walk while View was held */
+        CHECK(!(lo.gk & (1u << GK_EMOTE)));           /* let go: the wheel closes (and plays its choice) */
+        /* without View the D-pad walks as before */
+        p.buttons = PAD_UP;
+        pad_frame(&L, &p, 0, 0.016f, 700, 1000, &o, &lo);
+        CHECK(down(&o, 200) && down(&o, 17) && lo.gk == 0);
+        /* View + D-pad down: chat (once); + right: watch next; + RB: quick chat wheel; + LB: the character
+         * wheel; + Y: the guide, and Y is not the inventory then. LB / RB do not change the item. */
+        memset(&L, 0, sizeof(L));
+        prev = 0;
+        {
+            static const unsigned seq[] = { PAD_BACK, PAD_BACK | PAD_DOWN, PAD_BACK | PAD_DOWN, PAD_BACK | PAD_RIGHT,
+                PAD_BACK | PAD_Y, PAD_BACK | PAD_RB, PAD_BACK, 0, PAD_BACK, PAD_BACK | PAD_LB, PAD_BACK, 0 };
+            for (i = 0; i < (int)(sizeof(seq) / sizeof(seq[0])); i++) {
+                p.buttons = seq[i];
+                pad_frame(&L, &p, prev, 0.016f, 700, i * 16.0, &o, &lo);
+                prev = p.buttons;
+                chats += lo.chat;
+                watchn += !!(lo.gk & (1u << GK_WATCHN));
+                guide += lo.guide;
+                quick += !!(lo.gk & (1u << GK_QUICK));
+                ch += !!(lo.gk & (1u << GK_CHAR));
+                pings += !!(lo.gk & (1u << GK_PING));
+                moved += down(&o, 208) || down(&o, 31) || down(&o, 205) || down(&o, 32) || down(&o, 18) || o.mouse[2];
+            }
+        }
+        CHECK(chats == 1 && watchn == 1 && guide == 1 && quick == 2 && ch == 2 && pings == 0 && moved == 0);
+        /* the last input: a pad press or a stick moved */
+        memset(&p, 0, sizeof(p));
+        CHECK(!pad_active(&p, 0));
+        p.rx = 30000;
+        CHECK(pad_active(&p, 0));
+        p.rx = 0; p.buttons = PAD_A;
+        CHECK(pad_active(&p, 0) && !pad_active(&p, PAD_A));
+    }
+    printf(fails ? "%d failed\n" : "pad mapping and co-op layer: all passed\n", fails);
     return fails != 0;
 }

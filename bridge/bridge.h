@@ -325,7 +325,7 @@ int emote_wheel_open(void);
 /* ---- input.c / hud.c / rooms.c / entities.c, for revive.c ---- */
 
 int input_down(int code, int vk);
-enum { GK_CHAT, GK_PING, GK_REVIVE, GK_VOICE, GK_EMOTE, GK_CHAR, GK_LIST, GK_WATCHP, GK_WATCHN, GK_COUNT };    /* keys Lua sets: coop_game_keys */
+enum { GK_CHAT, GK_PING, GK_REVIVE, GK_VOICE, GK_EMOTE, GK_CHAR, GK_LIST, GK_WATCHP, GK_WATCHN, GK_QUICK, GK_COUNT };    /* keys Lua sets: coop_game_keys */
 int gamekey_down(int which);
 int input_lua_key(int k, int *code, int *vk);
 int gamekey_vk(int which);
