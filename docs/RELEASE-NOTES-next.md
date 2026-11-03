@@ -99,3 +99,21 @@ New gates: `coop-keys` (key table, migration of saved bindings, guide lines, not
   numbers still join.
 - Under the hood: the launcher lobby and the game answer the new CPQ2 probe next to CPQ1, at most 10 replies a
   second per address. New gates: `launcher-join` (offline, 24 mutants), `join-list` (live, two games).
+
+## Menu review
+
+- **Host decides.** Every row the host's choice counts for says so in both places: the launcher's hint reads "Host decides"
+  and the in-game rows end in "(host decides)" (friendly fire, difficulty, co-op save interval, back to the level's hero,
+  hearing range). Options > Co-op > Co-op rules now lists them in the launcher's order.
+- **Open lobby.** The big button on Play says "Open lobby" when hosting opens the lobby (it said Host, or Continue when a
+  save was picked).
+- **Text that fitted badly.** The Settings section picker no longer runs "Players and interface" over its arrows, and
+  About keeps a long (development) version clear of its heading.
+- **DPS meter.** Off by default; Players and interface > DPS meter (launcher or in game) turns it on within two seconds
+  as one line; Ctrl+M cycles off, line, full. The launcher hint now says so; the README and the combat notes were still
+  describing the old always-on line.
+- Tests: `ui-layout` now reads the launcher and the menu source (the four tabs, every Settings section above the
+  status line, row order and "host decides" tags in launcher and game, the DPS row, the Open lobby label, text-fit
+  guards; 10 mutants); `qa_combat.sh` follows the three-step Ctrl+M cycle. `tools/menu_review.sh` captures every
+  launcher page, the lobby as host and guest, and every Options > Co-op page at 1280x720 and 1920x1080, and checks the
+  DPS switch and Ctrl+M live.

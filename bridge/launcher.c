@@ -1113,7 +1113,15 @@ static int choice(int id, float x, float y, float w, const char *label, const ch
     fill(bx, y + 6, 200, 34, C_TILE, 235);
     gdi_text(f_label, bx + 14, y + 10, C_DIM, "<", DT_LEFT);
     gdi_text(f_label, bx + 186, y + 10, C_DIM, ">", DT_RIGHT);
-    gdi_text(f_body, bx + 100, y + 11, C_TEXT, names[*v], DT_CENTER);
+    {   /* the value sits between the arrows (140 wide): a long one gets a smaller font, never over them */
+        HFONT vf = f_body;
+        float vy = y + 11;
+        if (gdi_width(vf, names[*v]) > 140)
+            vf = f_small, vy = y + 13;
+        if (gdi_width(vf, names[*v]) > 140)
+            vf = f_tiny, vy = y + 14;
+        gdi_text(vf, bx + 100, vy, C_TEXT, names[*v], DT_CENTER);
+    }
     focus_ring(id, x, y, w, ROW);
     return d != 0;
 }
@@ -1500,14 +1508,14 @@ static void page_settings(void)
     choice(ID, PX, y, PW, "Settings", NULL, sections, 7, &cfg.section);
     y += ROW + 10;
     if (cfg.section == 0) {
-        toggle(ID, PX, y, PW, "Friendly fire", "The host's choice counts", &cfg.friendly_fire);
+        toggle(ID, PX, y, PW, "Friendly fire", "Host decides", &cfg.friendly_fire);
         if (cfg.friendly_fire != diff[0]) {         /* part of the difficulty: may make it Custom */
             diff[0] = cfg.friendly_fire;
             diff_match();
         }
         y += ROW + 2;
-        if (choice(ID, PX, y, PW, "Difficulty", cfg.difficulty == DIFF_CUSTOM ? "Custom: in game, Options > Co-op" :
-                   "The host's choice counts", diff_names, 5, &cfg.difficulty)) {
+        if (choice(ID, PX, y, PW, "Difficulty", cfg.difficulty == DIFF_CUSTOM ? "Host decides. Custom: set in game" :
+                   "Host decides", diff_names, 5, &cfg.difficulty)) {
             if (cfg.difficulty == DIFF_CUSTOM)
                 memcpy(diff, diff_read, sizeof(diff));      /* back to what coop.ini has */
             else
@@ -1515,9 +1523,9 @@ static void page_settings(void)
             diff_match();
         }
         y += ROW + 2;
-        choice(ID, PX, y, PW, "Co-op save every", NULL, interval_text, 4, &cfg.save_interval);
+        choice(ID, PX, y, PW, "Co-op save every", "Host decides", interval_text, 4, &cfg.save_interval);
         y += ROW + 2;
-        toggle(ID, PX, y, PW, "Back to level's hero", "After a level you switched hero in", &cfg.char_follow);
+        toggle(ID, PX, y, PW, "Back to level's hero", "Host decides. After a level you switched hero in", &cfg.char_follow);
         y += ROW + 2;
         if (choice(ID, PX, y, PW, "Who can see my lobby", lhost_cfg.invite_only ? "Only friends with the invite can join" :
                    "Listed on your network and Tailscale", visibility, 2, &lhost_cfg.invite_only))
@@ -1527,7 +1535,7 @@ static void page_settings(void)
         y += ROW + 2;
         toggle(ID, PX, y, PW, "Player outlines", "Your friends through walls", &cfg.outline);
         y += ROW + 2;
-        toggle(ID, PX, y, PW, "DPS meter", "Damage per second panel; Ctrl+M in game", &cfg.dps);
+        toggle(ID, PX, y, PW, "DPS meter", "One line; Ctrl+M in game: off, line, full", &cfg.dps);
         y += ROW + 2;
         toggle(ID, PX, y, PW, "Cutscene timer", "Time left, with the skip vote", &cfg.movietimer);
         y += ROW + 2;
@@ -1545,7 +1553,7 @@ static void page_settings(void)
         y += ROW + 2;
         choice(ID, PX, y, PW, "Voice volume", NULL, voice_volume_names, 4, &cfg.voice_volume);
         y += ROW + 2;
-        choice(ID, PX, y, PW, "Hearing range", "The host's choice counts", voice_range_names, 4, &cfg.voice_range);
+        choice(ID, PX, y, PW, "Hearing range", "Host decides", voice_range_names, 4, &cfg.voice_range);
         y += ROW + 10;
         choice(ID, PX, y, PW, "Effects", NULL, levels, 11, &sound[0]);
         y += ROW + 2;
@@ -1641,7 +1649,12 @@ static void page_about(void)
     heading(PX, y, 28, "MDK2 HD Co-op", C_TEXT, DT_LEFT);
     {
         char vline[96];
+        float room = PW - (font.px ? title_width("MDK2 HD Co-op", 28) : 200) - 16;
         snprintf(vline, sizeof(vline), "Version %s  -  alpha", MOD_VERSION);
+        if (gdi_width(f_small, vline) > room)       /* a development version is long: shorter words, never over the heading */
+            snprintf(vline, sizeof(vline), "Version %s", MOD_VERSION);
+        if (gdi_width(f_small, vline) > room)
+            snprintf(vline, sizeof(vline), "%s", MOD_VERSION);
         gdi_text(f_small, PX + PW, y + 6, C_ORANGE, vline, DT_RIGHT);
     }
     y += 36;
@@ -2633,7 +2646,8 @@ static const char *primary_label(char *out, size_t cap)
     if (cfg.mode == MODE_JOIN || lju.offer)
         lj_primary_label(out, cap);
     else
-        snprintf(out, cap, "%s", cfg.mode == MODE_SOLO ? "Play solo" : sel >= 0 ? "Continue" : "Host");
+        snprintf(out, cap, "%s", cfg.mode == MODE_SOLO ? "Play solo" : lob_wants() ? "Open lobby" :
+                 sel >= 0 ? "Continue" : "Host");       /* A2: the lobby opens first, whatever the save picked */
     while (strlen(out) > 8 && (font.px ? title_width(out, 34) : gdi_width(f_big, out)) > PW - 24)
         strcpy(out + strlen(out) - 4, "...");
     return out;
@@ -3308,8 +3322,14 @@ static void run(void)
         sc = (work.bottom - work.top) * 0.85f / LH;
     if (sc > 2.0f) sc = 2.0f;
     if (sc < 0.5f) sc = 0.5f;
-    if (headless)
-        sc = 1.0f;
+    if (headless) {
+        /* [test] launcher_scale=<percent>: the hidden test launcher at another window size (150 = 1920x1080) */
+        char tini[MAX_PATH];
+        int pct;
+        snprintf(tini, MAX_PATH, "%s\\coop.ini", coop_dir);
+        pct = GetPrivateProfileIntA("test", "launcher_scale", 100, tini);
+        sc = (pct >= 50 && pct <= 300 ? pct : 100) / 100.0f;
+    }
     fw = px(LW);
     fh = px(LH);
     if (!canvas_make()) {

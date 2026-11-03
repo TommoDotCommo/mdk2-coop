@@ -4235,18 +4235,15 @@ function coop.BuildGame()
     mdkClearMenu(m)
     coop.Heading(m, coop.page_names.rules)
 
-    local item = mdkCreateMenuItem(m, "Friendly fire")
+    -- the launcher's order (E4); the host decides each of these (E2) --
+    local item = mdkCreateMenuItem(m, "Friendly fire (host decides)")
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "friendly_fire", "0")) or 0)
     item.Select = function(self, n) coop_set("game", "friendly_fire", n) end
 
-    item = mdkCreateMenuItem(m, "Back to level's hero")
-    mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "char_follow", "1")) or 1)
-    item.Select = function(self, n) coop_set("game", "char_follow", n) end
-
-    item = mdkCreateMenuItem(m, "Difficulty: " .. coop.DiffPresetName())
+    item = mdkCreateMenuItem(m, "Difficulty (host decides): " .. coop.DiffPresetName())
     item.Select = function(self) coop.ShowPage("coopdiff") end
 
-    item = mdkCreateMenuItem(m, "Co-op save every")
+    item = mdkCreateMenuItem(m, "Co-op save every (host decides)")
     mdkMenuItemAddComboBox(item)
     mdkMenuItemAddComboString(item, "1 min")
     mdkMenuItemAddComboString(item, "2 min")
@@ -4258,6 +4255,10 @@ function coop.BuildGame()
         coop_set("save", "interval", coop.save_interval)
     end
     item.Dec = item.Inc
+
+    item = mdkCreateMenuItem(m, "Back to level's hero (host decides)")
+    mdkMenuItemAddCheckBox(item, tonumber(coop_get("game", "char_follow", "1")) or 1)
+    item.Select = function(self, n) coop_set("game", "char_follow", n) end
 
     item = mdkCreateMenuItem(m, "Developer keys")
     mdkMenuItemAddCheckBox(item, tonumber(coop_get("controls", "devkeys", "0")) or 0)
@@ -4669,7 +4670,7 @@ function coop.BuildVoice()
     item.Inc = function(self) coop_set("voice", "volume", coop.voice_volumes[mdkMenuItemGetWidgitValue(self)]) end
     item.Dec = item.Inc
 
-    item = mdkCreateMenuItem(m, "Hearing range (host)")
+    item = mdkCreateMenuItem(m, "Hearing range (host decides)")
     mdkMenuItemAddComboBox(item)
     mdkMenuItemAddComboString(item, "Short")
     mdkMenuItemAddComboString(item, "Medium")
