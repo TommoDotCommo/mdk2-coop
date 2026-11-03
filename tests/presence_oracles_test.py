@@ -3,6 +3,7 @@ import copy
 from pathlib import Path
 import sys
 import tempfile
+import math
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
 import presence_check as oracle
@@ -88,8 +89,27 @@ class PresenceOracles(unittest.TestCase):
 
     def test_gear_is_read_from_every_process(self):
         host, client = sample('host',1), sample('client',2)
-        for d in host,client: d['gear'] = [['1','maxjetpack','1','0','1','19','77','62','.5','1']]
+        # the jetpack 0.82 above Max's origin, read on the owner (who stands at 839 950) and on a peer
+        pose = lambda body, q: [['1','maxjetpack','19', str(body[0]-.004), str(body[1]-.021), str(body[2]+.816),
+                                 *map(str, q), *map(str, body), *map(str, q)]]
+        host['gearpose'] = pose((839, 950, 235.065), (1, 0, 0, 0))
+        client['gearpose'] = pose((1343, 899, 250), (1, 0, 0, 0))
+        for d in host,client: d['gear'] = [['1','maxjetpack','1','0','1','19','77','62','.5','1','3/0']]
         oracle.gear([host,client],1,'maxjetpack',77)
+        # the same pose on a body turned a quarter round is still the same place on the body
+        h = math.sqrt(.5); body = (1343, 899, 250)
+        client['gearpose'] = [['1','maxjetpack','19', str(body[0]+.021), str(body[1]-.004), str(body[2]+.816),
+                               str(h), '0', '0', str(h), *map(str, body), str(h), '0', '0', str(h)]]
+        oracle.gear([host,client],1,'maxjetpack',77)
+        client['gearpose'][0][5] = str(body[2] + 1.6)                      # on another bone: 0.8 higher
+        with self.assertRaisesRegex(AssertionError, 'units'): oracle.gear([host,client],1,'maxjetpack',77)
+        client['gearpose'] = pose(body, (1, 0, 0, 0))
+        client['gear'][0][10] = '3/3'                                       # the owner's flame shown, the puppet's not
+        with self.assertRaisesRegex(AssertionError, 'sub-gobs'): oracle.gear([host,client],1,'maxjetpack',77)
+        client['gear'][0][10] = '3/0'
+        client.pop('gearpose')
+        with self.assertRaisesRegex(AssertionError, 'pose row'): oracle.gear([host,client],1,'maxjetpack',77)
+        client['gearpose'] = pose(body, (1, 0, 0, 0))
         oracle.gear([host,client],1,'maxjetpack')
         client['gear'][0][6] = '62'                                         # the puppet still shows the idle flame
         with self.assertRaisesRegex(AssertionError, 'animation'): oracle.gear([host,client],1,'maxjetpack',77)

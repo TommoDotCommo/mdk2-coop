@@ -55,7 +55,8 @@ static int puppet_slot(BYTE *g) { int i; for(i=0;i<3;i++) if(g && puppets[i]==g)
 static int player_in_level(int s) { return in_level[s]; }
 static int revive_life(void) { return life[0]; }
 static int player_life(int s) { return life[s]; }
-static const char *gob_name(BYTE *g) { return names[gob_slot(g)]; }
+/* like the real one, every call returns the same buffer */
+static const char *gob_name(BYTE *g) { static char buf[32]; snprintf(buf, sizeof(buf), "%s", names[gob_slot(g)]); return buf; }
 static void gob_peername(BYTE *g, char *out, int size) { snprintf(out,size,"@p%d",gob_slot(g)+1); }
 static DWORD *anim_state(BYTE *g, int id) {
     int k = id==66 ? 0 : id==67 ? 1 : id==62 ? 2 : id==77 ? 3 : id==65 ? 4 : -1;
@@ -355,6 +356,16 @@ int main(void)
             BYTE *puff = om_gob_create_fake("docleafblower__1");
             assert(puff && puff != built && gob_alive(puff));
             *(DWORD *)(puff + GOB_TARGET) = gob_handle(gob_slot(built));
+            /* the owner's game shows and hides them itself (Max's thrust code shows the jetpack's flame), the puppet
+             * never runs that code: the owner's bits are copied onto the puppet's sub-gobs, read back by a capture */
+            *(WORD *)(puff + GOB_FLAGS) = 0x2a; g.v[1].subs = 0; gear_apply(1, bodies[1], &g);
+            assert(*(WORD *)(puff + GOB_FLAGS) == 0x22 && gear_subs_left[1][1] == 0);
+            gear_capture(bodies[1], &h); assert(h.v[1].subs == 0);
+            g.v[1].subs = 1; gear_apply(1, bodies[1], &g);
+            assert(*(WORD *)(puff + GOB_FLAGS) == 0x2a && gear_subs_left[1][1] == 1);
+            gear_capture(bodies[1], &h); assert(h.v[1].subs == 1);
+            no_subs = 1; g.v[1].subs = 0; gear_apply(1, bodies[1], &g); no_subs = 0;   /* the switch for tests */
+            assert(*(WORD *)(puff + GOB_FLAGS) == 0x2a);
             gear_release(1);
             assert(!alive[gob_slot(built)] && !alive[gob_slot(puff)]);
         }

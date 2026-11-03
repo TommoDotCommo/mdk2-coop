@@ -51,13 +51,14 @@ int main(void)
     /* Equipment visuals: the wire form of each kind, with lost, truncated and corrupt data */
     {
         struct gear_state g = {0}, r, kept;
-        unsigned char gw[GEAR_KINDS * (5 + GEAR_ANIMS * 41)];
+        unsigned char gw[GEAR_KINDS * (6 + GEAR_ANIMS * 41)];
         int k, m, n, full;
         assert(gear_encode(&g, gw, sizeof(gw)) == GEAR_KINDS);              /* absent visuals are one byte each */
         assert(gear_decode(gw, GEAR_KINDS, &r) == GEAR_KINDS && !r.v[0].present && !r.v[GEAR_KINDS - 1].present);
         for (k = 0; k < GEAR_KINDS; k++) {
             struct gear_visual *v = &g.v[k];
             v->present = 1; v->hidden = k & 1; v->model = k + 1; v->cur = 77; v->prev = 62; v->nanims = GEAR_ANIMS;
+            v->subs = (unsigned char)(0x81 << k);   /* the model's sub-gobs hidden (jetpack: flame off at idle) */
             for (m = 0; m < GEAR_ANIMS; m++) {
                 float phase = 0.125f * (m + 1);
                 v->id[m] = (unsigned char)(60 + m * 9 + k);
@@ -68,11 +69,12 @@ int main(void)
             }
         }
         full = gear_encode(&g, gw, sizeof(gw));
-        assert(full == GEAR_KINDS * (5 + GEAR_ANIMS * 41));
+        assert(full == GEAR_KINDS * (6 + GEAR_ANIMS * 41));
         assert(gear_decode(gw, full, &r) == full);
         for (k = 0; k < GEAR_KINDS; k++) {
             assert(r.v[k].present == 1 && r.v[k].hidden == (k & 1) && r.v[k].model == k + 1);
             assert(r.v[k].cur == 77 && r.v[k].prev == 62 && r.v[k].nanims == GEAR_ANIMS);
+            assert(r.v[k].subs == g.v[k].subs);
             for (m = 0; m < GEAR_ANIMS; m++) {
                 assert(r.v[k].id[m] == g.v[k].id[m]);
                 assert(memcmp(r.v[k].anim[m], g.v[k].anim[m], sizeof(r.v[k].anim[m])) == 0);
@@ -101,7 +103,7 @@ int main(void)
         /* corrupt packets decode to nothing or to something valid, never into the destination half-written */
         for (n = 0; n < 20000; n++) {
             for (m = 0; m < (int)sizeof(gw); m++) gw[m] = (unsigned char)random_word();
-            if (n % 2) for (k = 0; k < GEAR_KINDS; k++) gw[k * (5 + GEAR_ANIMS * 41)] &= 1;
+            if (n % 2) for (k = 0; k < GEAR_KINDS; k++) gw[k * (6 + GEAR_ANIMS * 41)] &= 1;
             r = kept;
             if (!gear_decode(gw, (int)(random_word() % (sizeof(gw) + 1)), &r)) assert(memcmp(&r, &kept, sizeof(r)) == 0);
         }

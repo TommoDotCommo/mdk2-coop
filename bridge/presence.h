@@ -9,13 +9,15 @@ struct canopy_state {
 };
 /* Visuals the game keeps as separate gobs on a player's body (kind 0 Max's jetpack, 1 Doc's leaf blower; both built when
  * the item is taken; its air stream is the host's push volume, not a visual; kind 2 Kurt's canopy, built with him:
- * only whether it is shown): present, shown or hidden, which model variant, and the play state of the
- * (at most GEAR_ANIMS) running animations. A mirror builds the same gob, with the game's own attach calls. */
+ * only whether it is shown): present, shown or hidden, which model variant, the play state of the (at most GEAR_ANIMS)
+ * running animations, and which of the sub-gobs its model made are hidden (bit i: the i-th, in the order they were
+ * made; the jetpack's flame is two of them, shown by Max's own thrust code). A mirror builds the same gob, with the
+ * game's own attach calls. */
 #define GEAR_KINDS 3
 #define GEAR_ANIMS 3
 #define GEAR_ANIM_DWORDS 10
 struct gear_visual {
-    uint8_t present, hidden, model, cur, prev, nanims;
+    uint8_t present, hidden, model, cur, prev, nanims, subs;
     uint8_t id[GEAR_ANIMS];
     uint32_t anim[GEAR_ANIMS][GEAR_ANIM_DWORDS];
 };

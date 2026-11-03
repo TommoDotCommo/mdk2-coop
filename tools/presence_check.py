@@ -98,7 +98,40 @@ def canopy(dumps, owner, expected):
         assert abs(float(r[7])-float(source[7])) < .25
 
 
-GEAR_FIELDS = {'chute': 6}         # every other visual's row has the ten fields the equipment dump writes
+GEAR_FIELDS = {'chute': 6}         # every other visual's row has the eleven fields the equipment dump writes
+# How far a peer's copy of an item may sit from where the owner's game puts it, in the body's own frame (the
+# animations on the two sides are a frame or two apart): measured up to 0.05 units and 15 degrees (Max's idle sway) on
+# the player's build; another bone or a turned item is far outside
+POSE_UNITS, POSE_DEGREES = 0.3, 35.0
+
+
+def qmul(a, b):
+    aw, ax, ay, az = a
+    bw, bx, by, bz = b
+    return (aw*bw - ax*bx - ay*by - az*bz, aw*bx + ax*bw + ay*bz - az*by,
+            aw*by - ax*bz + ay*bw + az*bx, aw*bz + ax*by - ay*bx + az*bw)
+
+
+def relative_pose(row):
+    """A gearpose row (bone, item position and orientation w x y z, body position and orientation) as the item's
+    offset and turn in the body's frame."""
+    v = list(map(float, row[3:]))
+    assert len(v) == 14 and all(math.isfinite(x) for x in v), 'truncated gearpose row'
+    gp, gq, bp, bq = v[0:3], v[3:7], v[7:10], v[10:14]
+    n = math.sqrt(sum(x*x for x in bq)) or 1
+    inv = (bq[0]/n, -bq[1]/n, -bq[2]/n, -bq[3]/n)
+    d = (0.0, gp[0]-bp[0], gp[1]-bp[1], gp[2]-bp[2])
+    off = qmul(qmul(inv, d), (inv[0], -inv[1], -inv[2], -inv[3]))[1:]
+    return off, qmul(inv, gq)
+
+
+def pose_gap(a, b):
+    """Distance (units) and angle (degrees) between two relative poses."""
+    dist = math.dist(a[0], b[0])
+    na = math.sqrt(sum(x*x for x in a[1])) or 1
+    nb = math.sqrt(sum(x*x for x in b[1])) or 1
+    dot = abs(sum(x*y for x, y in zip(a[1], b[1]))) / (na*nb)
+    return dist, math.degrees(2 * math.acos(min(1.0, dot)))
 
 
 def gear(dumps, owner, name, expect=None, hidden=0, absent=False):
@@ -108,7 +141,7 @@ def gear(dumps, owner, name, expect=None, hidden=0, absent=False):
     assert len({number(d, 'me') for d in dumps}) == len(dumps)
     assert sum(number(d, 'me') == owner for d in dumps) == 1
     assert len({number(d, 'level') for d in dumps}) == 1 and number(dumps[0], 'level') > 0
-    bones = set()
+    bones, subs, poses = set(), {}, {}
     for d in dumps:
         rows = [r for r in d.get('gear', []) if int(r[0]) == owner and r[1] == name]
         if absent:
@@ -116,7 +149,7 @@ def gear(dumps, owner, name, expect=None, hidden=0, absent=False):
             continue
         assert len(rows) == 1, f'{name} of player {owner} is missing in a process'
         r = rows[0]
-        assert len(r) == GEAR_FIELDS.get(name, 10), 'truncated gear row'
+        assert len(r) == GEAR_FIELDS.get(name, 11), 'truncated gear row'
         assert int(r[2]) == 1, 'visual is not alive'
         assert int(r[4]) == 1, 'visual is not attached to its player body'
         assert int(r[3]) == hidden, 'visual hidden state is wrong' if hidden == 0 else 'visual is not hidden'
@@ -124,6 +157,20 @@ def gear(dumps, owner, name, expect=None, hidden=0, absent=False):
         bones.add(int(r[5]))
         if expect is not None:
             assert int(r[6]) == expect, f'{name} animation is {r[6]}, not {expect}'
+        if name == 'chute':
+            continue
+        me = number(d, 'me')
+        subs[me] = r[10]
+        pose = [p for p in d.get('gearpose', []) if int(p[0]) == owner and p[1] == name]
+        assert len(pose) == 1, f'{name} of player {owner} has no pose row in a process'
+        poses[me] = relative_pose(pose[0])
+    if subs:
+        # the model's sub-gobs (the jetpack's flame, the blower's puffs) shown and hidden as on the owner's side
+        assert len(set(subs.values())) == 1, f'{name} sub-gobs differ from the owner\'s (count/hidden bits): {subs}'
+        for me, pose in poses.items():
+            dist, angle = pose_gap(pose, poses[owner])
+            assert dist <= POSE_UNITS and angle <= POSE_DEGREES, \
+                f'{name} on player {me}\'s game is {dist:.3f} units / {angle:.1f} degrees from where the owner\'s game puts it'
     assert absent or len(bones) == 1, 'attached to different bones in different processes'
 
 

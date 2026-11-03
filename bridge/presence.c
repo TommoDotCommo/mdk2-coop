@@ -80,7 +80,7 @@ int gear_encode(const struct gear_state *s, unsigned char *out, int size)
     if (!gear_valid(s)) return 0;
     for (k = 0; k < GEAR_KINDS; k++) {
         const struct gear_visual *v = &s->v[k];
-        int need = v->present ? 5 + v->nanims * (1 + 4 * GEAR_ANIM_DWORDS) : 1;
+        int need = v->present ? 6 + v->nanims * (1 + 4 * GEAR_ANIM_DWORDS) : 1;
         if (size - n < need) return 0;
         out[n++] = v->present;
         if (!v->present) continue;
@@ -91,6 +91,7 @@ int gear_encode(const struct gear_state *s, unsigned char *out, int size)
             for (j = 0; j < GEAR_ANIM_DWORDS; j++) for (b = 0; b < 4; b++)
                 out[n++] = (unsigned char)(v->anim[i][j] >> (b * 8));
         }
+        out[n++] = v->subs;
     }
     return n;
 }
@@ -110,12 +111,13 @@ int gear_decode(const unsigned char *in, int size, struct gear_state *s)
         v->hidden = in[n] & 1; v->model = in[n] >> 1; n++;
         v->cur = in[n++]; v->prev = in[n++]; v->nanims = in[n++];
         if (v->nanims > GEAR_ANIMS) return 0;
-        if (size - n < v->nanims * (1 + 4 * GEAR_ANIM_DWORDS)) return 0;
+        if (size - n < v->nanims * (1 + 4 * GEAR_ANIM_DWORDS) + 1) return 0;
         for (i = 0; i < v->nanims; i++) {
             v->id[i] = in[n++];
             for (j = 0; j < GEAR_ANIM_DWORDS; j++) for (b = 0; b < 4; b++)
                 v->anim[i][j] |= (uint32_t)in[n++] << (b * 8);
         }
+        v->subs = in[n++];
     }
     if (!gear_valid(&next)) return 0;
     *s = next;

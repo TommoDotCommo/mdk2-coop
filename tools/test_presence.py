@@ -98,6 +98,8 @@ adapter_mutants = {
     'gear-hidden-not-applied': ('(*(WORD *)(g + GOB_FLAGS) & ~0x08) | (v->hidden ? 0x08 : 0));\n        gear_left[slot][k]', '(*(WORD *)(g + GOB_FLAGS) & ~0x08));\n        gear_left[slot][k]'),
     'gear-anim-not-applied': ('if (i < v->nanims) memcpy(st, v->anim[i], sizeof(v->anim[0]));\n            else st[0] = 0;', 'if (0) memcpy(st, v->anim[i], sizeof(v->anim[0]));'),
     'gear-release-leaks': ('if (g && gob_alive(g)) gear_kill(g);\n        gear_owned[slot][k] = 0;\n        gear_left[slot][k] = 0;', 'gear_owned[slot][k] = 0;\n        gear_left[slot][k] = 0;'),
+    'gear-subs-not-applied': ('((v->subs >> i) & 1 ? 0x08 : 0));', '(*(WORD *)(sub[i] + GOB_FLAGS) & 0x08));'),
+    'gear-subs-not-captured': ('v->subs = gear_subs_hidden(g);', 'v->subs = 0;'),
     'gear-children-left-behind': ('if (c && c != g && gob_alive(c) && *(DWORD *)(c + GOB_TARGET) == me) gob_kill(c);', ''),
     'chute-shown-not-applied': ('*(WORD *)(g + GOB_FLAGS) = (WORD)((*(WORD *)(g + GOB_FLAGS) & ~0x08) | (v->hidden ? 0x08 : 0));\n                gear_left[slot][k]', '(void)0;\n                gear_left[slot][k]'),
     'gear-capture-wrong-model': ('v->model = kind == 2 ? 1 : 0;', 'v->model = 0;'),

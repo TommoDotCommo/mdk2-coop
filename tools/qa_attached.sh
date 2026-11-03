@@ -2,13 +2,17 @@
 # The equipment and attached visuals of the other players, on three peers: Kurt's canopy, Max's jetpack (and its
 # flame while thrusting) and Doc's leaf blower (the item and its air puffs). Each is a separate gob the game builds
 # on the player's body; every peer reads it from its own gob table: alive, attached to that player's body, on the
-# same bone, shown, and in the owner's animation (jetpack: 62 idle, 77 thrusting; blower: 65 idle, 77 blowing); it
-# must be gone on every peer when it ends on the owner's side. Players start in different rooms, at least 300 units
+# same bone, shown, and in the owner's animation (jetpack: 62 idle, 77 thrusting; blower: 65 idle, 77 blowing), with
+# the sub-gobs its model made shown or hidden as on the owner's side (the jetpack's flame while thrusting), and within
+# 0.3 units / 15 degrees of where the owner's game puts it in the body's frame (tools/presence_check.py); it must be
+# gone on every peer when it ends on the owner's side. Players start in different rooms, at least 300 units
 # apart (asserted from the dumps, tools/targeting_geometry.py). Three scenarios, one boot each: Kurt (level 1),
 # Max (level 2) and Doc (level 3), every peer taking its turn as the owner.
 #   MUTANT=gear    peers never build the equipment gobs of other players: must fail
 #   MUTANT=canopy  peers never copy the canopy state: must fail
 #   MUTANT=shown   peers leave the canopy's drawn/hidden bit to the game's room handling: must fail
+#   MUTANT=subs    peers leave the item's sub-gobs (the jetpack's flame) as the model made them: must fail
+#   MUTANT=gearbone  peers build the items on another bone of the body: must fail
 #   ONLY=kurt|max|doc  one scenario only (the default runs all three)
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -16,7 +20,7 @@ export MDK2_N=3
 source "$here/mdk.sh"
 scenario=attached
 source "$here/presence_common.sh"
-case "${MUTANT:-}" in ''|gear|canopy|shown) ;; *) echo 'Unknown attached mutant' >&2; exit 2 ;; esac
+case "${MUTANT:-}" in ''|gear|canopy|shown|subs|gearbone) ;; *) echo 'Unknown attached mutant' >&2; exit 2 ;; esac
 check_py() { python3 "$here/presence_check.py" "$@"; }
 files() { echo "$out/$1_1.txt" "$out/$1_2.txt" "$out/$1_3.txt"; }
 # settle <tag> <oracle args...> [+ <oracle args...>]: capture until the oracle (every one of them, on the same
@@ -48,6 +52,8 @@ boot_level() {  # <level> <checkpoint>
         gear) for i in 1 2 3; do lua "$i" 'coop_presence_test(0,0,0,0,0,1)'; done ;;
         canopy) for i in 1 2 3; do lua "$i" 'coop_presence_test(1,0,0,0,0,0)'; done ;;
         shown) for i in 1 2 3; do lua "$i" 'coop_presence_test(0,0,0,0,0,0,1)'; done ;;
+        subs) for i in 1 2 3; do lua "$i" 'coop_presence_test(0,0,0,0,0,0,0,1)'; done ;;
+        gearbone) for i in 1 2 3; do lua "$i" 'coop_presence_test(0,0,0,0,0,0,0,0,1)'; done ;;
     esac
 }
 place() {  # <peer> <marker>: the peer's player on a marker gob
