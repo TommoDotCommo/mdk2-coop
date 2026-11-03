@@ -13,6 +13,7 @@
 #include "bridge.h"
 
 #define MAX_HITS    (MAX_PLAYERS * 4)
+#define LIFE_SPECTATING_WIRE 3     /* revive_life(): dead and watching someone (revive.c LIFE_SPECTATING) */
 
 enum { H_MUTE, H_VOLDOWN, H_VOLUP, H_WATCH };
 
@@ -120,7 +121,7 @@ static const char *state_text(int s, int me)
 
     if (!player_in_level(s) && s != me)
         return "loading";
-    if (life == 3)                          /* LIFE_SPECTATING, wire only */
+    if (life == LIFE_SPECTATING_WIRE)
         return "watching";
     if (life == LIFE_DEAD)
         return s == me && revive_watching() >= 0 ? "watching" : "out";
@@ -171,7 +172,7 @@ void plist_draw(int w, int h)
     y0 = (h - ph) * 0.5f;
     if (y0 < u)
         y0 = u;
-    out_of_fight = revive_life() == LIFE_DEAD;
+    out_of_fight = revive_life() == LIFE_SPECTATING_WIRE;   /* riding along with someone: the only time Watch can work */
     nhits = nrows = 0;
 
     hud_box(x0 - u, y0 - u, pw + u * 2, ph + u * 2, h, 0.01f, 0.015f, 0.03f, 0.82f);

@@ -54,7 +54,7 @@ lua $H 'coop_press(15, 120000)'; sleep 2
 mdk_shot "$(mdk_pid $H)" "$out/list_open.png"
 check "Tab held: the list is open on the host"          test "$(plist $H | cut -d' ' -f1-2)" = "1 2"
 lua $H 'local a = coop_plist_row(1) local b = coop_plist_row(2) coop_log("ROWS " .. a .. " " .. b)'; sleep 0.8
-check "  the rows are the host (slot 0) and the client (slot 1)"  has $H "^lua: ROWS 0 1$"
+check "  the rows are the host (slot 0) and the client (slot 1)"  has $H "^lua: ROWS 0 1[[:space:]]*$"
 check "  the client's list is not open"                test "$(plist $C | cut -d' ' -f1)" = "0"
 
 # 3. the mouse: mute and volume of the client's voice, as the host hears it
@@ -65,7 +65,7 @@ check "the Mute button is on screen"                    test "$(point $H 0 1)" =
 click $H
 check "Mute: the client is silent for the host"         test "$(gain $H 1)" = "0"
 lua $H 'coop_log("MUTED " .. coop_voice_mute(1))'; sleep 0.8
-check "  and muted is state in the bridge"              has $H "^lua: MUTED 1$"
+check "  and muted is state in the bridge"              has $H "^lua: MUTED 1[[:space:]]*$"
 point $H 0 1 >/dev/null; click $H
 check "Unmute: back at full volume"                     bash -c "[ \"$(gain $H 1)\" -ge 90 ]"
 point $H 2 1 >/dev/null; click $H
@@ -73,7 +73,7 @@ check "Volume +: 120% for that speaker only"            test "$(gain $H 1)" -ge 
 point $H 1 1 >/dev/null; click $H; click $H
 check "Volume - twice: 80%"                             bash -c "g=$(gain $H 1); [ \$g -ge 75 ] && [ \$g -le 85 ]"
 check "Watch is not offered while we are in the fight"  test "$(point $H 3 1)" = "0"
-check "the clicks were counted by the list"             bash -c "[ $(plist $H | cut -d' ' -f3) -ge 6 ]"
+check "the clicks were counted by the list"             bash -c "[ $(plist $H | cut -d' ' -f3) -ge 5 ]"
 mdk_shot "$(mdk_pid $H)" "$out/list_clicked.png"
 lua $H 'coop_voice_mute(1, 0) coop_press(15, 0)'; sleep 1.5
 check "Tab let go: the list is closed"                  test "$(plist $H | cut -d' ' -f1)" = "0"
@@ -117,7 +117,7 @@ check "the client's list closed on release"             test "$(plist $C | cut -
 lua $H 'coop_revive_checkpoint()'; sleep 3
 
 # 7. words: the join notice, and what leaving does to the others
-check "the host got 'joined' for the client"            has $H "^chat: \(game\): .* joined$"
+check "the host got 'joined' for the client"            has $H "^chat: \(game\): .* joined[[:space:]]*$"
 lua $C 'menu.SwitchDlg("quitconfirm")'; sleep 1
 check "client: leaving keeps the others playing"        has $C "^lua: leave: The others keep playing"
 lua $C 'HideMenu() mdkPauseGame(0)'

@@ -45,7 +45,7 @@ int player_type(int s) { return 100 + s % 3; }
 const char *player_name(int s) { static char n[16][16]; snprintf(n[s], 16, "P%d", s + 1); return n[s]; }
 int revive_life(void) { return life_me; }
 int revive_watching(void) { return watched; }
-int revive_watch(int slot) { watch_calls++; if (life_me != LIFE_DEAD || lives[slot] != LIFE_ALIVE) return 0; watched = slot; return 1; }
+int revive_watch(int slot) { watch_calls++; if (life_me != 3 || lives[slot] != LIFE_ALIVE) return 0; watched = slot; return 1; }
 int voice_talking(int s) { return talking[s < 0 ? my_slot : s]; }
 int voice_muted(int s) { return muted[s]; }
 void voice_set_muted(int s, int on) { muted[s] = on; }
@@ -153,6 +153,10 @@ static void pointer_and_watch(void)
     /* out of the fight: Watch appears for teammates still in it, and works */
     reset();
     life_me = LIFE_DEAD; lives[3] = LIFE_DEAD;
+    key = 1; frame(); draw();
+    CHECK(find(H_WATCH, 0) < 0);                        /* dead but not yet riding: nothing to watch with */
+    key = 0; frame();
+    life_me = 3;
     key = 1; frame(); draw();
     CHECK(find(H_WATCH, 0) >= 0 && find(H_WATCH, 2) >= 0 && find(H_WATCH, 3) < 0 && find(H_WATCH, my_slot) < 0);
     point(H_WATCH, 2); press(); CHECK(watched == 2 && watch_calls == 1);

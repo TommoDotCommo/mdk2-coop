@@ -18,6 +18,7 @@ mutants = {
     'clicks-still-shoot': ('        input_buttons_hold(1);\n        px', '        px'),
     'held-click-repeats': ('    click_was = down;\n}', '    click_was = 0;\n}'),
     'watch-while-alive': ('if (out_of_fight && player_in_level(s)', 'if (player_in_level(s)'),
+    'watch-only-when-plainly-dead': ('== LIFE_SPECTATING_WIRE;   /* riding', '== LIFE_DEAD;   /* riding'),
     'own-row-has-buttons': ('        if (s != me) {\n            int muted', '        if (1) {\n            int muted'),
     'mute-does-nothing': ('voice_set_muted(hit[i].slot, !voice_muted(hit[i].slot));', ''),
     'volume-step-wrong': ('(hit[i].kind == H_VOLUP ? 20 : -20)', '(hit[i].kind == H_VOLUP ? 20 : 20)'),
