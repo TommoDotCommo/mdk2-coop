@@ -242,6 +242,7 @@ int main(int argc, char **argv)
     /* Transactional self-update, fault-injected rollback, and manual rollback */
     if (argc == 2) {
         const char *dir = argv[1];
+        char data[400], receipt[512];
         char dll_path[512], lua_path[512], orig_dll_hash[65], orig_lua_hash[65], cur_dll_hash[65], cur_lua_hash[65];
         snprintf(dll_path, sizeof(dll_path), "%s/dinput8.dll", dir);
         snprintf(lua_path, sizeof(lua_path), "%s/coop/coop.lua", dir);
@@ -249,14 +250,26 @@ int main(int argc, char **argv)
         lu_sha256_hex(lua1, strlen((const char *)lua1), orig_lua_hash);
         assert(lu_write_verified(dll_path, dll1, sizeof(dll1), orig_dll_hash));
         assert(lu_write_verified(lua_path, lua1, strlen((const char *)lua1), orig_lua_hash));
+        snprintf(data, sizeof(data), "%s.data", dir);
+
+        /* Files without Setup's receipt belong to a mod manager or a copy by hand: never replaced */
+        assert(lu_apply_package(dir, data, zip_buf, zip_len, "mdk2-coop", "v0.3.1", "v0.4.0", 0) == LU_ERR_NOT_OWNED);
+        assert(lu_file_sha256(dll_path, cur_dll_hash) && !strcmp(cur_dll_hash, orig_dll_hash));
+        snprintf(receipt, sizeof(receipt), "%s/dinput8.dll.coop-receipt.json", dir);
+        {
+            FILE *rf = fopen(receipt, "wb");
+            assert(rf);
+            fprintf(rf, "{\"schema\":1,\"original\":null,\"installed\":\"%s\",\"pending\":null}", orig_dll_hash);
+            fclose(rf);
+        }
 
         /* Fault-injected failure after DLL replacement must roll back DLL and Lua automatically */
-        assert(lu_apply_package(dir, zip_buf, zip_len, "mdk2-coop", "v0.3.1", "v0.4.0", 1) == LU_ERR_IO);
+        assert(lu_apply_package(dir, data, zip_buf, zip_len, "mdk2-coop", "v0.3.1", "v0.4.0", 1) == LU_ERR_IO);
         assert(lu_file_sha256(dll_path, cur_dll_hash) && !strcmp(cur_dll_hash, orig_dll_hash));
         assert(lu_file_sha256(lua_path, cur_lua_hash) && !strcmp(cur_lua_hash, orig_lua_hash));
 
         /* Normal update succeeds and keeps .previous backups for manual rollback */
-        assert(lu_apply_package(dir, zip_buf, zip_len, "mdk2-coop", "v0.3.1", "v0.4.0", 0) == LU_OK);
+        assert(lu_apply_package(dir, data, zip_buf, zip_len, "mdk2-coop", "v0.3.1", "v0.4.0", 0) == LU_OK);
         assert(lu_file_sha256(dll_path, cur_dll_hash) && strcmp(cur_dll_hash, orig_dll_hash) != 0);
         assert(lu_file_sha256(lua_path, cur_lua_hash) && strcmp(cur_lua_hash, orig_lua_hash) != 0);
 
@@ -265,15 +278,15 @@ int main(int argc, char **argv)
             char prev_dll[512], v2_dll_hash[65];
             FILE *f;
             lu_sha256_hex(dll2, sizeof(dll2), v2_dll_hash);
-            snprintf(prev_dll, sizeof(prev_dll), "%s/dinput8.dll.previous", dir);
+            snprintf(prev_dll, sizeof(prev_dll), "%s/dinput8.dll.previous", data);
             f = fopen(prev_dll, "wb"); assert(f); fwrite("bad", 1, 3, f); fclose(f);
-            assert(lu_rollback(dir) == LU_ERR_ROLLBACK);
+            assert(lu_rollback(dir, data) == LU_ERR_ROLLBACK);
             assert(lu_file_sha256(dll_path, cur_dll_hash) && !strcmp(cur_dll_hash, v2_dll_hash));
             assert(lu_write_verified(prev_dll, dll1, sizeof(dll1), orig_dll_hash));
         }
 
         /* Manual rollback restores exact v1 bytes */
-        assert(lu_rollback(dir) == LU_OK);
+        assert(lu_rollback(dir, data) == LU_OK);
         assert(lu_file_sha256(dll_path, cur_dll_hash) && !strcmp(cur_dll_hash, orig_dll_hash));
         assert(lu_file_sha256(lua_path, cur_lua_hash) && !strcmp(cur_lua_hash, orig_lua_hash));
     }

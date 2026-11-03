@@ -15,10 +15,29 @@ static inline int lu_rename_replace(const char *src, const char *dst)
 {
     return MoveFileExA(src, dst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
 }
+static inline void lu_mkdir(const char *dir) { CreateDirectoryA(dir, NULL); }
+/* Number of hard links of a file (1 for a plain file; 0 when it cannot be read). */
+static inline unsigned lu_link_count(const char *path)
+{
+    BY_HANDLE_FILE_INFORMATION info;
+    HANDLE h = CreateFileA(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
+    unsigned n = 0;
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    if (GetFileInformationByHandle(h, &info)) n = (unsigned)info.nNumberOfLinks;
+    CloseHandle(h);
+    return n;
+}
 #else
+#include <sys/stat.h>
 static inline int lu_rename_replace(const char *src, const char *dst)
 {
     return rename(src, dst) == 0;
+}
+static inline void lu_mkdir(const char *dir) { mkdir(dir, 0755); }
+static inline unsigned lu_link_count(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) == 0 ? (unsigned)st.st_nlink : 0;
 }
 #endif
 
@@ -28,6 +47,7 @@ static inline int lu_rename_replace(const char *src, const char *dst)
 #define LU_NOTES_MAX        1024u
 #define LU_URL_MAX          384u
 #define LU_TAG_MAX          48u
+#define LU_HAS_DATA_DIR     1       /* backups and state in a data folder outside the game folder (after v0.3.5) */
 
 enum lu_result {
     LU_OK = 0,
@@ -46,7 +66,15 @@ enum lu_result {
     LU_ERR_ARCHIVE,
     LU_ERR_PE,
     LU_ERR_IO,
-    LU_ERR_ROLLBACK
+    LU_ERR_ROLLBACK,
+    LU_ERR_NOT_OWNED        /* installed by a mod manager or by hand: the updater does not replace those files */
+};
+
+/* Who installed the files the updater would replace (docs/LAUNCHER-MAINTENANCE.md, "Who installed it"). */
+enum lu_owner {
+    LU_OWNER_SETUP = 0,     /* Setup's ownership receipts (Windows) or install-linux.sh's record */
+    LU_OWNER_COPY,          /* no receipt: a mod manager or a copy by hand */
+    LU_OWNER_HARDLINK       /* no receipt and a file with more than one hard link: almost certainly Vortex */
 };
 
 struct lu_schedule {
@@ -907,18 +935,91 @@ static inline void lu_sync_receipt(const char *target, const char new_hash[65])
     }
 }
 
-static inline enum lu_result lu_rollback(const char *game_dir)
+/* install-linux.sh keeps "<sha256> <had> <path>" lines in <game>/coop/install-linux.record: keep the hash of a file the
+ * updater replaced current, so that script's uninstall still recognises the file as its own. */
+static inline void lu_sync_linux_record(const char *game_dir, const char *member, const char new_hash[65])
+{
+    char rpath[512], tpath[520], line[600], *nl;
+    unsigned char *buf = NULL;
+    size_t len = 0;
+    const char *p;
+    FILE *f;
+    snprintf(rpath, sizeof(rpath), "%s/coop/install-linux.record", game_dir);
+    if (!lu_read_bytes(rpath, &buf, &len)) return;
+    snprintf(tpath, sizeof(tpath), "%s.tmp", rpath);
+    if (!(f = fopen(tpath, "wb"))) { free(buf); return; }
+    for (p = (const char *)buf; *p; p = nl ? nl + 1 : p + strlen(p)) {
+        const char *sp1, *sp2;
+        size_t n;
+        nl = strchr(p, '\n');
+        n = nl ? (size_t)(nl - p) : strlen(p);
+        if (!n) continue;
+        if (n >= sizeof(line)) n = sizeof(line) - 1;
+        memcpy(line, p, n); line[n] = 0;
+        sp1 = strchr(line, ' ');
+        sp2 = sp1 ? strchr(sp1 + 1, ' ') : NULL;
+        if (sp1 && sp2 && sp1 - line == 64 && !strcmp(sp2 + 1, member))
+            fprintf(f, "%s%s\n", new_hash, sp1);
+        else
+            fprintf(f, "%s\n", line);
+    }
+    free(buf);
+    if (fclose(f) == 0) lu_rename_replace(tpath, rpath);
+    else remove(tpath);
+}
+
+/* Who put dinput8.dll and coop/coop.lua into game_dir: Setup (a receipt or install-linux.sh's record), or else a mod
+ * manager or a copy by hand; a file with more than one hard link means a manager that links from its staging folder
+ * (Vortex's default). The updater replaces only Setup's files. */
+static inline enum lu_owner lu_install_owner(const char *game_dir)
+{
+    char dll[512], lua[512], rec[512], linux_rec[512];
+    snprintf(dll, sizeof(dll), "%s/dinput8.dll", game_dir);
+    snprintf(lua, sizeof(lua), "%s/coop/coop.lua", game_dir);
+    snprintf(rec, sizeof(rec), "%s/dinput8.dll.coop-receipt.json", game_dir);
+    snprintf(linux_rec, sizeof(linux_rec), "%s/coop/install-linux.record", game_dir);
+    if (lu_link_count(rec) || lu_link_count(linux_rec))
+        return LU_OWNER_SETUP;
+    if (lu_link_count(dll) > 1 || lu_link_count(lua) > 1)
+        return LU_OWNER_HARDLINK;
+    return LU_OWNER_COPY;
+}
+
+/* The updater's own files live in data_dir (a per-user folder, never the game folder): update-state.ini and the verified
+ * backups dinput8.dll.previous and coop.lua.previous. In the game folder it only replaces the two shipped files, through
+ * transient *.update-stage / *.rollback-stage files and dinput8.dll.update-old (the running DLL cannot be deleted, only
+ * renamed; lu_startup removes it at the next start). */
+static inline void lu_update_paths(const char *data_dir, char state[512], char dll_prev[512], char lua_prev[512])
+{
+    snprintf(state, 512, "%s/update-state.ini", data_dir);
+    snprintf(dll_prev, 512, "%s/dinput8.dll.previous", data_dir);
+    snprintf(lua_prev, 512, "%s/coop.lua.previous", data_dir);
+}
+
+/* Move the file at path out of the way inside the game folder (the running DLL can be renamed but not removed). */
+static inline int lu_move_aside(const char *game_dir, const char *path)
+{
+    char old[540];
+    int i;
+    for (i = 0; i < 10; i++) {
+        if (i) snprintf(old, sizeof(old), "%s/dinput8.dll.update-old%d", game_dir, i);
+        else snprintf(old, sizeof(old), "%s/dinput8.dll.update-old", game_dir);
+        remove(old);
+        if (lu_rename_replace(path, old)) return 1;
+    }
+    return 0;
+}
+
+static inline enum lu_result lu_rollback(const char *game_dir, const char *data_dir)
 {
     char state_path[512], dll_path[512], lua_path[512], dll_prev[512], lua_prev[512], dll_stage[512], lua_stage[512];
     char prev_dll_hash[65] = {0}, prev_lua_hash[65] = {0}, check_dll[65], check_lua[65], prev_ver[LU_TAG_MAX] = {0};
     unsigned char *state_buf = NULL;
     size_t state_len = 0;
     const char *p;
-    snprintf(state_path, sizeof(state_path), "%s/coop/update-state.ini", game_dir);
+    lu_update_paths(data_dir, state_path, dll_prev, lua_prev);
     snprintf(dll_path, sizeof(dll_path), "%s/dinput8.dll", game_dir);
     snprintf(lua_path, sizeof(lua_path), "%s/coop/coop.lua", game_dir);
-    snprintf(dll_prev, sizeof(dll_prev), "%s/dinput8.dll.previous", game_dir);
-    snprintf(lua_prev, sizeof(lua_prev), "%s/coop/coop.lua.previous", game_dir);
     snprintf(dll_stage, sizeof(dll_stage), "%s/dinput8.dll.rollback-stage", game_dir);
     snprintf(lua_stage, sizeof(lua_stage), "%s/coop/coop.lua.rollback-stage", game_dir);
 
@@ -938,6 +1039,8 @@ static inline enum lu_result lu_rollback(const char *game_dir)
     if (!lu_copy_verified(dll_prev, dll_stage, check_dll) || !lu_copy_verified(lua_prev, lua_stage, check_lua)) {
         remove(dll_stage); remove(lua_stage); return LU_ERR_ROLLBACK;
     }
+    /* the DLL in place may be the one this process runs: rename it aside rather than replace it */
+    if (lu_link_count(dll_path)) lu_move_aside(game_dir, dll_path);
     if (!lu_rename_replace(dll_stage, dll_path) || !lu_rename_replace(lua_stage, lua_path)) {
         remove(dll_stage); remove(lua_stage); return LU_ERR_ROLLBACK;
     }
@@ -946,6 +1049,8 @@ static inline enum lu_result lu_rollback(const char *game_dir)
         return LU_ERR_ROLLBACK;
     lu_sync_receipt(dll_path, prev_dll_hash);
     lu_sync_receipt(lua_path, prev_lua_hash);
+    lu_sync_linux_record(game_dir, "dinput8.dll", prev_dll_hash);
+    lu_sync_linux_record(game_dir, "coop/coop.lua", prev_lua_hash);
     remove(dll_prev);
     remove(lua_prev);
     remove(state_path);
@@ -953,8 +1058,10 @@ static inline enum lu_result lu_rollback(const char *game_dir)
 }
 
 /* Self-update mod files and launcher DLL from a verified release ZIP archive.
- * Keeps .previous backups and update-state.ini; rolls back automatically if any step fails. */
-static inline enum lu_result lu_apply_package(const char *game_dir, const unsigned char *zip_bytes, size_t zip_len,
+ * Keeps .previous backups and update-state.ini in data_dir; rolls back automatically if any step fails.
+ * Replaces only files Setup installed (lu_install_owner): a mod manager's files are its own to update. */
+static inline enum lu_result lu_apply_package(const char *game_dir, const char *data_dir,
+                                              const unsigned char *zip_bytes, size_t zip_len,
                                               const char *prefix, const char *current_ver, const char *target_tag,
                                               int fail_after_dll)
 {
@@ -967,6 +1074,7 @@ static inline enum lu_result lu_apply_package(const char *game_dir, const unsign
     FILE *sf;
 
     if (!lu_tag_safe(target_tag)) return LU_ERR_VERSION;
+    if (lu_install_owner(game_dir) != LU_OWNER_SETUP) return LU_ERR_NOT_OWNED;
     snprintf(dll_member, sizeof(dll_member), "%s-%s/dinput8.dll", prefix, target_tag);
     snprintf(lua_member, sizeof(lua_member), "%s-%s/coop/coop.lua", prefix, target_tag);
 
@@ -979,13 +1087,12 @@ static inline enum lu_result lu_apply_package(const char *game_dir, const unsign
     lu_sha256_hex(dll_buf, dll_len, new_dll_hash);
     lu_sha256_hex(lua_buf, lua_len, new_lua_hash);
 
+    lu_mkdir(data_dir);
+    lu_update_paths(data_dir, state_path, dll_prev, lua_prev);
     snprintf(dll_path, sizeof(dll_path), "%s/dinput8.dll", game_dir);
     snprintf(lua_path, sizeof(lua_path), "%s/coop/coop.lua", game_dir);
     snprintf(dll_stage, sizeof(dll_stage), "%s/dinput8.dll.update-stage", game_dir);
     snprintf(lua_stage, sizeof(lua_stage), "%s/coop/coop.lua.update-stage", game_dir);
-    snprintf(dll_prev, sizeof(dll_prev), "%s/dinput8.dll.previous", game_dir);
-    snprintf(lua_prev, sizeof(lua_prev), "%s/coop/coop.lua.previous", game_dir);
-    snprintf(state_path, sizeof(state_path), "%s/coop/update-state.ini", game_dir);
 
     if (!lu_write_verified(dll_stage, dll_buf, dll_len, new_dll_hash) ||
         !lu_write_verified(lua_stage, lua_buf, lua_len, new_lua_hash)) {
@@ -1011,16 +1118,16 @@ static inline enum lu_result lu_apply_package(const char *game_dir, const unsign
     fclose(sf);
 
     /* Rename the running DLL out of the way (supported on Windows for mapped DLLs), then move stage into place. */
-    if (!lu_rename_replace(dll_path, dll_prev) || !lu_rename_replace(dll_stage, dll_path)) {
+    if (!lu_move_aside(game_dir, dll_path) || !lu_rename_replace(dll_stage, dll_path)) {
         remove(dll_stage); remove(lua_stage);
-        lu_rollback(game_dir);
+        lu_rollback(game_dir, data_dir);
         return LU_ERR_IO;
     }
     if (fail_after_dll || !lu_rename_replace(lua_stage, lua_path) ||
         !lu_file_sha256(dll_path, check) || strcmp(check, new_dll_hash) != 0 ||
         !lu_file_sha256(lua_path, check) || strcmp(check, new_lua_hash) != 0) {
         remove(lua_stage);
-        lu_rollback(game_dir);
+        lu_rollback(game_dir, data_dir);
         return LU_ERR_IO;
     }
 
@@ -1032,23 +1139,61 @@ static inline enum lu_result lu_apply_package(const char *game_dir, const unsign
     }
     lu_sync_receipt(dll_path, new_dll_hash);
     lu_sync_receipt(lua_path, new_lua_hash);
+    lu_sync_linux_record(game_dir, "dinput8.dll", new_dll_hash);
+    lu_sync_linux_record(game_dir, "coop/coop.lua", new_lua_hash);
     return LU_OK;
+}
+
+/* Move one file written by an older updater (v0.3.5 and before kept them in the game folder) into data_dir, verified. */
+static inline void lu_migrate_file(const char *from, const char *to)
+{
+    char h1[65], h2[65];
+    if (!lu_link_count(from)) return;
+    if (lu_link_count(to)) return;              /* never replace a newer backup */
+    if (lu_copy_verified(from, to, h1) && lu_file_sha256(to, h2) && !strcmp(h1, h2))
+        remove(from);
+}
+
+/* At every start, before lu_recover_interrupted: the old updater's state and backups move out of the game folder, and the
+ * DLL renamed aside by the last update (it was running then) is deleted. Returns how many leftovers remain (0: clean). */
+static inline int lu_startup(const char *game_dir, const char *data_dir)
+{
+    char from[512], state[512], dll_prev[512], lua_prev[512], old[540];
+    int i, left = 0;
+    lu_mkdir(data_dir);
+    lu_update_paths(data_dir, state, dll_prev, lua_prev);
+    if (!lu_link_count(state)) {                /* a pending update of the old updater moves as one set */
+        snprintf(from, sizeof(from), "%s/dinput8.dll.previous", game_dir);
+        lu_migrate_file(from, dll_prev);
+        snprintf(from, sizeof(from), "%s/coop/coop.lua.previous", game_dir);
+        lu_migrate_file(from, lua_prev);
+        snprintf(from, sizeof(from), "%s/coop/update-state.ini", game_dir);
+        lu_migrate_file(from, state);
+    }
+    for (i = 0; i < 10; i++) {
+        if (i) snprintf(old, sizeof(old), "%s/dinput8.dll.update-old%d", game_dir, i);
+        else snprintf(old, sizeof(old), "%s/dinput8.dll.update-old", game_dir);
+        if (lu_link_count(old) && remove(old) != 0) left++;
+    }
+    snprintf(from, sizeof(from), "%s/dinput8.dll.previous", game_dir);
+    left += lu_link_count(from) ? 1 : 0;
+    return left;
 }
 
 /* Startup recovery check: if a previous self-update was interrupted while status=pending,
  * automatically roll back to the verified .previous files. */
-static inline int lu_recover_interrupted(const char *game_dir)
+static inline int lu_recover_interrupted(const char *game_dir, const char *data_dir)
 {
-    char state_path[512];
+    char state_path[512], dll_prev[512], lua_prev[512];
     unsigned char *buf = NULL;
     size_t len = 0;
     int pending = 0;
-    snprintf(state_path, sizeof(state_path), "%s/coop/update-state.ini", game_dir);
+    lu_update_paths(data_dir, state_path, dll_prev, lua_prev);
     if (!lu_read_bytes(state_path, &buf, &len)) return 0;
     pending = strstr((const char *)buf, "status=pending") != NULL;
     free(buf);
     if (!pending) return 0;
-    return lu_rollback(game_dir) == LU_OK ? 1 : -1;
+    return lu_rollback(game_dir, data_dir) == LU_OK ? 1 : -1;
 }
 
 #endif

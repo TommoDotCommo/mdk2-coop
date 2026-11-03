@@ -1273,6 +1273,7 @@ static void clip_text(char *out, float w)
 }
 
 #include "launcher_profiles_win.h"
+static int update_data_base(char *out, size_t n) { return redirect_data_base(out, n); }
 #include "launcher_update_win.h"
 
 static void who_text(const struct coop_session *s, float w, char *out, int size)
@@ -1607,9 +1608,12 @@ static void page_about(void)
     }
     if (button(ID, PX, y, 144, 36, st == UP_CHECKING ? "Checking..." : "Check now", 0) && st != UP_CHECKING && st != UP_DOWNLOADING)
         update_start_check(1);
-    if (st == UP_AVAILABLE) {
+    if (st == UP_AVAILABLE && update_owner == LU_OWNER_SETUP) {
         if (button(ID, PX + 154, y, 160, 36, "Install update", 1))
             update_start_apply();
+    } else if (st == UP_AVAILABLE) {    /* a mod manager's files: it updates them, the release page has the download */
+        if (button(ID, PX + 154, y, 160, 36, "Release page", 1))
+            open_url(RELEASES_PAGE);
     }
     if (rb) {
         if (button(ID, PX + (st == UP_AVAILABLE ? 324 : 154), y, 152, 36, "Roll back", 0))
@@ -2810,11 +2814,11 @@ static void test_commands(void)
                 EnterCriticalSection(&update_lock);
                 fprintf(state, "[launcher]\npage=%d\nlobby=%d\nphase=%d\nplayers=%d\nready=%d\nconnected=%d\ncountdown=%d\n"
                                "chat_total=%u\nlocal_talking=%d\nvoice_mode=%d\nvoice_in_dev=%d\nvoice_out_dev=%d\n"
-                               "update_state=%d\nupdate_err=%d\nupdate_rollback=%d\nupdate_tag=%s\nversion=%s\nrtt=%d\n",
+                               "update_state=%d\nupdate_err=%d\nupdate_rollback=%d\nupdate_tag=%s\nversion=%s\nrtt=%d\nupdate_owner=%d\n",
                         page, lob.on, lob.session.phase, lob.n, lob.ready, lob.connected, lob.start_at != 0,
                         (unsigned)lob.comm.history_total, ls_local_talking(&lob.comm, now_dump),
                         cfg.voice_mode, cfg.voice_in_dev - 1, cfg.voice_out_dev - 1,
-                        update_state, update_last_err, update_rollback_ready, update_rel.tag, MOD_VERSION, lob.rtt);
+                        update_state, update_last_err, update_rollback_ready, update_rel.tag, MOD_VERSION, lob.rtt, update_owner);
                 LeaveCriticalSection(&update_lock);
                 for (i = 0; i < lob.n; i++) {
                     struct ls_member_comm *cm = ls_comm_find(&lob.comm, lob.m[i].id);

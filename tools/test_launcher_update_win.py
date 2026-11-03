@@ -80,6 +80,9 @@ with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
                         target = game/rel
                         target.parent.mkdir(parents=True, exist_ok=True)
                         target.write_bytes(z.read(entry))
+            # installed by Setup: the updater replaces only files with Setup's receipt
+            dll_hash = hashlib.sha256((game/'dinput8.dll').read_bytes()).hexdigest()
+            (game/'dinput8.dll.coop-receipt.json').write_text(json.dumps({'schema': 1, 'original': None, 'installed': dll_hash, 'pending': None}))
             shutil.copyfile(exe, game/exe.name)
             # Launch via Windows so NTFS fixtures use the same filesystem/process
             # path as the game, independent of WSL executable interop quirks.

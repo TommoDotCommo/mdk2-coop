@@ -1,6 +1,7 @@
-/* The launcher's updater (bridge/launcher_update.h, unchanged code of every installed version) against the release layout
- * tools/release.sh produces: a GitHub release JSON listing the single-file Setup.exe and its sidecar next to the zip and its
- * sidecar, and the real zip applied over an installed older version. Arguments: releases.json zip game-dir current-tag. */
+/* The launcher's updater against the release layout tools/release.sh produces: a GitHub release JSON listing the
+ * single-file Setup.exe and its sidecar next to the zip and its sidecar, and the real zip applied over an installed older
+ * version. tools/test_update_layout.py builds this twice: with the current bridge/launcher_update.h and with the header of
+ * the last public release (the updater players already have). Arguments: releases.json zip game-dir current-tag. */
 #include <assert.h>
 #include <stdio.h>
 #include "launcher_update.h"
@@ -43,7 +44,14 @@ int main(int argc, char **argv)
         if (lu_zip_extract(zip, zip_len, m1, &dll, &n) != LU_OK || !lu_valid_pe32(dll, n)) { puts("FAIL: dinput8.dll not found in the zip where the updater looks"); return 1; }
         if (lu_zip_extract(zip, zip_len, m2, &lua, &n) != LU_OK) { puts("FAIL: coop.lua not found in the zip where the updater looks"); return 1; }
     }
-    if (lu_apply_package(argv[3], zip, zip_len, "mdk2-coop", argv[4], rel.tag, 0) != LU_OK) { puts("FAIL: update did not apply"); return 1; }
+#ifdef LU_HAS_DATA_DIR
+    char data_dir[600];
+    snprintf(data_dir, sizeof(data_dir), "%s.data", argv[3]);
+#define LU_DIRS argv[3], data_dir
+#else
+#define LU_DIRS argv[3]
+#endif
+    if (lu_apply_package(LU_DIRS, zip, zip_len, "mdk2-coop", argv[4], rel.tag, 0) != LU_OK) { puts("FAIL: update did not apply"); return 1; }
     snprintf(p1, sizeof(p1), "%s/dinput8.dll", argv[3]);
     snprintf(p2, sizeof(p2), "%s/coop/coop.lua", argv[3]);
     a = slurp(p1, &n); lu_sha256_hex(a, n, d1); lu_sha256_hex(dll, n, d2);
@@ -53,7 +61,7 @@ int main(int argc, char **argv)
     lu_sha256_hex(lua, n, d2);
     if (strcmp(d1, d2)) { puts("FAIL: installed coop.lua is not the zip's"); return 1; }
     /* 4. and rolls back to the older bytes */
-    if (lu_rollback(argv[3]) != LU_OK) { puts("FAIL: rollback"); return 1; }
+    if (lu_rollback(LU_DIRS) != LU_OK) { puts("FAIL: rollback"); return 1; }
     a = slurp(p1, &n);
     if (n != 12 || memcmp(a, "OLD-DLL-FILE", 12)) { puts("FAIL: rollback did not restore the old dinput8.dll"); return 1; }
     puts("PASS: updater finds, verifies and applies the new release layout and rolls it back");

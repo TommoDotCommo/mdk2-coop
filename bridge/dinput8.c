@@ -25,6 +25,8 @@ void loader_ensure(void);      /* loader.c */
 
 static FILE *log_file;
 char coop_dir[MAX_PATH], game_dir[MAX_PATH];
+static int instance_data;           /* 1: a test or couch copy keeps its data in <game>\coop */
+static char moved_note[MAX_PATH * 2 + 48];
 
 void logmsg(const char *fmt, ...)
 {
@@ -206,12 +208,55 @@ static int install_lua_hook(void)
     return 1;
 }
 
-/* ---- dinput8 forwarding ---- */
+/* ---- dinput8 forwarding and the chained dinput8 ---- */
 
-static HMODULE real_dinput8;
+/* Another mod's dinput8.dll (an ASI loader, a widescreen fix) that Setup found in the game folder is kept as
+ * dinput8.chain.dll and loaded here, at the end of this DLL's own start-up. When it is a full dinput8 proxy itself (it
+ * exports DirectInput8Create) the game's DirectInput calls go through it, so it keeps working as before; otherwise it is a
+ * plug-in loaded for its side effects and the exports go to the system dinput8. Never chained: a copy of this mod. */
+static HMODULE real_dinput8, chain_dll;
+static DWORD chain_thread;      /* the thread inside the chained DirectInput8Create: a proxy that calls back here goes to the system */
+
+static void chain_load(void)
+{
+    char path[MAX_PATH];
+    unsigned char *bytes = NULL;
+    size_t len = 0, i;
+    int ours = 0;
+
+    snprintf(path, MAX_PATH, "%s\\dinput8.chain.dll", game_dir);
+    if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) {
+        logmsg("chain: none (no dinput8.chain.dll)");
+        return;
+    }
+#ifdef COOP_MUTANT_NO_CHAIN     /* tools/test_chain_load.py MUTANT=ignored: the old behaviour, the file is never loaded */
+    logmsg("chain: %s ignored", path);
+    return;
+#endif
+    if (lu_read_bytes(path, &bytes, &len)) {
+        static const char mark[] = "mdk2-coop bridge attached";
+        for (i = 0; !ours && len >= sizeof(mark) && i <= len - sizeof(mark); i++)
+            ours = bytes[i] == 'm' && !memcmp(bytes + i, mark, sizeof(mark) - 1);
+        free(bytes);
+    }
+    if (ours) {
+        logmsg("chain: %s is a copy of this mod: not loaded", path);
+        return;
+    }
+    chain_dll = LoadLibraryA(path);
+    if (!chain_dll) {
+        logmsg("chain: %s could not be loaded (error %lu)", path, GetLastError());
+        return;
+    }
+    logmsg("chain: loaded %s -> %p (%s)", path, (void *)chain_dll, GetProcAddress(chain_dll, "DirectInput8Create")
+           ? "a full dinput8 proxy: DirectInput goes through it" : "a plug-in: DirectInput goes to the system dinput8");
+}
 
 static FARPROC real_proc(const char *name)
 {
+    FARPROC fn;
+    if (chain_dll && chain_thread != GetCurrentThreadId() && (fn = GetProcAddress(chain_dll, name)))
+        return fn;
     if (!real_dinput8) {
         char path[MAX_PATH];
         GetSystemDirectoryA(path, MAX_PATH);
@@ -227,9 +272,16 @@ typedef HRESULT (WINAPI *DirectInput8Create_t)(HINSTANCE, DWORD, REFIID, LPVOID 
 HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE inst, DWORD ver, REFIID riid, LPVOID *out, LPUNKNOWN outer)
 {
     DirectInput8Create_t fn = (DirectInput8Create_t)real_proc("DirectInput8Create");
+    int nested = chain_dll && chain_thread == GetCurrentThreadId();    /* the chained proxy calling back into this DLL */
+    int via_chain = chain_dll && !nested && (FARPROC)fn == GetProcAddress(chain_dll, "DirectInput8Create");
+    HRESULT hr;
     announce_unsupported_build();
-    HRESULT hr = fn ? fn(inst, ver, riid, out, outer) : E_FAIL;
-    if (SUCCEEDED(hr))
+    if (via_chain)
+        chain_thread = GetCurrentThreadId();
+    hr = fn ? fn(inst, ver, riid, out, outer) : E_FAIL;
+    if (via_chain)
+        chain_thread = 0;
+    if (SUCCEEDED(hr) && !nested)     /* wrapped once, by the outer call */
         input_wrap_dinput(*out);
     return hr;
 }
@@ -258,6 +310,77 @@ HRESULT WINAPI Proxy_DllUnregisterServer(void)
     return fn ? ((HRESULT (WINAPI *)(void))fn)() : E_FAIL;
 }
 
+/* ---- where the co-op data lives ----
+ * Nothing is written into the game folder at run time: settings, logs, diagnostics, update backups and markers go to
+ * %LOCALAPPDATA%\mdk2-coop\coop. One exception, for test and couch copies: a coop.ini that a tool placed in <game>\coop
+ * with a [test] or [couch] section keeps that copy's data in <game>\coop, as before (the mod never creates that file).
+ * Data an older version wrote into <game>\coop is moved to the profile once (top-level files, never overwriting). */
+static int ini_has_section(const char *ini, const char *section)
+{
+    char buf[64];
+    return GetPrivateProfileSectionA(section, buf, sizeof(buf), ini) > 0;
+}
+
+static void move_old_game_data(const char *from_dir)
+{
+    char pattern[MAX_PATH], src[MAX_PATH], dst[MAX_PATH];
+    WIN32_FIND_DATAA fd;
+    HANDLE h;
+    int moved = 0;
+
+    snprintf(pattern, MAX_PATH, "%s\\*", from_dir);
+    if ((h = FindFirstFileA(pattern, &fd)) == INVALID_HANDLE_VALUE)
+        return;
+    do {
+        const char *n = fd.cFileName;
+        size_t len = strlen(n);
+        char a[65], b[65];
+        if (fd.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))
+            continue;
+        /* the package's files, Setup's and install-linux.sh's bookkeeping, and the old updater's (lu_startup moves those) */
+        if (!_stricmp(n, "coop.lua") || !_stricmp(n, "per-user-data") || !_stricmp(n, "install-linux.record") ||
+            !_stricmp(n, "update-state.ini") || !_stricmp(n, "coop-mod.json") || strstr(n, ".coop-") ||
+            (len > 9 && !_stricmp(n + len - 9, ".previous")) || strstr(n, "-stage"))
+            continue;
+        snprintf(src, MAX_PATH, "%s\\%s", from_dir, n);
+        snprintf(dst, MAX_PATH, "%s\\%s", coop_dir, n);
+        if (GetFileAttributesA(dst) != INVALID_FILE_ATTRIBUTES)
+            continue;                       /* the profile's own copy wins; the old one stays where it is */
+        if (CopyFileA(src, dst, TRUE) && lu_file_sha256(src, a) && lu_file_sha256(dst, b) && !strcmp(a, b) && DeleteFileA(src))
+            moved++;
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    if (moved)
+        snprintf(moved_note, sizeof(moved_note), "moved %d file(s) from %s to %s", moved, from_dir, coop_dir);
+}
+
+static void choose_coop_dir(void)
+{
+    char game_coop[MAX_PATH], ini[MAX_PATH], base[MAX_PATH];
+    DWORD n;
+
+    snprintf(game_coop, MAX_PATH, "%s\\coop", game_dir);
+    snprintf(ini, MAX_PATH, "%s\\coop.ini", game_coop);
+    if (GetFileAttributesA(ini) != INVALID_FILE_ATTRIBUTES && (ini_has_section(ini, "test") || ini_has_section(ini, "couch"))) {
+        snprintf(coop_dir, MAX_PATH, "%s", game_coop);
+        instance_data = 1;
+        return;
+    }
+    n = GetEnvironmentVariableA("LOCALAPPDATA", base, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH - 20) {     /* no profile folder at all: the old place */
+        snprintf(coop_dir, MAX_PATH, "%s", game_coop);
+        CreateDirectoryA(coop_dir, NULL);
+        return;
+    }
+    strcat(base, "\\mdk2-coop");
+    CreateDirectoryA(base, NULL);
+    snprintf(coop_dir, MAX_PATH, "%s\\coop", base);
+    CreateDirectoryA(coop_dir, NULL);
+#ifndef COOP_MUTANT_NO_DATA_MOVE
+    move_old_game_data(game_coop);
+#endif
+}
+
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
 {
     if (reason == DLL_PROCESS_ATTACH) {
@@ -267,27 +390,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         slash = strrchr(game_dir, '\\');
         if (slash)
             *slash = 0;
-        snprintf(coop_dir, MAX_PATH, "%s\\coop", game_dir);
-        CreateDirectoryA(coop_dir, NULL);
-        {   /* Player installs prefer the user profile; test and couch copies keep their own data. */
-            char probe[MAX_PATH], base[MAX_PATH], marker[MAX_PATH];
-            FILE *t;
-            int per_user;
-            DWORD n;
-            snprintf(marker, MAX_PATH, "%s\\per-user-data", coop_dir);
-            per_user = GetFileAttributesA(marker) != INVALID_FILE_ATTRIBUTES;
-            snprintf(probe, MAX_PATH, "%s\\write.test", coop_dir);
-            t = per_user ? NULL : fopen(probe, "w");
-            if (t) {
-                fclose(t);
-                DeleteFileA(probe);
-            } else if ((n = GetEnvironmentVariableA("LOCALAPPDATA", base, MAX_PATH)) > 0 && n < MAX_PATH - 16) {
-                strcat(base, "\\mdk2-coop");
-                CreateDirectoryA(base, NULL);
-                snprintf(coop_dir, MAX_PATH, "%s\\coop", base);
-                CreateDirectoryA(coop_dir, NULL);
-            }
-        }
+        choose_coop_dir();
         snprintf(path, MAX_PATH, "%s\\bridge.log", coop_dir);
         {   /* the last run's log is kept: after a crash, starting again must not wipe the evidence */
             char previous[MAX_PATH];
@@ -299,12 +402,15 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
             OutputDebugStringA("mdk2-coop: cannot open bridge.log; check permissions and free disk space\n");
         diag_log_open();
         logmsg("mdk2-coop bridge attached");
-        logmsg("files in %s", coop_dir);
+        logmsg("files in %s%s", coop_dir, instance_data ? " (this copy's own coop.ini: test or couch copy)" : "");
+        if (moved_note[0])
+            logmsg("data of an older version: %s", moved_note);
         crash_handler = AddVectoredExceptionHandler(1, crash_logger);
         redirect_init();
         if (install_lua_hook())
             loader_ensure();
         input_init();
+        chain_load();
     } else if (reason == DLL_PROCESS_DETACH && !reserved) {
         if (crash_handler)      /* unloaded with FreeLibrary (the updater tests do): the handler must not outlive this code */
             RemoveVectoredExceptionHandler(crash_handler);

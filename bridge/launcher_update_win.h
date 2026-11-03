@@ -1,5 +1,7 @@
 /* Windows launcher adapter for GitHub release check, verified download and rollback.
- * Runs HTTP requests on a worker thread via WinINet; UI stays responsive. */
+ * Runs HTTP requests on a worker thread via WinINet; UI stays responsive.
+ * The includer defines update_data_base(out, n): the folder standing in for %LOCALAPPDATA% (the updater keeps its
+ * state and backups in <that>\mdk2-coop\update, never in the game folder). */
 #include <wininet.h>
 #include "launcher_update.h"
 
@@ -17,13 +19,24 @@ static int update_last_err = LU_OK;
 static int update_rollback_ready;
 static char update_api_url[LU_URL_MAX];
 static char update_msg[220];
+static char update_dir[MAX_PATH];           /* <user data>\mdk2-coop\update */
+static int update_owner = LU_OWNER_SETUP;   /* who installed the files (lu_install_owner), read at start */
+#define RELEASES_PAGE "https://github.com/TommoDotCommo/mdk2-coop/releases"
+
+/* What to say when the files belong to a mod manager: the updater never replaces those. */
+static void update_manager_msg(const char *tag)
+{
+    if (update_owner == LU_OWNER_HARDLINK)
+        snprintf(update_msg, sizeof(update_msg), "%s is out. Update it in your mod manager: in Vortex, download the new version "
+                 "of MDK2 Co-op and enable it.", tag);
+    else
+        snprintf(update_msg, sizeof(update_msg), "%s is out. Update it in your mod manager (or run the new Setup).", tag);
+}
 
 static int update_has_rollback(void)
 {
-    char state_path[MAX_PATH], dll_prev[MAX_PATH], lua_prev[MAX_PATH];
-    snprintf(state_path, sizeof(state_path), "%s\\coop\\update-state.ini", game_dir);
-    snprintf(dll_prev, sizeof(dll_prev), "%s\\dinput8.dll.previous", game_dir);
-    snprintf(lua_prev, sizeof(lua_prev), "%s\\coop\\coop.lua.previous", game_dir);
+    char state_path[512], dll_prev[512], lua_prev[512];
+    lu_update_paths(update_dir, state_path, dll_prev, lua_prev);
     return GetFileAttributesA(state_path) != INVALID_FILE_ATTRIBUTES &&
            GetFileAttributesA(dll_prev) != INVALID_FILE_ATTRIBUTES &&
            GetFileAttributesA(lua_prev) != INVALID_FILE_ATTRIBUTES;
@@ -144,7 +157,10 @@ static DWORD WINAPI update_check_worker(LPVOID arg)
         if (newer > 0) {
             update_rel = rel;
             update_state = UP_AVAILABLE;
-            snprintf(update_msg, sizeof(update_msg), "Update available: %s (%u KB)", rel.tag, (unsigned)((rel.zip_size + 1023) / 1024));
+            if (update_owner != LU_OWNER_SETUP)
+                update_manager_msg(rel.tag);
+            else
+                snprintf(update_msg, sizeof(update_msg), "Update available: %s (%u KB)", rel.tag, (unsigned)((rel.zip_size + 1023) / 1024));
         } else if (newer == 0) {
             update_state = UP_CURRENT;
             snprintf(update_msg, sizeof(update_msg), "Update check successful: up to date (%s).", MOD_VERSION);
@@ -202,7 +218,7 @@ static DWORD WINAPI update_apply_worker(LPVOID arg)
         } else {
             r = lu_verify_download(zip_buf, zip_len, rel.zip_size, expected_sha);
             if (r == LU_OK)
-                r = lu_apply_package(game_dir, zip_buf, zip_len, "mdk2-coop", MOD_VERSION, rel.tag, 0);
+                r = lu_apply_package(game_dir, update_dir, zip_buf, zip_len, "mdk2-coop", MOD_VERSION, rel.tag, 0);
         }
         free(zip_buf);
     }
@@ -219,6 +235,9 @@ static DWORD WINAPI update_apply_worker(LPVOID arg)
     } else if (r == LU_ERR_TRUNCATED) {
         update_state = UP_ERROR;
         snprintf(update_msg, sizeof(update_msg), "Update aborted: download interrupted or incomplete. Existing files kept.");
+    } else if (r == LU_ERR_NOT_OWNED) {
+        update_state = UP_AVAILABLE;
+        update_manager_msg(rel.tag);
     } else {
         update_state = UP_ERROR;
         snprintf(update_msg, sizeof(update_msg), "Update failed (code %d); rolled back to previous version.", (int)r);
@@ -246,7 +265,7 @@ static void update_start_check(int manual)
 static void update_start_apply(void)
 {
     HANDLE th;
-    if (update_state != UP_AVAILABLE) return;
+    if (update_state != UP_AVAILABLE || update_owner != LU_OWNER_SETUP) return;
     if (InterlockedCompareExchange(&update_busy, 1, 0) != 0) return;
     EnterCriticalSection(&update_lock);
     update_state = UP_DOWNLOADING;
@@ -262,7 +281,7 @@ static void update_do_rollback(void)
 {
     enum lu_result r;
     if (InterlockedCompareExchange(&update_busy, 1, 0) != 0) return;
-    r = lu_rollback(game_dir);
+    r = lu_rollback(game_dir, update_dir);
     EnterCriticalSection(&update_lock);
     update_last_err = r;
     update_rollback_ready = update_has_rollback();
@@ -301,7 +320,15 @@ static void update_init(void)
     if (!lu_url_valid(update_api_url))
         strcpy(update_api_url, DEFAULT_RELEASE_API);
 
-    recovered = lu_recover_interrupted(game_dir);
+    if (update_data_base(update_dir, sizeof(update_dir) - 24)) {
+        strcat(update_dir, "\\mdk2-coop");
+        CreateDirectoryA(update_dir, NULL);
+        strcat(update_dir, "\\update");
+    } else
+        snprintf(update_dir, sizeof(update_dir), "%s\\update", coop_dir);  /* no profile folder: beside the co-op data */
+    update_owner = lu_install_owner(game_dir);
+    lu_startup(game_dir, update_dir);
+    recovered = lu_recover_interrupted(game_dir, update_dir);
     update_rollback_ready = update_has_rollback();
     if (recovered > 0) {
         update_state = UP_ROLLED_BACK;
