@@ -62,64 +62,113 @@ class Launchers:
     def field(self, player, x, y, text):
         self.command(player, f'click {x} {y}', *(['key 8'] * 160), f'text {text}')
 
-    def profiles(self):
-        self.command(2, 'page 5', 'click 980 452')  # Add
-        self.field(2, 900, 185, 'Live host')
-        self.field(2, 900, 258, '127.0.0.1')
-        self.field(2, 1180, 258, self.port)
-        self.field(2, 900, 330, 'Original notes')
-        self.command(2, 'click 800 395')
-        self.expect(2, 'profile added through UI', **{'profiles.count': 1, 'profile0.name': 'Live host', 'profile0.port': self.port})
-        state = self.expect(2, 'real host probe reports lobby and matching version', timeout=8,
-                            **{'profile0.status': 3, 'profile0.version': self.version})
-        assert 0 <= state.getint('profile0', 'rtt') < 1200
-        print('PASS: measured real-host profile RTT', state['profile0']['rtt'], flush=True)
-        self.command(2, 'click 1050 452')  # Edit
-        self.field(2, 900, 330, 'Edited notes')
-        self.command(2, 'click 800 395', 'click 1030 494')  # Save, Export
-        export = self.dirs[1] / 'profiles-export.tsv'
-        saved = (self.dirs[1] / 'profiles.tsv').read_bytes()
-        assert export.read_bytes() == saved and b'Edited notes' in saved
-        self.command(2, 'click 1050 452', 'click 1140 395')  # Edit, Delete
-        self.expect(2, 'profile deleted through UI', **{'profiles.count': 0})
-        (self.dirs[1] / 'profiles-import.tsv').write_bytes(export.read_bytes())
-        self.command(2, 'click 1150 494')  # Import
-        self.expect(2, 'export imported through UI', **{'profiles.count': 1, 'profile0.notes': 'Edited notes'})
-        self.expect(2, 'imported profile probes real host', timeout=8, **{'profile0.status': 3})
-        self.shot(2, 'profiles_live')
-
-    def saved_join(self):
-        self.command(2, 'page 5')
-        state = self.state(2)
-        count = state.getint('profiles', 'count')
-        existing = any(state.get(f'profile{i}', 'host') == '127.0.0.1' and
-                       state.get(f'profile{i}', 'port') == str(self.port) for i in range(count))
-        expected = count if existing else count + 1
+    def recents(self):
+        # The saved-addresses store became Recent hosts (B4): the lobby's Save address pins the host.
+        before = self.state(2).getint('recents', 'count')
         self.command(2, 'page 0', 'click 1180 510')
-        self.expect(2, 'save host address without leaving lobby',
-                    **{'launcher.lobby': 1, 'launcher.connected': 1, 'profiles.count': expected})
-        saved = (self.dirs[1] / 'profiles.tsv').read_bytes()
-        assert ('\t127.0.0.1\t' + str(self.port) + '\t').encode() in saved
+        state = self.expect(2, 'Save address keeps the lobby', **{'launcher.lobby': 1, 'launcher.connected': 1})
+        count = state.getint('recents', 'count')
+        assert count in (before, before + 1), (before, count)
+        pinned = [i for i in range(count) if state.get(f'recent{i}', 'pinned') == '1' and
+                  state.get(f'recent{i}', 'port') == str(self.port)]
+        assert pinned, 'the saved address is not a pinned recent host'
         self.command(2, 'click 1180 510')
-        self.expect(2, 'saving the same address twice does not duplicate it', **{'profiles.count': expected})
-        assert (self.dirs[1] / 'profiles.tsv').read_bytes() == saved
+        self.expect(2, 'saving the same address twice does not duplicate it', **{'recents.count': count})
+        assert b'COOP-RECENTS\t1\n' in (self.dirs[1] / 'recents.tsv').read_bytes()
+        print('PASS: Save address pinned the host in recents.tsv', flush=True)
+
+    @staticmethod
+    def invite(port, routes, secret=0x12345678):
+        """An invite code v1 (docs/DISCOVERY.md): routes are (kind, 'a.b.c.d'), kind 1 LAN 2 VPN 3 internet."""
+        body = bytes([0x10]) + secret.to_bytes(4, 'little') + int(port).to_bytes(2, 'little') + bytes([len(routes)])
+        for kind, ip in routes:
+            body += bytes([kind]) + bytes(int(x) for x in ip.split('.'))
+        crc = 0
+        for byte in body:
+            crc ^= byte
+            for _ in range(8):
+                crc = ((crc << 1) ^ 7) & 255 if crc & 128 else (crc << 1) & 255
+        body += bytes([crc])
+        bits = ''.join(f'{b:08b}' for b in body)
+        bits += '0' * (-len(bits) % 5)
+        chars = ''.join('0123456789ABCDEFGHJKMNPQRSTVWXYZ'[int(bits[i:i + 5], 2)] for i in range(0, len(bits), 5))
+        return 'MDK2-' + '-'.join(chars[i:i + 5] for i in range(0, len(chars), 5))
+
+    def find_row(self, player, name, timeout=12):
+        """The Join list row for the host called name on our port, read from the launcher's own state."""
+        deadline = time.monotonic() + timeout
+        while True:
+            state = self.state(player)
+            rows = state.getint('join', 'rows', fallback=0)
+            for i in range(rows):
+                row = state[f'row{i}']
+                if row.get('name') == name and row.get('port') == str(self.port):
+                    return state, i, row
+            if time.monotonic() >= deadline:
+                raise AssertionError(f'{name} on port {self.port} not in the Join list: {rows} rows, '
+                                     f'sources {[state.get("join", f"source{k}", fallback="?") for k in range(4)]}')
+            time.sleep(.3)
+
+    def join_list(self):
+        """B finds A with no address typed, joins from the list, from a pasted invite, recents and Rejoin."""
+        host = 'Hosty'
+        self.expect(1, 'host lobby open', **{'launcher.lobby': 1})
+        self.expect(2, 'joiner on the Join list, no lobby', **{'launcher.lobby': 0, 'launcher.page': 0, 'join.shown': 1})
+        state, i, row = self.find_row(2, host)
+        assert row.get('route') == 'LAN' and row.get('state') == '0' and row.get('mismatch') == '0', dict(row)
+        assert row.get('ip') not in ('', '0.0.0.0', '255.255.255.255'), dict(row)
+        assert state.getint('join', 'adapters') >= 1 and state.getint('join', 'candidates') >= 4
+        print(f'PASS: {host} listed with no address typed: {dict(row)}', flush=True)
+        self.shot(2, 'join_list')
+        at = int(row['shown_at'])
+        assert at < 3, f'{host} is row {at} on screen; only three rows are shown'
+        self.command(2, f'click 1000 {430 + 44 * at + 20}')
+        self.expect(2, 'row selected, primary says who', **{'join.selected': i, 'join.primary': f'Join {host}'})
         self.command(2, 'click 1000 660')
-        self.expect(2, 'leave before joining a saved address', **{'launcher.lobby': 0})
-        self.expect(1, 'host removes departed client', timeout=6, **{'launcher.players': 1})
-        self.command(2, 'page 5', 'click 800 494')
-        self.expect(2, 'saved Join opens the connected lobby on Play',
-                    **{'launcher.page': 0, 'launcher.lobby': 1, 'launcher.connected': 1, 'launcher.players': 2})
-        self.expect(1, 'saved Join reaches the real host', **{'launcher.players': 2})
-        self.shot(2, 'saved_address_joined_lobby')
+        self.expect(2, 'joined from the list', timeout=8, **{'launcher.lobby': 1, 'launcher.connected': 1})
+        self.expect(1, 'host sees the joiner', timeout=6, **{'launcher.players': 2})
+        state = self.expect(2, 'recent host remembered after the join', **{'recents.count': 1, 'recent0.name': host,
+                                                                          'recent0.route': 'lan', 'recent0.port': self.port})
+        listed_ip = row['ip']
+        assert state.get('recent0', 'host') == listed_ip, (state.get('recent0', 'host'), listed_ip)
+        print('PASS: recents.tsv:', (self.dirs[1] / 'recents.tsv').read_text().strip().splitlines()[1:], flush=True)
+        self.command(2, 'key 27')
+        self.expect(2, 'joiner left', **{'launcher.lobby': 0})
+        self.expect(1, 'host lost the joiner', timeout=7, **{'launcher.players': 1})
+        # two routes answer (127.0.0.2 reaches the same host): the LAN one is kept (C4)
+        code = self.invite(self.port, [(3, '127.0.0.2'), (1, '127.0.0.1')])
+        self.command(2, 'click 1000 366', f'text {code}')
+        state = self.expect(2, 'pasted invite recognised before Join', **{'join.paste_kind': 1, 'join.primary': 'Join invite'})
+        assert state.get('join', 'recognised').startswith('Invite code'), state.get('join', 'recognised')
+        self.command(2, 'click 1000 660')
+        self.expect(2, 'joined from a pasted invite', timeout=8, **{'launcher.lobby': 1, 'launcher.connected': 1})
+        self.expect(1, 'host sees the invited joiner', timeout=6, **{'launcher.players': 2})
+        state = self.expect(2, 'the invite route is a second recent host', **{'recents.count': 2})
+        hosts = {state.get(f'recent{k}', 'host'): state.get(f'recent{k}', 'route') for k in range(2)}
+        assert hosts.get('127.0.0.1') == 'lan', hosts
+        self.command(2, 'key 27')
+        self.expect(2, 'joiner left again', **{'launcher.lobby': 0})
+        self.command(2, 'click 1000 185')    # Host a game: Play without the list probes only the last host
+        self.expect(2, 'Rejoin <name> when the last host answers', timeout=10, **{'join.shown': 0, 'join.rejoin': f'Rejoin {host}'})
+        self.shot(2, 'rejoin')
+        self.command(2, f'clipboard {host} is hosting MDK2. Join: https://tommodotcommo.github.io/coop-mod-kit/join/#{code}')
+        self.expect(2, 'clipboard invite offered', **{'join.offer': 1, 'join.offer_name': host, 'join.primary': f'Join {host}'})
+        self.shot(2, 'clipboard_offer')
+        self.command(2, 'click 1000 511')     # Not now
+        self.expect(2, 'Not now dismisses the offer', **{'join.offer': 0})
+        self.command(2, f'clipboard {code}')
+        self.expect(2, 'a dismissed invite is not offered again', **{'join.offer': 0})
+        self.command(2, 'page 5')
+        self.expect(2, 'Recent hosts page scans', **{'launcher.page': 5, 'join.shown': 1, 'recents.count': 2})
+        self.shot(2, 'recent_hosts')
+        self.command(2, 'page 2', *['click 1220 115'] * 4)     # Settings, the section picker to Network
+        self.expect(2, 'Settings > Network: find settings on by default', **{'join.find_lan': 1, 'join.find_tailscale': 1})
+        self.shot(2, 'settings_network')
+        self.command(2, 'page 0')
 
     def full(self):
         self.expect(1, 'real lobby filled by synthetic protocol members', **{'launcher.players': 16})
-        # Start a new probe only after all synthetic hellos have been consumed.
-        # Otherwise a valid early three-player reply is cached for 15 seconds.
-        time.sleep(.2)
-        self.command(2, 'page 5', 'click 1150 494')  # Import resets probe generation
-        self.expect(2, 'profile reports real host full', timeout=8, **{'profile0.status': 6})
-        self.shot(2, 'profiles_full')
+        self.shot(1, 'lobby_full')
 
     def lifecycle(self):
         for page in range(1, 6):
@@ -135,8 +184,6 @@ class Launchers:
         self.shot(2, 'lobby_reconnected')
 
     def mismatch(self):
-        self.command(2, 'page 5', 'click 1150 494')
-        self.expect(2, 'profile reports different real host version', timeout=8, **{'profile0.status': 5})
         self.command(1, 'page 0', 'key 13')
         time.sleep(4)
         self.expect(1, 'mismatched roster refuses host start', **{'launcher.phase': 2, 'launcher.countdown': 0})
@@ -185,13 +232,13 @@ class Launchers:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('profiles', 'full', 'lifecycle', 'mismatch', 'chat', 'saved_join'))
+    parser.add_argument('mode', choices=('recents', 'full', 'lifecycle', 'mismatch', 'chat', 'join_list'))
     parser.add_argument('--dirs', nargs='+', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--port', required=True)
     parser.add_argument('--version', required=True)
     args = parser.parse_args()
-    required = 2 if args.mode == 'saved_join' else 3
+    required = 2 if args.mode == 'join_list' else 3
     if len(args.dirs) != required:
         parser.error(f'{args.mode} requires {required} game directories')
     live = Launchers(args.dirs, Path(args.output) / args.mode)

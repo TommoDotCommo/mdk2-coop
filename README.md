@@ -156,10 +156,16 @@ version. If the Steam overlay is off, share the lobby ID instead.
 
 ### Over direct UDP (LAN, or manual internet setup)
 
-The host listens on **UDP port 27900** (changeable in the launcher). On a LAN, joiners enter the host's local IP
-address. Over the internet, the host forwards that port on their router and shares their public IP address.
+The host listens on **UDP port 27900** (Settings > Network). On a LAN or a shared VPN nobody types an address:
+**Join a friend** lists the hosts it finds under **Games near you** (every network this PC is on, your Tailscale
+devices, and hosts you joined before), with their state, players and ping; pick one and press **Join <name>**.
+Or paste what the host sent you into the box above the list: an invite code or link, a Steam lobby number, an
+address (with `:port` if it is not 27900) or a computer name. Over the internet, the host forwards that port on
+their router and shares their public IP address.
 
-In the lobby, **Save address** adds the host address and port to **Saved addresses** without leaving the lobby. Saving an existing address keeps its name and notes. **Join** in Saved addresses takes you straight to the connected lobby.
+Hosts you join are remembered under **Recent hosts** (rename, pin, forget); your old saved addresses move there,
+pinned. When the last host is online, **Rejoin <name>** appears on Play. An invite copied to the clipboard is
+offered when the launcher comes to the front. In the lobby, **Save address** pins the host.
 Allow MDK2 HD through Windows Firewall when asked.
 
 ### While you play

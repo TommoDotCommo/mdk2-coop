@@ -23,7 +23,7 @@
 #include <stddef.h>
 #include <math.h>
 #include "bridge.h"
-#include "launcher_profiles.h"
+#include "launcher_join.h"
 #ifndef MOD_VERSION
 #define MOD_VERSION "dev"
 #endif
@@ -1756,14 +1756,14 @@ void net_poll(void)
                 continue;
             if (n <= 0)
                 break;
-            if (role_host && n == 8 && !memcmp(buf, "CPQ1", 4)) {
-                static double next_probe;
-                unsigned char reply[64];
-                if (now >= next_probe) {
-                    int bytes = lp_answer(buf, n, 1 + players_connected(), 1, MOD_VERSION, reply);
-                    next_probe = now + 100;
-                    if (bytes) sendto(sock, (char *)reply, bytes, 0, (struct sockaddr *)&from, fromlen);
-                }
+            if (role_host && lj_is_probe(buf, (size_t)n)) {
+                /* the Join list and recent hosts ask (CPQ2; saved addresses of older versions CPQ1) */
+                static struct cd_rate rate;
+                struct cd_host me = { LJ_PROBE_ID, MOD_VERSION, my_name, CD_IN_GAME, 0, 0,
+                                      (unsigned)(1 + players_connected()), MAX_PLAYERS };
+                uint8_t reply[CD_REPLY_MAX];
+                int bytes = lj_host_reply(&rate, buf, (size_t)n, ntohl(from.sin_addr.s_addr), (uint32_t)now, &me, reply);
+                if (bytes) sendto(sock, (char *)reply, bytes, 0, (struct sockaddr *)&from, fromlen);
             } else received(buf, n, &from, 0, now);
         }
     }

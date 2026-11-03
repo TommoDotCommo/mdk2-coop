@@ -2,8 +2,8 @@
 
 This page describes the game-free core that lets a joiner find a host without typing an address.
 It covers invite codes, the one paste box, the clipboard check, the LAN/Tailscale/recent-host probe
-and the recent-hosts store. The launcher does not use it yet: wiring it into the Join page is a later
-change. MDK2 and The Witness share these files (see [Vendoring into The Witness](#vendoring-into-the-witness)).
+and the recent-hosts store. MDK2's launcher uses it on its Join side (see [In the MDK2 launcher](#in-the-mdk2-launcher)).
+MDK2 and The Witness share these files (see [Vendoring into The Witness](#vendoring-into-the-witness)).
 
 | File | What | Platform |
 |---|---|---|
@@ -230,6 +230,37 @@ route `address`, its notes and its last-used time. Writing always produces `COOP
 - `coop_discover_win_test.exe --adapters` also binds a fake host on every adapter address and scans
   by directed broadcast. Binding a non-loopback address can make Windows Firewall ask about the test
   program, so this mode is not in the automated gate. Run it at the desk.
+
+## In the MDK2 launcher
+
+`bridge/launcher_join.h` (portable, tested by `tools/test_launcher_join.py`) and `bridge/launcher_join.c`
+(a worker thread and the widgets, included by `launcher.c`) put the core on the Join side:
+
+- **Hosts answer.** The launcher's lobby (state "in lobby") and the game's UDP listener (state "in game")
+  answer CPQ1 and CPQ2 through `lj_host_reply`: `cd_rate_allow`, then `cd_answer`. The name is the host's
+  player name. Lobby visibility (B9) is not chosen yet, so `invite_only` is 0.
+- **Join a friend** shows *Games near you*. While it is shown the worker scans every 5 s: each adapter's
+  directed broadcast, online Tailscale peers (Settings > Network > Find friends on Tailscale, on by default;
+  `tailscale status --json` at most every 30 s) and recent hosts, on the port in Settings > Network and on
+  27900, each with the next three. The sources line names Network, Tailscale, Recent and Steam with a tick
+  when done. Steam says *invites*: the launcher runs before Steam starts in the game, so it cannot read
+  friends' rich presence; a Steam invite or a pasted lobby number joins.
+- **The paste box** says what it recognised (`cr_describe`) before Join. An address, host or Tailscale name
+  is probed once; an invite's routes are probed at once and `cd_he_choice` picks the route. An invite that
+  only has a Steam lobby, or whose routes do not answer but which has one, joins the Steam lobby.
+- **The clipboard** is read on `WM_ACTIVATE` (never in test mode): `ci_find_invite` on at most 16 K
+  characters, the buffer zeroed after. *Not now* keeps that invite from being offered again in this run.
+- **Recent hosts** (`recents.tsv` in the mod's data folder): a host is remembered when the lobby connects,
+  or when the game is started for a host already in game. On the first start without `recents.tsv`,
+  `profiles.tsv` is migrated (rows become pinned recents; the old file is left as it was). The lobby's
+  *Save address* pins the host. The Recent hosts page has Join, Rename, Pin and Forget.
+- **Rejoin** on Play (A4): while Play shows Host or Solo, only the last host is probed, every 5 s; the button
+  appears when it answers with this version and room.
+- **Invite links on the command line** (C5): `lj_link_arg` takes `mdk2-coop://<CODE>` from the game's command
+  line (scheme in any case, a trailing `/` dropped); the launcher then shows, on Join, with the link in the paste box.
+- **Failures** (F4) say who and what and offer Try again, Update (another version) or Send diagnostics.
+- `[test] launcher=1`: `dump` writes a `[join]` section (sources, rows with `shown_at`, recents, offer,
+  primary button words) to `launcher-state.ini`; `clipboard <text>` runs the clipboard check on that text.
 
 ## Vendoring into The Witness
 
