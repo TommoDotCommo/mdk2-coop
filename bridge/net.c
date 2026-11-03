@@ -296,6 +296,8 @@ static void load_player_id(void)
     logmsg("player id %08x, name %s", my_id, my_name);
 }
 
+static void invite_key_send(double now);
+
 void net_open(const char *ini)
 {
     char host[64], role[16], transport[16];
@@ -372,6 +374,7 @@ void net_open(const char *ini)
         l->addr.sin_port = htons((u_short)peer_port);
         l->addr.sin_addr.s_addr = inet_addr(host);
         link_reset(l);
+        invite_key_send(now_ms());      /* an invite-only host's game: the key before the first player packet */
     }
     logmsg("udp listen %d, role %s%s%s:%d", listen_port, role_host ? "host" : "client",
            role_host ? "" : ", host at ", role_host ? "" : host, role_host ? 0 : peer_port);
