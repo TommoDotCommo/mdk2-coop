@@ -59,3 +59,32 @@ test-crash-context:
 	../tools/test_crash_context.sh
 
 .PHONY: test-crash-context
+
+# invites and finding friends (coop_invite.h, coop_discover.h, coop_discover_win.h)
+../local/tests/coop_invite_test.exe: tests/coop_invite_test.c coop_invite.h
+	mkdir -p ../local/tests
+	$(CC) $(CFLAGS) -std=c99 -I. -o $@ tests/coop_invite_test.c -static-libgcc
+
+../local/tests/coop_discover_test.exe: tests/coop_discover_test.c coop_discover.h coop_invite.h launcher_profiles.h
+	mkdir -p ../local/tests
+	$(CC) $(CFLAGS) -std=c99 -I. -o $@ tests/coop_discover_test.c -static-libgcc
+
+../local/tests/coop_discover_win_test.exe: tests/coop_discover_win_test.c coop_discover_win.h coop_discover.h coop_invite.h
+	mkdir -p ../local/tests
+	$(CC) $(CFLAGS) -std=c99 -I. -o $@ tests/coop_discover_win_test.c -static-libgcc -lws2_32
+
+test-invite: ../local/tests/coop_invite_test.exe
+	../local/tests/coop_invite_test.exe
+
+test-discover: ../local/tests/coop_discover_test.exe
+	../local/tests/coop_discover_test.exe
+
+# loopback only; add --adapters by hand at the desk (Windows Firewall may ask about the test program)
+test-discover-win: ../local/tests/coop_discover_win_test.exe
+	../local/tests/coop_discover_win_test.exe
+
+# the whole gate: sanitisers, fuzzing, mutants, C++ build, Windows adapter self-test
+test-discovery:
+	python3 ../tools/test_coop_discovery.py
+
+.PHONY: test-invite test-discover test-discover-win test-discovery

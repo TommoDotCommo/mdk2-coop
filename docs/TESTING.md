@@ -244,6 +244,11 @@ bleed-out stopping during revive, revive range and hold/release behavior,
 checkpoint authority, health restoration, spectating/cycling, zone-clear delays,
 one-shot team wipe and solo fallback without launching MDK2.
 
+`tools/test_coop_discovery.py` (gate `discovery-core`) covers invite codes, the paste box, the
+clipboard finder, probe v2, per-adapter broadcast candidates, result rows, the Tailscale status parser
+and the recent-hosts store, with sanitisers, fuzzing and 44 source mutants, plus the Windows adapter
+self-test on loopback fake hosts. See [DISCOVERY.md](DISCOVERY.md).
+
 `tools/test_network.sh` also requires four broken epoch variants to fail: premature
 epoch adoption, applying spawns during a load, blocking a same-epoch reconnect,
 and ignoring epoch zero at wraparound. The real-game epoch gate changes the world
