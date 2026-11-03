@@ -293,7 +293,19 @@ void input_pad_frame(void)
         return;
     }
     set_pad_last(pad_glyphs(pad_last, &raw, pad_buttons, 0));
-    pad_frame(&layer, &raw, pad_buttons, dt, couch_active ? couch.look : pad_look, now, &out, &layer_out);
+    {
+        /* buttons held while a chat line is up (or just closed) are the keyboard's: the game and the layer get
+         * them only after they are let go (Menu that sent a line must not pause the game) */
+        static unsigned stale;
+        struct pad_raw use = raw;
+
+        if (chat_blocks_keys())
+            stale = raw.buttons;
+        else
+            stale &= raw.buttons;
+        use.buttons &= ~stale;
+        pad_frame(&layer, &use, pad_buttons & ~stale, dt, couch_active ? couch.look : pad_look, now, &out, &layer_out);
+    }
     if (layer_out.chat)
         layer_chat = 1;
     if ((pad_talk == 1 && (raw.buttons & PAD_LS)) || (pad_talk == 2 && (raw.buttons & PAD_RS)))

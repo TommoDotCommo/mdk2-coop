@@ -565,8 +565,41 @@ static void l_coop_chat_dump(void)
             logmsg("ping live: %d %s (%.1f, %.1f, %.1f)", i + 1, player_name(i), p[0], p[1], p[2]);
 }
 
+/* coop_chat_line(i) -> slot (from 0, -1 the game) and text of the i-th newest message (from 0), or nil */
+static void l_coop_chat_line(void)
+{
+    int slot;
+    const char *text;
+    double age;
+
+    if (chat_line((int)lua_getnumber(lua_getparam(1)), &slot, &text, &age)) {
+        lua_pushnumber(slot);
+        lua_pushstring(text);
+    }
+}
+
+/* coop_chat_state() -> the line is open (1/0), its keyboard (0 none, 1 Steam's, 2 ours) and the text typed */
+static void l_coop_chat_state(void)
+{
+    lua_pushnumber(open_line);
+    lua_pushnumber(chat_pad_keyboard());
+    lua_pushstring(input);
+}
+
+/* coop_ping_state(slot) -> 1 if that player has a live ping, else 0 */
+static void l_coop_ping_state(void)
+{
+    float p[3];
+    double age;
+
+    lua_pushnumber(ping_get((int)lua_getnumber(lua_getparam(1)), p, &age));
+}
+
 void chat_lua_init(void)
 {
+    tolua_function(NULL, "coop_chat_line", l_coop_chat_line);
+    tolua_function(NULL, "coop_chat_state", l_coop_chat_state);
+    tolua_function(NULL, "coop_ping_state", l_coop_ping_state);
     tolua_function(NULL, "coop_say", l_coop_say);
     tolua_function(NULL, "coop_ping", l_coop_ping);
     tolua_function(NULL, "coop_typing", l_coop_typing);
