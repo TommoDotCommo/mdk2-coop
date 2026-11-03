@@ -17,6 +17,7 @@ int rule_down_secs = 30, rule_revive_secs = 3;
 BYTE *local_player, *puppets[MAX_PLAYERS];
 static BYTE objects[MAX_PLAYERS][0xc0];
 static int connected[MAX_PLAYERS], lives[MAX_PLAYERS], revivers[MAX_PLAYERS];
+static int watch_keys[GK_COUNT];
 static int health = 100, mirrored, revive_key, click, zone_enemies, sent, destination;
 static int checks, pose_id;
 static struct event emitted;
@@ -45,7 +46,7 @@ int players_connected(void)
     return n;
 }
 int ents_alive_in_zone(const float *position) { return zone_enemies; }
-int gamekey_down(int which) { return revive_key; }
+int gamekey_down(int which) { return which == GK_REVIVE ? revive_key : watch_keys[which]; }
 int input_down(int code, int vk) { return click; }
 void hud_status(const char *a, const char *b, float progress)
 { snprintf(hud_line, sizeof(hud_line), "%s", a ? a : ""); }
@@ -72,6 +73,7 @@ static void setup(int host, int people)
     role_host = host; my_slot = host ? 0 : 1; cur_level = 1;
     have_remote = people > 1; health = local_max_hp = 100;
     revive_key = click = zone_enemies = sent = mirrored = pose_id = 0;
+    memset(watch_keys, 0, sizeof(watch_keys));
     rule_down_secs = 30; rule_revive_secs = 3;
     memset(connected, 0, sizeof(connected)); memset(lives, 0, sizeof(lives));
     memset(objects, 0, sizeof(objects)); memset(puppets, 0, sizeof(puppets));
@@ -137,6 +139,42 @@ static void unreachable_and_spectate(void)
     revive_unreachable("test void");
     CHECK(revive_life() == LIFE_DEAD && emitted.kind == EV_DIED);
 }
+static float spectated_x(void) { return ((float *)(local_player + GOB_POSITION))[0]; }
+static void tap(int key) { watch_keys[key] = 1; advance(1); watch_keys[key] = 0; advance(1); }
+/* [ and ] cycle the teammates still in the fight, in both directions, one step per press; the list's Watch picks one.
+ * We are slot 1 of 0..3: the others are 0, 2 and 3, at x = 0, 6, 9 */
+static void watch_keys_cycle(void)
+{
+    setup(0, 4);
+    CHECK(revive_hit(999, 64) && revive_life() == LIFE_DEAD);
+    advance(2499); advance(2);
+    CHECK(revive_life() == LIFE_SPECTATING && revive_watching() == 0 && spectated_x() == 0);   /* nearest first */
+    tap(GK_WATCHN); CHECK(revive_watching() == 2 && spectated_x() == 6);
+    tap(GK_WATCHN); CHECK(revive_watching() == 3 && spectated_x() == 9);
+    tap(GK_WATCHN); CHECK(revive_watching() == 0);                       /* wraps, never ourselves (slot 1) */
+    tap(GK_WATCHP); CHECK(revive_watching() == 3);
+    tap(GK_WATCHP); CHECK(revive_watching() == 2);
+    /* a held key is one step, not a spin */
+    watch_keys[GK_WATCHP] = 1; advance(1); advance(1);
+    CHECK(revive_watching() == 0);
+    watch_keys[GK_WATCHP] = 0; advance(1);
+    /* someone out of the fight is skipped */
+    lives[3] = LIFE_DEAD; advance(1);
+    tap(GK_WATCHP); CHECK(revive_watching() == 2);
+    tap(GK_WATCHN); CHECK(revive_watching() == 0);
+    /* the player list's Watch */
+    lives[3] = LIFE_ALIVE; advance(1);
+    CHECK(revive_watch(2) == 1 && revive_watching() == 2);
+    advance(1); CHECK(spectated_x() == 6);
+    CHECK(revive_watch(my_slot) == 0 && revive_watching() == 2);         /* not ourselves */
+    lives[3] = LIFE_DEAD; CHECK(revive_watch(3) == 0);                   /* not someone out of the fight */
+    CHECK(revive_watch(9) == 0 && revive_watch(-1) == 0);                /* nobody there */
+    /* alive: nothing to watch with, and the keys do nothing */
+    setup(0, 3);
+    CHECK(revive_watch(0) == 0 && revive_watching() == -1);
+    tap(GK_WATCHN); tap(GK_WATCHP);
+    CHECK(revive_life() == LIFE_ALIVE && revive_watching() == -1 && spectated_x() == 3);
+}
 static void incoming_revive(void)
 {
     setup(0, 2); revive_hit(999, 2); action("down");
@@ -197,7 +235,7 @@ static void wipe_and_solo(void)
 }
 int main(void)
 {
-    damage_and_bleed(); unreachable_and_spectate(); incoming_revive();
+    damage_and_bleed(); unreachable_and_spectate(); watch_keys_cycle(); incoming_revive();
     revive_hold(); checkpoint_and_zone(); wipe_and_solo();
     printf("PASS: %d revive state-machine checks\n", checks);
     return 0;

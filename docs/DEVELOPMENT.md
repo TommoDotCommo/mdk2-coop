@@ -197,7 +197,7 @@ has played in it (names), the most players at once, when it was last played and 
 the clients' games keep it, so each player's launcher can show who they played with.
 - A client whose game crashes comes back as the same player and loads its own copy of the newest save
   of that level; the host then sends its world again (enemies with hp, taken items).
-- A client whose connection drops sees "Connection to the host lost - reconnecting" (input goes to
+- A client whose connection drops sees "Reconnecting to <host>" (input goes to
   that message, nothing moves in its world without the host) and plays on when the host is heard
   again, without reloading anything; after 10 s the host drops its puppet and takes it back when it
   returns.

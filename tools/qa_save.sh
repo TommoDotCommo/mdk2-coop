@@ -107,7 +107,7 @@ check "state matches after the rejoin"                  grep -q "^state: 0 fail"
 # 3. client 2's network drops for 15 s: it waits, the host lets it go, then it plays on
 p2num=$(sed -nE 's/^we are player ([0-9]+).*/\1/p' "$(mdk_log 2)" | tail -1)
 mdk_cmd "$(mdk_pid 2)" "coop_netblock(15000)"
-check "cut-off client waits for the host"              wait_log 2 "waiting: Connection to the host lost" 6
+check "cut-off client waits for the host"              wait_log 2 "waiting: Reconnecting to" 6
 check "host noticed player $p2num leave"                wait_log 1 "^player $p2num left" 15
 check "client plays again once back"                    wait_log 2 "host is back: playing again" 20
 check "host took it back as player $p2num"              wait_log 1 "^player $p2num joined .*back again" 5
@@ -120,7 +120,7 @@ mdk_cmd "$(mdk_pid 1)" "coop.SaveNow()"; sleep 3
 save=$(latest_save)
 state hostsave
 taskkill.exe /PID "$(mdk_pid 1)" /F >/dev/null 2>&1
-check "clients wait when the host is gone"              wait_clients "waiting: Connection to the host lost" 8
+check "clients wait when the host is gone"              wait_clients "waiting: Reconnecting to" 8
 sed -i '/^coop.autostart/d' "$(mdk_wsl "$(mdk_dir 1)")/coop/coop.lua"
 set_pid 1 "$(mdk_start 1)"
 check "clients see the host restarted"                  wait_clients "the host restarted its game" 40
@@ -166,10 +166,10 @@ sleep 10
 # 6. level 2 starts with Max's tutorial, where the game cannot save: a host crash there must
 #    resume at 2-1 (the checkpoint it got to), not at the last save back in level 1
 check "no co-op save possible in Max's tutorial"        bash -c "! grep -q 'co-op save [0-9]* written: level 2' '$(mdk_log 1)'"
-w0=$(counts "waiting: Connection to the host lost"); f0=$(counts "host started level 2 checkpoint 1: following")
+w0=$(counts "waiting: Reconnecting to"); f0=$(counts "host started level 2 checkpoint 1: following")
 b0=$(counts "host is back: playing again")
 taskkill.exe /PID "$(mdk_pid 1)" /F >/dev/null 2>&1
-check "clients wait again"                              more_than "$w0" "waiting: Connection to the host lost" 8
+check "clients wait again"                              more_than "$w0" "waiting: Reconnecting to" 8
 set_pid 1 "$(mdk_start 1)"
 check "host back on the title screen again"             wait_log 1 "^level 0 checkpoint 0 started" 40
 sleep 5

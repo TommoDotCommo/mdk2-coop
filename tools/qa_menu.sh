@@ -44,7 +44,9 @@ mdk_key "$HP" 208 3; sleep 0.5; mdk_key "$HP" 28; sleep 2
 mdk_key "$HP" 208 4; sleep 0.5; mdk_key "$HP" 28; sleep 1
 check "Esc > Options > Co-op opens the co-op page"      wait_log $H "^lua: menu: coop" 5
 mdk_shot "$HP" "$out/page_coop.png"
-mdk_key "$HP" 208 1; mdk_key "$HP" 28; sleep 2           # Players
+mdk_key "$HP" 208 1; mdk_key "$HP" 28; sleep 2           # Session
+check "Session page opens"                              wait_log $H "^lua: menu: coopsession" 5
+mdk_key "$HP" 208 1; mdk_key "$HP" 28; sleep 2           # Players (the first item of Session)
 check "Players page opens"                              wait_log $H "^lua: menu: coopplayers" 5
 mdk_shot "$HP" "$out/page_players.png"
 for pg in coopsession coopstart coopgame coopui coopdiff coopvoice; do lua 1 "coop.ShowPage(\"$pg\")"; sleep 1; mdk_shot "$HP" "$out/page_$pg.png"; done
@@ -128,7 +130,7 @@ check "developer keys on: F5 spawns a Doganboy"         test "$(count 1 '^ent sp
 
 # 5. the last client points at a wrong host address, waits, then back at the right one
 lua $L 'coop_set_host("127.0.0.1", 28099)'
-check "client with a wrong host address waits"         wait_log $L "waiting: Connection to the host lost" 8
+check "client with a wrong host address waits"         wait_log $L "waiting: Reconnecting to" 8
 lua $L "coop_set_host(\"127.0.0.1\", $MDK2_PORT)"
 check "back on the right address it plays again"        wait_log $L "host is back: playing again" 20
 check "with its player number"                          bash -c "grep -E '^we are player' '$(mdk_log $L)' | tail -1 | grep -q 'player $lastnum'"

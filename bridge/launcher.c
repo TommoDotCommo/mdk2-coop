@@ -1462,7 +1462,7 @@ static void start_summary(char *out, int size)
 
 static void page_settings(void)
 {
-    static const char *sections[] = { "Co-op", "Interface", "Voice and sound", "Display" };
+    static const char *sections[] = { "Co-op rules", "Players and interface", "Voice and sound", "Display" };
     static const char *window[] = { "Windowed", "Fullscreen" };
     static const char *levels[] = { "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%" };
     static char res_text[64][24];
@@ -1518,7 +1518,7 @@ static void page_settings(void)
     } else if (cfg.section == 2) {
         toggle(ID, PX, y, PW, "Voice chat", "Push to talk", &cfg.voice);
         y += ROW + 2;
-        choice(ID, PX, y, PW, "Voice chat volume", NULL, voice_volume_names, 4, &cfg.voice_volume);
+        choice(ID, PX, y, PW, "Voice volume", NULL, voice_volume_names, 4, &cfg.voice_volume);
         y += ROW + 2;
         choice(ID, PX, y, PW, "Hearing range", "The host's choice counts", voice_range_names, 4, &cfg.voice_range);
         y += ROW + 10;

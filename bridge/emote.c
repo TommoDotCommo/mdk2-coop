@@ -116,7 +116,7 @@ static void wheel_close(struct wheel *w, int play)
 static void wheel_frame(struct wheel *w)
 {
     int down = w->nslots > 0 && gamekey_down(w->key) && local_player && gob_alive(local_player) &&
-               revive_life() == LIFE_ALIVE && (w->on || !wheel_open_one());
+               revive_life() == LIFE_ALIVE && !plist_on() && (w->on || !wheel_open_one());
     long dx, dy;
     float len;
 

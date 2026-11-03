@@ -180,6 +180,7 @@ static void l_coop_send(void)
     /* before our state is captured: the downed pose (the game's player control puts its own
      * animation back every frame) and a spectator's ride */
     emote_frame();
+    plist_frame();
     revive_frame();
     net_send_player(gob);
     if (gob)
@@ -1223,6 +1224,7 @@ void l_coop_init(void)
     settings_lua_init();
     hud_lua_init();
     ctrlview_lua_init();
+    plist_lua_init();
     input_lua_init();
     emote_lua_init();
     chat_lua_init();

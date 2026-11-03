@@ -294,6 +294,8 @@ void revive_unreachable(const char *why);
 void revive_event(const struct event *e, int from);
 void revive_checkpoint(void);
 const char *revive_tick(void);
+int revive_watch(int slot);
+int revive_watching(void);
 int revive_take_forced(void);
 int player_life(int slot);
 int player_reviving(int slot);
@@ -310,7 +312,7 @@ int emote_wheel_open(void);
 /* ---- input.c / hud.c / rooms.c / entities.c, for revive.c ---- */
 
 int input_down(int code, int vk);
-enum { GK_CHAT, GK_PING, GK_REVIVE, GK_VOICE, GK_EMOTE, GK_CHAR, GK_COUNT };    /* keys Lua sets: coop_game_keys */
+enum { GK_CHAT, GK_PING, GK_REVIVE, GK_VOICE, GK_EMOTE, GK_CHAR, GK_LIST, GK_WATCHP, GK_WATCHN, GK_COUNT };    /* keys Lua sets: coop_game_keys */
 int gamekey_down(int which);
 int input_lua_key(int k, int *code, int *vk);
 int gamekey_vk(int which);
@@ -351,6 +353,11 @@ void voice_lua_init(void);
 int voice_is_packet(const void *buf, int len);
 void voice_receive(int from, const void *buf, int len);
 int voice_talking(int slot);        /* slot -1: us */
+int voice_muted(int slot);
+void voice_set_muted(int slot, int on);
+int voice_player_volume(int slot);
+void voice_set_player_volume(int slot, int pct);
+unsigned int voice_tx_frames(void);
 
 /* ---- state.c ---- */
 
@@ -414,6 +421,16 @@ int hud_text_w(const char *s);
 void hud_text(float x, float y, int h, const char *s, float r, float g, float b);
 void hud_box(float x, float y, float w, float bh, int h, float r, float g, float b, float a);
 int ctrlview_on(void);
+const char *guide_list_key(void);           /* ctrlview.c: the player list key's text, from the bindings */
+void hud_slot_colour(int slot, float *c);
+const char *hud_hero_name(int type);
+float hud_dist_to_slot(int s);
+int hud_ingame(void);
+void input_buttons_hold(int on);            /* input.c: the left button is not the game's while the player list is up */
+int plist_on(void);
+void plist_frame(void);
+void plist_draw(int w, int h);
+void plist_lua_init(void);
 void ctrlview_draw(int w, int h);
 int guide_on(void);
 void guide_draw(int w, int h);

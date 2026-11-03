@@ -22,6 +22,11 @@ mutants = {
     'client-checkpoint-authority': ('if (!role_host)\n        return;\n    for (s = 0;', 'for (s = 0;'),
     'held-key-revives-again': ('revive_lock = 1;', 'revive_lock = 0;'),
     'pause-causes-bleedout': ('dt = 250.0;', 'dt = dt;'),
+    'watch-next-does-nothing': ('spect = nearest_alive_dir(NULL, spect, 1);\n        logmsg("revive: watch next', 'logmsg("revive: watch next'),
+    'watch-previous-goes-forward': ('spect = nearest_alive_dir(NULL, spect, -1);', 'spect = nearest_alive_dir(NULL, spect, 1);'),
+    'watch-held-key-spins': ('watch_was[0] = pv;', 'watch_was[0] = 0;'),
+    'watch-picks-anyone': ('!player_connected(slot) || life_of(slot) != LIFE_ALIVE || !pos_of(slot))\n        return 0;', '!player_connected(slot))\n        return 0;'),
+    'watch-works-while-alive': ('if (life != LIFE_DEAD || !riding || slot == my_slot', 'if (slot == my_slot'),
     'solo-intercepts-death': (' || !have_remote || players_connected() == 0)', ')'),
 }
 with tempfile.TemporaryDirectory(prefix='revive-', dir=out) as temp:
