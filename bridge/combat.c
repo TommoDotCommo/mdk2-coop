@@ -10,8 +10,10 @@ static struct cbh_state hud;
 static struct cb_guard reports, outgoing;
 static unsigned short epoch;
 static unsigned int serial;
-/* meter: 0 collapsed to one thin line (default), 1 expanded. The dump keeps the old header fields. */
-static int meter, keys[3];
+/* meter: 0 hidden (default), 1 one thin line, 2 expanded. [hud] dps in coop.ini sets it (re-read every 2 s, so the launcher
+ * and the in-game Interface toggle apply live); Ctrl+M cycles it until the setting changes. The dump keeps the old header fields. */
+static int meter, keys[3], dps_setting = -1;
+static uint64_t dps_read_at;
 static unsigned int source_serial;
 static int dirty, test_deaf;
 static uint64_t last_dump;
@@ -146,11 +148,20 @@ void combat_frame(int allowed)
     static const int vks[3] = {'M', 'R', 'D'};
     int i, ctrl;
     sync_epoch();
+    if (clock_ms() - dps_read_at >= 2000 || dps_setting < 0) {
+        char ini[MAX_PATH];
+        int v;
+        snprintf(ini, MAX_PATH, "%s\\coop.ini", coop_dir);
+        v = (int)GetPrivateProfileIntA("hud", "dps", 0, ini);
+        if (v < 0 || v > 2) v = 0;
+        if (v != dps_setting) { dps_setting = v; meter = v; }
+        dps_read_at = clock_ms();
+    }
     ctrl = allowed && !chat_blocks_keys() && (input_down(29, VK_CONTROL) || input_down(157, VK_CONTROL));
     for (i = 0; i < 3; i++) {
         int down = ctrl && input_down(codes[i], vks[i]);
         if (down && !keys[i]) {
-            if (i == 0) { meter = !meter; cbh_peek(&hud, clock_ms()); }
+            if (i == 0) { meter = (meter + 1) % 3; cbh_peek(&hud, clock_ms()); }
             if (i == 1) reset_meter();
             if (i == 2) dump_file();
         }

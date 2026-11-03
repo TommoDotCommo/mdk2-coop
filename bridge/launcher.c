@@ -233,7 +233,7 @@ static const char *mode_names[] = { "host", "join", "solo" };
 
 static struct {
     int mode, steam, friendly_fire, difficulty, save_interval, controls, hud, show, show_lobby;
-    int section, char_follow, devkeys, outline, movietimer, ghosts, emotes, charwheel, chat, pings, pad;
+    int section, char_follow, devkeys, outline, dps, movietimer, ghosts, emotes, charwheel, chat, pings, pad;
     int voice, voice_volume, voice_range, voice_mode, voice_in_dev, voice_out_dev;
     char name[PLAYER_NAME], lobby[24], host[64], port[8], listen[8];
 } cfg;
@@ -241,7 +241,7 @@ static struct {
 /* the switches of Options > Co-op (Co-op rules, Players and interface, Voice and sound), as coop.ini keys: section, key, default */
 static const struct { const char *section, *key; int dflt; int *v; } switches[] = {
     { "game", "char_follow", 1, &cfg.char_follow }, { "controls", "devkeys", 0, &cfg.devkeys },
-    { "hud", "outline", 0, &cfg.outline }, { "hud", "movietimer", 1, &cfg.movietimer },
+    { "hud", "outline", 0, &cfg.outline }, { "hud", "dps", 0, &cfg.dps }, { "hud", "movietimer", 1, &cfg.movietimer },
     { "features", "ghosts", 1, &cfg.ghosts }, { "features", "emotes", 1, &cfg.emotes },
     { "features", "charwheel", 1, &cfg.charwheel }, { "features", "chat", 1, &cfg.chat },
     { "features", "pings", 1, &cfg.pings }, { "pad", "enabled", 1, &cfg.pad }, { "voice", "enabled", 1, &cfg.voice },
@@ -1507,6 +1507,8 @@ static void page_settings(void)
         toggle(ID, PX, y, PW, "Players on screen", "Health panel and name tags", &cfg.hud);
         y += ROW + 2;
         toggle(ID, PX, y, PW, "Player outlines", "Your friends through walls", &cfg.outline);
+        y += ROW + 2;
+        toggle(ID, PX, y, PW, "DPS meter", "Damage per second panel; Ctrl+M in game", &cfg.dps);
         y += ROW + 2;
         toggle(ID, PX, y, PW, "Cutscene timer", "Time left, with the skip vote", &cfg.movietimer);
         y += ROW + 2;

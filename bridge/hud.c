@@ -1072,15 +1072,15 @@ static void draw_combat(int w, int h)
     small = font_px_of(1);
     big = font_px_of(0);
     n = cbh_rank(s, order, 8);
-    l = cbh_layout(w, h, small, big, combat_meter(), n, hs->nticks);
-    pa = cbh_panel_alpha(s, hs, now);
+    l = cbh_layout(w, h, small, big, combat_meter() == 2, n, hs->nticks);
+    pa = combat_meter() ? cbh_panel_alpha(s, hs, now) : 0;     /* 0: the DPS panel is off ([hud] dps) */
 
     if (pa > 0) {
         float px = (float)l.panel.x, py = (float)l.panel.y;
         box(px, py, (float)l.panel.w, (float)l.panel.h, h, 0.02f, 0.03f, 0.06f, 0.6f * pa);
         box(px, py, 2.0f, (float)l.panel.h, h, 1.0f, 0.85f, 0.3f, 0.8f * pa);
         fsel = 1;
-        if (!combat_meter()) {
+        if (combat_meter() == 1) {
             /* collapsed: one thin line, own DPS and the team's */
             double mine = my_slot >= 0 && my_slot < CB_PLAYERS ? cb_fight_dps(s, my_slot, now) : 0;
             float x = px + l.pad, y = py + l.pad + font_h, room = (float)(l.panel.w - 2 * l.pad);
