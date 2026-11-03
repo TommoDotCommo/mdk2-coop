@@ -16,6 +16,9 @@ param(
     [Parameter(Position = 1)][string]$GameDir,
     [switch]$Json,          # status: one JSON object
     [switch]$Uninstall,
+    [switch]$DesktopShortcut,
+    [switch]$AllowHosting,
+    [switch]$InviteLinks,
     [switch]$StatusOnly, # read-only JSON inventory; no game or user state changes
     [ValidateSet('', 'host', 'join')][string]$Role = '',
     [ValidateSet('', 'steam', 'udp')][string]$Transport = '',
@@ -70,45 +73,7 @@ function Ask-Port($question, $default) {
 
 # ---- finding the game ----
 
-function Steam-Libraries {
-    $roots = @()
-    foreach ($k in 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam', 'HKLM:\SOFTWARE\Valve\Steam', 'HKCU:\Software\Valve\Steam') {
-        $p = Get-ItemProperty $k -ErrorAction SilentlyContinue
-        if ($p.SteamPath)   { $roots += ($p.SteamPath -replace '/', '\') }
-        if ($p.InstallPath) { $roots += $p.InstallPath }
-    }
-    $libs = @()
-    foreach ($r in ($roots | Select-Object -Unique)) {
-        $libs += $r
-        $vdf = Join-Path $r 'steamapps\libraryfolders.vdf'
-        if (Test-Path $vdf) {
-            foreach ($m in [regex]::Matches((Get-Content $vdf -Raw), '"path"\s+"([^"]+)"')) {
-                $libs += ($m.Groups[1].Value -replace '\\\\', '\')
-            }
-        }
-    }
-    $libs | Where-Object { $_ } | ForEach-Object { $_.TrimEnd('\') } | Select-Object -Unique
-}
-
-function Find-Game {
-    foreach ($lib in Steam-Libraries) {
-        $acf = Join-Path $lib "steamapps\appmanifest_$AppId.acf"
-        $dirs = @()
-        if (Test-Path $acf) {
-            $m = [regex]::Match((Get-Content $acf -Raw), '"installdir"\s+"([^"]+)"')
-            if ($m.Success) { $dirs += Join-Path $lib "steamapps\common\$($m.Groups[1].Value)" }
-        }
-        $dirs += Join-Path $lib 'steamapps\common\MDK 2 HD'
-        foreach ($d in $dirs) { if (Test-Path (Join-Path $d 'mdk2hd.exe')) { return $d } }
-    }
-    # the Overhaul Games (Beamdog client) build installs here by default
-    foreach ($root in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
-        if (-not $root) { continue }
-        $d = Join-Path $root 'Overhaul Games\MDK 2 HD'
-        if (Test-Path (Join-Path $d 'mdk2hd.exe')) { return $d }
-    }
-    return $null
-}
+function Find-Game { return @(Find-AllGames | Select-Object -First 1)[0] }
 
 function Resolve-GameDir {
     $d = $GameDir
@@ -204,7 +169,9 @@ function Do-Install {
     if ($PrepareDataOnly) { Prepare-UserData $game; return }
     if ($UserSettingsOnly) {
         if ($PerUserData) { Prepare-UserData $game }
-        Add-Loader; return
+        Add-Loader
+        Set-CoopUserOptions $game ([bool]$DesktopShortcut) ([bool]$InviteLinks)
+        return
     }
     Check-NotRunning $game
     $payload = @(Get-CoopPackageFiles $Here)
@@ -212,10 +179,12 @@ function Do-Install {
         if (-not (Test-Path (Join-Path $Here $f))) { Fail "$f is missing next to this script. Unpack the whole zip first." }
     }
     $owner = Get-CoopOwner $game $Here
-    if ($owner -in 'mod-manager', 'vortex') {
-        Fail ("Co-op is installed here by a mod manager" + $(if ($owner -eq 'vortex') { ' (Vortex)' } else { '' }) +
+    if ($owner -eq 'vortex') {
+        Fail ("Installed by Vortex: update or remove it there" + $(if ($owner -eq 'vortex') { ' (Vortex)' } else { '' }) +
               ". Update or remove it in the mod manager; Setup leaves its files alone.")
     }
+
+    if ($owner -eq 'manual') { Adopt-CoopInstall $game $Here; Say 'Setup will look after these files from now on.' }
 
     $ini = Join-Path $game 'coop\coop.ini'
     if (-not $GameFilesOnly -and (Test-Path (Join-Path $game 'coop\per-user-data'))) {
@@ -284,7 +253,8 @@ function Do-Install {
         }
         Say "  coop\coop.ini: $network, $role"
     }
-    if (-not $GameFilesOnly) { Add-Loader }
+    if ($AllowHosting) { Set-CoopFirewall $game $false }
+    if (-not $GameFilesOnly) { Add-Loader; Set-CoopUserOptions $game ([bool]$DesktopShortcut) ([bool]$InviteLinks) }
 
     Say "`nDone. Start MDK2 HD as usual: the co-op launcher opens first. Pick Host or Join there (Steam lobbies or" Green
     Say 'a direct IP address and port) and press Start. Everything else is in its Settings tab.' Green
@@ -297,7 +267,7 @@ function Do-Uninstall {
     $game = Resolve-GameDir
     Say "Game folder: $game"
     if ($FindOnly) { return }
-    if ($UserSettingsOnly) { Remove-UserLoader; return }
+    if ($UserSettingsOnly) { Remove-UserLoader; Remove-CoopUserOptions $game; return }
     Check-NotRunning $game
     $targets = @(Get-CoopPackageFiles $Here | ForEach-Object { Join-Path $game $_ }) + @(Join-Path $game 'coop\per-user-data')
     foreach ($target in $targets) {
@@ -305,7 +275,8 @@ function Do-Uninstall {
         elseif (Test-Path -LiteralPath $target) { Say "  no ownership receipt for ${target}: kept it; install this package first to establish ownership" Yellow }
     }
 
-    if (-not $GameFilesOnly) { Remove-UserLoader }
+    if (@(Get-CoopFirewallRules $game).Count -gt 0) { Set-CoopFirewall $game $true }
+    if (-not $GameFilesOnly) { Remove-UserLoader; Remove-CoopUserOptions $game }
     Say "`nCo-op is off. Your co-op settings, logs and saves are kept in %LOCALAPPDATA%\mdk2-coop; delete that folder if you like." Green
     if (-not $Yes) { Read-Host "`nPress Enter to close" | Out-Null }
 }
@@ -338,25 +309,6 @@ function Remove-UserLoader {
 }
 
 # status: every install found (or the one given), what is there and who put it there
-function Find-AllGames {
-    $found = @()
-    foreach ($lib in Steam-Libraries) {
-        $acf = Join-Path $lib "steamapps\appmanifest_$AppId.acf"
-        $dirs = @()
-        if (Test-Path $acf) {
-            $m = [regex]::Match((Get-Content $acf -Raw), '"installdir"\s+"([^"]+)"')
-            if ($m.Success) { $dirs += Join-Path $lib "steamapps\common\$($m.Groups[1].Value)" }
-        }
-        $dirs += Join-Path $lib 'steamapps\common\MDK 2 HD'
-        foreach ($d in $dirs) { if (Test-Path (Join-Path $d 'mdk2hd.exe')) { $found += $d } }
-    }
-    foreach ($root in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
-        if (-not $root) { continue }
-        $d = Join-Path $root 'Overhaul Games\MDK 2 HD'
-        if (Test-Path (Join-Path $d 'mdk2hd.exe')) { $found += $d }
-    }
-    return @($found | ForEach-Object { (Resolve-Path $_).ProviderPath } | Select-Object -Unique)
-}
 function Show-Status {
     $dirs = if ($GameDir) {
         $d = $GameDir.Trim('"', ' ')
@@ -368,16 +320,17 @@ function Show-Status {
     foreach ($d in $dirs) {
         $snap = Get-CoopInstallStatus $d $Here $SettingsPath $DataPath ([bool]$PerUserData)
         $build = Get-CoopGameBuild (Join-Path $d 'mdk2hd.exe')
-        $installs += [pscustomobject]@{ path=$d; build=$build.Name; known_build=$build.Known; owner=$snap.owner
+        $installs += [pscustomobject]@{ path=$d; build=$build.Name; known_build=$build.Known; owner=$snap.owner; options=$snap.options
             chain_dll=(Test-Path -LiteralPath (Join-Path $d 'dinput8.chain.dll')); actions=$snap.actions; items=$snap.items }
     }
     $result = [pscustomobject]@{ schema=1; tool='MDK2-Coop-Setup'; package_version=$(if ($manifest) { $manifest.version } else { 'unknown' }); installs=$installs }
     if ($Json) { $result | ConvertTo-Json -Depth 6; return }
     if (-not $installs) { Write-Host 'MDK2 HD was not found in the Steam libraries or the Overhaul Games folder; give the game folder.' }
     foreach ($i in $installs) {
-        $what = switch ($i.owner) { 'setup' { 'installed by Setup' } 'vortex' { 'installed by a mod manager (Vortex)' } 'mod-manager' { 'installed by a mod manager' } default { 'not installed' } }
+        $what = switch ($i.owner) { 'setup' { 'installed by Setup' } 'vortex' { 'installed by a mod manager (Vortex)' } 'manual' { 'copied by hand; Setup can adopt it' } default { 'not installed' } }
         $next = if ($i.actions.blocked) { 'needs attention' } elseif ($i.actions.install) { "Setup can: $($i.actions.install)" } else { 'up to date' }
         Write-Host "$($i.path): MDK2 HD $($i.build); co-op $what; $next"
+        Write-Host "Desktop shortcut: $($i.options.desktop_shortcut); allow hosting: $($i.options.allow_hosting); open invite links: $($i.options.invite_links)"
     }
 }
 

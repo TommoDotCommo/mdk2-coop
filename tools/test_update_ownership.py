@@ -32,6 +32,7 @@ PACKAGE = {'dinput8.dll', 'coop/coop.lua', 'dinput8.dll.coop-receipt.json', 'coo
 
 MUTANTS = {
     'backup-beside-dll': ('lu_update_paths(data_dir, state_path, dll_prev, lua_prev);', 'lu_update_paths(game_dir, state_path, dll_prev, lua_prev);'),
+    'adopted-blocked': ('return LU_OWNER_SETUP;', 'return LU_OWNER_COPY;'),
     'ignore-owner': ('if (lu_install_owner(game_dir) != LU_OWNER_SETUP) return LU_ERR_NOT_OWNED;', ''),
     'keep-update-old': ('if (lu_link_count(old) && remove(old) != 0) left++;', ''),
     'no-legacy-move': ('        remove(from);\n', '        (void)from;\n'),
@@ -142,6 +143,15 @@ def scenarios(binary, base, zip_path):
             staging = base / 'hardlink-staging'
             expect((staging / 'dinput8.dll').read_bytes() == OLD_DLL, 'hardlink: the manager\'s staging file changed')
             expect(os.stat(game / 'dinput8.dll').st_nlink == 2, 'hardlink: the link was broken')
+
+    # A manual install after Setup adoption has receipts and updates normally.
+    game, data = make_game(base, 'adopted', 'copy'), base / 'adopted-data'
+    (game / 'dinput8.dll.coop-receipt.json').write_text(receipt(OLD_DLL))
+    (game / 'coop/coop.lua.coop-receipt.json').write_text(receipt(OLD_LUA))
+    expect(run('owner', game) == 0, 'adopted: Setup receipts not recognised')
+    expect(run('apply', game, data, zip_path, TAG) == 0, 'adopted: manual install still blocked')
+    expect((game / 'dinput8.dll').read_bytes() == NEW_DLL, 'adopted: DLL not updated')
+    expect(run('rollback', game, data) == 0, 'adopted: rollback failed')
 
     # linux: the record follows the files
     game, data = make_game(base, 'linux', 'linux'), base / 'linux-data'

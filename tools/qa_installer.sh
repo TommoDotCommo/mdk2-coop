@@ -5,9 +5,12 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 source "$here/tools/mdk.sh"
 : "${MDK2_RUN:?set MDK2_RUN to a disposable directory on a Windows filesystem}"
-make -s -C "$here/bridge"
 mkdir -p "$here/local/installer"
 out=$(mktemp -d "$here/local/installer/run-XXXXXXXX")
+mkdir -p "$out/tmp"
+export TMPDIR="$out/tmp"
+python3 "$here/tools/test_invite_command.py"
+make -s -C "$here/bridge"
 # Win32 profile API fixtures need a Windows filesystem.
 fixtures=$(mktemp -d "$MDK2_RUN/installer-XXXXXXXX")
 printf '%s\n' "$fixtures" > "$out/fixtures.txt"
@@ -20,7 +23,8 @@ cp "$here/dist/install-state.ps1" "$out/package/"
 "$here/tools/build_install_policy.sh"
 cp "$here/dist/install-policy.exe" "$out/package/"
 cp "$here/dist/install-policy.exe" "$fixtures/install-policy.exe"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_install_state.ps1")" -Mutants -PolicyPath "$(wslpath -w "$fixtures/install-policy.exe")"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_install_state.ps1")" -Mutants -PolicyPath "$(wslpath -w "$fixtures/install-policy.exe")" -TestRoot "$(wslpath -w "$fixtures")"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/tools/test_setup_options.ps1")" -TestRoot "$(wslpath -w "$fixtures")" -Mutants
 (cd "$here/dist" && i686-w64-mingw32-windres installer.rc -o "$out/installer-res.o")
 i686-w64-mingw32-gcc -Os -Wall -Wextra -mwindows -o "$out/package/MDK2-Coop-Setup.exe" "$here/dist/installer.c" "$out/installer-res.o"
 i686-w64-mingw32-gcc -O2 -o "$out/package/data_loader_test.exe" "$here/bridge/tests/data_loader_test.c"
