@@ -64,6 +64,14 @@ alone lets a client blow enemies away has not been confirmed in a live game: a d
 0-damage type 0x21 hit did not move a dogan, so the push may come from the blower shot
 itself, and no test fires Doc's real blower yet.
 
+Update (Doc's blower, checked live with `tools/qa_items.sh`): the real blower does not deal damage at all. It is a
+push volume (the game's `blower` gob, `OBJ_BLOWERCYLINDER`) the game builds on Doc's own body when the item is taken
+up, so the blower never produced a hit for the zero-damage path above, and a client's push moved only the client's own
+copy of the enemy. The host, whose enemy is the real one, never moved: the copy was put back at the host's place, or
+stayed where the push left it for good. The client now reports where its game left an enemy it moved near Doc
+(`EV_BLOWN`, throttled to 15 a second) and the host takes that place (`blown_event`) when it is a live enemy near where
+the host has it and the client's Doc stands near it; the host's next enemy snapshot carries it to everyone.
+
 A game started at a checkpoint has only the level's starting inventory. A start past a
 jetpack pickup (level 2 checkpoints 6 to 10, level 5 checkpoints 9 and 10, level 8
 checkpoints 6 and 7) now gives each player that jetpack through native collection.

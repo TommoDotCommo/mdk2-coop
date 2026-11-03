@@ -136,7 +136,7 @@ void *hook_code(BYTE *fn, const BYTE *expect, int len, void *hook);
 #include "snapshot.h"
 
 enum { EV_HIT = 1, EV_APPLY, EV_HURT, EV_SPAWN, EV_DESPAWN, EV_FIRE, EV_PICKUP, EV_LEVEL, EV_MARK, EV_STATE, EV_SAVE, EV_READY,
-       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE, EV_DIAG, EV_PUZZLE, EV_COMBAT, EV_ITEMUSED };
+       EV_REVIVE, EV_RESPAWN, EV_DIED, EV_CHAT, EV_PING, EV_TYPING, EV_RULES, EV_MOVIE, EV_DIAG, EV_PUZZLE, EV_COMBAT, EV_ITEMUSED, EV_BLOWN };
 #define EV_NAME 32
 /* FIRE part: 0 replays create_object arguments; 1 restores a launched class 5 shot. */
 #define FIRE_LAUNCHED 1
@@ -268,6 +268,7 @@ BYTE *puppet_nearest(const float *pos);
 void ents_host_tick(void);
 void ents_receive(const void *buf, int len);
 void ents_client_frame(void);
+void blown_event(const struct event *e, int sender);
 void ents_client_cleanup(void);
 void ent_bind(unsigned int netid, BYTE *gob);
 void ent_despawn(unsigned int netid, int died);
