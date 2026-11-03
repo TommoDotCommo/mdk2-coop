@@ -73,6 +73,11 @@ def check_menu_parity(src, lua, combat, fails):
         fails.append("in-game Hearing range is not tagged (host decides)")
     if "The host's choice counts" in src or "(host)\"" in page:
         fails.append("old host wording left")
+    # a host has no host address to type: its Session page says which port it listens on
+    sess = lua[lua.index('mdkCreateMenuItem(m, "Host address: "'):] if 'mdkCreateMenuItem(m, "Host address: "' in lua else ""
+    before = lua[:lua.index('mdkCreateMenuItem(m, "Host address: "')] if sess else ""
+    if 'elseif (coop_role() == "host") then' not in before[-900:] or "Listening on UDP port" not in before[-600:]:
+        fails.append("Session page shows a host the Host address row (a client's) instead of its port")
     # the DPS meter: a switch in both places, off by default, in the same section; Ctrl+M cycles off, line, full
     ui = dict((l, h) for l, h in rows["Players and interface"])
     if "DPS meter" not in ui or "Ctrl+M" not in ui["DPS meter"]:
@@ -122,6 +127,7 @@ MUTANTS = {
 LUA_MUTANTS = {
     "game-untagged": ('"Co-op save every (host decides)"', '"Co-op save every"'),
     "game-order": ('item = mdkCreateMenuItem(m, "Difficulty (host decides): "', 'item = mdkCreateMenuItem(m, "Zzz: "'),
+    "host-address-row": ('elseif (coop_role() == "host") then\n        -- the host has no host', 'elseif (coop_role() == "nobody") then\n        -- the host has no host'),
     "dps-default-on": ('coop.CheckItem(m, "DPS meter", "hud", "dps", "0"', 'coop.CheckItem(m, "DPS meter", "hud", "dps", "1"'),
 }
 

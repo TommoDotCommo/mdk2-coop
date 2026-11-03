@@ -3938,6 +3938,9 @@ function coop.BuildSession()
             item = mdkCreateMenuItem(m, "Leave Steam lobby")
             item.Select = function(self) coop_steam_leave(); coop.BuildSession() end
         end
+    elseif (coop_role() == "host") then
+        -- the host has no host to find: say which port friends reach it on (the address row is a client's) --
+        item = mdkCreateMenuItem(m, "Listening on UDP port " .. coop_get("net", "listen_port", "27900"))
     else
         local host, port = coop_get("net", "peer_host", "127.0.0.1"), coop_get("net", "peer_port", "27900")
         item = mdkCreateMenuItem(m, "Host address: " .. host .. ":" .. port)
