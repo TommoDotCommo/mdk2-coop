@@ -33,7 +33,7 @@ wheel() { val "$1" 'qa_wheel()'; }
 helpers='function qa_wheel() local w, s = coop_wheel_state() return w .. " " .. s end
 function qa_line(i) local s, t = coop_chat_line(i) if (s) then return s .. " " .. t end return "none" end
 function qa_chat() local o, k, t = coop_chat_state() return o .. " " .. k .. " " .. t end
-function qa_voice() local m, o = coop_voice_mode() return m .. " " .. o end' 
+function qa_voice() local m, o = coop_voice_mode() return m .. " " .. o end'
 VIEW=32; UP=1; DOWN=2; RB=512; A=4096; START=16
 
 mdk_boot
