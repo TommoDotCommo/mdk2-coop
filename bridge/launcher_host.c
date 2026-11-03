@@ -34,6 +34,7 @@ enum { RT_OFF, RT_TRYING, RT_MAPPED, RT_FAILED };
 enum { TS_CHECKING, TS_RUNNING, TS_ABSENT, TS_STOPPED };
 static CRITICAL_SECTION lk;
 static LONG lk_made;
+static volatile LONG lobby_gen;     /* each lobby's worker publishes only while its lobby is the current one */
 static struct {
     int open, steam, nlan, ts_state, router_state, lan_probe, fw_done;   /* lan_probe: 0 checking, 1 answered, 2 silent */
     unsigned port;
@@ -91,7 +92,9 @@ static int lan_addresses(struct lh_addr *out, int max)
 }
 
 /* This PC's lobby, asked on its own LAN address: the lobby socket (UI thread) answers it. */
-static int probe_self(uint32_t ip, unsigned port)
+static int stopping(LONG gen) { return gen != lobby_gen || H.stop; }
+
+static int probe_self(uint32_t ip, unsigned port, LONG gen)
 {
     SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     struct sockaddr_in to, from;
@@ -102,7 +105,7 @@ static int probe_self(uint32_t ip, unsigned port)
     if (s == INVALID_SOCKET) return 0;
     lhw_sin(&to, ip, port);
     cd_query(q, nonce, "MDK2", 0);
-    for (k = 0; k < 3 && !ok && !H.stop; k++) {
+    for (k = 0; k < 3 && !ok && !stopping(gen); k++) {
         DWORD start = GetTickCount();
         sendto(s, (const char *)q, CD_QUERY_LEN, 0, (struct sockaddr *)&to, sizeof(to));
         while (!ok && lhw_left(start, 700) && lhw_wait(s, 0, lhw_left(start, 700))) {
@@ -114,8 +117,9 @@ static int probe_self(uint32_t ip, unsigned port)
     return ok;
 }
 
-static DWORD WINAPI worker(void *unused)
+static DWORD WINAPI worker(void *param)
 {
+    LONG gen = (LONG)(INT_PTR)param;
     struct lh_addr lan[LHOST_ADDRS] = { { 0, 0 } };
     struct lhw_router_cfg rcfg;
     struct lhw_router router;
@@ -128,27 +132,31 @@ static DWORD WINAPI worker(void *unused)
     WSAStartup(MAKEWORD(2, 2), &wsa);
     n = lan_addresses(lan, LHOST_ADDRS);
     EnterCriticalSection(&lk);
-    memcpy(H.lan, lan, sizeof(lan));
-    H.nlan = n;
+    if (gen == lobby_gen) {
+        memcpy(H.lan, lan, sizeof(lan));
+        H.nlan = n;
+    }
     LeaveCriticalSection(&lk);
     {
-        int ok = n > 0 && probe_self(lan[0].ip, port);
+        int ok = n > 0 && probe_self(lan[0].ip, port, gen);
         EnterCriticalSection(&lk);
-        H.lan_probe = ok ? 1 : 2;
+        if (gen == lobby_gen) H.lan_probe = ok ? 1 : 2;
         LeaveCriticalSection(&lk);
         logmsg("host: same network: %d address(es), lobby %s", n, ok ? "answers on this PC's LAN address" : "did not answer");
     }
-    if (!H.stop) {
+    if (!stopping(gen)) {
         GetModuleFileNameA(NULL, exe, MAX_PATH);
         lhw_firewall(exe, port, &fw);
         EnterCriticalSection(&lk);
-        H.fw = fw;
-        H.fw_done = 1;
+        if (gen == lobby_gen) {
+            H.fw = fw;
+            H.fw_done = 1;
+        }
         LeaveCriticalSection(&lk);
         logmsg("host: firewall: read=%d private=%d public=%d (%d rules, %d for this game) %s", fw.ok, fw.private_verdict,
                fw.public_verdict, fw.rules_seen, fw.rules_kept, fw.error);
     }
-    if (!H.stop && (json = malloc(CD_JSON_MAX)) != NULL) {
+    if (!stopping(gen) && (json = malloc(CD_JSON_MAX)) != NULL) {
         static struct cd_ts ts;
         int got = cdw_tailscale_status(json, CD_JSON_MAX, 2000), state;
         if (got == 0) state = TS_ABSENT;
@@ -156,8 +164,8 @@ static DWORD WINAPI worker(void *unused)
         else state = TS_STOPPED;
         free(json);
         EnterCriticalSection(&lk);
-        H.ts_state = state;
-        if (state == TS_RUNNING) {
+        if (gen == lobby_gen) H.ts_state = state;
+        if (gen == lobby_gen && state == TS_RUNNING) {
             size_t len;
             H.ts_ip = ts.self.ip;
             snprintf(H.ts_name, sizeof(H.ts_name), "%s", ts.self.dns[0] ? ts.self.dns : ts.self.host);
@@ -167,15 +175,14 @@ static DWORD WINAPI worker(void *unused)
         LeaveCriticalSection(&lk);
         logmsg("host: tailscale: %s", state == TS_RUNNING ? "running" : state == TS_ABSENT ? "not installed" : "not connected");
     }
-    if (!H.stop && lhost_cfg.upnp) {
-        memset(&rcfg, 0, sizeof(rcfg));
-        EnterCriticalSection(&lk);
-        H.router_state = RT_TRYING;
-        LeaveCriticalSection(&lk);
+    memset(&rcfg, 0, sizeof(rcfg));
+    if (!stopping(gen) && lhost_cfg.upnp) {
         mapped = lhw_router_open(&router, &rcfg, port);
         EnterCriticalSection(&lk);
-        H.router = router;
-        H.router_state = mapped ? RT_MAPPED : RT_FAILED;
+        if (gen == lobby_gen) {
+            H.router = router;
+            H.router_state = mapped ? RT_MAPPED : RT_FAILED;
+        }
         LeaveCriticalSection(&lk);
         {
             char ext[16];
@@ -186,23 +193,23 @@ static DWORD WINAPI worker(void *unused)
         }
     }
     /* keep the mapping renewed while the lobby (or, after a handover, the game) runs */
-    while (mapped && !H.stop) {
+    while (mapped && !stopping(gen)) {
         Sleep(500);
         if (lhw_router_renew(&router, &rcfg, GetTickCount()))
             logmsg("host: router mapping renewed");
     }
-    if (mapped && !H.keep) {
+    if (mapped && !(H.keep && gen == lobby_gen)) {
         lhw_router_close(&router, &rcfg);
         logmsg("host: router mapping of UDP %u removed", port);
     }
-    if (mapped && H.keep && H.stop) {   /* the game took over the port: keep renewing until the process ends */
+    if (mapped && H.keep && gen == lobby_gen) {   /* the game took over the port: keep renewing until the process ends */
         for (;;) {
             Sleep(1000);
             lhw_router_renew(&router, &rcfg, GetTickCount());
         }
     }
     EnterCriticalSection(&lk);
-    if (H.router_state == RT_MAPPED) H.router_state = RT_OFF;
+    if (gen == lobby_gen && H.router_state == RT_MAPPED) H.router_state = RT_OFF;
     LeaveCriticalSection(&lk);
     WSACleanup();
     return 0;
@@ -221,7 +228,7 @@ void lhost_open(unsigned port, int steam)
     H.ts_state = TS_CHECKING;
     H.router_state = lhost_cfg.upnp ? RT_TRYING : RT_OFF;
     LeaveCriticalSection(&lk);
-    H.thread = CreateThread(NULL, 0, worker, NULL, 0, NULL);
+    H.thread = CreateThread(NULL, 0, worker, (void *)(INT_PTR)InterlockedIncrement(&lobby_gen), 0, NULL);
     logmsg("host: lobby %s, checking the ways in", lhost_cfg.invite_only ? "invite only" : "open to my networks");
 }
 
@@ -234,8 +241,10 @@ void lhost_close(int keep_mapping)
     }
     H.keep = keep_mapping;
     InterlockedExchange(&H.stop, 1);
-    if (!keep_mapping && WaitForSingleObject(H.thread, 8000) != WAIT_OBJECT_0)
+    if (!keep_mapping && WaitForSingleObject(H.thread, 8000) != WAIT_OBJECT_0) {
+        InterlockedIncrement(&lobby_gen);   /* it finishes (and removes any mapping) on its own, publishing nothing */
         logmsg("host: the checks did not finish in time");
+    }
     CloseHandle(H.thread);
     H.thread = NULL;
     H.open = 0;
