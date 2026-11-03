@@ -17,6 +17,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "bridge.h"
+#include "launcher_host.h"
 
 int cfg_friendly_fire;
 int cfg_enemy_scale = 50;
@@ -191,6 +192,14 @@ static void l_coop_steam_host(void) { if (net_steam && steam_host_lobby()) lua_p
 static void l_coop_steam_leave(void) { if (net_steam && steam_leave_lobby()) lua_pushnumber(1); }
 static void l_coop_steam_invite(void) { if (net_steam && steam_invite()) lua_pushnumber(1); }
 
+/* coop_invite_copy() -> 1 once this lobby's invite (the launcher's Copy invite: same text, same code) is on the
+ * clipboard; nil when the game did not start from a lobby with a route (launcher_host.c keeps the lobby's findings) */
+static void l_coop_invite_copy(void)
+{
+    if (lhost_copy_invite(input_game_window(), my_name))
+        lua_pushnumber(1);
+}
+
 void settings_lua_init(void)
 {
     tolua_function(NULL, "coop_get", l_coop_get);
@@ -206,4 +215,5 @@ void settings_lua_init(void)
     tolua_function(NULL, "coop_steam_host", l_coop_steam_host);
     tolua_function(NULL, "coop_steam_leave", l_coop_steam_leave);
     tolua_function(NULL, "coop_steam_invite", l_coop_steam_invite);
+    tolua_function(NULL, "coop_invite_copy", l_coop_invite_copy);
 }

@@ -23,7 +23,9 @@ int role_host=1, cur_epoch=7, test_background, my_slot=1;
 static unsigned lua_getparam(int n) {return 1;}
 static double lua_getnumber(unsigned n) {return 0;}
 char coop_dir[260]=".";
-static unsigned GetPrivateProfileIntA(const char *s, const char *k, int d, const char *f) {(void)s;(void)k;(void)f;return (unsigned)d;}   /* [hud] dps: the default */
+static int ini_dps = -1;   /* the fake coop.ini's [hud] dps: absent (the caller's default) until Ctrl+M writes it back */
+static unsigned GetPrivateProfileIntA(const char *s, const char *k, int d, const char *f) {(void)s;(void)k;(void)f;return (unsigned)(k && k[0] == 'd' && ini_dps >= 0 ? ini_dps : d);}   /* [hud] dps */
+static int WritePrivateProfileStringA(const char *s, const char *k, const char *v, const char *f) {(void)s;(void)k;(void)f;ini_dps = v ? v[0] - '0' : 0;return 1;}   /* Ctrl+M writes [hud] dps back */
 static BYTE target[32], puppet[32], *puppets[16];
 static int fake_hp=100, fake_kind=200, presses[256], connected=1;
 static double stamp=100;

@@ -286,9 +286,9 @@ In the launcher's **Settings** tab, or in game under **Options > Co-op** (on the
 - **Difficulty**: Story, Normal, Hard, Nightmare, or each setting on its own: enemy health, extra enemy health per
   player, damage you take and deal, time before you bleed out and time to revive.
 - **Players and interface** (was Interface; your own): players on screen, player outlines through walls (off by default), the
-  DPS meter (off by default; Ctrl+M cycles off, one line, full), the cutscene timer, friends in minigames, and the emote
+  DPS meter (a chooser, Off / Line / Full, off by default; Ctrl+M cycles the same three and the chooser follows), the cutscene timer, friends in minigames, and the emote
   wheel, character wheel, text chat and pings, each of which can be switched off. In game this page also has the gamepad
-  switch (next start) and the developer keys.
+  switch (next start) and, only when developer mode is on in the launcher (Settings > Launcher), the developer keys.
 - **Voice and sound**: voice chat on or off, its volume, the hearing range (host), and the game's effects, music
   and speech levels.
 - **Controls** (launcher): the preset and the gamepad switch. In game the Controls page shows the keyboard and the

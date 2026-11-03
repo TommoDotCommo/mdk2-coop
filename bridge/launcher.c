@@ -32,6 +32,7 @@
 #include "launcher_invite_command.h"
 #include <shellapi.h>
 #include "launcher_session.h"
+#include "guide_keys.h"
 #include "launcher_host.h"
 #include "launcher_host_core.h"
 
@@ -244,7 +245,7 @@ static struct {
 /* the switches of Options > Co-op (Co-op rules, Players and interface, Voice and sound), as coop.ini keys: section, key, default */
 static const struct { const char *section, *key; int dflt; int *v; } switches[] = {
     { "game", "char_follow", 1, &cfg.char_follow }, { "controls", "devkeys", 0, &cfg.devkeys },
-    { "hud", "outline", 0, &cfg.outline }, { "hud", "dps", 0, &cfg.dps }, { "hud", "movietimer", 1, &cfg.movietimer },
+    { "hud", "outline", 0, &cfg.outline }, { "hud", "movietimer", 1, &cfg.movietimer },
     { "features", "ghosts", 1, &cfg.ghosts }, { "features", "emotes", 1, &cfg.emotes },
     { "features", "charwheel", 1, &cfg.charwheel }, { "features", "chat", 1, &cfg.chat },
     { "features", "pings", 1, &cfg.pings }, { "pad", "enabled", 1, &cfg.pad }, { "voice", "enabled", 1, &cfg.voice },
@@ -691,6 +692,9 @@ static void settings_read(void)
     cfg.hud = GetPrivateProfileIntA("hud", "show", 1, ini) != 0;
     for (i = 0; i < NSWITCHES; i++)
         *switches[i].v = GetPrivateProfileIntA(switches[i].section, switches[i].key, switches[i].dflt, ini) != 0;
+    cfg.dps = GetPrivateProfileIntA("hud", "dps", 0, ini);      /* Off / Line / Full, the in-game Ctrl+M's three */
+    if (cfg.dps < 0 || cfg.dps > 2)
+        cfg.dps = 0;
     cfg.voice_volume = index_of(voice_volumes, 4, GetPrivateProfileIntA("voice", "volume", 100, ini), 1);
     cfg.voice_range = index_of(voice_ranges, 4, GetPrivateProfileIntA("voice", "range", 50, ini), 1);
     lv_enum_devices();
@@ -1503,6 +1507,7 @@ static void page_settings(void)
     static const char *window[] = { "Windowed", "Fullscreen" };
     static const char *levels[] = { "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%" };
     static const char *visibility[] = { "My networks", "Invite only" };
+    static const char *dps_names[] = { "Off", "Line", "Full" };
     static char res_text[64][24];
     static const char *res_names[64];
     float y = 92;
@@ -1538,7 +1543,7 @@ static void page_settings(void)
         y += ROW + 2;
         toggle(ID, PX, y, PW, "Player outlines", "Your friends through walls", &cfg.outline);
         y += ROW + 2;
-        toggle(ID, PX, y, PW, "DPS meter", "One line; Ctrl+M in game: off, line, full", &cfg.dps);
+        choice(ID, PX, y, PW, "DPS meter", "Ctrl+M in game changes it too", dps_names, 3, &cfg.dps);
         y += ROW + 2;
         toggle(ID, PX, y, PW, "Cutscene timer", "Time left, with the skip vote", &cfg.movietimer);
         y += ROW + 2;
@@ -2553,16 +2558,10 @@ static void draw_full_guide(void)
         for (i = 0; i < pad_layer_count; i++)
             lg_kv(c1, &y1, kw, pad_layer_lines[i].buttons, pad_layer_lines[i].desc, C_BLUE);
     } else {
-    lg_kv(c1, &y1, kw, "F1 (hold)", "Open this Mod Quick Guide anywhere", C_BLUE);
-    lg_kv(c1, &y1, kw, "R (hold)", "Hold beside downed teammate to revive", C_BLUE);
-    lg_kv(c1, &y1, kw, "T", "Open text chat (Enter sends, Esc cancels)", C_BLUE);
-    lg_kv(c1, &y1, kw, "V / MMB", "Place a 3D ping marker at crosshair", C_BLUE);
-    lg_kv(c1, &y1, kw, "B (hold)", "Push-to-talk proximity voice chat", C_BLUE);
-    lg_kv(c1, &y1, kw, "H (hold)", "Emote wheel: move mouse & release", C_BLUE);
-    lg_kv(c1, &y1, kw, "J (hold)", "Character wheel: switch Kurt / Max / Doc", C_BLUE);
-    lg_kv(c1, &y1, kw, "Backspace", "In cutscene: vote to skip (toggle)", C_BLUE);
-    lg_kv(c1, &y1, kw, "Left mouse", "While bled out: spectate next teammate", C_BLUE);
-    lg_kv(c1, &y1, kw, "F2", "Log marker & screenshot across all peers", C_BLUE);
+    int i;              /* H5: the in-game guide's co-op key table, as generated into guide_keys.h */
+
+    for (i = 0; i < GUIDE_COOP_KEYS; i++)
+        lg_kv(c1, &y1, 150.0f, guide_coop_keys[i].keys, guide_coop_keys[i].label, C_BLUE);
     }
 
     y1 += 5.0f;
@@ -3487,6 +3486,7 @@ void launcher_run(void)
         for (i = 0; i < NSWITCHES; i++)
             put_int(switches[i].section, switches[i].key, *switches[i].v);
     }
+    put_int("hud", "dps", cfg.dps);
     put_int("voice", "volume", voice_volumes[cfg.voice_volume]);
     put_int("voice", "range", voice_ranges[cfg.voice_range]);
     put_int("voice", "mode", cfg.voice_mode);

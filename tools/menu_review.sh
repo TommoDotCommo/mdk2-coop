@@ -121,8 +121,8 @@ gshot() {   # gshot <instance> <role> <page-name>
     sleep 1.2
     mdk_shot "$(mdk_pid "$1")" "$out/G${W}x${H}_$2_$3.png"
 }
-# The DPS meter, live (state from the game's own combat dump, not the log): off by default, the in-game
-# Players and interface switch turns it on and off within seconds, Ctrl+M cycles off / line / full.
+# The DPS meter, live (state from the game's own combat dump, not the log): off by default, the setting
+# reaches it within seconds, Ctrl+M cycles off / line / full and writes the value back to coop.ini.
 dps_checks=0; dps_fail=0
 dps_meter() { lua "$1" 'coop_combat_dump()'; sleep 0.8; awk '$1 == "combat" { print $4; exit }' "$(dir "$1")/coop/combat.txt" | tr -d '\r'; }
 dps_ini()   { tr -d '\r' < "$(dir "$1")/coop/coop.ini" | awk -F= '/^\[/ { s = $0 } s == "[hud]" && $1 == "dps" { print $2 }'; }
@@ -139,16 +139,17 @@ dps_stage() {
     mdk_key "$hp" 208 3; sleep 0.5; mdk_key "$hp" 28; sleep 2  # Options
     mdk_key "$hp" 208 4; sleep 0.5; mdk_key "$hp" 28; sleep 1.5   # Co-op
     mdk_key "$hp" 208 3; sleep 0.5; mdk_key "$hp" 28; sleep 1.5   # Players and interface (the cursor starts above the first row)
-    mdk_key "$hp" 208 3; sleep 0.5; gshot 1 host dps_row; mdk_key "$hp" 28; sleep 3    # DPS meter row: switch on
-    dps_expect "in-game switch on reaches the meter live" 1 1
-    mdk_key "$hp" 28; sleep 3
-    dps_expect "in-game switch off reaches the meter live" 0 0
-    mdk_key "$hp" 28; sleep 3
+    mdk_key "$hp" 208 3; sleep 0.5; gshot 1 host dps_row          # the DPS meter chooser row
+    lua 1 'coop_set("hud", "dps", 1)'; sleep 3
+    dps_expect "the setting reaches the meter live" 1 1
+    lua 1 'coop_set("hud", "dps", 0)'; sleep 3
+    dps_expect "the setting off reaches the meter live" 0 0
+    lua 1 'coop_set("hud", "dps", 1)'; sleep 3
     lua 1 'HideMenu() mdkPauseGame(0)'; sleep 1
     dps_expect "switched on again" 1 1
-    lua 1 'coop_press(29,500) coop_press(50,250)'; sleep 1; dps_expect "Ctrl+M: line to full" 2
-    lua 1 'coop_press(29,500) coop_press(50,250)'; sleep 1; dps_expect "Ctrl+M: full to off" 0
-    lua 1 'coop_press(29,500) coop_press(50,250)'; sleep 1; dps_expect "Ctrl+M: off to line" 1
+    lua 1 'coop_press(29,500) coop_press(50,250)'; sleep 1; dps_expect "Ctrl+M: line to full" 2 2
+    lua 1 'coop_press(29,500) coop_press(50,250)'; sleep 1; dps_expect "Ctrl+M: full to off" 0 0
+    lua 1 'coop_press(29,500) coop_press(50,250)'; sleep 1; dps_expect "Ctrl+M: off to line" 1 1
     echo "dps checks: $((dps_checks - dps_fail)) passed, $dps_fail failed" | tee "$out/dps_result.txt"
     lua 1 'coop_set("hud", "dps", 0)'
 }
