@@ -1,5 +1,5 @@
 CC = i686-w64-mingw32-gcc
-CFLAGS = -O2 -Wall -Wextra -Wno-unused-parameter
+CFLAGS = -O2 -Wall -Wextra -Wno-unused-parameter $(COOP_MUTANT_CFLAGS)
 LDFLAGS = -shared -static-libgcc -Wl,--enable-stdcall-fixup -Wl,--kill-at -lws2_32 -ldxguid -lgdi32 -lwinmm -lshell32 -lwininet
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 

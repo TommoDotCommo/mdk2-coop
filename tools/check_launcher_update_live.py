@@ -47,7 +47,9 @@ def main():
     save_dir = config.get('test', 'save_dir', fallback='')
     data_base = (Path(save_dir) if save_dir[1:2] == ':' else args.game_dir / save_dir) if save_dir else None
     package = {'dinput8.dll', 'coop/coop.lua', 'dinput8.dll.coop-receipt.json', 'coop/coop.lua.coop-receipt.json'}
-    updater_files = ('.previous', 'update-state.ini', '.update-old', '-stage')
+    def updater_file(name):     # what the updater writes: backups, its state, the DLL renamed aside, stage files
+        return (name.endswith('.previous') or name == 'update-state.ini' or '.update-old' in name
+                or name.endswith('.update-stage') or name.endswith('.rollback-stage'))
 
     def snapshot():
         """{relative path: sha256} of the game folder without this test copy's own data."""
@@ -56,14 +58,14 @@ def main():
             rel = f.relative_to(args.game_dir).as_posix()
             if not f.is_file() or (save_dir and rel.startswith(save_dir.replace('\\', '/').rstrip('/') + '/')):
                 continue
-            if rel.startswith('coop/') and rel not in package and '/' not in rel[5:]:
+            if rel.startswith('coop/') and rel not in package and not updater_file(f.name):
                 continue        # the test copy's data folder (coop.ini [test]): logs, state dumps, its coop.ini
             out[rel] = hashlib.sha256(f.read_bytes()).hexdigest()
         return out
 
     def updater_leftovers():
         return [f.relative_to(args.game_dir).as_posix() for f in args.game_dir.rglob('*')
-                if f.is_file() and any(t in f.name for t in updater_files)
+                if f.is_file() and updater_file(f.name)
                 and not (save_dir and f.relative_to(args.game_dir).as_posix().startswith(save_dir.rstrip('/') + '/'))]
     archive = args.new_package.read_bytes()
     name = args.new_package.name
@@ -167,6 +169,11 @@ def main():
                 started = False
                 time.sleep(2)
             if args.unchanged:
+                # the DLL renamed aside is deleted at the next start; a file the killed game still mapped may stay
+                # delete-pending for a moment
+                deadline = time.monotonic() + 20
+                while updater_leftovers() and time.monotonic() < deadline:
+                    time.sleep(.5)
                 after = snapshot()
                 (args.output / 'game-folder-after.json').write_text(json.dumps(after, indent=2))
                 changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))

@@ -326,6 +326,9 @@ static void update_init(void)
         strcat(update_dir, "\\update");
     } else
         snprintf(update_dir, sizeof(update_dir), "%s\\update", coop_dir);  /* no profile folder: beside the co-op data */
+#ifdef COOP_MUTANT_UPDATE_BESIDE_DLL    /* tools/qa_update_live.sh MUTANT=beside: the old layout, backups beside the DLL */
+    snprintf(update_dir, sizeof(update_dir), "%s", game_dir);
+#endif
     update_owner = lu_install_owner(game_dir);
     lu_startup(game_dir, update_dir);
     recovered = lu_recover_interrupted(game_dir, update_dir);
