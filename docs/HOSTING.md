@@ -17,8 +17,8 @@ describes that host side. The join side (the paste box, the list of games found)
 The lobby takes the whole window, in three columns:
 
 1. **Players**: colour, host mark, speaking light, ready state and ping, Mute, and for the host **Kick**.
-   Above them **Mute me** (send no voice) and **Deafen** (play no voice), for this lobby; push to talk or open
-   mic is Settings > Voice and sound > Lobby voice mode. **Leave lobby** is always one click.
+   Above them **Mute me** (send no voice) and **Deafen** (play no voice), for this lobby; push to talk, open
+   mic or Automatic (open mic after pad input) is Settings > Voice and sound > Voice chat. **Leave lobby** is always one click.
 2. **Chat**.
 3. **Friends can join by** (host only), then **What to play** (the host's save or level; the Saves tab
    chooses it). The host's big button reads **Waiting for Fox and Bob** until everyone is ready, then

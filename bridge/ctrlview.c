@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "bridge.h"
+#include "pad.h"
 
 #define CV_KEYS     160
 #define CV_LINES    64
@@ -486,7 +487,7 @@ void ctrlview_draw(int w, int h)
 /* ---- F1 quick guide: held in game to show keybinds, features and how co-op works ---- */
 
 #define GUIDE_CO 16
-#define GUIDE_PAD 6
+#define GUIDE_PAD 4
 
 static struct {
     char preset[24];
@@ -522,9 +523,7 @@ const char *guide_name(int which)
 
     if (which < 0 || which >= GN_COUNT)
         return "";
-    if (input_pad_last() && gd.pnames[which][0])
-        return gd.pnames[which];
-    return kb[which][0] ? kb[which] : fallback[which];
+    return pad_glyph_text(input_pad_last(), kb[which][0] ? kb[which] : fallback[which], gd.pnames[which]);
 }
 
 static int guide_forced;
@@ -590,7 +589,7 @@ static void l_guide_state(void)
     int i = (int)num_param(1);
 
     if (i >= 0 && i < gd.nco)
-        lua_pushstring(input_pad_last() && gd.co[i].pad[0] ? gd.co[i].pad : gd.co[i].key);
+        lua_pushstring(input_pad_last() ? gd.co[i].pad : gd.co[i].key);
 }
 
 static void l_guide_line(void)
@@ -726,9 +725,10 @@ void guide_draw(int w, int h)
     {
         int i;
 
+        /* after pad input the pad's buttons, and only the lines a pad has; else the keys' lines ("-": pad only) */
         for (i = 0; i < gd.nco; i++)
-            guide_kv(cx, &y, colw, h, rowh, G_COOP, input_pad_last() && gd.co[i].pad[0] ? gd.co[i].pad : gd.co[i].key,
-                     gd.co[i].desc);
+            if (input_pad_last() ? gd.co[i].pad[0] != 0 : strcmp(gd.co[i].key, "-") != 0)
+                guide_kv(cx, &y, colw, h, rowh, G_COOP, input_pad_last() ? gd.co[i].pad : gd.co[i].key, gd.co[i].desc);
     }
 
     guide_sec(cx, &y, colw, h, rowh, G_SYSTEM, "GAMEPAD (XINPUT, STEAM DECK & COUCH CO-OP)");

@@ -57,6 +57,7 @@ void input_replay(const struct route_input *input)
 
 static int pad_down(int code);
 static void set_pad_last(int on);
+static int pad_last;                        /* the last input was the pad (hints show its buttons, voice opens the mic) */
 
 /* the newest key, mouse button or pad button pressed (a pad presses key codes), for coop_last_press */
 static BYTE press_state[(CODES + 7) / 8];
@@ -74,7 +75,7 @@ static void capture_code(int code, int down)
         last_press_code = code;
         last_press_tick = GetTickCount();
         if (!pad_down(code))
-            set_pad_last(0);            /* a key or mouse button of its own: hints show keys again */
+            set_pad_last(pad_glyphs(pad_last, NULL, 0, 1));   /* a key or mouse button of its own: keys again */
     }
     if (down) press_state[code / 8] |= mask;
     else press_state[code / 8] &= ~mask;
@@ -108,7 +109,6 @@ static struct padlayer layer;               /* the co-op layer on View (pad.h) *
 static struct padlayer_out layer_out;
 static int layer_chat;                      /* View + D-pad down asked for the chat line, until chat.c takes it */
 static int pad_talk = 2;                    /* [voice] pad_talk: push to talk on 0 none, 1 the left, 2 the right stick click */
-static int pad_last;                        /* the last input was the pad (hints show its buttons, voice opens the mic) */
 static unsigned pad_edge;                   /* buttons that went down this frame (the on-screen keyboard) */
 
 static void set_pad_last(int on)
@@ -292,8 +292,7 @@ void input_pad_frame(void)
         pad_buttons = pad_edge = 0;
         return;
     }
-    if (pad_active(&raw, pad_buttons))
-        set_pad_last(1);
+    set_pad_last(pad_glyphs(pad_last, &raw, pad_buttons, 0));
     pad_frame(&layer, &raw, pad_buttons, dt, couch_active ? couch.look : pad_look, now, &out, &layer_out);
     if (layer_out.chat)
         layer_chat = 1;
@@ -1052,8 +1051,21 @@ static void l_coop_pad_talk(void)
         pad_talk = (int)lua_getnumber(o);
 }
 
+/* coop_pad_layer(i) -> buttons, action id, what it does: line i (from 1) of the pad's co-op layer (pad.c), or nil */
+static void l_coop_pad_layer(void)
+{
+    int i = (int)lua_getnumber(lua_getparam(1)) - 1;
+
+    if (i < 0 || i >= pad_layer_count)
+        return;
+    lua_pushstring(pad_layer_lines[i].buttons);
+    lua_pushstring(pad_layer_lines[i].id);
+    lua_pushstring(pad_layer_lines[i].desc);
+}
+
 void input_lua_init(void)
 {
+    tolua_function(NULL, "coop_pad_layer", l_coop_pad_layer);
     tolua_function(NULL, "coop_pad_state", l_coop_pad_state);
     tolua_function(NULL, "coop_pad_talk", l_coop_pad_talk);
     tolua_function(NULL, "coop_mouse", l_coop_mouse);

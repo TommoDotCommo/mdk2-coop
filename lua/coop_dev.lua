@@ -209,6 +209,29 @@ coop.preset_modern = {
 coop.preset_names = { original = "Original", modern = "Modern", custom = "Custom" }
 coop.preset_order = { "original", "modern", "custom" }
 
+-- the gamepad page: button, colour group, label on the picture, what it does (act: the action whose
+-- key it presses, shown beside it). Menus use the stick / D-pad as arrows, A as Enter, B / Start as Esc --
+-- Xbox names for the drawing's button ids (K7: Xbox labels) --
+coop.padnames = { LS = "LS", RS = "RS", START = "Menu", BACK = "View" }
+function coop.PadName(btn)
+    return coop.padnames[btn] or btn
+end
+
+coop.padrows = {
+    { btn = "LS",   group = 1, short = "Move",   long = "Move and strafe (the D-pad too); menus: up / down / left / right" },
+    { btn = "RS",   group = 2, short = "Look",   long = "Look around (mouse look)" },
+    { btn = "A",    group = 3, short = "Jump",   long = "Jump, jetpack, parachute; menus: select", act = "jump" },
+    { btn = "B",    group = 9, short = "Back",   long = "Pause, menus: back" },
+    { btn = "START", group = 9, short = "Pause", long = "Pause, menus: back" },
+    { btn = "X",    group = 8, short = "Rev",    long = "Hold beside a downed teammate", act = "revive" },
+    { btn = "Y",    group = 5, short = "Inv",    long = "Open the inventory (Max: equip)", act = "kuse" },
+    { btn = "BACK", group = 8, short = "Co-op",  long = "Tap: ping what you aim at; hold: the co-op layer (below)" },
+    { btn = "RT",   group = 4, short = "Fire",   long = "Fire, melee, use the selected item", act = "shoot" },
+    { btn = "LT",   group = 6, short = "Sniper", long = "Sniper mode on / off (Kurt)", act = "sniper" },
+    { btn = "RB",   group = 5, short = "Next",   long = "Next item (mouse wheel up)" },
+    { btn = "LB",   group = 5, short = "Prev",   long = "Previous item (mouse wheel down)" },
+}
+
 function coop.ActionById(id)
     local i, a = next(coop.actions, nil)
     while (i) do
@@ -396,27 +419,56 @@ end
 -- F2 are fixed keys. The bridge draws what it is given and has no key text of its own for these --
 coop.guide_order = { "chat", "ping", "voice", "emote", "list", "watch", "revive", "char", "skip" }
 
-function coop.GuideAdd(lines, key, desc)
+function coop.GuideAdd(lines, key, desc, pad)
     lines.n = lines.n + 1
-    lines[lines.n] = { key, desc }
+    lines[lines.n] = { key, desc, pad or "" }
+end
+
+-- the pad's co-op layer (View) is one table, the bridge's (bridge/pad.c pad_layer_lines): its buttons for an
+-- action id, or "" --
+function coop.PadLayerButtons(id)
+    local i = 1
+    local b, a, d = coop_pad_layer(i)
+    while (b) do
+        if (a == id) then return b end
+        i = i + 1
+        b, a, d = coop_pad_layer(i)
+    end
+    return ""
+end
+
+-- what the pad presses for a quick guide line (after pad input the guide shows these, K7) --
+coop.padguide = { f1 = "View + Y", revive = "Hold X", skip = "B" }
+function coop.PadGuideText(id)
+    return coop.padguide[id] or coop.PadLayerButtons(id)
+end
+
+-- the pad's push-to-talk button, as [voice] pad_talk has it --
+function coop.PadTalkText()
+    local n = tonumber(coop_get("voice", "pad_talk", "2")) or 2
+    if (n == 1) then return "Hold left stick click" end
+    if (n == 2) then return "Hold right stick click" end
+    return ""
 end
 
 function coop.GuideLines()
     local lines = { n = 0 }
-    coop.GuideAdd(lines, "Hold F1", "Show this Quick Guide overlay at any time")
+    coop.GuideAdd(lines, "Hold F1", "Show this Quick Guide overlay at any time", coop.PadGuideText("f1"))
     coop.GuideAdd(lines, "F2", "Mark a problem: log marker + screenshot + 60 s flight dump")
     local i, id = next(coop.guide_order, nil)
     while (i) do
         if (id == "watch") then
             local p, q = coop.Keys("watchp"), coop.Keys("watchn")
-            coop.GuideAdd(lines, format("%s / %s", coop.ShortKeyText(p), coop.ShortKeyText(q)), "Out of the fight (down, out, spectating): watch previous / next teammate; left mouse = next")
+            coop.GuideAdd(lines, format("%s / %s", coop.ShortKeyText(p), coop.ShortKeyText(q)), "Out of the fight (down, out, spectating): watch previous / next teammate; left mouse = next", coop.PadGuideText("watch"))
         else
             local a = coop.ActionById(id)
             local k = coop.Keys(id)
             local t = coop.KeyText(k)
             if (a.hold) then t = "Hold " .. t end
             if (a.wheel) then t = t .. " + Mouse" end
-            coop.GuideAdd(lines, t, a.guide)
+            local pt = coop.PadGuideText(id)
+            if (id == "voice") then pt = coop.PadTalkText() end
+            coop.GuideAdd(lines, t, a.guide, pt)
         end
         i, id = next(coop.guide_order, i)
     end
@@ -448,11 +500,31 @@ function coop.SyncGuideKeys()
     local lines = coop.GuideLines()
     local i = 1
     while (i <= lines.n) do
-        coop_guide_line(lines[i][1], lines[i][2])
+        coop_guide_line(lines[i][1], lines[i][2], lines[i][3])
         i = i + 1
     end
+    -- the quick chat wheel is on the pad only
+    coop_guide_line("-", "Quick chat: Ready, Wait for me, Over here, Thanks...", coop.PadLayerButtons("quick"))
     coop_guide_names(coop.KeyText(k("revive")), coop.KeyText(k("voice")), coop.KeyText(k("emote")),
         coop.KeyText(k("char")), coop.KeyText(k("skip")), coop.KeyText(k("list")))
+    local talk = coop.PadTalkText()
+    if (talk == "") then talk = "(no pad button)" end
+    coop_guide_padnames(coop.PadGuideText("revive"), talk, coop.PadLayerButtons("emote"),
+        coop.PadLayerButtons("char"), coop.PadGuideText("skip"), "View")
+    -- the guide's Gamepad section: the pad's own buttons, three to a line, from the Controls page's table
+    local n = 1
+    while (coop.padrows[n]) do
+        local keys, desc, j = "", "", n
+        while (j < n + 3 and coop.padrows[j]) do
+            local r = coop.padrows[j]
+            if (keys ~= "") then keys = keys .. " / " desc = desc .. " | " end
+            keys = keys .. coop.PadName(r.btn)
+            desc = desc .. coop.PadName(r.btn) .. ": " .. r.short
+            j = j + 1
+        end
+        coop_guide_padline(keys, desc)
+        n = n + 3
+    end
 end
 
 -- the action using key `code` in a set with action `id`, if any --
@@ -4369,23 +4441,6 @@ coop.derived = {
 -- the game's own pages of keys that cannot be changed here --
 coop.fixedpage = { mini = 1, menus = 1, system = 1, pad = 1 }
 
--- the gamepad page: button, colour group, label on the picture, what it does (act: the action whose
--- key it presses, shown beside it). Menus use the stick / D-pad as arrows, A as Enter, B / Start as Esc --
-coop.padrows = {
-    { btn = "LS",   group = 1, short = "Move",   long = "Move and strafe (the D-pad too); menus: up / down / left / right" },
-    { btn = "RS",   group = 2, short = "Look",   long = "Look around (mouse look)" },
-    { btn = "A",    group = 3, short = "Jump",   long = "Jump, jetpack, parachute; menus: select", act = "jump" },
-    { btn = "B",    group = 9, short = "Back",   long = "Pause, menus: back" },
-    { btn = "START", group = 9, short = "Esc",   long = "Pause, menus: back" },
-    { btn = "X",    group = 8, short = "Rev",    long = "Hold beside a downed teammate", act = "revive" },
-    { btn = "Y",    group = 5, short = "Inv",    long = "Open the inventory (Max: equip)", act = "kuse" },
-    { btn = "BACK", group = 8, short = "Ping",   long = "Ping what you aim at", act = "ping" },
-    { btn = "RT",   group = 4, short = "Fire",   long = "Fire, melee, use the selected item", act = "shoot" },
-    { btn = "LT",   group = 6, short = "Sniper", long = "Sniper mode on / off (Kurt)", act = "sniper" },
-    { btn = "RB",   group = 5, short = "Next",   long = "Next item (mouse wheel up)" },
-    { btn = "LB",   group = 5, short = "Prev",   long = "Previous item (mouse wheel down)" },
-}
-
 function coop.FeedPad()
     coop_ctrl_padmode(1)
     local n, r = next(coop.padrows, nil)
@@ -4393,8 +4448,7 @@ function coop.FeedPad()
         local keys = r.btn
         if (r.btn == "LS") then keys = "Left stick / D-pad"
         elseif (r.btn == "RS") then keys = "Right stick"
-        elseif (r.btn == "START") then keys = "Start"
-        elseif (r.btn == "BACK") then keys = "Back" end
+        else keys = coop.PadName(r.btn) end
         local long = r.long
         if (r.act) then
             local c = coop.PadKey(r.act)
@@ -4403,6 +4457,17 @@ function coop.FeedPad()
         coop_ctrl_padbtn(r.btn, r.group, r.short)
         coop_ctrl_line(r.group, keys, long)
         n, r = next(coop.padrows, n)
+    end
+    -- the co-op layer on View (standard K4), from the bridge's one table (bridge/pad.c)
+    local i = 1
+    local b, id, d = coop_pad_layer(i)
+    while (b) do
+        if (id == "voice") then
+            b = coop.PadTalkText()
+        end
+        if (b ~= "") then coop_ctrl_line(8, b, d) end
+        i = i + 1
+        b, id, d = coop_pad_layer(i)
     end
     coop_ctrl_hint("A pad (XInput) plays too: it presses the keys of your preset, set on the other pages      Left / Right on Page: next page")
 end
@@ -4643,6 +4708,7 @@ end
 -- push-to-talk key is on the Controls page --
 coop.voice_volumes = { [0] = 50, [1] = 100, [2] = 150, [3] = 200 }
 coop.voice_ranges = { [0] = 25, [1] = 50, [2] = 100, [3] = 0 }
+coop.voice_modes = { [0] = 0, [1] = 1, [2] = 2 }
 
 function coop.BuildVoice()
     local m = menu.coopvoice
@@ -4658,6 +4724,30 @@ function coop.BuildVoice()
         coop.ctrlpage = 7       -- Co-op
         coop.ShowPage("coopctrl")
     end
+
+    -- K5: Automatic is push to talk after keyboard input and open mic (with the gate) after pad input
+    item = mdkCreateMenuItem(m, "Voice mode")
+    mdkMenuItemAddComboBox(item)
+    mdkMenuItemAddComboString(item, "Push to talk")
+    mdkMenuItemAddComboString(item, "Open mic")
+    mdkMenuItemAddComboString(item, "Automatic")
+    mdkMenuItemSetWidgitValue(item, coop.IndexOf(coop.voice_modes, tonumber(coop_get("voice", "mode", "2")), 2))
+    item.Inc = function(self) coop_set("voice", "mode", coop.voice_modes[mdkMenuItemGetWidgitValue(self)]) end
+    item.Dec = item.Inc
+
+    item = mdkCreateMenuItem(m, "Push to talk on a pad")
+    mdkMenuItemAddComboBox(item)
+    mdkMenuItemAddComboString(item, "None")
+    mdkMenuItemAddComboString(item, "Left stick click")
+    mdkMenuItemAddComboString(item, "Right stick click")
+    mdkMenuItemSetWidgitValue(item, coop.IndexOf(coop.voice_modes, tonumber(coop_get("voice", "pad_talk", "2")), 2))
+    item.Inc = function(self)
+        local n = coop.voice_modes[mdkMenuItemGetWidgitValue(self)]
+        coop_set("voice", "pad_talk", n)
+        coop_pad_talk(n)
+        coop.SyncGuideKeys()
+    end
+    item.Dec = item.Inc
 
     item = mdkCreateMenuItem(m, "Voice volume")
     mdkMenuItemAddComboBox(item)

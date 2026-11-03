@@ -28,6 +28,7 @@
 #include <ctype.h>
 #include <time.h>
 #include "bridge.h"
+#include "pad.h"
 #include "launcher_invite_command.h"
 #include <shellapi.h>
 #include "launcher_session.h"
@@ -253,7 +254,7 @@ static const struct { const char *section, *key; int dflt; int *v; } switches[] 
 static const int voice_volumes[] = { 50, 100, 150, 200 };
 static const char *voice_volume_names[] = { "Quiet", "Normal", "Loud", "Louder" };
 static const int voice_ranges[] = { 25, 50, 100, 0 };
-static const char *voice_mode_names[] = { "Push to talk (B)", "Voice activity" };
+static const char *voice_mode_names[] = { "Push to talk (B)", "Open mic", "Automatic" };
 
 #include "launcher_voice_win.h"
 static const char *voice_range_names[] = { "Short", "Medium", "Long", "Everywhere" };
@@ -693,7 +694,9 @@ static void settings_read(void)
     cfg.voice_volume = index_of(voice_volumes, 4, GetPrivateProfileIntA("voice", "volume", 100, ini), 1);
     cfg.voice_range = index_of(voice_ranges, 4, GetPrivateProfileIntA("voice", "range", 50, ini), 1);
     lv_enum_devices();
-    cfg.voice_mode = GetPrivateProfileIntA("voice", "mode", 0, ini) != 0;
+    cfg.voice_mode = GetPrivateProfileIntA("voice", "mode", 2, ini);    /* 2: open mic after pad input (K5) */
+    if (cfg.voice_mode < 0 || cfg.voice_mode > 2)
+        cfg.voice_mode = 2;
     cfg.voice_in_dev = GetPrivateProfileIntA("voice", "in_dev", -1, ini) + 1;
     if (cfg.voice_in_dev < 0 || cfg.voice_in_dev >= lv_in_count) cfg.voice_in_dev = 0;
     cfg.voice_out_dev = GetPrivateProfileIntA("voice", "out_dev", -1, ini) + 1;
@@ -1553,7 +1556,7 @@ static void page_settings(void)
         y += ROW + 2;
         choice(ID, PX, y, PW, "Speech", NULL, levels, 11, &sound[2]);
         y += ROW + 2;
-        choice(ID, PX, y, PW, "Lobby voice mode", "In game is push to talk", voice_mode_names, 2, &cfg.voice_mode);
+        choice(ID, PX, y, PW, "Voice mode", "Automatic: open mic after pad input", voice_mode_names, 3, &cfg.voice_mode);
         y += ROW + 2;
         choice(ID, PX, y, PW, "Microphone", NULL, lv_in_names, lv_in_count, &cfg.voice_in_dev);
         y += ROW + 2;
@@ -2170,9 +2173,10 @@ static void lob_poll(void)
         int16_t pcm_in[LS_VOICE_FRAME];
         int ptt_down = !headless && !field_focused && (GetAsyncKeyState('B') < 0);
         int frame_ptt = 0;
-        while (lv_capture_frame(cfg.voice_in_dev, cfg.voice_mode, ptt_down, lob.comm.local_was_sending, now, pcm_in, &frame_ptt)) {
+        int vad = cfg.voice_mode == 1 || (cfg.voice_mode == 2 && pad_last);
+        while (lv_capture_frame(cfg.voice_in_dev, vad, ptt_down, lob.comm.local_was_sending, now, pcm_in, &frame_ptt)) {
             uint8_t vflags = 0;
-            if (!lob.mute_me && ls_voice_should_send(&lob.comm, cfg.voice_mode, frame_ptt, pcm_in, LS_VOICE_VAD_DEFAULT, now, &vflags)) {
+            if (!lob.mute_me && ls_voice_should_send(&lob.comm, vad, frame_ptt, pcm_in, LS_VOICE_VAD_DEFAULT, now, &vflags)) {
                 struct ls_voice_pkt vpkt;
                 ls_voice_pack(&lob.comm, lob.id, vflags, pcm_in, &vpkt);
                 if (lob.host) {
@@ -2529,7 +2533,13 @@ static void draw_full_guide(void)
     lg_kv(c1, &y1, kw, "Minigames", "Stick 1: Move+Turn; Stick 2: Look+Strafe", C_ORANGE);
 
     y1 += 5.0f;
-    lg_sec(c1, &y1, cw, "CO-OP KEYS & RADIAL WHEELS", C_BLUE);
+    lg_sec(c1, &y1, cw, pad_last ? "CO-OP ON A PAD: THE VIEW BUTTON" : "CO-OP KEYS & RADIAL WHEELS", C_BLUE);
+    if (pad_last) {
+        int i;          /* K7: after pad input the pad's co-op layer, from its one table (pad.c) */
+
+        for (i = 0; i < pad_layer_count; i++)
+            lg_kv(c1, &y1, kw, pad_layer_lines[i].buttons, pad_layer_lines[i].desc, C_BLUE);
+    } else {
     lg_kv(c1, &y1, kw, "F1 (hold)", "Open this Mod Quick Guide anywhere", C_BLUE);
     lg_kv(c1, &y1, kw, "R (hold)", "Hold beside downed teammate to revive", C_BLUE);
     lg_kv(c1, &y1, kw, "T", "Open text chat (Enter sends, Esc cancels)", C_BLUE);
@@ -2540,6 +2550,7 @@ static void draw_full_guide(void)
     lg_kv(c1, &y1, kw, "Backspace", "In cutscene: vote to skip (toggle)", C_BLUE);
     lg_kv(c1, &y1, kw, "Left mouse", "While bled out: spectate next teammate", C_BLUE);
     lg_kv(c1, &y1, kw, "F2", "Log marker & screenshot across all peers", C_BLUE);
+    }
 
     y1 += 5.0f;
     lg_sec(c1, &y1, cw, "GAMEPAD (XINPUT / DINPUT)", 0x5ae085);
@@ -2547,7 +2558,7 @@ static void draw_full_guide(void)
     lg_kv(c1, &y1, kw, "A / B / Start", "A: Jump/jet/chute & select; B/Start: Esc", 0x5ae085);
     lg_kv(c1, &y1, kw, "RT / LT", "RT: Fire / use item; LT: Sniper mode", 0x5ae085);
     lg_kv(c1, &y1, kw, "RB / LB / Y", "RB/LB: Next/Prev item; Y: Open inv / equip", 0x5ae085);
-    lg_kv(c1, &y1, kw, "X (hold) / Back", "Hold X: revive downed ally; Back: ping", 0x5ae085);
+    lg_kv(c1, &y1, kw, "X (hold) / View", "Hold X: revive; View: ping, hold for co-op", 0x5ae085);
 
     /* Column 2: How Co-op Works */
     lg_sec(c2, &y2, cw, "CONNECTING & LOBBIES (2-16 PLAYERS)", C_ORANGE);
@@ -2602,7 +2613,7 @@ static void draw_full_guide(void)
     lg_sec(c3, &y3, cw, "HUD, VOICE CHAT, PING & EMOTES", C_BLUE);
     lg_line(c3, &y3, "- Party HUD shows every player's hero, HP bar, state & ping.", C_TEXT);
     lg_line(c3, &y3, "- 3D name tags & optional through-wall outlines track allies.", C_TEXT);
-    lg_line(c3, &y3, "- Pings (V / MMB / pad Back) highlight a 3D spot for everyone.", C_TEXT);
+    lg_line(c3, &y3, "- Pings (V / MMB / tap pad View) highlight a 3D spot for all.", C_TEXT);
     lg_line(c3, &y3, "- Proximity Voice Chat (hold B): 16 kHz audio with distance", C_TEXT);
     lg_line(c3, &y3, "  attenuation (Short, Medium, Long, or Everywhere).", C_DIM);
     lg_line(c3, &y3, "- Emote wheel (hold H): perform animations; moving cancels.", C_TEXT);
@@ -3149,7 +3160,7 @@ static void test_commands(void)
             lob.comm.members[a].volume = b < 0 ? 0 : b > 200 ? 200 : b;
             pass();
         } else if (sscanf(line, "vmode %d", &a) == 1) {
-            cfg.voice_mode = a != 0;
+            cfg.voice_mode = a < 0 || a > 2 ? 2 : a;
             pass();
         } else if (!strncmp(line, "clipboard ", 10)) {
             lj_clipboard_text(line + 10, strlen(line + 10));     /* the clipboard check, on given text */

@@ -126,6 +126,28 @@ int main(void)
         p.rx = 0; p.buttons = PAD_A;
         CHECK(pad_active(&p, 0) && !pad_active(&p, PAD_A));
     }
-    printf(fails ? "%d failed\n" : "pad mapping and co-op layer: all passed\n", fails);
+    /* K7: the hints follow the last input at once, from recorded inputs: a key, a pad press, the pad held (no
+     * new input: no change), a key, the right stick moved, nothing */
+    {
+        struct pad_raw idle = { 0 }, a = { 0 }, look = { 0 };
+        int g = 0;
+
+        a.buttons = PAD_A;
+        look.rx = -30000;
+        g = pad_glyphs(g, &idle, 0, 1);
+        CHECK(g == 0 && !strcmp(pad_glyph_text(g, "Tab", "View"), "Tab"));
+        g = pad_glyphs(g, &a, 0, 0);
+        CHECK(g == 1 && !strcmp(pad_glyph_text(g, "Tab", "View"), "View"));
+        g = pad_glyphs(g, &a, PAD_A, 0);
+        CHECK(g == 1);
+        g = pad_glyphs(g, NULL, 0, 1);
+        CHECK(g == 0 && !strcmp(pad_glyph_text(g, "R", "Hold X"), "R"));
+        g = pad_glyphs(g, &look, 0, 0);
+        CHECK(g == 1 && !strcmp(pad_glyph_text(g, "R", "Hold X"), "Hold X"));
+        g = pad_glyphs(g, &idle, 0, 0);
+        CHECK(g == 1);
+        CHECK(!strcmp(pad_glyph_text(1, "F2", ""), "F2"));     /* no pad button for it: the key stays */
+    }
+    printf(fails ? "%d failed\n" : "pad mapping, co-op layer and glyph switch: all passed\n", fails);
     return fails != 0;
 }

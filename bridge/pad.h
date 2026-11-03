@@ -60,11 +60,22 @@ struct padlayer_out {
     int guide;                  /* the quick guide is held */
 };
 
+/* the layer's lines, for every place that lists them (Controls page, quick guide, launcher guide): the buttons,
+ * the co-op action they stand for (Lua's coop.actions id, or "quick" / "guide") and what they do */
+struct pad_line { const char *buttons, *id, *desc; };
+extern const struct pad_line pad_layer_lines[];
+extern const int pad_layer_count;
+
 void padlayer_step(struct padlayer *s, unsigned buttons, double now, struct padlayer_out *o);
 /* one frame of the pad: the layer first, then what is left of the buttons mapped for the game */
 void pad_frame(struct padlayer *s, const struct pad_raw *p, unsigned prev_buttons, float dt, float look, double now,
                struct pad_out *o, struct padlayer_out *lo);
 int pad_active(const struct pad_raw *p, unsigned prev_buttons);  /* a button went down or a stick moved */
+
+/* K7, which hints to show: the pad's buttons from the first pad input (a press or a stick moved), the keys again
+ * from the first key or mouse button of its own (key_pressed); was: what they showed until now */
+int pad_glyphs(int was, const struct pad_raw *p, unsigned prev_buttons, int key_pressed);
+const char *pad_glyph_text(int pad, const char *keys, const char *buttons);   /* buttons when pad and set */
 
 void pad_bind(int action, int code);    /* code: input.c's numbering; negative restores the default */
 void pad_map(const struct pad_raw *p, unsigned prev_buttons, float dt, float look, struct pad_out *o);

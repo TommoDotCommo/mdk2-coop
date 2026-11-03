@@ -10,7 +10,11 @@
  * slot and the host's range. The range is the host's setting, like friendly fire; each listener
  * turns the speaker's distance into a volume (full close up, fading to silence at the range).
  *
- *   [voice]  enabled=1|0, volume=<% of normal>, range=<world units, 0 = everywhere>
+ *   [voice]  enabled=1|0, volume=<% of normal>, range=<world units, 0 = everywhere>,
+ *            mode=0 push to talk | 1 open mic | 2 automatic (the default: push to talk after keyboard input, open
+ *            mic after pad input, standard K5); pad_talk=0|1|2 push to talk on no / the left / the right stick click
+ * Open mic sends only what is louder than the gate (VOICE_GATE, the launcher lobby's LS_VOICE_VAD_DEFAULT), and
+ * the push-to-talk key still works with it.
  *
  * The push-to-talk key (B) is set on the Controls page's Co-op tab (input.c GK_VOICE). Couch games
  * (several players at one PC and one microphone, in the same room) have no voice chat.
@@ -40,6 +44,7 @@
 #define TALK_MS         250.0           /* "is talking" for this long after the last frame */
 #define TXQ             16
 #define FLAG_LAST       1
+#define VOICE_GATE      1000            /* mean absolute sample level that opens an open mic */
 
 struct voice_packet {
     unsigned int magic;
@@ -59,6 +64,7 @@ static int cfg_volume = 100;
 static int cfg_range = 50;
 static int cfg_in_dev = -1;
 static int cfg_out_dev = -1;
+static int cfg_mode = 2;
 
 static CRITICAL_SECTION lock;
 static int started;
@@ -139,6 +145,7 @@ static int tx_head, tx_count;
 static unsigned short tx_seq;
 static int enc_pred, enc_index;
 static volatile int ptt;                /* the game thread: key held (or the test tone) */
+static volatile int open_mic;           /* the game thread: open mic now (mode, and the last input) */
 static double tx_last;                  /* last frame we sent */
 static unsigned int tx_frames;
 static double tone_until;
@@ -263,6 +270,16 @@ static void mix(short *out)
         out[i] = (short)(acc[i] > 32767 ? 32767 : acc[i] < -32768 ? -32768 : acc[i]);
 }
 
+static int level(const short *pcm, int n)
+{
+    long long sum = 0;
+    int i;
+
+    for (i = 0; i < n; i++)
+        sum += pcm[i] < 0 ? -pcm[i] : pcm[i];
+    return n ? (int)(sum / n) : 0;
+}
+
 static void capture_service(void)
 {
     static int collected;
@@ -288,7 +305,7 @@ static void capture_service(void)
         }
         return;
     }
-    if (!in_open && !in_failed && ptt)
+    if (!in_open && !in_failed && (ptt || open_mic))
         mic_open();
     if (!in_open)
         return;
@@ -299,7 +316,7 @@ static void capture_service(void)
         if (h->dwBytesRecorded == sizeof(in_buf[i])) {
             static double talk_until;
             double now = now_ms();
-            if (ptt) {
+            if (ptt || (open_mic && level(in_buf[i], FRAME) >= VOICE_GATE)) {
                 talk_until = now + HANG_MS;
                 tx_push(in_buf[i], 0);
                 collected = 1;
@@ -368,6 +385,9 @@ void voice_reload(const char *ini)
     if (cfg_volume < 0) cfg_volume = 0;
     if (cfg_volume > 300) cfg_volume = 300;
     cfg_range = GetPrivateProfileIntA("voice", "range", 50, ini);
+    cfg_mode = GetPrivateProfileIntA("voice", "mode", 2, ini);
+    if (cfg_mode < 0 || cfg_mode > 2)
+        cfg_mode = 2;
     if (cfg_range < 0) cfg_range = 0;
     if (cfg_range > 60000) cfg_range = 60000;
     cfg_in_dev = GetPrivateProfileIntA("voice", "in_dev", -1, ini);
@@ -536,6 +556,13 @@ void voice_frame(void)
         return;
     down = cfg_enabled && (gamekey_down(GK_VOICE) || now < tone_until);
     ptt = down && have_remote;
+    {
+        int open = cfg_enabled && have_remote && (cfg_mode == 1 || (cfg_mode == 2 && input_pad_last()));
+
+        if (open != open_mic)
+            logmsg("voice: %s", open ? "open mic (gate)" : "push to talk");
+        open_mic = open;
+    }
     for (s = 0; s < MAX_PLAYERS; s++) {
         if (!player_connected(s))
             spk_mute[s] = spk_vol[s] = 0;
@@ -596,6 +623,13 @@ static void l_coop_voice_test(void)
     tone_until = now_ms() + num_param(1);
 }
 
+/* coop_voice_mode() -> the [voice] mode (0 push to talk, 1 open mic, 2 automatic) and whether the mic is open now */
+static void l_coop_voice_mode(void)
+{
+    lua_pushnumber(cfg_mode);
+    lua_pushnumber(open_mic);
+}
+
 /* coop_voice_info(slot) -> frames received from that player, their volume for us (%), frames lost */
 static void l_coop_voice_info(void)
 {
@@ -632,6 +666,7 @@ void voice_lua_init(void)
 {
     tolua_function(NULL, "coop_voice_test", l_coop_voice_test);
     tolua_function(NULL, "coop_voice_info", l_coop_voice_info);
+    tolua_function(NULL, "coop_voice_mode", l_coop_voice_mode);
     tolua_function(NULL, "coop_voice_talking", l_coop_voice_talking);
     tolua_function(NULL, "coop_voice_tx", l_coop_voice_tx);
     tolua_function(NULL, "coop_voice_mute", l_coop_voice_mute);

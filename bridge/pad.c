@@ -82,6 +82,19 @@ void pad_map(const struct pad_raw *p, unsigned prev_buttons, float dt, float loo
 
 /* ---- the co-op layer on View (pad.h) ---- */
 
+const struct pad_line pad_layer_lines[] = {
+    { "Tap View",                  "ping",   "Ping what you aim at: a marker for everyone" },
+    { "Hold View",                 "list",   "Player list (right stick + RT: mute, volume, watch)" },
+    { "View + D-pad up",           "emote",  "Emote wheel: right stick picks, let go of View plays" },
+    { "View + D-pad down",         "chat",   "Chat: Steam's keyboard, or one on screen (Menu sends)" },
+    { "View + D-pad left / right", "watch",  "Out of the fight: watch the previous / next teammate" },
+    { "View + LB",                 "char",   "Character wheel: Kurt, Max or Doc" },
+    { "View + RB",                 "quick",  "Quick chat: Ready, Wait for me, Over here, Thanks..." },
+    { "View + Y",                  "guide",  "This quick guide (while held)" },
+    { "Hold right stick click",    "voice",  "Push to talk (voice is open mic on a pad otherwise)" },
+};
+const int pad_layer_count = sizeof(pad_layer_lines) / sizeof(pad_layer_lines[0]);
+
 void padlayer_step(struct padlayer *s, unsigned b, double now, struct padlayer_out *o)
 {
     unsigned edge = b & ~s->prev;
@@ -138,6 +151,20 @@ int pad_active(const struct pad_raw *p, unsigned prev_buttons)
 {
     return (p->buttons & ~prev_buttons) || stick(p->lx) || stick(p->ly) || stick(p->rx) || stick(p->ry) ||
            p->lt > PAD_TRIGGER || p->rt > PAD_TRIGGER;
+}
+
+int pad_glyphs(int was, const struct pad_raw *p, unsigned prev_buttons, int key_pressed)
+{
+    if (key_pressed)
+        return 0;
+    if (p && pad_active(p, prev_buttons))
+        return 1;
+    return was;
+}
+
+const char *pad_glyph_text(int pad, const char *keys, const char *buttons)
+{
+    return pad && buttons && buttons[0] ? buttons : keys;
 }
 
 #ifndef PAD_NO_XINPUT
