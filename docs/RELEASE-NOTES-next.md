@@ -177,9 +177,13 @@ and the glyph switch; `coop-keys` checks the guide's pad lines; live: `pad-layer
   level as (Kurt, Max or Doc), cut from the game's own comic panels, next to the player's colour.
 - **The title art stays in view** behind a lighter lobby panel, as on Play. The lobby's key hints use the same size as
   on the other pages; body text, hints and chat stay in the plain readable face.
+- **Guests see the hero portraits too.** The host's roster now names the level it chose, so every player's lobby rows show the
+  same face as the host's. An older host sends no level (a newer guest then draws no portrait, as before); an older guest
+  ignores the extra field. No protocol change: the roster's first line only gains a number at its end.
+- **Saves cards show the hero of the save's level** beside their text; without `mdk2.tar` they look as before.
 - All of it is read from your own `mdk2.tar` when the launcher opens (in one pass over the archive); nothing from
   the game is shipped. Without the archive the launcher looks as before.
 - Checks: `launcher-look-core` (labels fit their button or fall back, the heroes per level; a mutant whose labels never
   shrink must fail), new `tools/test_ui_layout.py` checks with two mutants, and `tools/qa_launcher_look.sh` (two games:
-  every page in the game's look with no label wider than its button, the host's portraits, and the same pages with
+  every page in the game's look with no label wider than its button, the portraits on the host, the guest and the Saves cards, and the same pages with
   `[test] launcher_art=0` drawn as before).

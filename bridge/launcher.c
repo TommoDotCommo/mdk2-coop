@@ -1503,10 +1503,12 @@ static int session_percent(const struct coop_session *s)
     return i < 0 ? 0 : (i + 1) * 100 / NCP;
 }
 
+#define SAVE_FACE 72       /* the hero's face on a Saves card (card is 98 tall) */
+
 /* One saved co-op game: where it is up to, who played, how many, when */
 static int session_card(int id, float x, float y, float w, const struct coop_session *s, int on, int usable)
 {
-    float h = 98, pw;
+    float h = 98, pw, off = 0, hh = 22, room;
     int hit = control(id, x, y, w, h), hot = over(x, y, w, h) && usable, pct = session_percent(s);
     char line[160], when[32], pill[40];
 
@@ -1514,9 +1516,10 @@ static int session_card(int id, float x, float y, float w, const struct coop_ses
     fill(x, y, 5, h, on ? C_ORANGE : usable ? C_FAINT : 0x2a3a42, 255);
     if (on)
         frame_rect(x, y, w, h, 2, C_ORANGE, 255);
+    if (portrait(ll_hero_of_level(s->level), x + 14, y + 12, SAVE_FACE, on ? C_ORANGE : C_FAINT))   /* the hero of this save's level */
+        off = SAVE_FACE + 12;
     cp_text_of(s->level, s->cp, when, sizeof(when));
     snprintf(line, sizeof(line), "Level %d - %s", s->level, when);
-    heading(x + 20, y + 9, 22, line, on ? C_ORANGE : usable ? C_TEXT : C_DIM, DT_LEFT);
     {
         int players = s->peak > 0 ? s->peak : s->nmembers;
 
@@ -1526,19 +1529,24 @@ static int session_card(int id, float x, float y, float w, const struct coop_ses
             snprintf(pill, sizeof(pill), "CO-OP");
     }
     pw = gdi_width(f_small, pill) + 18;
+    room = w - 20 - off - pw - 18;                      /* the heading shrinks rather than run into the pill */
+    while (hh > 14 && (font.px ? title_width(line, hh) : gdi_width(f_label, line)) > room)
+        hh--;
+    heading(x + 20 + off, y + 9, hh, line, on ? C_ORANGE : usable ? C_TEXT : C_DIM, DT_LEFT);
     fill(x + w - pw - 10, y + 9, pw, 24, 0x1c4a5e, 255);
     gdi_text(f_small, x + w - pw / 2 - 10, y + 12, C_BLUE, pill, DT_CENTER);
     level_line(s->level, line, sizeof(line));
-    clip_text(line, w - 40);
-    gdi_text(f_small, x + 20, y + 38, on ? C_ORANGE : C_BLUE, line, DT_LEFT);
-    who_text(s, w - 40, line, sizeof(line));
-    gdi_text(f_small, x + 20, y + 56, usable ? C_TEXT : C_DIM, line, DT_LEFT);
+    clip_text(line, w - 40 - off);
+    gdi_text(f_small, x + 20 + off, y + 38, on ? C_ORANGE : C_BLUE, line, DT_LEFT);
+    who_text(s, w - 40 - off, line, sizeof(line));
+    gdi_text(f_small, x + 20 + off, y + 56, usable ? C_TEXT : C_DIM, line, DT_LEFT);
     ago(s->updated, when, sizeof(when));
     if (s->host == own_id)
         snprintf(line, sizeof(line), "Hosted by you  -  %s", when);
     else
         snprintf(line, sizeof(line), "Hosted by %s  -  %s", s->host_name[0] ? s->host_name : "a friend", when);
-    gdi_text(f_small, x + 20, y + 73, C_DIM, line, DT_LEFT);
+    clip_text(line, w - 40 - off - 44);
+    gdi_text(f_small, x + 20 + off, y + 73, C_DIM, line, DT_LEFT);
     snprintf(line, sizeof(line), "%d%%", pct);
     gdi_text(f_small, x + w - 12, y + 73, C_DIM, line, DT_RIGHT);
     fill(x + 5, y + h - 5, w - 5, 5, 0x0d1a20, 255);
@@ -1926,6 +1934,7 @@ static struct {
     /* a joiner: every route of the invite (or the one address), the invite's key; refused: LH_REFUSE_* */
     struct sockaddr_in targets[LHOST_TARGETS];
     int ntargets, has_key, refused;
+    int level;                      /* a guest: the level the host's roster named (0 = not said) */
     int mute_me, deafen;            /* D4: send no voice / play no voice, this lobby */
     uint32_t key;
     char invite_status[160];
@@ -2093,6 +2102,7 @@ static void lob_open(void)
     changed = 1;
 }
 
+static int lob_level(void);
 static void lob_send_roster(DWORD now)
 {
     char body[1300], buf[1400];
@@ -2108,8 +2118,9 @@ static void lob_send_roster(DWORD now)
     }
     for (i = 1; i < lob.n; i++) {
         /* the header echoes this member's own hello time: its round trip is now minus that */
-        hn = snprintf(buf, sizeof(buf), "MDKL R %lu %lu %d %d\n", (unsigned long)lob.m[i].echo,
-                      (unsigned long)(now - lob.m[i].got), left, lob.n);
+        hn = ls_roster_head(buf, sizeof(buf), (unsigned long)lob.m[i].echo, (unsigned long)(now - lob.m[i].got), left, lob.n,
+                            lob_level());
+        if (hn <= 0) return;
         memcpy(buf + hn, body, n);
         sendto(lob.s, buf, hn + n, 0, (struct sockaddr *)&lob.m[i].addr, sizeof(lob.m[i].addr));
     }
@@ -2258,11 +2269,11 @@ static void lob_poll(void)
             changed = 1;
         } else if (!lob.host && buf[5] == 'R' && !lob.refused && lob_from_host(&from)) {
             unsigned long ts, held;
-            int left, cnt, count = 0, own = 0, valid = 1;
+            int left, cnt, level, count = 0, own = 0, valid = 1;
             struct lob_member roster[LOB_MAX];
             char *line = strchr(buf, '\n');
 
-            if (sscanf(buf + 7, "%lu %lu %d %d", &ts, &held, &left, &cnt) < 4 || !line)
+            if (!ls_roster_head_parse(buf, &ts, &held, &left, &cnt, &level) || !line)
                 continue;
             if (cnt < 1 || cnt > LOB_MAX || left < -1 || left > LOB_COUNTDOWN)
                 continue;
@@ -2293,6 +2304,7 @@ static void lob_poll(void)
                 continue;
             }
             lob.n = count;
+            lob.level = level;
             memcpy(lob.m, roster, lob.n * sizeof(roster[0]));
             lob_sync_comm();
             if (!lob.connected) {
@@ -2341,6 +2353,7 @@ static void lob_poll(void)
         } else if (lob.connected && now - lob.last_host > LOB_STALE) {
             lob.connected = 0;
             lob.n = 0;
+            lob.level = 0;
             lob.start_at = 0;
             snprintf(lob.status, sizeof(lob.status), "Lost the host");
             changed = 1;
@@ -2377,7 +2390,7 @@ static void lob_poll(void)
         if (previous != lob.session.phase) changed = 1;
     }
     if (lob.session.phase == LS_LOST && !lob.refused) {
-        lob.connected = 0; lob.start_at = 0; lob.n = 0;
+        lob.connected = 0; lob.start_at = 0; lob.n = 0; lob.level = 0;
         snprintf(lob.status, sizeof(lob.status), "Lost the host; reconnecting...");
     }
     if (lob.session.phase == LS_START) {
@@ -2445,14 +2458,20 @@ static void lob_primary(void)
     changed = 1;
 }
 
-/* The hero everyone starts as: the chosen level's (the host knows it; a guest's roster does not say) */
-static int lob_hero(void)
+/* The level being played: the host's choice, which its roster sends; a guest has what the roster said (0 = an older host) */
+static int lob_level(void)
 {
     if (!lob.host)
-        return LL_HERO_NONE;
+        return lob.level;
     if (sel >= 0 && sel < nsessions)
-        return ll_hero_of_level(sessions[sel].level);
-    return ll_hero_of_level(start_set ? start_level : 1);
+        return sessions[sel].level;
+    return start_set ? start_level : 1;
+}
+
+/* The hero everyone starts as: that level's */
+static int lob_hero(void)
+{
+    return ll_hero_of_level(lob_level());
 }
 
 /* D1: three columns: players | chat | "Friends can join by" above "What to play" */

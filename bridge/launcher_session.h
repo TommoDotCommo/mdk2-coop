@@ -32,6 +32,21 @@ static int ls_roster(struct launcher_session *s, uint32_t now, int left, int val
     }
     return 1;
 }
+/* The roster's first line: "MDKL R <echo> <held> <left> <count> <level>\n". <level> (1..12) is the host's chosen level, so
+ * every launcher draws the same hero portraits; 0 or absent = not said (an older host). An older guest reads the first four
+ * numbers and ignores the rest of the line, so the field needs no protocol bump. */
+static int ls_roster_head(char *buf, size_t size, unsigned long echo, unsigned long held, int left, int count, int level)
+{
+    int n = snprintf(buf, size, "MDKL R %lu %lu %d %d %d\n", echo, held, left, count, level >= 1 && level <= 12 ? level : 0);
+    return n > 0 && (size_t)n < size ? n : 0;
+}
+static int ls_roster_head_parse(const char *buf, unsigned long *echo, unsigned long *held, int *left, int *count, int *level)
+{
+    int lv = 0, got = sscanf(buf + 7, "%lu %lu %d %d %d", echo, held, left, count, &lv);
+    if (got < 4) return 0;
+    *level = got >= 5 && lv >= 1 && lv <= 12 ? lv : 0;
+    return 1;
+}
 static int ls_begin(struct launcher_session *s, uint32_t now, int delay, int compatible)
 {
     if (!s->host || s->phase != LS_LOBBY || !compatible || delay < 0 || delay > 3000) return 0;

@@ -181,6 +181,12 @@ def check_game_look(src, fails):
     lp = lp[:lp.index("\n}\n")]
     if "room = bx - 4 - gdi_width(f_tiny, pill) - 8 - nx;" not in lp or "clip_text(line, room < 170 ? room : 170);" not in lp:
         fails.append("a long lobby name can run into the player's state (ready, ping, version)")
+    card = src[src.index("static int session_card("):]
+    card = card[:card.index("\n}\n")]
+    if "clip_text(line, w - 40 - off);" not in card or "who_text(s, w - 40 - off," not in card or "x + 20 + off" not in card or "heading(x + 20 + off, y + 9, hh," not in card:
+        fails.append("a Saves card's text can run under the hero's face")
+    if "hh > 14 && (font.px" not in card:
+        fails.append("a Saves card's heading can run into the CO-OP pill beside the face")
     if "if (!plate.px) {" not in src or "if (!font.px) {" not in src:
         fails.append("the steel or the menu font has no fallback without mdk2.tar")
 
@@ -188,6 +194,8 @@ def check_game_look(src, fails):
 MUTANTS = {
     "label-not-fitted": ("float gh = !font.px ? 0 : primary ? ll_primary_height(glyph_adv, s, w, h) : ll_label_height(glyph_adv, s, w, h);",
                          "float gh = !font.px ? 0 : h * 0.6f;"),
+    "saves-text-under-face": ("clip_text(line, w - 40 - off);", "clip_text(line, w - 40);"),
+    "saves-heading-unfitted": ("while (hh > 14 && (font.px", "while (0 && (font.px"),
     "lobby-name-over-state": ("clip_text(line, room < 170 ? room : 170);", "clip_text(line, 170);"),
     "tenth-interface-row": ('toggle(ID, PX, y, PW, "Pings", "Mark a spot for everyone", &cfg.pings);',
                             'toggle(ID, PX, y, PW, "Pings", "Mark a spot for everyone", &cfg.pings);\n        y += ROW + 2;\n'
@@ -277,6 +285,14 @@ def test_launcher_layout():
             name_x = 26 + rh - 2
             buttons_x = 392 - 8 - 44 - 4 - 50 - 4
             assert px(name_x + 60) < px(buttons_x), f"{desc}: no room for a name beside the portrait in a {rh} row"
+
+    # a Saves card (98 tall, PW wide): the face fits inside it above the progress bar, and the text keeps a readable width
+    face = define(src, "SAVE_FACE")
+    for work_w, work_h, desc in resolutions:
+        sc = min(2.0, max(0.5, min(work_w * 0.8 / LW, work_h * 0.85 / LH)))
+        px = lambda v: int(v * sc + 0.5)
+        assert px(12 + face) <= px(98 - 5), f"{desc}: the face does not fit a Saves card above its bar"
+        assert PW - 40 - (face + 12) >= 300, f"{desc}: too little room for a Saves card's text beside the face"
 
     fails = []
     check_settings_fit(src, fails)
