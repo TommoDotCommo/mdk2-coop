@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # More showcase scenes with two background games, each shot from the host's view (saved under
 # local/showcase/<time>-scenes/): the lounge cutscene with its time-left box, the skydive and the level 9 torpedo
-# run with the other player as a ghost, the other player under Kurt's canopy, with Max's jetpack flame and with
-# Doc's leaf blower, and the pad layer on View (the player list, the quick chat wheel). One boot per scene.
+# run with the other player as a ghost, the other player with Max's jetpack and with Doc's leaf blower, and the pad layer on View (the player list, the quick chat wheel). One boot per scene.
 # Not a test: nothing is checked.
-#   ONLY=cutscene|skydive|torpedo|canopy|jetpack|blower|pad tools/showcase_scenes.sh   (default: all)
+#   ONLY=cutscene|skydive|torpedo|jetpack|blower|pad tools/showcase_scenes.sh   (default: all)
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=2
@@ -76,17 +75,6 @@ if want torpedo; then
     wait_log 1 'minigame: player 2 plays beside you \(level 9\)' 15
     lua 2 'jdgob.z = 8; jdgob.x = 0'; sleep 1
     shot torpedo 1
-fi
-
-if want canopy; then
-    boot 1 5
-    sleep 8
-    lua 1 'mdkGobSetPosition(mdkGetPlayerGob(), "l1_r8doganland1")'; sleep 3
-    beside 12 0
-    mdk_press "$(mdk_pid 1)" 199 1 900 100 &          # Home: the host looks up at the canopy
-    sleep 0.3
-    lua 2 'local p = mdkGetPlayerGob() qa_z0 = p.position.z mdkGobSetPositionXYZ(p, p.position.x, p.position.y, qa_z0 + 16) coop_press(57, 14000)'
-    for i in 1 2 3 4 5 6; do shot canopy_$i 0.3; lua 2 'local p = mdkGetPlayerGob() if p.position.z < qa_z0 + 5 then mdkGobSetPositionXYZ(p, p.position.x, p.position.y, qa_z0 + 16) end'; done
 fi
 
 if want jetpack; then
