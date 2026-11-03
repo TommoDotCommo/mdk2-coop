@@ -231,7 +231,9 @@ If Defender or SmartScreen flags a release (Setup.exe, the zip or `dinput8.dll`)
 `bridge/launcher_session.h` provides an independent session state machine:
 - Session states: `LS_OFF`, `LS_WAITING`, `LS_LOBBY`, `LS_COUNTDOWN`, `LS_LOST`, `LS_START`.
 - Joining or hosting creates a persistent session that remains active while the user navigates
-  freely between launcher tabs (Play, Saves, Settings, About, Profiles, Help).
+  freely between the four launcher tabs (Play, which reads "Lobby" while a lobby is open, Saves, Settings,
+  About; Help is part of About). The lobby itself takes the whole window in three columns; the host's side
+  (Friends can join by, the router port, the invite, invite only, Kick) is in [HOSTING.md](HOSTING.md).
 - On non-Play pages, a persistent bottom lobby bar displays current status (Hosting/Connected/Reconnecting),
   player count, speaking indicator, chat count, and Ready/Start/Leave buttons.
 - Host disappearance transitions clients to `LS_LOST`, retaining reconnection attempts while
@@ -310,6 +312,10 @@ python3 tools/test_update_ownership.py
 python3 tools/test_mod_manifest.py
 python3 tools/test_chain_load.py
 
+# 7c. Lobby hosting: router (UPnP-IGD, NAT-PMP) against fakes, CGNAT, firewall verdicts, invite routes,
+#     lobby key, kicks, probe visibility, pad (30 mutants; the router part runs a Windows test exe)
+python3 tools/test_launcher_host.py
+
 # 8. Python syntax check
 python3 -m py_compile tools/test_install_policy.py tools/test_launcher_profiles.py \
     tools/test_launcher_session.py tools/test_launcher_update.py tools/test_ui_layout.py \
@@ -333,6 +339,9 @@ bash tools/qa_installer.sh
 
 # 4. Multi-client lobby lifecycle, persistent browsing, chat and voice gate (3 instances)
 bash tools/qa_lobby.sh
+
+# 4b. Hosting: Friends can join by, router mapping, join with the invite code only, invite only, Kick, pad (2 instances)
+bash tools/qa_host.sh
 
 # Optional extended checks: profile UI and real-host probes, full lobby with
 # synthetic protocol members, loss/reconnect, bidirectional hostile/flood chat,

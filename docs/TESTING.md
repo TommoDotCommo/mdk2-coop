@@ -250,6 +250,13 @@ clipboard finder, probe v2, per-adapter broadcast candidates, result rows, the T
 and the recent-hosts store, with sanitisers, fuzzing and 44 source mutants, plus the Windows adapter
 self-test on loopback fake hosts. See [DISCOVERY.md](DISCOVERY.md).
 
+`tools/test_launcher_host.py` (gate `launcher-host`) covers the host side of the lobby: NAT-PMP and
+UPnP-IGD messages, the CGNAT check, firewall rule verdicts, invite routes, the lobby key, kicks, probe
+visibility, "Waiting for" and the pad from recorded states, with sanitisers, fuzzing and 26 source mutants;
+with Windows interop the router code runs against a fake IGD and NAT-PMP responder (mutant: the mapping is not
+removed on close). `tools/qa_host.sh` (feature gate `hosting`, two games) is its live check. See
+[HOSTING.md](HOSTING.md).
+
 `tools/test_network.sh` also requires four broken epoch variants to fail: premature
 epoch adoption, applying spawns during a load, blocking a same-epoch reconnect,
 and ignoring epoch zero at wraparound. The real-game epoch gate changes the world
