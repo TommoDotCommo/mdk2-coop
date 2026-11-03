@@ -241,8 +241,11 @@ void plist_draw(int w, int h)
                 button(x, y + (row - bh) * 0.5f, u * 4.6f, bh, h, "Watch", revive_watching() == s, H_WATCH, s);
         }
     }
-    snprintf(buf, sizeof(buf), "Mouse: Mute, volume, Watch (when you are out of the fight)   -   let go of %s to close",
-             guide_list_key());
+    if (input_pad_last())       /* no longer than the mouse's line: the panel is sized for that */
+        snprintf(buf, sizeof(buf), "Stick, RT: Mute, volume, Watch (when out of the fight)   -   let go of View to close");
+    else
+        snprintf(buf, sizeof(buf), "Mouse: Mute, volume, Watch (when you are out of the fight)   -   let go of %s to close",
+                 guide_list_key());
     hud_text(x0, y0 + ph - u * 0.3f, h, buf, 0.7f, 0.6f, 0.4f);
     /* the pointer */
     hud_box(px - 1, py - 8, 3, 17, h, 1.0f, 1.0f, 1.0f, 0.95f);

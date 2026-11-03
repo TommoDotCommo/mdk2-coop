@@ -11,7 +11,9 @@
  *   A                    jump, and Enter (menu select)
  *   B, Start             Esc (pause, back)
  *   X                    revive              Y   open the inventory / equip
- *   Back                 ping what you aim at
+ *   View (Back)          the co-op layer (pad.h): tap = ping, hold = player list, and with it the
+ *                        D-pad, LB, RB and Y are co-op buttons (wheels, chat, watch, guide)
+ *   right stick click    push to talk (input.c, [voice] pad_talk)
  *   right trigger        fire                left trigger   sniper mode
  *   right / left bumper  mouse wheel up / down (next / previous item)
  * The action keys follow the Controls page (pad_bind), so Original, Modern and Custom all work.
@@ -69,7 +71,6 @@ void pad_map(const struct pad_raw *p, unsigned prev_buttons, float dt, float loo
     if (b & (PAD_B | PAD_START))        set(o, 1);
     if (b & PAD_X)                      set(o, bound[PA_REVIVE]);
     if (b & PAD_Y)                      set(o, bound[PA_USE]);
-    if (b & PAD_BACK)                   set(o, bound[PA_PING]);
     if (p->rt > PAD_TRIGGER)            set(o, bound[PA_FIRE]);
     if (p->lt > PAD_TRIGGER)            set(o, bound[PA_SNIPER]);
     /* squared response: fine aim near the centre, full speed at the edge */
@@ -77,6 +78,93 @@ void pad_map(const struct pad_raw *p, unsigned prev_buttons, float dt, float loo
     o->mouse[1] = (int)lroundf(-ry * fabsf(ry) * look * dt);
     if (edge & PAD_RB)                  o->mouse[2] += 120;
     if (edge & PAD_LB)                  o->mouse[2] -= 120;
+}
+
+/* ---- the co-op layer on View (pad.h) ---- */
+
+const struct pad_line pad_layer_lines[] = {
+    { "Tap View",                  "ping",   "Ping what you aim at: a marker for everyone" },
+    { "Hold View",                 "list",   "Player list (right stick + RT: mute, volume, watch)" },
+    { "View + D-pad up",           "emote",  "Emote wheel: right stick picks, let go of View plays" },
+    { "View + D-pad down",         "chat",   "Chat: Steam's keyboard, or one on screen (Menu sends)" },
+    { "View + D-pad left / right", "watch",  "Out of the fight: watch the previous / next teammate" },
+    { "View + LB",                 "char",   "Character wheel: Kurt, Max or Doc" },
+    { "View + RB",                 "quick",  "Quick chat: Ready, Wait for me, Over here, Thanks..." },
+    { "View + Y",                  "guide",  "This quick guide (while held)" },
+    { "Hold right stick click",    "voice",  "Push to talk (voice is open mic on a pad otherwise)" },
+};
+const int pad_layer_count = sizeof(pad_layer_lines) / sizeof(pad_layer_lines[0]);
+
+void padlayer_step(struct padlayer *s, unsigned b, double now, struct padlayer_out *o)
+{
+    unsigned edge = b & ~s->prev;
+
+    memset(o, 0, sizeof(*o));
+    if (b & PAD_BACK) {
+        if (!s->down) {
+            s->down = 1;
+            s->since = now;
+            s->used = 0;
+            s->latch = PL_NONE;
+        }
+#ifndef COOP_MUTANT_PAD_NO_SWALLOW      /* bridge/Makefile test-pad: the old behaviour, the D-pad still walks */
+        o->swallow = PL_SWALLOW;
+#else
+        o->swallow = PAD_BACK;
+#endif
+        if (edge & PAD_UP)    { s->latch = PL_EMOTE; s->used = 1; }
+        if (edge & PAD_LB)    { s->latch = PL_CHAR; s->used = 1; }
+        if (edge & PAD_RB)    { s->latch = PL_QUICK; s->used = 1; }
+        if (edge & PAD_DOWN)  { o->chat = 1; s->used = 1; }
+        if (b & PAD_LEFT)     { o->gk |= 1u << GK_WATCHP; s->used = 1; }
+        if (b & PAD_RIGHT)    { o->gk |= 1u << GK_WATCHN; s->used = 1; }
+        if (b & PAD_Y)        { o->guide = 1; s->used = 1; }
+        if (s->latch == PL_EMOTE)
+            o->gk |= 1u << GK_EMOTE;
+        else if (s->latch == PL_CHAR)
+            o->gk |= 1u << GK_CHAR;
+        else if (s->latch == PL_QUICK)
+            o->gk |= 1u << GK_QUICK;
+        else if (!o->chat && (s->used || now - s->since >= PL_HOLD_MS))
+            o->gk |= 1u << GK_LIST;
+    } else if (s->down) {
+        /* let go: a short press with nothing else is the ping; a latched wheel closes (and chooses) */
+        if (!s->used && now - s->since < PL_HOLD_MS)
+            o->gk |= 1u << GK_PING;
+        s->down = 0;
+        s->latch = PL_NONE;
+    }
+    s->prev = b;
+}
+
+void pad_frame(struct padlayer *s, const struct pad_raw *p, unsigned prev_buttons, float dt, float look, double now,
+               struct pad_out *o, struct padlayer_out *lo)
+{
+    struct pad_raw game = *p;
+
+    padlayer_step(s, p->buttons, now, lo);
+    game.buttons &= ~lo->swallow;
+    pad_map(&game, prev_buttons & ~lo->swallow, dt, look, o);
+}
+
+int pad_active(const struct pad_raw *p, unsigned prev_buttons)
+{
+    return (p->buttons & ~prev_buttons) || stick(p->lx) || stick(p->ly) || stick(p->rx) || stick(p->ry) ||
+           p->lt > PAD_TRIGGER || p->rt > PAD_TRIGGER;
+}
+
+int pad_glyphs(int was, const struct pad_raw *p, unsigned prev_buttons, int key_pressed)
+{
+    if (key_pressed)
+        return 0;
+    if (p && pad_active(p, prev_buttons))
+        return 1;
+    return was;
+}
+
+const char *pad_glyph_text(int pad, const char *keys, const char *buttons)
+{
+    return pad && buttons && buttons[0] ? buttons : keys;
 }
 
 #ifndef PAD_NO_XINPUT

@@ -179,7 +179,11 @@ Keys (the Modern preset, the default; change them in Options > Co-op > Controls)
 - Backspace votes to skip a cutscene. Hold F1 (in the launcher or in game) for the Mod
   Quick Guide. F2 puts a marker in the logs when you want to report something.
 - A gamepad works too: left stick move, right stick look, right trigger fire, left
-  trigger sniper, A jump, X revive, Y inventory, Back ping, bumpers change item.
+  trigger sniper, A jump, X revive, Y inventory, bumpers change item, hold the right
+  stick click to talk. View (Back) is the co-op button: tap to ping, hold for the
+  player list; while it is held D-pad up / LB / RB open the emote / character / quick
+  chat wheels (right stick picks, let go of View chooses), D-pad down opens chat with
+  a keyboard on screen (or Steam's), D-pad left / right watch, Y shows the guide.
 
 Uninstall
 ---------
@@ -234,7 +238,8 @@ Options > Co-op (on the title screen, or Esc > Options while playing):
   it; the first change starts Custom as a copy of the preset you were on. Delete clears an
   action. Your Custom keys are kept separately, so Original and Modern are always there.
 - Voice and sound (was Voice chat): hold B or the mouse side button (changed on the Controls page) and players near you hear you. Turn it
-  off, set its volume, and on the host choose how far voices carry.
+  off, set its volume, and on the host choose how far voices carry. Voice mode:
+  Push to talk, Open mic, or Automatic (open mic after pad input; the default).
 
 Known issues
 ------------

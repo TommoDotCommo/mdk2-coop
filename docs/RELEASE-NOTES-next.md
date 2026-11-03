@@ -75,6 +75,29 @@ co-op game from the pause menu says what happens: "The others keep playing" (cli
 New gates: `coop-keys` (key table, migration of saved bindings, guide lines, notices; with mutants), `player-list-core`
 (the list's state machine; with mutants), watch-key cases in `revive-core`; live: `shared-keys`.
 
+## Co-op from a controller (Steam Deck)
+
+- **The View button is the co-op layer.** Tap View (Back) to ping. Hold it for the player list, and while it is held:
+  **D-pad up** the emote wheel, **LB** the character wheel, **RB** the quick chat wheel (Ready, Wait for me, Over here,
+  Come look at this, Thanks); the wheels stay open while View is held, the right stick picks and letting go of View
+  chooses. **D-pad down** opens chat, **D-pad left / right** watch the previous / next player, **Y** shows the quick
+  guide. While View is held the D-pad, LB, RB and Y do nothing in the game (the D-pad used to walk you).
+- **Typing without a keyboard.** Chat from the pad opens Steam's floating keyboard when Steam can show it (Big Picture,
+  Steam Deck), otherwise a keyboard on screen: D-pad or left stick, A types, X deletes, Y space, LB shift, Menu sends,
+  B cancels. The button that sent or cancelled the line does not reach the game.
+- **Voice on a pad.** New Voice mode setting (launcher Settings > Voice and sound, and Options > Co-op > Voice and sound):
+  Push to talk, Open mic, or **Automatic** (the default): push to talk after keyboard input, open mic with the voice
+  gate after pad input. Push to talk on the pad: hold the right stick click (or the left one, or none: Push to talk on
+  a pad).
+- **Hints follow your hands.** After pad input the quick guide, the player list, the wheels and "Hold X to revive" show
+  pad buttons (Xbox names: View, Menu, A, B, X, Y, LB, RB); after a key they show keys again, at once. The Controls
+  page's Gamepad tab, the in-game quick guide and the launcher's guide list the View layer from one table.
+- **Fix:** with a real pad (not couch co-op), co-op buttons such as X (revive) and Back (ping) now reach the co-op
+  features; before they only reached the game.
+
+New gates: `controller-core` now covers the View layer from recorded pad states (with a mutant whose D-pad still walks)
+and the glyph switch; `coop-keys` checks the guide's pad lines; live: `pad-layer` (`tools/qa_padlayer.sh`).
+
 ## Joining without typing an address
 
 - **Games near you.** *Join a friend* lists every host the launcher finds on each network this PC is on (Wi-Fi,
