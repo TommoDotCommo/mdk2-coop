@@ -1,5 +1,7 @@
 /* Engine adapters for attached visuals, host AI queries and the client waiting UI. */
 #include <assert.h>
+#include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 #include "bridge.h"
 
@@ -107,6 +109,63 @@ static BYTE *gear_child(BYTE *body, int kind)
     return NULL;
 }
 
+/* The sub-gobs an item's model made (the jetpack's flame and nozzle parts, the blower's air puffs), named after the
+ * item with a "__<n>" suffix, ordered by that number (the same on every side; anything else attached to the item,
+ * such as the owner's push volume "blower", is not one of them) */
+#define GEAR_SUBS 8
+static int gear_sub_number(BYTE *g, BYTE *c)
+{
+    char gn[EV_NAME];           /* gob_name returns one shared buffer: keep the item's name before reading the child's */
+    const char *cn;
+    size_t len;
+    snprintf(gn, sizeof(gn), "%s", gob_name(g));
+    cn = gob_name(c);
+    len = strlen(gn);
+    if (!len || strncmp(cn, gn, len) || cn[len] != '_' || cn[len + 1] != '_' || !isdigit((unsigned char)cn[len + 2]))
+        return -1;
+    return atoi(cn + len + 2);
+}
+
+static int gear_subs(BYTE *g, BYTE **out)
+{
+    DWORD me = gob_handle(gob_slot(g));
+    int s, n = 0, i, num[GEAR_SUBS];
+    for (s = 0; s < GOB_SLOTS && n < GEAR_SUBS; s++) {
+        BYTE *c = GOB_TABLE_AT(s);
+        int k;
+        if (!c || c == g || !gob_alive(c) || *(DWORD *)(c + GOB_TARGET) != me || (k = gear_sub_number(g, c)) < 0)
+            continue;
+        for (i = n; i > 0 && num[i - 1] > k; i--) { out[i] = out[i - 1]; num[i] = num[i - 1]; }
+        out[i] = c; num[i] = k; n++;
+    }
+    return n;
+}
+
+static uint8_t gear_subs_hidden(BYTE *g)
+{
+    BYTE *sub[GEAR_SUBS];
+    int i, n = gear_subs(g, sub);
+    uint8_t mask = 0;
+    for (i = 0; i < n; i++)
+        if (*(WORD *)(sub[i] + GOB_FLAGS) & 0x08) mask |= (uint8_t)(1 << i);
+    return mask;
+}
+
+/* When each player's item sub-gobs last changed on this side (GetTickCount, the same clock in every process on one
+ * machine): the owner's own when its game changed them, a puppet's when this side's copy did. Lets a test compare when
+ * the flame came on for the owner and for each peer without reading every process at the same instant. */
+static DWORD gear_subs_at[MAX_PLAYERS][GEAR_KINDS];
+static uint8_t gear_subs_was[MAX_PLAYERS][GEAR_KINDS], gear_subs_known[MAX_PLAYERS][GEAR_KINDS];
+static void gear_subs_note(int slot, int k, uint8_t mask)
+{
+    if (slot < 0 || slot >= MAX_PLAYERS) return;
+    if (!gear_subs_known[slot][k] || gear_subs_was[slot][k] != mask) {
+        gear_subs_was[slot][k] = mask;
+        gear_subs_known[slot][k] = 1;
+        gear_subs_at[slot][k] = GetTickCount();
+    }
+}
+
 void gear_capture(BYTE *body, struct gear_state *out)
 {
     int k;
@@ -123,6 +182,8 @@ void gear_capture(BYTE *body, struct gear_state *out)
         v->hidden = (*(WORD *)(g + GOB_FLAGS) & 0x08) != 0;
         v->cur = v->prev = NO_ANIM;
         if (k == GEAR_SHOWN_ONLY) continue;
+        v->subs = gear_subs_hidden(g);
+        if (body == local_player) gear_subs_note(my_slot, k, v->subs);
         if (k == 0) {
             /* the jetpack's kind sits in the character's state: 1 jetpack, 2 atomic jetpack (0x422125) */
             BYTE *info = *(BYTE **)(body + GOB_INFO), *state = info ? *(BYTE **)(info + 0x40) : NULL;
@@ -147,9 +208,10 @@ void gear_capture(BYTE *body, struct gear_state *out)
 /* The gob flags this side left on each puppet's visual after the last apply (what the next render sees; the scene
  * update that follows can set the room-stasis bit again, so a dump read before the apply says nothing about it) */
 static WORD gear_left[MAX_PLAYERS][GEAR_KINDS];
+static uint8_t gear_subs_left[MAX_PLAYERS][GEAR_KINDS];  /* the sub-gobs' hidden bits this side left, the same way */
 static DWORD gear_owned[MAX_PLAYERS][GEAR_KINDS];       /* handles of the gobs this side built on each puppet */
 static DWORD gear_retry[MAX_PLAYERS][GEAR_KINDS];       /* tick before which a failed build is not repeated */
-static int no_gear, no_shown;
+static int no_gear, no_shown, no_subs, wrong_bone;
 
 /* The item gob and the sub-gobs its model made (the blower's air puffs): deleting the item alone leaves them behind */
 static void gear_kill(BYTE *g)
@@ -172,6 +234,7 @@ static BYTE *gear_build(BYTE *body, int kind, int model)
     if (!gob_alive(body) || !*(BYTE **)(body + GOB_ANIM)) return NULL;
     bone = om_bone_find(body, k->bone);
     if (bone < 0) return NULL;
+    if (wrong_bone) bone = bone ? 0 : 1;    /* test switch: the item on another bone of the body */
     if (!(g = om_gob_create(k->name))) return NULL;
     if (!(ctl = om_model_new(k->model[model & 1]))) { gear_kill(g); return NULL; }
     *(void **)(g + GOB_ANIM) = ctl;
@@ -179,6 +242,21 @@ static BYTE *gear_build(BYTE *body, int kind, int model)
     om_bone_place(body, bone, (float *)(g + GOB_POSITION), (float *)(g + GOB_ORIENTATION));
     om_anim_play(g, k->first_anim, 0);
     return g;
+}
+
+/* A dump row for comparing where an item sits on its body: the item's position and orientation words (the engine
+ * keeps them on its bone's pose every frame) and the pose of the bone the owner's game puts it on, found by name on
+ * the same body at the same moment (0x44db50, 0x44e580). On the owner's own body the two are the same; a copy on
+ * another bone, or offset or turned, differs whatever the animations on the two sides are doing. */
+static void gear_pose_row(FILE *f, int player, int kind, BYTE *body, BYTE *g)
+{
+    float bp[3] = { 0, 0, 0 }, bq[4] = { 1, 0, 0, 0 };
+    const float *gp = (float *)(g + GOB_POSITION), *gq = (float *)(g + GOB_ORIENTATION);
+    int bone = *(BYTE **)(body + GOB_ANIM) ? om_bone_find(body, gear_kinds[kind].bone) : -1;
+    if (bone >= 0) om_bone_place(body, bone, bp, bq);
+    fprintf(f, "gearpose %d %s %d %.4f %.4f %.4f %.5f %.5f %.5f %.5f %d %.4f %.4f %.4f %.5f %.5f %.5f %.5f\n", player,
+            gear_kinds[kind].name, *(int *)(g + GOB_BONE_SLOT), gp[0], gp[1], gp[2], gq[0], gq[1], gq[2], gq[3], bone,
+            bp[0], bp[1], bp[2], bq[0], bq[1], bq[2], bq[3]);
 }
 
 void gear_release(int slot)
@@ -190,6 +268,8 @@ void gear_release(int slot)
         if (g && gob_alive(g)) gear_kill(g);
         gear_owned[slot][k] = 0;
         gear_left[slot][k] = 0;
+        gear_subs_left[slot][k] = 0;
+        gear_subs_known[slot][k] = 0;
     }
 }
 
@@ -238,6 +318,17 @@ void gear_apply(int slot, BYTE *body, const struct gear_state *s)
         *(DWORD *)(ctl + 0x2c) = v->prev != NO_ANIM ? (DWORD)(uintptr_t)anim_state(g, v->prev) : 0;
         *(WORD *)(g + GOB_FLAGS) = (WORD)((*(WORD *)(g + GOB_FLAGS) & ~0x08) | (v->hidden ? 0x08 : 0));
         gear_left[slot][k] = *(WORD *)(g + GOB_FLAGS);
+        /* the sub-gobs the owner's game shows and hides itself (Max's thrust code shows the jetpack's flame): the
+         * puppet never runs that code, so its flame stayed hidden */
+        if (!no_subs) {
+            BYTE *sub[GEAR_SUBS];
+            int n = gear_subs(g, sub);
+            for (i = 0; i < n; i++)
+                *(WORD *)(sub[i] + GOB_FLAGS) = (WORD)((*(WORD *)(sub[i] + GOB_FLAGS) & ~0x08) |
+                                                       ((v->subs >> i) & 1 ? 0x08 : 0));
+        }
+        gear_subs_left[slot][k] = gear_subs_hidden(g);
+        gear_subs_note(slot, k, gear_subs_left[slot][k]);
     }
 }
 
@@ -668,6 +759,12 @@ static void l_presence_test(void)
     net_test_legacy((int)num_param(5));
     no_gear = (int)num_param(6);
     no_shown = (int)num_param(7);
+    no_subs = (int)num_param(8);
+    if ((int)num_param(9) != wrong_bone) {     /* rebuilt on the next snapshot, on the other bone */
+        int s;
+        wrong_bone = (int)num_param(9);
+        for (s = 0; s < MAX_PLAYERS; s++) gear_release(s);
+    }
 }
 
 static void l_join_retry(void)
@@ -677,13 +774,15 @@ static void l_join_retry(void)
     joining.since = now_ms() / 1000;
 }
 
-/* coop_gobtree(key [, parent]): every live gob (or the children of `parent`) with its flags, scene parent, bone slot and
- * component kinds, to coop\\tree_<key>.txt. For finding what an effect or an attached visual is made of. */
+/* coop_gobtree(key [, parent [, raw]]): every live gob (or the children of `parent`) with its flags, scene parent, bone
+ * slot and component kinds, to coop\\tree_<key>.txt (raw: also the gob's first 0xb0 bytes, its model controller's and
+ * its +0x70 component's first 0x80). For finding what an effect or an attached visual is made of. */
 static void l_gobtree(void)
 {
     long len;
     const char *key = luaL_check_lstr(1, &len);
     BYTE *parent = tolua_getusertype(2, NULL);
+    int raw = (int)num_param(3);
     char path[MAX_PATH];
     FILE *f;
     int s;
@@ -702,6 +801,23 @@ static void l_gobtree(void)
                 gob_name(g)[0] ? gob_name(g) : "-", info ? gob_type(g) : -1, info ? gob_class(g) : -1,
                 *(WORD *)(g + GOB_FLAGS), (unsigned long)par, *(int *)(g + GOB_BONE_SLOT), c70 ? (int)*(DWORD *)c70 : -1,
                 *(float *)(g + GOB_POSITION), *(float *)(g + GOB_POSITION + 4), *(float *)(g + GOB_POSITION + 8));
+        if (raw) {
+            BYTE *ctl = *(BYTE **)(g + GOB_ANIM);
+            int b;
+            fputs("  gob", f);
+            for (b = 0; b < 0xb0; b += 4) fprintf(f, " %08lx", (unsigned long)*(DWORD *)(g + b));
+            fputc('\n', f);
+            if (ctl && !IsBadReadPtr(ctl, 0x80)) {
+                fputs("  ctl", f);
+                for (b = 0; b < 0x80; b += 4) fprintf(f, " %08lx", (unsigned long)*(DWORD *)(ctl + b));
+                fputc('\n', f);
+            }
+            if (c70 && !IsBadReadPtr(c70, 0x80)) {
+                fputs("  c70", f);
+                for (b = 0; b < 0x80; b += 4) fprintf(f, " %08lx", (unsigned long)*(DWORD *)(c70 + b));
+                fputc('\n', f);
+            }
+        }
     }
     fclose(f);
 }
@@ -791,7 +907,8 @@ void presence_dump(FILE *f)
         }
     }
     /* equipment visuals read from each body's own attached gobs: player, visual, hidden bit, bone slot, scene-parent
-     * check, current and previous animation, the current one's play phase and the animation block count */
+     * check, current and previous animation, the current one's play phase, the animation block count, the model's
+     * sub-gobs (count/hidden bits) and when those last changed here */
     for (s = 0; s < MAX_PLAYERS; s++) {
         BYTE *body = s == my_slot ? local_player : puppets[s];
         int k;
@@ -805,9 +922,14 @@ void presence_dump(FILE *f)
             if (!g || !gs.v[k].present) continue;
             for (j = 0; j < gs.v[k].nanims; j++)
                 if (gs.v[k].id[j] == gs.v[k].cur) memcpy(&phase, &gs.v[k].anim[j][ANIM_TIME0], sizeof(phase));
-            fprintf(f, "gear %d %s %d %u %d %d %u %u %.5f %u\n", s + 1, gear_kinds[k].name, gob_alive(g),
-                    ((s == my_slot ? *(WORD *)(g + GOB_FLAGS) : gear_left[s][k]) & 0x08) != 0, *(DWORD *)(g + GOB_TARGET) == gob_handle(gob_slot(body)),
-                    *(int *)(g + GOB_BONE_SLOT), gs.v[k].cur, gs.v[k].prev, phase, gs.v[k].nanims);
+            {
+                BYTE *sub[GEAR_SUBS];
+                fprintf(f, "gear %d %s %d %u %d %d %u %u %.5f %u %d/%x %lu\n", s + 1, gear_kinds[k].name, gob_alive(g),
+                        ((s == my_slot ? *(WORD *)(g + GOB_FLAGS) : gear_left[s][k]) & 0x08) != 0, *(DWORD *)(g + GOB_TARGET) == gob_handle(gob_slot(body)),
+                        *(int *)(g + GOB_BONE_SLOT), gs.v[k].cur, gs.v[k].prev, phase, gs.v[k].nanims, gear_subs(g, sub),
+                        s == my_slot ? gs.v[k].subs : gear_subs_left[s][k], (unsigned long)gear_subs_at[s][k]);
+            }
+            gear_pose_row(f, s + 1, k, body, g);
         }
     }
     /* Kurt's canopy child, read the same way (its animation block is already in the canopy rows above) */

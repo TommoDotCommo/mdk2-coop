@@ -137,13 +137,21 @@ process state on the player's build:
 - Max: `maxjetpack` (bone 19, `MAX_TORSO`) is made by the pickup code at `0x422085`: `omGobCreate` (`0x449630`),
   a model controller from the model's name (`0x44c4f0`, "jetpack" or "jetpackatm" by the character state's
   `+0x38`), `0x44db50` for the bone, `0x449a20` to attach, `0x44e580` to place it, `0x44ca90` to play animation 62.
-  Its flame is the jetpack's own animation 77 (thrusting), 62 idle. A puppet has no such gob (the listing of
-  its scene children shows only the model's own sub-gobs).
+  The jetpack plays animation 77 while thrusting, 62 idle. Its flame is two of the sub-gobs the model makes
+  (`maxjetpack__11` and `__12`, on the model's bone 8; `__14` on bone 9 stays shown): hidden (gob flag `0x08`) at idle,
+  shown by Max's own thrust code the moment the thrust starts. A puppet has no jetpack of its own (the listing of its
+  scene children shows only the model's own sub-gobs); on the copy the bridge builds, the copied animation alone
+  showed the flame 0.36 to 0.8 s after the owner's (`MUTANT=subs`), so the sub-gobs' hidden bits are carried.
 - Doc: `docleafblower` (bone 1, model "leafer", bone `DR_TORSO`) is made by the take-up code at `0x40a770`
   (reached from the inventory selection at `0x40c15d` when the held item is `0x157`), together with the model's
   sub-gobs (the air puffs, shown and hidden in turn while blowing, animation 77 on the item, 65 idle) and a
   `blower` object (type 500) that is the push volume. The push is applied by the host (`combat.c`), so only the
-  item and its puffs are replicated.
+  item and its puffs are replicated. Unlike the jetpack's pickup, the take-up does not call the bone-place routine
+  (`0x44e580`) and gives the item a game object (`0x40ce10`, kind bits `0x20`); neither moves where it is drawn: the
+  engine keeps an attached gob's position and orientation words on its bone's pose every frame, and those words read
+  the same on the owner's own Doc and on a puppet: on both the item sits exactly on the pose of `DR_TORSO` (0.0000 units,
+  `qa_attached.sh`). The model makes seven sub-gobs (`docleafblower__<n>`); their hidden bits read `0x15` idle and
+  `0x1a` blowing on the owner and on every peer.
 - Kurt: the `chute` gob exists on a puppet (constructor `0x418240`) and the canopy animation state is copied, but
   its gob flag word carries bit `0x08`, the bit `rooms.c` describes as the stasis of a room nobody is awake in
   (nothing in it runs, and the game also uses it to keep Kurt's closed canopy out of sight: the owner's own
@@ -156,15 +164,32 @@ process state on the player's build:
   standing in the same area read the bit clear. Not checked by a picture: a puppet in another room cannot be seen.
 
 The snapshot carries one record per visual (present, hidden, model variant, current and previous animation, up to
-three animation blocks), written by `gear_encode`/`gear_decode` (`presence.c`), read and built by
-`gear_capture`/`gear_apply` (`presence_game.c`). Packet magics changed (`MDKV`, `MDKW`).
+three animation blocks, the hidden bits of the model's sub-gobs `<item>__<n>` in order of `n`), written by
+`gear_encode`/`gear_decode` (`presence.c`), read and built by `gear_capture`/`gear_apply` (`presence_game.c`).
+Packet magics changed (`MDKV`, `MDKW`).
+
+Ground truth for where the items are drawn (Overhaul build): one game takes the item with the game's own code and
+a second game's camera is put on the same pose as the first game's own camera (the host hidden), so both pictures
+show the same Doc or Max from the same place, one drawn by the owner's game, one a puppet. The leaf blower sits on
+Doc's back with the nozzle in his hands in both; an object floating at head height in an earlier showcase picture was
+the viewing player's own inventory icon (the same screen spot from three camera positions). The jetpack sits on
+Max's back in both; the flame was the only difference (above).
 
 `tools/qa_attached.sh` runs Kurt on level 1, Max on level 2 and Doc on level 3 with three peers, every peer the
 owner in turn, the players in different rooms at least 300 units apart. Each peer's own dump gives, for the owner's
 visual, whether it is alive, attached to that body, on which bone, hidden or shown, and its animation (the rows
 `gear <player> <name> ...` of `coop_state`; a puppet's hidden bit is the value the bridge left for the draw).
-`MUTANT=gear` (no equipment built on puppets), `MUTANT=canopy` (no canopy state copy) and `MUTANT=shown` (the game's
-room bit left alone) must fail.
+Each dump also gives the item's sub-gobs (count/hidden bits) and when those last changed in that process, and a
+`gearpose` row (the item's position and orientation, and the pose of the bone the owner's game puts it on, found by
+name on the same body at the same moment). The oracle requires every peer's sub-gob bits to
+equal the owner's, their last change within 200 ms of the owner's (`--lag`; one clock on one machine; measured about
+100 ms, and 360 ms with `MUTANT=subs`), and the item within 0.02 units / 3 degrees of that bone's pose (measured
+0.0000 units on the owner and every peer; on the wrong bone, `MUTANT=gearbone`, 0.062 units / 7.3 degrees for Doc).
+Compared in the body's frame instead, the two sides' animations alone moved the jetpack up to 0.05 units / 15 degrees,
+as much as a wrong bone, so the bone found by name is the reference.
+`MUTANT=gear` (no equipment built on puppets), `MUTANT=canopy` (no canopy state copy), `MUTANT=shown` (the game's
+room bit left alone), `MUTANT=subs` (sub-gobs left to the copied animation) and `MUTANT=gearbone` (the item on
+another bone) must fail.
 
 ## Ordered verifier commands
 
@@ -185,6 +210,8 @@ MDK2_BACKGROUND=1 MUTANT=canopy bash tools/qa_presence.sh
 MDK2_BACKGROUND=1 bash tools/qa_attached.sh
 MDK2_BACKGROUND=1 MUTANT=gear bash tools/qa_attached.sh
 MDK2_BACKGROUND=1 MUTANT=shown bash tools/qa_attached.sh
+MDK2_BACKGROUND=1 MUTANT=subs ONLY=max bash tools/qa_attached.sh
+MDK2_BACKGROUND=1 MUTANT=gearbone ONLY=doc bash tools/qa_attached.sh
 MDK2_BACKGROUND=1 bash tools/qa_ai.sh
 MDK2_BACKGROUND=1 MUTANT=targeting bash tools/qa_ai.sh
 MDK2_BACKGROUND=1 MUTANT=hostaoe bash tools/qa_ai.sh
