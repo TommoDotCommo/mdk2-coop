@@ -72,10 +72,12 @@ New gates: `coop-keys` (key table, migration of saved bindings, guide lines, not
 - **Recent hosts** replace Saved addresses: every host you join is remembered with the way that worked; rename,
   pin, forget. Your saved addresses move there once, pinned. **Rejoin <name>** shows on Play when the last host is
   online.
+- **Open in launcher.** A game started with an `mdk2-coop://` invite link (the join page's button) opens the launcher
+  on Join with the invite in the paste box, even when the launcher is set not to show at start.
 - **Failures say who and what**, with Try again, Update (another version) or Send diagnostics.
 - The Host address and Port fields are gone from Join; the port is in **Settings > Network**, with the two
   Find settings.
 - Steam friends are not listed yet: the launcher opens before Steam starts in the game. Steam invites and lobby
   numbers still join.
 - Under the hood: the launcher lobby and the game answer the new CPQ2 probe next to CPQ1, at most 10 replies a
-  second per address. New gates: `launcher-join` (offline, 20 mutants), `join-list` (live, two games).
+  second per address. New gates: `launcher-join` (offline, 24 mutants), `join-list` (live, two games).

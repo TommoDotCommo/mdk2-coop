@@ -254,8 +254,8 @@ self-test on loopback fake hosts. See [DISCOVERY.md](DISCOVERY.md).
 `tools/test_launcher_join.py` (gate `launcher-join`) covers the launcher's Join side in
 `bridge/launcher_join.h`: the host answer to CPQ1 and CPQ2 with its rate limit, the scan's candidates on
 a model PC with two adapters, Tailscale and recent hosts, the sources line, row text and order, the
-failure wording, an invite's routes tried at once, the saved-addresses migration and the Rejoin shortcut,
-with sanitisers and 20 source mutants (among them: queries only to 255.255.255.255, which loses the
+failure wording, an invite's routes tried at once, the saved-addresses migration, the Rejoin shortcut and
+the `mdk2-coop://` link on the command line, with sanitisers and 24 source mutants (among them: queries only to 255.255.255.255, which loses the
 second adapter's host). It also checks the wiring: both host listeners answer through `lj_host_reply`
 and the Join page has no typed address field. The live gate `join-list` (`tools/qa_join_list.sh`, two
 games) asserts from the launcher's state dump that the joiner, with no address configured, lists the host,

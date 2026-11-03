@@ -256,6 +256,8 @@ route `address`, its notes and its last-used time. Writing always produces `COOP
   *Save address* pins the host. The Recent hosts page has Join, Rename, Pin and Forget.
 - **Rejoin** on Play (A4): while Play shows Host or Solo, only the last host is probed, every 5 s; the button
   appears when it answers with this version and room.
+- **Invite links on the command line** (C5): `lj_link_arg` takes `mdk2-coop://<CODE>` from the game's command
+  line (scheme in any case, a trailing `/` dropped); the launcher then shows, on Join, with the link in the paste box.
 - **Failures** (F4) say who and what and offer Try again, Update (another version) or Send diagnostics.
 - `[test] launcher=1`: `dump` writes a `[join]` section (sources, rows with `shown_at`, recents, offer,
   primary button words) to `launcher-state.ini`; `clipboard <text>` runs the clipboard check on that text.
