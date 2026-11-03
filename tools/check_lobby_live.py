@@ -151,13 +151,20 @@ class Launchers:
         self.command(2, 'click 1000 185')    # Host a game: Play without the list probes only the last host
         self.expect(2, 'Rejoin <name> when the last host answers', timeout=10, **{'join.shown': 0, 'join.rejoin': f'Rejoin {host}'})
         self.shot(2, 'rejoin')
-        self.command(2, f'clipboard {host} is hosting MDK2. Join: https://tommodotcommo.github.io/join/#{code}')
+        self.command(2, f'clipboard {host} is hosting MDK2. Join: https://tommodotcommo.github.io/coop-mod-kit/join/#{code}')
         self.expect(2, 'clipboard invite offered', **{'join.offer': 1, 'join.offer_name': host, 'join.primary': f'Join {host}'})
         self.shot(2, 'clipboard_offer')
         self.command(2, 'click 1000 511')     # Not now
         self.expect(2, 'Not now dismisses the offer', **{'join.offer': 0})
         self.command(2, f'clipboard {code}')
         self.expect(2, 'a dismissed invite is not offered again', **{'join.offer': 0})
+        self.command(2, 'page 5')
+        self.expect(2, 'Recent hosts page scans', **{'launcher.page': 5, 'join.shown': 1, 'recents.count': 2})
+        self.shot(2, 'recent_hosts')
+        self.command(2, 'page 2', *['click 1220 115'] * 4)     # Settings, the section picker to Network
+        self.expect(2, 'Settings > Network: find settings on by default', **{'join.find_lan': 1, 'join.find_tailscale': 1})
+        self.shot(2, 'settings_network')
+        self.command(2, 'page 0')
 
     def full(self):
         self.expect(1, 'real lobby filled by synthetic protocol members', **{'launcher.players': 16})

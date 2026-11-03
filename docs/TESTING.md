@@ -144,6 +144,7 @@ apply 80 ms latency, 30 ms jitter and 3% loss; this is one simulated condition.
 | Save/reconnect | Client/host crash, resume, network cut, subsequent level change | Saved identity, HP/position and world state |
 | Instant-save script tasks | `tools/qa_save_scripts.sh`: save and resume level 2 checkpoint 7 with two games | Native attack task functions retain a global resolver name and are functions after loading on both peers; `MUTANT=unresolved` removes that name and must fail |
 | Menus/settings | Options (Session, Co-op rules, Players and interface, Voice and sound, Controls), bindings, presets, conflicts, persistence, launcher (its Settings sections: an Interface switch and a sound level), the emote wheel switched off and on | In-game reads, settings files (coop.ini, settings.lua), the wheel playing nothing while off (mutant ignoring the switches fails) and screenshot evidence |
+| Join list | `tools/qa_join_list.sh`: the joiner has no address; the host's lobby appears in Games near you, a click joins it, the host becomes a recent host, a pasted invite code joins again, Rejoin shows on Play, a clipboard invite is offered once | The joiner's and the host's launcher state dumps (rows, recents, lobby, players); the scan's mutants are game-free in `launcher-join` |
 | Lobby | The launcher's lobby (`tools/qa_lobby.sh`): the host opens it, two clients join over UDP and are listed, Ready shows on the host, Start counts down on every launcher, then all three games start and connect | Launcher logs and screenshots; `MUTANT=nostart` (the host never starts) must fail the start checks |
 | First enemy | Level 1's sign, glass and Doganboy played for real (`tools/qa_sign.sh`, `SNIPER=<n>` picks who fires): a native sniper round on the sign, the glass in every game, the dog targeting and hurting each player, every player's hits lowering the one host hp, the kill running OnDie on the clients and `dr1_02` opening for everyone | Logs and Lua reads in all three games; a client that never ran the dog's OnDie leaves the door shut and fails; the dog's target is read from the host's state dump and must be each player in turn, and only its direct hits count against a client |
 | Shared co-op keys and player list | `tools/test_coop_keys.py` (the key table block of `lua/coop_dev.lua` run with Lua 3.1: defaults, reserved keys, migration of saved Custom bindings, guide lines, join/leave notices), `tools/test_plist.sh` (`plist.c` against a fake window, mouse, voice and revive state), watch-key cases in `revive-core`; live `tools/qa_coopkeys.sh` (two games): hold Tab, mute/volume clicks, V and the middle mouse, the side button and B sending voice, `[` `]` and Watch out of the fight, no Tab on Modern open inventory | Rows, clicks, mute state and voice gain read from the bridge; frame counters; log lines of the revive state machine; 16 + 13 + 15 broken twins (custom key overwritten, release keeps the list open, held click repeats, hand-written guide keys...) must fail |
@@ -249,6 +250,17 @@ one-shot team wipe and solo fallback without launching MDK2.
 clipboard finder, probe v2, per-adapter broadcast candidates, result rows, the Tailscale status parser
 and the recent-hosts store, with sanitisers, fuzzing and 44 source mutants, plus the Windows adapter
 self-test on loopback fake hosts. See [DISCOVERY.md](DISCOVERY.md).
+
+`tools/test_launcher_join.py` (gate `launcher-join`) covers the launcher's Join side in
+`bridge/launcher_join.h`: the host answer to CPQ1 and CPQ2 with its rate limit, the scan's candidates on
+a model PC with two adapters, Tailscale and recent hosts, the sources line, row text and order, the
+failure wording, an invite's routes tried at once, the saved-addresses migration and the Rejoin shortcut,
+with sanitisers and 20 source mutants (among them: queries only to 255.255.255.255, which loses the
+second adapter's host). It also checks the wiring: both host listeners answer through `lj_host_reply`
+and the Join page has no typed address field. The live gate `join-list` (`tools/qa_join_list.sh`, two
+games) asserts from the launcher's state dump that the joiner, with no address configured, lists the host,
+joins from the list, remembers it, joins again from a pasted invite code (LAN route kept over a second
+one), sees Rejoin on Play and is offered a clipboard invite once.
 
 `tools/test_network.sh` also requires four broken epoch variants to fail: premature
 epoch adoption, applying spawns during a load, blocking a same-epoch reconnect,

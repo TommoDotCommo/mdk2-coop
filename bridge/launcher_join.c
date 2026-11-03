@@ -233,10 +233,12 @@ static void lj_scan_once(void)
     EnterCriticalSection(&lj_lock);
     recents = lj.recents; find_lan = lj.find_lan; find_ts = lj.find_tailscale; port = lj.port;
     play_only = !lj.shown && lj.play_shown;
-    if (!play_only) {
-        lj.src[LJ_SRC_LAN].state = find_lan ? LJ_S_LOOKING : LJ_S_OFF;
-        lj.src[LJ_SRC_TAILSCALE].state = find_ts ? LJ_S_LOOKING : LJ_S_OFF;
-        lj.src[LJ_SRC_RECENT].state = LJ_S_LOOKING;
+    if (!play_only) {   /* "looking" until a source's first answer; a refresh keeps its tick */
+        int k;
+        for (k = 0; k < LJ_SRC_STEAM; k++) {
+            int on = k == LJ_SRC_LAN ? find_lan : k == LJ_SRC_TAILSCALE ? find_ts : 1, st = lj.src[k].state;
+            lj.src[k].state = !on ? LJ_S_OFF : st == LJ_S_IDLE || st == LJ_S_OFF ? LJ_S_LOOKING : st;
+        }
     }
     lj.src[LJ_SRC_STEAM].state = LJ_S_INVITES;
     LeaveCriticalSection(&lj_lock);
@@ -355,6 +357,7 @@ static void lj_set_view(int full, int play)
 {
     lj_init();
     EnterCriticalSection(&lj_lock);
+    if (lj.shown && !full) memset(lj.src, 0, sizeof(lj.src));    /* shown again: every source looks again */
     lj.shown = full;
     lj.play_shown = play && !full;
     LeaveCriticalSection(&lj_lock);
@@ -545,6 +548,18 @@ static void lj_join_paste(void)
     default:
         break;
     }
+}
+
+/* ---- C5: started from the join page's "Open in launcher": the link goes into the paste box ---- */
+static int lj_take_link(const char *cmdline)
+{
+    char link[LJ_PASTE_MAX];
+    if (!lj_link_arg(cmdline, link, sizeof(link))) return 0;
+    snprintf(lju.paste, sizeof(lju.paste), "%s", link);
+    coop_recognise(lju.paste, strlen(lju.paste), LJ_GAME, &lju.rec);
+    cfg.mode = MODE_JOIN;
+    logmsg("launcher: started from an invite link (%s)", lju.rec.kind == CR_LINK ? "recognised" : "not recognised");
+    return 1;
 }
 
 /* ---- B8: the clipboard on launcher focus ---- */

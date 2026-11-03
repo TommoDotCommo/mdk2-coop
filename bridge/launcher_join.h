@@ -198,6 +198,28 @@ static inline const char *lj_routes_text(const struct ci_invite *v, char *out, s
     return out;
 }
 
+/* ---- C5: the join page's "Open in launcher" starts the game with <mod>-coop://<CODE> on its command line ---- */
+#define LJ_SCHEME "mdk2-coop://"
+/* The link on a command line, copied into out (cap bytes): from the scheme to the next space or quote, the
+ * scheme in lower case and without the trailing '/' a browser may add. Returns its length, 0 when there is
+ * none (or it does not fit). */
+static inline size_t lj_link_arg(const char *cmdline, char *out, size_t cap)
+{
+    size_t n = strlen(LJ_SCHEME), i, k;
+    if (cap) out[0] = 0;
+    for (i = 0; cmdline && cmdline[i]; i++) {
+        for (k = 0; k < n && cmdline[i + k] && ci_upper((unsigned char)cmdline[i + k]) == ci_upper((unsigned char)LJ_SCHEME[k]); k++) {}
+        if (k < n) continue;
+        for (k = i; cmdline[k] && cmdline[k] != ' ' && cmdline[k] != '"' && cmdline[k] != '\t'; k++) {}
+        if (k - i >= cap) return 0;
+        memcpy(out, cmdline + i, k - i); out[k - i] = 0;
+        for (k = 0; k < n; k++) out[k] = LJ_SCHEME[k];
+        for (k = strlen(out); k > n && out[k - 1] == '/'; k--) out[k - 1] = 0;
+        return k;
+    }
+    return 0;
+}
+
 /* ---- B4: recents ---- */
 static inline int lj_recent_route(int route, int previous)
 {

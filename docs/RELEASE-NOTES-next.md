@@ -56,3 +56,26 @@ co-op game from the pause menu says what happens: "The others keep playing" (cli
 
 New gates: `coop-keys` (key table, migration of saved bindings, guide lines, notices; with mutants), `player-list-core`
 (the list's state machine; with mutants), watch-key cases in `revive-core`; live: `shared-keys`.
+
+## Joining without typing an address
+
+- **Games near you.** *Join a friend* lists every host the launcher finds on each network this PC is on (Wi-Fi,
+  Ethernet, VPN adapters), on your Tailscale devices (Settings > Network > Find friends on Tailscale, on by default)
+  and among hosts you joined before: name, in lobby / in game / full, players, LAN / Tailscale / Recent, ping. A
+  host with another version is listed greyed with its version. The list refreshes every 5 s while it is shown;
+  nothing is sent while it is not. Pick a row and press **Join <name>**.
+- **One paste box** for an invite code, an invite link, a Steam lobby number, an address (with or without a port),
+  a computer or Tailscale name. It says what it recognised before you join. An invite tries all its routes at
+  once and keeps the best one that answers.
+- **Invite on the clipboard?** When the launcher comes to the front it offers "Fox's invite is on your clipboard.
+  Join?" (Join / Not now). The clipboard is read for that check only, never stored or sent.
+- **Recent hosts** replace Saved addresses: every host you join is remembered with the way that worked; rename,
+  pin, forget. Your saved addresses move there once, pinned. **Rejoin <name>** shows on Play when the last host is
+  online.
+- **Failures say who and what**, with Try again, Update (another version) or Send diagnostics.
+- The Host address and Port fields are gone from Join; the port is in **Settings > Network**, with the two
+  Find settings.
+- Steam friends are not listed yet: the launcher opens before Steam starts in the game. Steam invites and lobby
+  numbers still join.
+- Under the hood: the launcher lobby and the game answer the new CPQ2 probe next to CPQ1, at most 10 replies a
+  second per address. New gates: `launcher-join` (offline, 20 mutants), `join-list` (live, two games).

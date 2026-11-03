@@ -36,6 +36,10 @@ MUTANTS = {
     'migration-skipped': ('if (have_profiles && cd_recents_decode(out, profiles, nprofiles)) { *migrated = 1; return 1; }', ''),
     'rejoin-other-version': ('if (l->r[row].mismatch || lj_row_full(&l->r[row])) return 0;', 'if (lj_row_full(&l->r[row])) return 0;'),
     'rejoin-oldest': ('s->r[i].when > s->r[best].when', 's->r[i].when < s->r[best].when'),
+    'link-keeps-quote': ("cmdline[k] != ' ' && cmdline[k] != '\"'", "cmdline[k] != ' '"),
+    'link-overflow': ('if (k - i >= cap) return 0;', 'if (k - i >= cap) k = i + cap - 1;'),
+    'link-scheme-case': ('for (k = 0; k < n; k++) out[k] = LJ_SCHEME[k];', ''),
+    'link-trailing-slash': ("for (k = strlen(out); k > n && out[k - 1] == '/'; k--) out[k - 1] = 0;", 'k = strlen(out);'),
 }
 
 

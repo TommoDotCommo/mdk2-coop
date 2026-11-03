@@ -42,7 +42,7 @@ for i in 1 2; do
     done
 done
 setini 2 net peer_host ""                      # nothing typed: the joiner has no address at all
-check "joiner has no host address configured" bash -c "! grep -qE '^peer_host=.+' '$(dir 2)/coop/coop.ini'"
+check "joiner has no host address configured" bash -c "! tr -d '\\r' < '$(dir 2)/coop/coop.ini' | grep -qE '^peer_host=.+'"
 mdk_kill; sleep 2
 : > "$MDK2_PIDS"
 for i in 1 2; do mdk_start "$i" >> "$MDK2_PIDS"; sleep 2; done
@@ -56,7 +56,7 @@ check "join list, list join, recents, invite join, rejoin, clipboard (launcher s
         --output "$out/live" --port "$MDK2_PORT" --version "$live_version"
 mdk_crash_scan
 check "joiner remembered the host by itself"   wait_log 2 "^join: remembered Hosty \(lan\)" 1
-check "no clipboard text in the log"           bash -c "! grep -q 'tommodotcommo.github.io' '$(mdk_log 2)'"
+check "no clipboard text in the log"           bash -c "! grep -q 'coop-mod-kit/join' '$(mdk_log 2)'"
 
 for i in 1 2; do cp "$(mdk_log "$i")" "$out/game$i.log"; done
 mdk_kill

@@ -47,6 +47,7 @@ static void lobby_page(void) {if(click) lob_leave();}
 static void page_play(void) {}
 static void lj_page_recents(void) {}
 static void lj_set_view(int full,int play) {}
+static struct {int offer;} lju;
 static void lj_rejoin_button(int x,int y,int w) {}
 static void page_saves(void) {}
 static void page_settings(void) {}

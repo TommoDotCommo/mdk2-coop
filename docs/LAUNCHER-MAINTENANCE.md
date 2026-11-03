@@ -212,26 +212,25 @@ If Defender or SmartScreen flags a release (Setup.exe, the zip or `dinput8.dll`)
 6. Other vendors have their own forms (VirusTotal lists who flags a file: submit to each flagging vendor through its
    "report a false positive" page).
 
-## 3. Saved-IP profiles
+## 3. Join list and recent hosts
 
-`bridge/launcher_profiles.h` and `bridge/launcher_profiles_win.h` manage connection profiles:
-- Profiles store name, host/IP, port, notes, and last-used timestamp (`struct lp_profile`).
-- Up to 32 profiles stored in `coop/profiles.tsv` via transactional encode/decode (`lp_encode`, `lp_decode`).
-- Supports automatic v0-to-v1 format migration and tab-separated export/import (`profiles-export.tsv`,
-  `profiles-import.tsv`).
-- Background UDP probing (`lp_probe`, 15-second interval, 1200ms timeout) queries server status
-  using fixed-width binary packets (`CPQ1` query, `CPS1` response).
-- Connection status shown live in the UI without freezing: Checking, No answer (offline), Reachable,
-  In lobby, In game, Version mismatch, Full, alongside round-trip time (RTT in ms) and last-used time.
-- Selecting a profile enables one-click "Join" or "Host", automatically populating connection settings.
-- Profile addresses are kept private and never leaked or transmitted to third parties.
+`bridge/launcher_join.h` and `bridge/launcher_join.c` are the Join side (details in
+[DISCOVERY.md](DISCOVERY.md#in-the-mdk2-launcher)):
+- *Join a friend* lists hosts found on every adapter, on Tailscale and among recent hosts, refreshed every 5 s
+  while shown, by a worker thread; the window only reads its results under a short lock.
+- One paste box takes an invite code or link, a Steam lobby number, an address with or without a port, or a
+  host or Tailscale name. There are no Host address / Port fields; the port is in Settings > Network.
+- Recent hosts (`recents.tsv`, up to 32, pinned rows kept) replace the saved addresses: `profiles.tsv` is
+  migrated once on the first start and left in place. `bridge/launcher_profiles.h` stays for its CPQ1
+  compatibility tests; its Windows half and the export/import buttons are gone.
+- Both host listeners (launcher lobby, game) answer CPQ1 and CPQ2 through `lj_host_reply`, rate limited per source.
 
 ## 4. Persistent lobby session and page browsing
 
 `bridge/launcher_session.h` provides an independent session state machine:
 - Session states: `LS_OFF`, `LS_WAITING`, `LS_LOBBY`, `LS_COUNTDOWN`, `LS_LOST`, `LS_START`.
 - Joining or hosting creates a persistent session that remains active while the user navigates
-  freely between launcher tabs (Play, Saves, Settings, About, Profiles, Help).
+  freely between launcher tabs (Play, Saves, Settings, About, Recent hosts, Help).
 - On non-Play pages, a persistent bottom lobby bar displays current status (Hosting/Connected/Reconnecting),
   player count, speaking indicator, chat count, and Ready/Start/Leave buttons.
 - Host disappearance transitions clients to `LS_LOST`, retaining reconnection attempts while

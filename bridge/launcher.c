@@ -2072,9 +2072,10 @@ static void lob_poll(void)
             snprintf(lob.status, sizeof(lob.status), "Lost the host");
             changed = 1;
         } else if (!lob.connected && lob.hostaddr.sin_addr.s_addr != INADDR_NONE) {
+            /* F4: who and what; Leave lobby is the next step */
             snprintf(lob.status, sizeof(lob.status), now - lob.opened > 5000 ?
-                     "No answer from the host yet. Is it in its lobby, and is UDP %d open?" : "Looking for the host...",
-                     ntohs(lob.hostaddr.sin_port));
+                     "No answer from %.32s yet (UDP %d). Is it in its lobby? Leave and pick it again." : "Looking for %.32s...",
+                     lju.pending && lju.pending_name[0] ? lju.pending_name : cfg.host, ntohs(lob.hostaddr.sin_port));
         }
     }
     if (cfg.voice && (lob.host || lob.connected) && (lob.session.phase == LS_LOBBY || lob.session.phase == LS_COUNTDOWN)) {
@@ -2533,7 +2534,7 @@ static void render(void)
         return;
     }
     start_summary(line, sizeof(line));
-    if (line[0])
+    if (line[0] && !lju.offer)
         gdi_text(f_small, PX, LH - 118, C_ORANGE, line, DT_LEFT);
     if (page == PAGE_PLAY)
         lj_rejoin_button(PX, LH - 160, PW);      /* A4: the last host answers */
@@ -3033,7 +3034,7 @@ static void run(void)
 void launcher_run(void)
 {
     char test_ini[MAX_PATH];
-    int shift = GetAsyncKeyState(VK_SHIFT) < 0;
+    int shift = GetAsyncKeyState(VK_SHIFT) < 0, link;
 
     settings_read();
     snprintf(test_ini, MAX_PATH, "%s\\coop.ini", coop_dir);
@@ -3048,7 +3049,8 @@ void launcher_run(void)
         logmsg("launcher: skipped, couch game");
         return;
     }
-    if (!cfg.show && !(shift && !headless)) {
+    link = lj_take_link(GetCommandLineA());     /* mdk2-coop://<CODE>: Join, the invite in the paste box */
+    if (!cfg.show && !(shift && !headless) && !link) {
         logmsg("launcher: off ([launcher] show=0; hold Shift at start to show it)");
         return;
     }

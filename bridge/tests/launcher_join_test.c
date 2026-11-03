@@ -233,6 +233,24 @@ int main(void)
         CHECK(!lj_rejoin_label(&l, &r, 0, line, sizeof(line)));
     }
 
+    /* 10. C5: the handler link on the game's command line, and the join page link, both recognised */
+    {
+        char link[300], text[CI_CODE_MAX];
+        struct cr_result r;
+        struct ci_invite v;
+        memset(&v, 0, sizeof(v));
+        v.port = 27932; v.n = 1; v.route[0].kind = CI_LAN; v.route[0].ip[0] = 127; v.route[0].ip[3] = 1; v.secret = 7;
+        CHECK(ci_encode(&v, "MDK2", text, sizeof(text)) > 0);
+        snprintf(line, sizeof(line), "\"C:\\Games\\MDK2\\mdk2hd.exe\" \"MDK2-Coop://%s/\" -x", text);
+        CHECK(lj_link_arg(line, link, sizeof(link)) && !strncmp(link, "mdk2-coop://", 12) && strstr(link, text) && !strchr(link, '"'));
+        CHECK(coop_recognise(link, strlen(link), LJ_GAME, &r) == CR_LINK && r.invite.port == 27932 && r.invite.secret == 7);
+        CHECK(!lj_link_arg("mdk2hd.exe +connect_lobby 1234", link, sizeof(link)) && !link[0]);
+        CHECK(!lj_link_arg("mdk2hd.exe mdk2-coop:/x", link, sizeof(link)));
+        CHECK(!lj_link_arg("x mdk2-coop://AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", link, 16));
+        snprintf(link, sizeof(link), "https://tommodotcommo.github.io/coop-mod-kit/join/#%s", text);
+        CHECK(coop_recognise(link, strlen(link), LJ_GAME, &r) == CR_LINK && r.invite.port == 27932);
+    }
+
     if (failures) { printf("%d failures\n", failures); return 1; }
     puts("PASS: host answers, join-list candidates (two adapters, Tailscale, recents), sources, rows, order, failures, invite routes, recents migration, rejoin");
     return 0;
