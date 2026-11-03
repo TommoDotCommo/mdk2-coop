@@ -866,7 +866,7 @@ static void draw_emote_wheel(int w, int h)
     box(cx - 2, cy - rad * 0.35f, 4, rad * 0.7f, h, 1.0f, 1.0f, 1.0f, 0.06f);
     box(cx - rad * 0.35f, cy - 2, rad * 0.7f, 4, h, 1.0f, 1.0f, 1.0f, 0.06f);
     box(cx + vx * rad * 0.6f - dot * 0.5f, cy + vy * rad * 0.6f - dot * 0.5f, dot, dot, h, 1.0f, 0.85f, 0.3f, 0.95f);
-    mid = sel >= 0 ? "Let go to choose" : stay;
+    mid = sel >= 0 ? (input_pad_last() ? "Let go of View to choose" : "Let go to choose") : stay;
     text(cx - text_width(mid) * 0.5f, cy + rad + font_h * 2.4f, h, mid, 0.9f, 0.9f, 0.9f);
 }
 
@@ -1286,6 +1286,7 @@ void hud_frame(HDC dc)
     draw_movie_box(w, h);
     draw_status(w, h);
     ctrlview_draw(w, h);
+    chat_osk_draw(w, h);
     plist_draw(w, h);
     guide_draw(w, h);
     fsel = 0;

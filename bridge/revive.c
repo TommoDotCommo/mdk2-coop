@@ -411,7 +411,9 @@ static void reviver_frame(double now)
     reviving = -1;
     snprintf(line, sizeof(line), "%s is down", player_name(who));
     if (nd <= REVIVE_RANGE) {
-        hud_status(line, "Hold R to revive", -1.0f);
+        char l2[64];
+        snprintf(l2, sizeof(l2), "Hold %s to revive", guide_name(GN_REVIVE));
+        hud_status(line, l2, -1.0f);
     } else {
         char l2[64];
         snprintf(l2, sizeof(l2), "%.0f away: get next to them to revive", nd);

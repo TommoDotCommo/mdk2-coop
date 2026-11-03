@@ -264,6 +264,20 @@ int steam_invite(void)
     return 1;
 }
 
+/* Steam's floating keyboard (Big Picture, Steam Deck) over the text field at x, y, w x h of the window: it types
+ * into the focused window as a keyboard does, so the chat line takes it like any key. 0 when Steam cannot show
+ * it (not connected, not in Big Picture or on a Deck): the caller draws its own keyboard then. */
+int steam_text_input(int x, int y, int w, int h)
+{
+    int ok;
+
+    if (!initialized || !utils)
+        return 0;
+    ok = SMETHOD(utils, UT_FLOATING_KEYBOARD, bool, int, int, int, int, int)(utils, 0 /* single line */, x, y, w, h);
+    logmsg("steam: floating keyboard %s", ok ? "shown" : "not available");
+    return ok;
+}
+
 static void __thiscall callback_run(struct steam_callback *callback, void *data)
 {
     if (callback->id == CB_JOIN) {

@@ -354,6 +354,7 @@ int steam_host_lobby(void);
 int steam_join_lobby(const char *id);
 int steam_leave_lobby(void);
 int steam_invite(void);
+int steam_text_input(int x, int y, int w, int h);    /* Steam's floating keyboard; 0: not available */
 const char *steam_status(void);
 const char *steam_lobby_id(void);
 
@@ -434,6 +435,8 @@ int hud_text_w(const char *s);
 void hud_text(float x, float y, int h, const char *s, float r, float g, float b);
 void hud_box(float x, float y, float w, float bh, int h, float r, float g, float b, float a);
 int ctrlview_on(void);
+enum { GN_REVIVE, GN_VOICE, GN_EMOTE, GN_CHAR, GN_SKIP, GN_LIST, GN_COUNT };
+const char *guide_name(int which);          /* ctrlview.c: a co-op key's text, the pad's after pad input */
 const char *guide_list_key(void);           /* ctrlview.c: the player list key's text, from the bindings */
 void hud_slot_colour(int slot, float *c);
 const char *hud_hero_name(int type);
@@ -465,6 +468,9 @@ int chat_line(int i, int *slot, const char **text, double *age_ms);
 int ping_get(int slot, float *pos, double *age_ms);
 float ping_life_left(double age_ms);
 void chat_lua_init(void);
+void chat_say(const char *text);            /* send a line as this player (the quick chat wheel) */
+void chat_osk_draw(int w, int h);           /* the on-screen keyboard of a line opened from the pad */
+int chat_pad_keyboard(void);                /* 0 none, 1 Steam's floating keyboard, 2 ours */
 
 /* ---- frame.c ---- */
 
@@ -502,6 +508,10 @@ extern int test_journal;      /* [test] journal=1: record the player's session f
 extern int couch_active;
 int input_couch(int *slot, int *count);
 void input_pad_frame(void);
+int input_pad_last(void);                       /* the last input was the pad: hints show its buttons */
+unsigned input_pad_buttons(unsigned *edge);     /* the pad's buttons (PAD_*), and those pressed this frame */
+int input_pad_guide(void);                      /* View + Y: the quick guide */
+int input_pad_chat(void);                       /* View + D-pad down asked for the chat line (once) */
 void input_init(void);
 void input_wrap_dinput(void *di);
 void input_press(int code, int hold_ms);

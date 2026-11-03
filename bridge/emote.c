@@ -37,11 +37,13 @@ static int hp_at_start;
 /* ---- the wheels: hold a key, move the mouse toward a slot, let go to choose it. Two of them, never
  * both at once: the emote wheel (letting go in the middle stops the emote that is playing) and the
  * character wheel (letting go in the middle changes nothing; a pick is handed to Lua, coop_char_pick).
- * The mouse is held back from the game while one is open. ---- */
+ * A third, the quick chat wheel, is on the pad only (View + RB, pad.h): a chosen line is said in chat, and it
+ * works down or out of the fight too. On the pad the right stick steers (it is the mouse) and letting go of
+ * View chooses. The mouse is held back from the game while one is open. ---- */
 #define MAX_SLOTS   8
 #define WHEEL_RANGE 90.0f           /* mouse counts from the middle to the rim */
 #define WHEEL_DEAD  0.35f           /* inside this fraction of the range: no slot */
-enum { W_EMOTE, W_CHAR, W_COUNT };
+enum { W_EMOTE, W_CHAR, W_QUICK, W_COUNT };
 static struct wheel {
     int key;                        /* GK_ */
     struct { int id; char label[24]; } slots[MAX_SLOTS];
@@ -50,6 +52,9 @@ static struct wheel {
 } wheels[W_COUNT] = {
     { .key = GK_EMOTE },
     { .key = GK_CHAR },
+    /* the standard's five lines (K6); Lua sends the same from its table (coop.quickchat, coop_quick_wheel) */
+    { .key = GK_QUICK, .nslots = 5, .slots = { { 0, "Ready" }, { 1, "Wait for me" }, { 2, "Over here" },
+                                               { 3, "Come look at this" }, { 4, "Thanks" } } },
 };
 static int char_pick = -1;          /* the character wheel's choice, until Lua takes it */
 #define EMOTE_ALL   1000            /* an emote wheel slot that opens the list of every animation (Lua's) */
@@ -85,7 +90,7 @@ int emote_wheel_info(int *n, int *sel, float *vx, float *vy, const char **labels
     *vy = w->vy / WHEEL_RANGE;
     for (i = 0; i < w->nslots; i++)
         labels[i] = w->slots[i].label;
-    *mid = w == &wheels[W_EMOTE] ? "Let go to stop" : "Let go to stay";
+    *mid = w == &wheels[W_EMOTE] ? "Let go to stop" : w == &wheels[W_QUICK] ? "Let go to say nothing" : "Let go to stay";
     return 1;
 }
 
@@ -103,6 +108,11 @@ static void wheel_close(struct wheel *w, int play)
     if (w == &wheels[W_CHAR]) {
         if (sel >= 0)
             char_pick = w->slots[sel].id;
+    } else if (w == &wheels[W_QUICK]) {
+        if (sel >= 0) {
+            logmsg("quick chat: %s", w->slots[sel].label);
+            chat_say(w->slots[sel].label);
+        }
     } else if (sel >= 0 && w->slots[sel].id == EMOTE_ALL) {
         all_pick = 1;
     } else if (sel >= 0) {
@@ -115,8 +125,9 @@ static void wheel_close(struct wheel *w, int play)
 /* Every frame: open, steer and close one wheel */
 static void wheel_frame(struct wheel *w)
 {
-    int down = w->nslots > 0 && gamekey_down(w->key) && local_player && gob_alive(local_player) &&
-               revive_life() == LIFE_ALIVE && !plist_on() && (w->on || !wheel_open_one());
+    int down = w->nslots > 0 && gamekey_down(w->key) && !plist_on() && (w->on || !wheel_open_one()) &&
+               (w == &wheels[W_QUICK] ? have_remote :
+                local_player && gob_alive(local_player) && revive_life() == LIFE_ALIVE);
     long dx, dy;
     float len;
 
@@ -311,6 +322,21 @@ static void l_coop_char_wheel(void)
     set_slots(&wheels[W_CHAR]);
 }
 
+/* coop_quick_wheel(id1, label1, ...): the quick chat wheel's lines */
+static void l_coop_quick_wheel(void)
+{
+    set_slots(&wheels[W_QUICK]);
+}
+
+/* coop_wheel_state() -> which wheel is open (0 none, 1 emote, 2 character, 3 quick chat) and its selected slot */
+static void l_coop_wheel_state(void)
+{
+    struct wheel *w = wheel_open_one();
+
+    lua_pushnumber(w ? (double)(w - wheels + 1) : 0);
+    lua_pushnumber(w ? (double)w->sel : -1);
+}
+
 /* coop_char_pick() -> the type picked on the character wheel since the last call, or nil */
 static void l_coop_char_pick(void)
 {
@@ -346,6 +372,8 @@ void emote_lua_init(void)
     tolua_function(NULL, "coop_anim_has", l_coop_anim_has);
     tolua_function(NULL, "coop_emote_wheel", l_coop_emote_wheel);
     tolua_function(NULL, "coop_char_wheel", l_coop_char_wheel);
+    tolua_function(NULL, "coop_quick_wheel", l_coop_quick_wheel);
+    tolua_function(NULL, "coop_wheel_state", l_coop_wheel_state);
     tolua_function(NULL, "coop_char_pick", l_coop_char_pick);
     tolua_function(NULL, "coop_emote_keys", l_coop_emote_keys);
 }

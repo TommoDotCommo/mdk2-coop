@@ -55,6 +55,9 @@ void input_replay(const struct route_input *input)
     }
 }
 
+static int pad_down(int code);
+static void set_pad_last(int on);
+
 /* the newest key, mouse button or pad button pressed (a pad presses key codes), for coop_last_press */
 static BYTE press_state[(CODES + 7) / 8];
 static int last_press_code = -1;
@@ -70,6 +73,8 @@ static void capture_code(int code, int down)
     if (down && !(press_state[code / 8] & mask)) {
         last_press_code = code;
         last_press_tick = GetTickCount();
+        if (!pad_down(code))
+            set_pad_last(0);            /* a key or mouse button of its own: hints show keys again */
     }
     if (down) press_state[code / 8] |= mask;
     else press_state[code / 8] &= ~mask;
@@ -99,6 +104,45 @@ static float pad_look = 700;      /* [pad] look: counts per second at full stick
 static long padm[3];
 static int pad_index = -1;
 static unsigned pad_buttons;
+static struct padlayer layer;               /* the co-op layer on View (pad.h) */
+static struct padlayer_out layer_out;
+static int layer_chat;                      /* View + D-pad down asked for the chat line, until chat.c takes it */
+static int pad_talk = 2;                    /* [voice] pad_talk: push to talk on 0 none, 1 the left, 2 the right stick click */
+static int pad_last;                        /* the last input was the pad (hints show its buttons, voice opens the mic) */
+static unsigned pad_edge;                   /* buttons that went down this frame (the on-screen keyboard) */
+
+static void set_pad_last(int on)
+{
+    if (on != pad_last)
+        logmsg("input: %s", on ? "pad" : "keys");
+    pad_last = on;
+}
+
+int input_pad_last(void)
+{
+    return pad_last;
+}
+
+/* the pad's buttons now, and those that went down this frame */
+unsigned input_pad_buttons(unsigned *edge)
+{
+    if (edge)
+        *edge = pad_edge;
+    return pad_buttons;
+}
+
+int input_pad_guide(void)
+{
+    return layer_out.guide;
+}
+
+int input_pad_chat(void)
+{
+    int c = layer_chat;
+
+    layer_chat = 0;
+    return c;
+}
 
 static int held(int code)
 {
@@ -122,6 +166,7 @@ static struct { int code[2], vk[2]; } gamekeys[GK_COUNT] = {
     { { 15, -1 }, { VK_TAB, 0 } },
     { { 26, -1 }, { VK_OEM_4, 0 } },
     { { 27, -1 }, { VK_OEM_6, 0 } },
+    { { -1, -1 }, { 0, 0 } },              /* GK_QUICK: the quick chat wheel, on the pad only (View + RB) */
 };
 
 /* the player list (plist.c) takes the left button too: a click there is not a shot */
@@ -157,6 +202,8 @@ int gamekey_down(int which)
 
     if (chat_blocks_keys())
         return 0;
+    if ((layer_out.gk >> which) & 1)
+        return 1;                   /* the pad's co-op layer (View) */
     for (i = 0; i < 2; i++)
         if (gamekeys[which].code[i] >= 0 && input_down(gamekeys[which].code[i], gamekeys[which].vk[i]))
             return 1;
@@ -179,6 +226,8 @@ int input_down(int code, int vk)
         return 0;
     if (synth)
         return held(code);
+    if (pad_down(code))
+        return 1;                   /* the pad presses key codes the real keyboard does not have down */
     GetWindowThreadProcessId(GetForegroundWindow(), &pid);
     return pid == GetCurrentProcessId() && (GetAsyncKeyState(vk) & 0x8000);
 }
@@ -237,11 +286,34 @@ void input_pad_frame(void)
     }
     if (!ok) {
         memset(pad_keys, 0, sizeof(pad_keys));
-        pad_buttons = 0;
+        memset(&raw, 0, sizeof(raw));
+        padlayer_step(&layer, 0, now, &layer_out);     /* a pad that went away lets go of View too */
+        layer_chat = 0;
+        pad_buttons = pad_edge = 0;
         return;
     }
-    pad_map(&raw, pad_buttons, dt, couch_active ? couch.look : pad_look, &out);
+    if (pad_active(&raw, pad_buttons))
+        set_pad_last(1);
+    pad_frame(&layer, &raw, pad_buttons, dt, couch_active ? couch.look : pad_look, now, &out, &layer_out);
+    if (layer_out.chat)
+        layer_chat = 1;
+    if ((pad_talk == 1 && (raw.buttons & PAD_LS)) || (pad_talk == 2 && (raw.buttons & PAD_RS)))
+        layer_out.gk |= 1u << GK_VOICE;             /* hold the stick click to talk */
+    {
+        /* for the on-screen keyboard (chat.c): the left stick's directions count as D-pad presses */
+        static unsigned nav_was;
+        unsigned nav = raw.buttons;
+
+        if (raw.ly > 16000) nav |= PAD_UP;
+        if (raw.ly < -16000) nav |= PAD_DOWN;
+        if (raw.lx < -16000) nav |= PAD_LEFT;
+        if (raw.lx > 16000) nav |= PAD_RIGHT;
+        pad_edge = nav & ~nav_was;
+        nav_was = nav;
+    }
     pad_buttons = raw.buttons;
+    if (chat_is_open())
+        memset(&out, 0, sizeof(out));               /* typing: the pad is the keyboard's (chat.c), not the game's */
     memcpy(pad_keys, out.keys, sizeof(pad_keys));
     for (i = 0; i < 3; i++) {
         if (synth)
@@ -862,6 +934,7 @@ void input_init(void)
         couch.look = (float)atof(look);
     }
     pad_enabled = GetPrivateProfileIntA("pad", "enabled", 1, ini) != 0;
+    pad_talk = GetPrivateProfileIntA("voice", "pad_talk", 2, ini);
     {
         char look[32];
         GetPrivateProfileStringA("pad", "look", "700", look, sizeof(look), ini);
@@ -925,7 +998,7 @@ int input_lua_key(int k, int *code, int *vk)
 }
 
 /* coop_game_keys(which, key1, key2): which is GK_CHAT 0, GK_PING 1, GK_REVIVE 2, GK_VOICE 3, GK_EMOTE 4, GK_CHAR 5,
- * GK_LIST 6, GK_WATCHP 7 or GK_WATCHN 8; keys
+ * GK_LIST 6, GK_WATCHP 7, GK_WATCHN 8 or GK_QUICK 9; keys
  * are Lua's (input_lua_key; the wheel cannot be used) */
 static void l_coop_game_keys(void)
 {
@@ -962,8 +1035,27 @@ static void l_coop_mouse(void)
     replay_input.mouse[1] += (b && lua_isnumber(b)) ? (LONG)lua_getnumber(b) : 0;
 }
 
+/* coop_pad_state() -> last input was the pad (1/0), the layer's co-op keys (1 << GK_*), View held (1/0) */
+static void l_coop_pad_state(void)
+{
+    lua_pushnumber(pad_last);
+    lua_pushnumber((double)layer_out.gk);
+    lua_pushnumber(layer.down);
+}
+
+/* coop_pad_talk(n): push to talk on 0 no stick click, 1 the left, 2 the right ([voice] pad_talk) */
+static void l_coop_pad_talk(void)
+{
+    unsigned int o = lua_getparam(1);
+
+    if (o && lua_isnumber(o))
+        pad_talk = (int)lua_getnumber(o);
+}
+
 void input_lua_init(void)
 {
+    tolua_function(NULL, "coop_pad_state", l_coop_pad_state);
+    tolua_function(NULL, "coop_pad_talk", l_coop_pad_talk);
     tolua_function(NULL, "coop_mouse", l_coop_mouse);
     tolua_function(NULL, "coop_game_keys", l_coop_game_keys);
     tolua_function(NULL, "coop_last_press", l_coop_last_press);

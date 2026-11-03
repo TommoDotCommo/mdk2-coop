@@ -13,6 +13,11 @@
  * into the level). EV_PING carries the point; everyone sees a marker with the sender's name and
  * the distance for PING_LIFE ms. One ping per player.
  *
+ * On a pad, View + D-pad down opens the line with a keyboard: Steam's floating one when Steam can show it (it
+ * types like a keyboard, into the hook below), else ours, drawn over the picture (osk_*): D-pad / left stick
+ * moves, A types, X deletes, Y is a space, LB shift, Menu (Start) sends, B cancels. Those two work with Steam's
+ * keyboard too. The quick chat wheel (emote.c, View + RB) sends its lines with chat_say.
+ *
  * Both are drawn by hud.c from the accessors here. Lua can drive them for tests: coop_say,
  * coop_ping, coop_chat_dump.
  */
@@ -20,6 +25,7 @@
 #include <string.h>
 #include <math.h>
 #include "bridge.h"
+#include "pad.h"
 
 /* the keys (T, V or the middle mouse button) are set on the Controls page: input.c gamekey_down */
 
@@ -52,6 +58,12 @@ static int input_len;
 static double opened_at, suppress_until, last_ping_at;
 static int was_chat_down, was_ping_down;
 static HHOOK msg_hook_handle;
+static int pad_line;                /* the line was opened from the pad: Menu sends, B cancels */
+static int osk_on, osk_row, osk_col, osk_shift;
+#define OSK_ROWS    5
+#define OSK_COLS    10
+static const char *const osk_keys[OSK_ROWS - 1] = { "1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?" };
+static const char *const osk_last[4] = { "Shift", "Space", "Delete", "Send" };    /* the bottom row */
 
 /* ---- messages ---- */
 
@@ -113,6 +125,14 @@ int chat_line(int i, int *slot, const char **text, double *age_ms)
     *text = lines[k].text;
     *age_ms = now_ms() - lines[k].at;
     return 1;
+}
+
+static void send_chat(const char *text);
+
+/* the quick chat wheel's lines (emote.c) */
+void chat_say(const char *text)
+{
+    send_chat(text);
 }
 
 static void send_chat(const char *text)
@@ -255,6 +275,7 @@ static void close_line(void)
     if (open_line)
         send_typing(0);
     open_line = 0;
+    pad_line = osk_on = 0;
     suppress_until = now_ms() + 250;    /* the key that closed it must not reach the game either */
 }
 
@@ -266,6 +287,11 @@ int chat_is_open(void)
 const char *chat_input(void)
 {
     return input;
+}
+
+int chat_pad_keyboard(void)
+{
+    return open_line && pad_line ? (osk_on ? 2 : 1) : 0;
 }
 
 int chat_blocks_keys(void)
@@ -314,6 +340,142 @@ static LRESULT CALLBACK msg_hook(int code, WPARAM wp, LPARAM lp)
     return CallNextHookEx(msg_hook_handle, code, wp, lp);
 }
 
+/* ---- the pad: View + D-pad down ---- */
+
+static void add_char(char c)
+{
+    if (input_len < CHAT_MAX) {
+        input[input_len++] = c;
+        input[input_len] = 0;
+    }
+}
+
+static void pad_open(void)
+{
+    RECT r = { 0, 0, 1280, 720 };
+    HWND wnd = GetActiveWindow();
+
+    open_line = 1;
+    input[0] = 0;
+    input_len = 0;
+    opened_at = now_ms();
+    send_typing(1);
+    pad_line = 1;
+    if (wnd)
+        GetClientRect(wnd, &r);
+    /* the line sits at the bottom left (hud.c draw_chat): Steam puts its keyboard where it does not cover it */
+    osk_on = !steam_text_input(0, r.bottom - r.bottom / 10, r.right * 2 / 5, r.bottom / 20);
+    osk_row = 1;
+    osk_col = osk_shift = 0;
+    logmsg("chat: opened from the pad (%s keyboard)", osk_on ? "our" : "Steam's");
+}
+
+static void osk_press(void)
+{
+    if (osk_row < OSK_ROWS - 1) {
+        char c = osk_keys[osk_row][osk_col];
+
+        add_char(osk_shift && c >= 'a' && c <= 'z' ? (char)(c - 32) : c);
+        osk_shift = 0;
+    } else if (osk_col == 0) {
+        osk_shift = !osk_shift;
+    } else if (osk_col == 1) {
+        add_char(' ');
+    } else if (osk_col == 2) {
+        if (input_len)
+            input[--input_len] = 0;
+    } else {
+        send_chat(input);
+        close_line();
+    }
+}
+
+/* every frame while a pad-opened line is up */
+static void pad_typing(void)
+{
+    unsigned edge;
+    int cols, was_bottom;
+
+    input_pad_buttons(&edge);
+    if (edge & PAD_START) {
+        send_chat(input);
+        close_line();
+        return;
+    }
+    if (edge & PAD_B) {
+        close_line();
+        return;
+    }
+    if (!osk_on)
+        return;
+    /* the D-pad, and the left stick (input.c gives its directions as D-pad presses) */
+    was_bottom = osk_row == OSK_ROWS - 1;
+    cols = was_bottom ? 4 : OSK_COLS;
+    if (edge & PAD_UP)    osk_row = (osk_row + OSK_ROWS - 1) % OSK_ROWS;
+    if (edge & PAD_DOWN)  osk_row = (osk_row + 1) % OSK_ROWS;
+    if (edge & PAD_LEFT)  osk_col = (osk_col + cols - 1) % cols;
+    if (edge & PAD_RIGHT) osk_col = (osk_col + 1) % cols;
+    if (!was_bottom && osk_row == OSK_ROWS - 1)
+        osk_col = osk_col * 4 / OSK_COLS;           /* onto the wide bottom row: about the same place */
+    else if (was_bottom && osk_row != OSK_ROWS - 1)
+        osk_col = osk_col * OSK_COLS / 4 + 1;
+    if (edge & PAD_A)  osk_press();
+    if (!open_line)
+        return;
+    if (edge & PAD_X) {
+        if (input_len)
+            input[--input_len] = 0;
+    }
+    if (edge & PAD_Y)  add_char(' ');
+    if (edge & PAD_LB) osk_shift = !osk_shift;
+}
+
+/* ours: a grid over the lower middle of the picture, the selected key lit */
+void chat_osk_draw(int w, int h)
+{
+    float kw, kh, x0, y0, gap;
+    int r, c;
+    char buf[8];
+
+    if (!open_line || !osk_on)
+        return;
+    kw = w * 0.042f;
+    kh = h * 0.06f;
+    gap = kw * 0.12f;
+    x0 = (w - (kw + gap) * OSK_COLS) * 0.5f;
+    y0 = h * 0.52f;
+    hud_box(x0 - gap * 3, y0 - gap * 3, (kw + gap) * OSK_COLS + gap * 5, (kh + gap) * OSK_ROWS + gap * 5 + hud_font_h() * 1.4f,
+            h, 0.0f, 0.0f, 0.0f, 0.7f);
+    for (r = 0; r < OSK_ROWS; r++) {
+        int cols = r == OSK_ROWS - 1 ? 4 : OSK_COLS;
+        float cw = r == OSK_ROWS - 1 ? ((kw + gap) * OSK_COLS) / 4 - gap : kw;
+
+        for (c = 0; c < cols; c++) {
+            float x = x0 + c * (cw + gap), y = y0 + r * (kh + gap);
+            int on = r == osk_row && c == osk_col;
+            const char *label;
+
+            if (r < OSK_ROWS - 1) {
+                char ch = osk_keys[r][c];
+                buf[0] = osk_shift && ch >= 'a' && ch <= 'z' ? (char)(ch - 32) : ch;
+                buf[1] = 0;
+                label = buf;
+            } else {
+                label = osk_last[c];
+            }
+            hud_box(x, y, cw, kh, h, on ? 0.95f : 0.12f, on ? 0.75f : 0.14f, on ? 0.25f : 0.2f, 0.95f);
+            hud_text(x + (cw - hud_text_w(label)) * 0.5f, y + kh * 0.5f + hud_font_h() * 0.35f, h, label,
+                     on ? 0.05f : 0.9f, on ? 0.05f : 0.9f, on ? 0.05f : 0.9f);
+        }
+    }
+    {
+        const char *hint = "A type   X delete   Y space   LB shift   Menu send   B cancel";
+
+        hud_text((w - hud_text_w(hint)) * 0.5f, y0 + (kh + gap) * OSK_ROWS + hud_font_h() * 1.2f, h, hint,
+                 0.85f, 0.8f, 0.6f);
+    }
+}
+
 /* Per frame, from hud_frame, on the game's thread. `allowed`: in a level with the HUD up and
  * others connected. */
 void chat_frame(int allowed)
@@ -324,6 +486,10 @@ void chat_frame(int allowed)
         msg_hook_handle = SetWindowsHookExA(WH_GETMESSAGE, msg_hook, NULL, GetCurrentThreadId());
     if (open_line && !allowed)
         close_line();
+    if (input_pad_chat() && allowed && !open_line)
+        pad_open();
+    if (open_line && pad_line)
+        pad_typing();
     chat_down = allowed && !open_line && gamekey_down(GK_CHAT);
     ping_down = allowed && !open_line && gamekey_down(GK_PING);
     if (chat_down && !was_chat_down) {
