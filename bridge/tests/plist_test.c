@@ -55,6 +55,7 @@ void hud_slot_colour(int s, float *c) { c[0] = c[1] = c[2] = 1; }
 const char *hud_hero_name(int t) { return "Kurt"; }
 float hud_dist_to_slot(int s) { return 12.0f; }
 const char *guide_list_key(void) { return "Tab"; }
+int input_pad_last(void) { return 0; }
 int hud_font_h(void) { return 17; }
 int hud_text_w(const char *s) { return (int)strlen(s) * 10; }
 void hud_box(float x, float y, float w, float bh, int h, float r, float g, float b, float a) { boxes++; }

@@ -25,10 +25,21 @@ function coop_pad_keys() end
 function coop_guide_keys() end
 guide = {}
 nguide = 0
-function coop_guide_clear() guide = {}; nguide = 0 end
-function coop_guide_line(k, d) nguide = nguide + 1; guide[nguide] = { k, d } end
+function coop_guide_clear() guide = {}; nguide = 0; padlines = 0 end
+function coop_guide_line(k, d, p) nguide = nguide + 1; guide[nguide] = { k, d, p } end
 guide_names = nil
 function coop_guide_names(a, b, c, d, e, f) guide_names = { a, b, c, d, e, f } end
+-- the pad's co-op layer: tools/test_coop_keys.py fills padlayer from bridge/pad.c's table (pad_layer_lines)
+function coop_pad_layer(i)
+    local l = padlayer[i]
+    if (l) then return l[1], l[2], l[3] end
+    return nil
+end
+padlines = 0
+function coop_guide_padline(k, d) padlines = padlines + 1 end
+pad_names = nil
+function coop_guide_padnames(a, b, c, d, e, f) pad_names = { a, b, c, d, e, f } end
+function coop_pad_talk() end
 
 nfail = 0
 function check(name, ok)
@@ -174,6 +185,23 @@ while (i) do
     i, a = next(coop.actions, i)
 end
 check("every co-op action with a guide text has its line (" .. n .. ")", n >= 8)
+
+-- 5b. after pad input the guide shows the pad's buttons (K7), from the pad's one table (bridge/pad.c)
+coop.preset = "modern"
+reset(nil)
+coop.SyncGuideKeys()
+check("guide: the player list's pad buttons are Hold View", find_line("Hold Tab") and find_line("Hold Tab")[3] == "Hold View")
+check("guide: ping is a tap of View, chat View + D-pad down", find_line("V / Middle mouse")[3] == "Tap View" and find_line("T")[3] == "View + D-pad down")
+check("guide: the wheels on View + D-pad up and View + LB", find_line("Hold H + Mouse")[3] == "View + D-pad up" and find_line("Hold J + Mouse")[3] == "View + LB")
+check("guide: push to talk on the right stick click, revive Hold X, F1 View + Y", find_line("Hold B / Side mouse")[3] == "Hold right stick click" and find_line("Hold R")[3] == "Hold X" and find_line("Hold F1")[3] == "View + Y")
+check("guide: a pad-only quick chat line", find_line("-") and find_line("-")[3] == "View + RB")
+check("guide: F2 has no pad button", find_line("F2")[3] == "")
+check("guide: pad names for the sentences (revive X, list View)", pad_names and pad_names[1] == "Hold X" and pad_names[6] == "View")
+check("guide: the Gamepad section from the Controls page's rows (4 lines)", padlines == 4)
+ini["voice|pad_talk"] = "0"
+coop.SyncGuideKeys()
+check("guide: no pad push to talk when pad_talk is 0", find_line("Hold B / Side mouse")[3] == "")
+ini["voice|pad_talk"] = nil
 
 -- 6. the shared words
 check("one wording table", coop.words and coop.words.joined == "%s joined" and coop.words.left == "%s left" and

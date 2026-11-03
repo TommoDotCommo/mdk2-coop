@@ -26,11 +26,20 @@ def ensure_lua():
         subprocess.run(["bash", str(ROOT / "tools/test_lua31.sh")], check=True, stdout=subprocess.DEVNULL)
 
 
+def pad_layer_lua():
+    """bridge/pad.c's pad_layer_lines as a Lua table: the one table the guide and the Controls page read"""
+    src = (ROOT / "bridge/pad.c").read_text()
+    body = src[src.index("pad_layer_lines[] = {"):]
+    body = body[:body.index("};")]
+    rows = re.findall(r'\{\s*"([^"]*)",\s*"([^"]*)",\s*"([^"]*)"\s*\}', body)
+    return "padlayer = {\n" + "".join('  { "%s", "%s", "%s" },\n' % r for r in rows) + "}\n"
+
+
 def run(block, tmp):
     prog = tmp / "keys.lua"
     # the test file defines the stubs and "coop = {}" first; the block then fills coop
     head, tail = FIXTURE.split("nfail = 0", 1)
-    prog.write_text(head + "\n" + block + "\nnfail = 0" + tail)
+    prog.write_text(head + "\n" + pad_layer_lua() + block + "\nnfail = 0" + tail)
     return subprocess.run([str(LUA), str(prog)], capture_output=True, text=True, timeout=30)
 
 
@@ -52,6 +61,7 @@ MUTANTS = {
     "notice-left-silent": ("coop_notice(format(coop.words.left, coop.known[s]))", "coop.known[s] = coop.known[s]"),
     "notice-repeats": ("coop.known[s] = name\n                if", "if"),
     "wording-differs": ('joined = "%s joined"', 'joined = "%s has joined"'),
+    "guide-pad-missing": ("coop.GuideAdd(lines, t, a.guide, pt)", "coop.GuideAdd(lines, t, a.guide)"),
 }
 
 
