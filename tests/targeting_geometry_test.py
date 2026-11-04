@@ -125,6 +125,86 @@ class Rule(unittest.TestCase):
                 self.assertEqual(geo.main(['check', paths[0], str(Path(tmp) / 'missing.txt')]), 1)
 
 
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, s):
+        self.now += s
+
+
+def settled(module, reads, seconds=2.0):
+    """assert_separation_settled over a list of dump pairs; the last one repeats."""
+    clock = FakeClock()
+    calls = []
+
+    def read():
+        calls.append(1)
+        return reads[min(len(calls), len(reads)) - 1]
+    result = module.assert_separation_settled(read, seconds=seconds, interval=0.25, clock=clock, sleep=clock.sleep)
+    return result, len(calls)
+
+
+class Settled(unittest.TestCase):
+    """After a teleport the other game's puppet catches up over the network: the rule waits for the
+    views to agree, then judges; a view that never catches up, or players too close, still fail."""
+
+    def test_stale_view_that_catches_up_passes(self):
+        stale = pair(seen_by_client=(500.0, 0.0, 0.0))          # the client still sees the host where it was
+        (d, waited), calls = settled(geo, [stale, stale, pair()])
+        self.assertAlmostEqual(d, FAR)
+        self.assertEqual(calls, 3)
+        self.assertAlmostEqual(waited, 0.5)
+
+    def test_view_that_never_catches_up_fails(self):
+        stale = pair(seen_by_client=(500.0, 0.0, 0.0))
+        with self.assertRaisesRegex(geo.StaleView, 'sees player 1'):
+            settled(geo, [stale])
+
+    def test_too_close_fails_without_waiting(self):
+        with self.assertRaisesRegex(AssertionError, 'units from target'):
+            settled(geo, [pair((NEAR, 0, 0))])
+        try:
+            settled(geo, [pair((NEAR, 0, 0))])
+        except AssertionError as exc:
+            self.assertNotIsInstance(exc, geo.StaleView)
+
+    def test_close_after_the_views_agree_fails(self):
+        stale = pair((NEAR, 0, 0), seen_by_host=(FAR, 0, 0))     # looked far only through a stale view
+        with self.assertRaisesRegex(AssertionError, 'units from target'):
+            settled(geo, [stale, pair((NEAR, 0, 0))])
+
+    def test_mutants_fail(self):
+        original = (TOOLS / 'targeting_geometry.py').read_text()
+        mutants = {
+            'never waits': ('        except StaleView:\n            if clock() - start >= seconds:\n                raise',
+                            '        except StaleView:\n            raise'),
+            'gives up silently': ('            if clock() - start >= seconds:\n                raise',
+                                  '            if clock() - start >= seconds:\n                return 0.0, clock() - start'),
+            'stale view not told apart': ("raise StaleView(f'{label}: game {viewer}", "raise AssertionError(f'{label}: game {viewer}"),
+            'views not checked': ('if seen is not None and math.dist(seen, own) > PUPPET_TOLERANCE:', 'if False:'),
+        }
+        stale = pair(seen_by_client=(500.0, 0.0, 0.0))
+        for name, (old, new) in mutants.items():
+            self.assertIn(old, original, name)
+            namespace = {'__name__': 'targeting_geometry_mutant'}
+            exec(compile(original.replace(old, new, 1), 'mutant', 'exec'), namespace)
+            module = type('M', (), namespace)
+            # the battery: a view that catches up passes, one that never does fails
+            try:
+                settled(module, [stale, pair()])
+            except AssertionError:
+                continue                                    # killed
+            try:
+                settled(module, [stale])
+            except AssertionError:
+                self.fail(f'mutant survived: {name}')
+            # killed: the never-agreeing views passed
+
+
 class SourceMutants(unittest.TestCase):
     """Broken copies of the helper must fail the same battery, so the rule cannot be weakened unnoticed."""
 

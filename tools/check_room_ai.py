@@ -56,12 +56,15 @@ class RoomCheck:
 
     def far(self, label, target=2):
         """Geometry rule: the target is outside every splash and strike radius from the other player,
-        measured from both games' own player positions."""
-        rows = [targeting_geometry.parse_rows(self.state(p)) for p in (1, 2)]
-        distance = targeting_geometry.assert_separation(rows, target, label=label)
+        measured from both games' own player positions. A player was just moved: each game's view of the
+        other catches up over the network first (test games read commands every other frame, so the
+        dumps can come before the move has arrived), so stale views are read again for a few seconds."""
+        distance, waited = targeting_geometry.assert_separation_settled(
+            lambda: [targeting_geometry.parse_rows(self.state(p)) for p in (1, 2)], target, label=label)
         self.passed += 1
-        (self.out/'geometry.txt').open('a').write(f'{label}: {distance:.1f}\n')
-        print(f'PASS {label}: players are {distance:.1f} units apart (rule {targeting_geometry.MIN_SEPARATION:g})', flush=True)
+        (self.out/'geometry.txt').open('a').write(f'{label}: {distance:.1f} (views agreed after {waited:.2f} s)\n')
+        print(f'PASS {label}: players are {distance:.1f} units apart (rule {targeting_geometry.MIN_SEPARATION:g}), '
+              f'views agreed after {waited:.2f} s', flush=True)
 
     def host_away(self, client_at):
         """Put the host where it cannot be the target. MUTANT=near puts it beside the client instead,

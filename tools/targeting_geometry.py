@@ -26,6 +26,7 @@ import math
 import sys
 from pathlib import Path
 import re
+import time
 
 # Largest radius of area damage, or reach of a direct attack, in game units,
 # for what can hurt a player in the targeting tests, with where it comes from.
@@ -42,6 +43,16 @@ MIN_SEPARATION = AOE_FACTOR * LARGEST_RADIUS
 # One player's view of another (a puppet) may lag by interpolation; beyond this
 # the two views of the same player disagree and the separation is not trusted.
 PUPPET_TOLERANCE = 15.0
+
+
+class StaleView(AssertionError):
+    """One game's view of another player disagrees with that player's own game."""
+
+
+# How long a script waits, after moving players, for each game's view of the others to catch up
+# (the position travels over the network and through the puppet's smoothing) before the rule is
+# judged. A view still wrong after this is a failure.
+SETTLE_SECONDS = 10.0
 
 
 def parse(text):
@@ -127,7 +138,7 @@ def assert_separation(dumps, target=None, minimum=None, label='targeting test'):
         for n, (own, _) in at.items():
             seen = puppet_position(rows, n) if n != viewer else None
             if seen is not None and math.dist(seen, own) > PUPPET_TOLERANCE:
-                raise AssertionError(f'{label}: game {viewer} sees player {n} at {seen} but that game is at {own}')
+                raise StaleView(f'{label}: game {viewer} sees player {n} at {seen} but that game is at {own}')
     smallest = math.inf
     for n, (pos, _) in at.items():
         if n == target:
@@ -138,6 +149,23 @@ def assert_separation(dumps, target=None, minimum=None, label='targeting test'):
                                  f'the rule is at least {minimum:g} (3x the largest splash radius)')
         smallest = min(smallest, d)
     return smallest
+
+
+def assert_separation_settled(read_dumps, target=None, minimum=None, label='targeting test',
+                              seconds=SETTLE_SECONDS, interval=0.25, clock=time.monotonic, sleep=time.sleep):
+    """assert_separation on fresh dumps, for a script that has just moved players: read_dumps() returns
+    one parsed dump per game. While a game's view of another player still disagrees with that player's
+    own game (StaleView), the dumps are read again, for up to `seconds`; then the last StaleView is
+    raised. Every other failure (players too close, bad evidence) is raised at once.
+    Returns (smallest separation, seconds waited)."""
+    start = clock()
+    while True:
+        try:
+            return assert_separation(read_dumps(), target, minimum, label), clock() - start
+        except StaleView:
+            if clock() - start >= seconds:
+                raise
+        sleep(interval)
 
 
 # ---- the scan: a new targeting test cannot forget the rule -------------------
