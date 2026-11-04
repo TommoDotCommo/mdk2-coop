@@ -31,13 +31,16 @@ done
 # End-to-end input fixture. Do not set native canopy state here: the game's
 # player controller must deploy/close it in response to input and ground contact.
 for owner in 1 2 3; do
-    lua "$owner" 'local p=mdkGetPlayerGob() mdkGobSetPosition(p,"l1_r8doganland1") mdkGobSetPositionXYZ(p,p.position.x,p.position.y,p.position.z+40) coop_press(57,12000)'
+    lua "$owner" 'local p=mdkGetPlayerGob() mdkGobSetPosition(p,"l1_r8doganland1") qa_top=p.position.z+40 mdkGobSetPositionXYZ(p,p.position.x,p.position.y,qa_top) coop_press(57,12000)'
     # The player has to fall and the game to read the held key before it opens the canopy; a game that runs slowly
     # (the Steam build in the background) needs more than a second. Wait for the owner's own canopy to reach the
     # state the real input produces, as that process reports it, then let all peers be judged on that same state.
     tag="input_open_$owner"
+    # The owner is lifted again once 12 units below the top: dropped onto the tub under the marker (l1_r8tub), player 3
+    # once landed before its canopy opened, and its own game showed the canopy closed when the peers were read.
     for _ in $(seq 1 20); do
         sleep .5
+        lua "$owner" 'local p=mdkGetPlayerGob() if p.position.z < qa_top-12 then mdkGobSetPositionXYZ(p,p.position.x,p.position.y,qa_top) end'
         capture "$tag"
         python3 "$here/presence_check.py" canopy --owner "$owner" --expect 66 "$out/${tag}_1.txt" "$out/${tag}_2.txt" "$out/${tag}_3.txt" >/dev/null 2>&1 && break
     done
