@@ -507,6 +507,7 @@ Set `MDK2_BACKGROUND=0` for an interactive playtest.
     tools/play.sh          # install into the copies, start host (left) and client (right)
     tools/play.sh stop     # close them, remove the settings.lua line, save every log to local/sessions/
     MDK2_N=3 tools/play.sh # host and two clients (rows of three windows); stop with the same MDK2_N
+    MDK2_WINDOW=1600x900 tools/play.sh   # window size of each copy (default 1200x675, 800x450 for three or more; keep: your own)
 
 Play in the left window; the right one follows level loads by itself. `tools/play.sh <level>
 <checkpoint>` starts both straight at a checkpoint; in game the host's F6 / F7 go to the next / previous
