@@ -851,6 +851,36 @@ static void l_coop_listgobs(void)
     logmsg("listgobs: %d gobs with game objects, %d synced actors", n, ent_count());
 }
 
+/* coop_children(gob): log every live gob attached below gob (its children, theirs, ...), with its depth, flags and
+ * position, as "child <depth> <name> flags <hex> at <x> <y> <z>". For the HUD scenes (docinventory: the items Doc
+ * carries are drawn as gobs below it, positioned by the inventory code). */
+static void l_coop_children(void)
+{
+    BYTE *root = tolua_getusertype(1, NULL), *stack[16];
+    int depth[16], sp = 0, i, n = 0;
+
+    if (!gob_alive(root))
+        return;
+    stack[sp] = root; depth[sp++] = 0;
+    while (sp > 0) {
+        BYTE *g = stack[--sp];
+        int d = depth[sp];
+        DWORD me = gob_handle(gob_slot(g));
+        for (i = 0; i < GOB_SLOTS; i++) {
+            BYTE *c = (BYTE *)GOB_TABLE[i * 2];
+            float *pos;
+            if (!c || c == g || !gob_alive(c) || *(DWORD *)(c + GOB_TARGET) != me)
+                continue;
+            pos = (float *)(c + GOB_POSITION);
+            logmsg("child %d %s flags %04x at %.3f %.3f %.3f", d + 1, gob_name(c), *(WORD *)(c + GOB_FLAGS), pos[0], pos[1],
+                   pos[2]);
+            n++;
+            if (sp < 16 && d < 6) { stack[sp] = c; depth[sp++] = d + 1; }
+        }
+    }
+    logmsg("children: %d", n);
+}
+
 /* coop_emitters(): log the gobs whose +0x70 component is kind 1 (the update at 0x447ab0, which looks like a
  * particle emitter: +0x0c max, +0x10 count, +0x14 rate?, +0x34 used, +0x38 capacity, +0x7c array of 32-byte
  * entries, +0x80 accumulator) */
@@ -1252,6 +1282,7 @@ void l_coop_init(void)
     tolua_function(NULL, "coop_life", l_coop_life);
     tolua_function(NULL, "coop_revive_checkpoint", l_coop_revive_checkpoint);
     tolua_function(NULL, "coop_listgobs", l_coop_listgobs);
+    tolua_function(NULL, "coop_children", l_coop_children);
     tolua_function(NULL, "coop_shots_dump", l_coop_shots_dump);
     tolua_function(NULL, "coop_test_sniper", l_coop_test_sniper);
     tolua_function(NULL, "coop_test_shot", l_coop_test_shot);

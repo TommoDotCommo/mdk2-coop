@@ -1045,6 +1045,17 @@ function coop.DocGrantTick()
     local list = coop.doc_grant
     local p = coop.real_player()
     if (not list or not p or not coop.level_ready) then return end
+    -- Not at once: items given in the level's first frames are drawn at the middle of the screen for good (the
+    -- inventory left them in its centre slot, slot1 at the HUD's origin) instead of stacked above the hands. Half a
+    -- second was enough when measured; wait a second and 30 ticks. [test] grantdelay=0 gives them at once (the old bug).
+    if (not coop.doc_grant_at) then
+        local wait = tonumber(coop_get("test", "grantdelay", "1000"))
+        coop.doc_grant_at = coop_ms() + wait
+        coop.doc_grant_ticks = (wait > 0 and 30) or 0
+    end
+    coop.doc_grant_ticks = coop.doc_grant_ticks - 1
+    if (coop_ms() < coop.doc_grant_at or coop.doc_grant_ticks > 0) then return end
+    coop.doc_grant_at = nil
     coop.doc_grant = nil
     if (mdkGetPlayMode() ~= PLAYMODE_DOC) then return end
     local k = 1
@@ -2147,6 +2158,7 @@ function level(l, cp, sec)
     coop.cp_given = 0
     coop.fuel_grant = nil
     coop.doc_grant = nil
+    coop.doc_grant_at = nil
     coop.rear_gate_result = nil
     coop.level = l
     coop.cp = cp

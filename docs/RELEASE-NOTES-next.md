@@ -14,6 +14,13 @@ Not final: edit the version, merge into the release's notes file and delete this
   against the lounge's doorway stayed there on the client's screen while the real enemy walked away. Checked by
   `tools/qa_blower_live.sh` against a Doganboy whose AI is running.
 
+## Doc's items in their place
+
+- **Starting at a Doc checkpoint of level 3**, the items the game gives Doc (toaster, duct tape, pipes) were drawn in
+  the middle of the screen for the whole level, one floating over Doc's head, instead of stacked above his hands. They
+  were given in the level's first frames, before the inventory display was ready; they now come a second later and
+  stack above the hands as when picked up (`tools/qa_doc_items.sh`).
+
 ## Setup that a stranger can run
 
 - **One file.** Download `MDK2-Coop-Setup.exe` from the release page and double-click it. There is no zip to extract:
