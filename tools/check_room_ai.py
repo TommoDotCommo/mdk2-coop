@@ -56,12 +56,15 @@ class RoomCheck:
 
     def far(self, label, target=2):
         """Geometry rule: the target is outside every splash and strike radius from the other player,
-        measured from both games' own player positions."""
-        rows = [targeting_geometry.parse_rows(self.state(p)) for p in (1, 2)]
-        distance = targeting_geometry.assert_separation(rows, target, label=label)
+        measured from both games' own player positions. A player was just moved: each game's view of the
+        other catches up over the network first (test games read commands every other frame, so the
+        dumps can come before the move has arrived), so stale views are read again for a few seconds."""
+        distance, waited = targeting_geometry.assert_separation_settled(
+            lambda: [targeting_geometry.parse_rows(self.state(p)) for p in (1, 2)], target, label=label)
         self.passed += 1
-        (self.out/'geometry.txt').open('a').write(f'{label}: {distance:.1f}\n')
-        print(f'PASS {label}: players are {distance:.1f} units apart (rule {targeting_geometry.MIN_SEPARATION:g})', flush=True)
+        (self.out/'geometry.txt').open('a').write(f'{label}: {distance:.1f} (views agreed after {waited:.2f} s)\n')
+        print(f'PASS {label}: players are {distance:.1f} units apart (rule {targeting_geometry.MIN_SEPARATION:g}), '
+              f'views agreed after {waited:.2f} s', flush=True)
 
     def host_away(self, client_at):
         """Put the host where it cannot be the target. MUTANT=near puts it beside the client instead,
@@ -144,11 +147,16 @@ class RoomCheck:
         self.command(2,'God(0) mdkGobSetPositionXYZ(mdkGetPlayerGob(),78,172,-30)')
         before=self.hp(self.state(2))
         dog=next(i for i,r in self.entities(self.state(1)).items() if r[-1]=='r2_dog01')
-        for attempt in range(40):
+        # The sniper's shots spread: most hit the wall or plate beside the sign (l1_r2, l1_r2plate);
+        # 20 runs needed 5 to 34 tries before the enemy started, one ran out of 40. A try is about a second.
+        for attempt in range(120):
             self.command(2,'if (r2_dog01target and coop_alive(r2_dog01target)) then local t=r2_dog01target local p=mdkGetPlayerGob() mdkGobPointToXYZ(p,t.position.x-p.position.x,t.position.y-p.position.y,t.position.z-p.position.z) coop_test_sniper() end')
             time.sleep(1)
             h=self.state(1)
             if any(r[0]=='ai' and r[1]=='r2_dog01' and int(r[3])>0 for r in h): break
+        else:
+            raise AssertionError('the client sniped the sign 120 times and the behind-glass enemy never started')
+        print(f'the sign was hit after {attempt+1} shots', flush=True)
         self.command(2,'mdkGobSetPositionXYZ(mdkGetPlayerGob(),78,156,-30)')
         self.host_away((78,156,-30))
         self.far('behind-glass enemy: client is far from the host')

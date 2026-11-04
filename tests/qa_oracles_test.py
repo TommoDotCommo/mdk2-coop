@@ -68,6 +68,40 @@ class StateOracle(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("warn", result.stdout)
 
+    def test_waiting_reward_carrier_is_only_noted(self):
+        # the host's hero is in its start movie: its checkpoint reward waits, the client's was collected
+        reward = "item 328 1 2 3 coop_reward_11\n"
+        result = self.run_check(dump(1) + reward, dump(2))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("warn  host has not collected its reward coop_reward_11 (type 328) yet", result.stdout)
+        # every other item still has to match, and a reward carrier does not hide a missing item
+        result = self.run_check(dump(1) + reward, dump(2).replace("item 314 1 2 3 decoy\n", reward))
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("FAIL  item decoy", result.stdout)
+        self.assertNotEqual(self.run_check(dump(1), dump(2) + "item 328 1 2 3 coop_rewarder\n").returncode, 0)
+
+    def test_reward_exemption_mutants_fail(self):
+        original = (ROOT / "tools/statecheck.py").read_text()
+        mutants = {
+            "every item exempt": ("if name.startswith(REWARD_PREFIX):", "if True:"),
+            "prefix too short": ('REWARD_PREFIX = "coop_reward_"', 'REWARD_PREFIX = "coop_"'),
+        }
+        battery = [(dump(1), dump(2).replace("item 314 1 2 3 decoy\n", "")),
+                   (dump(1), dump(2) + "item 328 1 2 3 coop_rewarder\n")]
+        for name, (old, new) in mutants.items():
+            self.assertIn(old, original, name)
+            with tempfile.TemporaryDirectory() as folder:
+                broken = Path(folder) / "statecheck.py"
+                broken.write_text(original.replace(old, new, 1))
+                paths = [Path(folder) / n for n in ("host", "client")]
+                killed = False      # each world below must fail; a mutant that lets one pass is caught
+                for host, client in battery:
+                    for path, text in zip(paths, (host, client)):
+                        path.write_text(text)
+                    run = subprocess.run([sys.executable, str(broken), *map(str, paths)], capture_output=True, text=True)
+                    killed = killed or run.returncode == 0
+                self.assertTrue(killed, f"mutant survived: {name}")
+
     def test_missing_living_player_fails_but_spectator_is_allowed(self):
         missing = dump(2).replace("player 0 100 2 2 3\n", "")
         self.assertNotEqual(self.run_check(dump(1), missing).returncode, 0)

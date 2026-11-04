@@ -16,10 +16,12 @@ import math
 import sys
 import argparse
 
+REWARD_PREFIX = "coop_reward_"
+
 
 def load(path):
     s = {"level": None, "me": None, "life": 0, "player": None, "puppet": {}, "ent": {}, "gone": set(), "actor": [],
-         "item": {}, "unplaced": 0, "door": {}, "doorx": {}}
+         "item": {}, "unplaced": 0, "door": {}, "doorx": {}, "reward": []}
     seen = set()
     with open(path, encoding="latin-1") as stream:
         lines = stream.readlines()
@@ -55,6 +57,13 @@ def load(path):
                 s["unplaced"] += 1
                 continue
             name = " ".join(f[5:])
+            # coop_reward_<n>: the invisible carrier a game makes at its own hero for a shared or
+            # checkpoint reward (lua coop.SharedPickupTick), numbered by that game's own counter and
+            # never sent (bridge/pickups.c). It waits while the hero cannot collect, e.g. through the
+            # host's start movie at level 3 checkpoints 10 and 11, so it is not world state to compare.
+            if name.startswith(REWARD_PREFIX):
+                s["reward"].append((int(f[1]), name))
+                continue
             s["item"][name] = s["item"].get(name, 0) + 1
         elif k == "door":
             s["door"][" ".join(f[2:])] = int(f[1])
@@ -129,6 +138,11 @@ def main():
             d = math.dist(me["player"][2], pos)
             if d > tol:
                 (fail if d > 4 * tol else warn)(f"{who(me)}'s player is {d:.1f} from its puppet in the {who(other)}'s game")
+
+    # rewards still waiting for their game's hero: each game's own business, only noted
+    for d in dumps:
+        for t, name in d["reward"]:
+            warn(f"{who(d)} has not collected its reward {name} (type {t}) yet")
 
     compared = 0
     for c in clients:
