@@ -56,6 +56,7 @@ static void gob_set_position(void *g, float x, float y, float z) {
     p[0] = x; p[1] = y; p[2] = z;
     repositioned++;
 }
+static int gob_is_mirrored(BYTE *g) { (void)g; return 0; }
 static int puppet_slot(BYTE *g) { int i; for(i=0;i<3;i++) if(g && puppets[i]==g) return i; return -1; }
 static int player_in_level(int s) { return in_level[s]; }
 static int revive_life(void) { return life[0]; }

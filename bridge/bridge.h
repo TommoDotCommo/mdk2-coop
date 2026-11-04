@@ -513,6 +513,8 @@ void deal_damage_hook(void *from, void *target, int damage, int type, int part);
 /* ---- input.c ---- */
 
 extern int test_background;
+extern int test_blow_mirrors;  /* [test] blow_mirrors=1: push volumes push mirrored gobs too (presence_game.c) */
+void push_cb_install(void);     /* presence_game.c: wrap the push volumes' callback (once) */
 extern int test_blow_players;  /* [test] blow_players=1: that copy pushes players too (presence_game.c) */
 extern int test_no_blowsync;  /* [test] no_blowsync=1: the host's copy of a client's leaf blower does not push (entities.c) */
 extern int test_journal;      /* [test] journal=1: record the player's session for the campaign bot (bot.c) */

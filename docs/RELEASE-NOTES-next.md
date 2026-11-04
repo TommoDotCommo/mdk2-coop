@@ -9,7 +9,9 @@ Not final: edit the version, merge into the release's notes file and delete this
   in place while their copies were put back. Herding the aliens into the plant on level 3 only worked for the host.
   The host now gives the client's Doc the game's own push (the volume the game builds on Doc when he takes the blower
   up), switched on while that player blows: the host's game pushes the enemy, with its walls and the enemy's own
-  reaction, and every player sees it move. The blower moves enemies and objects, not the other players. Checked by
+  reaction, and every player sees it move. The blower moves enemies and objects, not the other players. A client's
+  blower no longer pushes its own copies of the enemies either: that gave them the game's physics, and a copy blown
+  against the lounge's doorway stayed there on the client's screen while the real enemy walked away. Checked by
   `tools/qa_blower_live.sh` against a Doganboy whose AI is running.
 
 ## Setup that a stranger can run

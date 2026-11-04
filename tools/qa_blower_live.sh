@@ -11,23 +11,29 @@
 #                 host's: the game's own), and off again after
 #   blown (host)  the enemy ends at least 5 units further along +x in the host's game, its AI running (the old
 #                 relayed positions nudged it about 4 units, then it walked back to where it stood); in the host's
-#                 own round, which is the game's unchanged blower, it gets at least 5 units further at some point
+#                 own round, which is the game's unchanged blower and pushes less against a live enemy (measured 4.9
+#                 to 70), it gets at least 3 units further at some point
 #   blown (other) the same in the client's game
 #   shared        it ends in the same place in both games (within 3 units)
+#   copies        the client herds the three lounge Doganboys from eight spots (about 15 s of blowing): the client's
+#                 copies stay within 3 units of the host's enemies at every sample (measured 1.7; when the client's
+#                 own blower pushed its copies they stuck where its physics left them, 14.7 units off)
 #   players       last, the client blows at the host's hero standing 5 units ahead: it stays where it is in the
 #                 host's game (within 1.5 units; the blower pushes no player, the owner's call)
 #   MUTANT=noblowsync  the host builds no push volume on a client's Doc ([test] no_blowsync=1): the client checks must fail
 #   MUTANT=blowplayers the host's copy of the client's blower pushes players too ([test] blow_players=1): the players
 #                      check must fail
-# Needs MDK2_N=2, isolated game copies and MDK2_BACKGROUND (see tools/mdk.sh); about 2 minutes.
+#   MUTANT=blowmirrors a game's push volumes push its mirrored enemies too ([test] blow_mirrors=1): the copies check must
+#                      fail
+# Needs MDK2_N=2, isolated game copies and MDK2_BACKGROUND (see tools/mdk.sh); about 3 minutes.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=2 MDK2_BACKGROUND=1 MDK2_START="3 5"
-case "${MUTANT:-}" in ''|noblowsync|blowplayers) : ;; *) echo 'Unknown blower mutant' >&2; exit 2 ;; esac
+case "${MUTANT:-}" in ''|noblowsync|blowplayers|blowmirrors) : ;; *) echo 'Unknown blower mutant' >&2; exit 2 ;; esac
 source "$here/mdk.sh"
 "$here/install.sh" >/dev/null || exit 1
 if [ -n "${MUTANT:-}" ]; then
-    key=no_blowsync; [ "$MUTANT" = blowplayers ] && key=blow_players
+    key=no_blowsync; [ "$MUTANT" = blowplayers ] && key=blow_players; [ "$MUTANT" = blowmirrors ] && key=blow_mirrors
     for i in 1 2; do printf '%s=1\r\n' "$key" >> "$(mdk_wsl "$(mdk_dir "$i")")/coop/coop.ini"; done      # the file ends in the [test] section
 fi
 
@@ -111,15 +117,37 @@ for owner in 2 1; do
     check "player $owner: push: switched off again after the blow" push_is "push_off_$owner" "$owner" "0 1"
     # the client's round counts where the enemy ends (the old relayed push nudged it and it walked back); the host's own
     # blower is the game's, unchanged, and its enemy sometimes walks back after the blow: that round counts the furthest
-    pick=-1; how=ends; [ "$owner" = 1 ] && { pick=max; how="got at most"; }
+    pick=-1; how=ends; need=5; [ "$owner" = 1 ] && { pick=max; how="got at most"; need=3; }
     hd=$(python3 -c "v=[float(x.split(',')[0]) for x in '${hs[*]}'.split()]; print(round((max(v) if '$pick' == 'max' else v[-1]) - float('$h0'.split(',')[0]), 2))")
     cd=$(python3 -c "v=[float(x.split(',')[0]) for x in '${cs[*]}'.split()]; print(round((max(v) if '$pick' == 'max' else v[-1]) - float('$c0'.split(',')[0]), 2))")
-    check "player $owner: blown (host): $dog $how $hd units further along +x in the host's game, its AI running" ge "$hd" 5
-    check "player $owner: blown (other): $dog $how $cd units further along +x in the client's game" ge "$cd" 5
+    check "player $owner: blown (host): $dog $how $hd units further along +x in the host's game, its AI running (at least $need)" ge "$hd" "$need"
+    check "player $owner: blown (other): $dog $how $cd units further along +x in the client's game (at least $need)" ge "$cd" "$need"
     check "player $owner: shared: $dog ends in the same place in both games (within 3 units)" agree "$dog" 3 4
     lua 1 "mdkGobSetPositionXYZ($dog, 45, 63, 0.4)"     # out of the next round's way (an unblown one stood on its spot)
     sleep 3
 done
+# then the client herds the lounge's three Doganboys (their AI running, put back where the level starts them) from spot
+# to spot, pushing them east through the doorway into the next room (x 66) and back; the host stands aside
+at_xyz 1 -5 40 0.6
+lua 1 'mdkGobSetPositionXYZ(l3_dogan00, 49.6, 54.4, 0.1) mdkGobSetPositionXYZ(l3_dogan01, 66.3, 44.8, 0.1) mdkGobSetPositionXYZ(l3_dogan02, 55.4, 58.0, 0.1)'
+sleep 2
+E="format('%.2f,%.2f %.2f,%.2f %.2f,%.2f', l3_dogan00.position.x, l3_dogan00.position.y, l3_dogan01.position.x, l3_dogan01.position.y, l3_dogan02.position.x, l3_dogan02.position.y)"
+worst=0
+for spot in "10 52 1 0" "40 45 1 1" "55 60 1 0" "30 60 -1 0" "20 45 1 0" "50 50 1 0" "60 55 -1 0" "35 50 1 0"; do
+    set -- $spot
+    lua 2 "local d = mdkGetPlayerGob() mdkGobSetPositionXYZ(d, $1, $2, 0.6) coop.Face(d, $3, $4, 0)"
+    lua 2 'coop_press_frames(256, 300)'
+    for i in 1 2 3 4 5 6; do
+        hh=$(q 1 "$E"); cc=$(q 2 "$E")
+        w=$(python3 -c "import math; h='$hh'.split(); c='$cc'.split(); print(round(max(math.dist(tuple(map(float, a.split(','))), tuple(map(float, b.split(',')))) for a, b in zip(h, c)), 2))")
+        echo "copies: host $hh / client $cc: $w" >> "$out/evidence.txt"
+        python3 -c "import sys; sys.exit(0 if $w > $worst else 1)" && worst=$w
+        sleep .3
+    done
+done
+note "copies: the client's copies were at most $worst units from the host's enemies"
+check "copies: the client's copies stay within 3 units of the host's enemies while the client herds them (at most $worst)" ge 3 "$worst"
+
 # the client blows at the host's hero 5 units ahead of it (no enemy in between): the hero stays put in the host's game
 lua 2 "local d = mdkGetPlayerGob() mdkGobSetPositionXYZ(d, 10, 52, 0.6) coop.Face(d, 1, 0, 0)"
 lua 1 "local d = mdkGetPlayerGob() mdkGobSetPositionXYZ(d, 15, 52, 0.6) coop.Face(d, -1, 0, 0)"

@@ -203,6 +203,9 @@ void ents_init(void)
     if (test_no_blowsync)
         logmsg("test: the host's copy of a client's leaf blower does not push");
     test_blow_players = test_background && GetPrivateProfileIntA("test", "blow_players", 0, ini) != 0;
+    test_blow_mirrors = test_background && GetPrivateProfileIntA("test", "blow_mirrors", 0, ini) != 0;
+    if (test_blow_mirrors)
+        logmsg("test: push volumes push mirrored enemies too");
     if (test_blow_players)
         logmsg("test: the host's copy of a client's leaf blower pushes players too");
     if (test_no_hpsync)
@@ -456,12 +459,15 @@ void ents_client_frame(void)
 {
     int i;
 
+    push_cb_install();          /* once: this game's own blower must not push the host's enemies' copies */
+
     for (i = 0; i < nents; i++) {
         struct ent *e = &ents[i];
         BYTE *gob = ent_gob(e->id);
 
         if (!gob && e->gob) {
             /* the engine removed it (corpse, shot hit something): forget the pointer */
+            logmsg("ent %x: its gob is gone here (handle %x), updates for it stop", e->id, e->local);
             gob_set_mirrored(e->gob, 0);
             e->gob = NULL;
         }
