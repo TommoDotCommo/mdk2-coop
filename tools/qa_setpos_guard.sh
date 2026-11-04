@@ -47,5 +47,5 @@ cp "$log" "$out/bridge.log" 2>/dev/null
 mdk_crash_scan
 [ "${MUTANT:-}" = unguarded ] && mdk_crash_collect "$out/dumps"
 mdk_kill
-printf '%s\n' "${results[@]}"; echo "passed $pass failed $fail (evidence $out)"
+printf '%s\n' "${results[@]}"; echo "$pass passed, $fail failed (evidence $out)"
 [ "$fail" = 0 ]

@@ -142,7 +142,10 @@ def main():
                 assert data_base, 'the copy needs [test] save_dir: the updater keeps its backups under it'
                 kept = sorted(p.name for p in (data_base / 'mdk2-coop/update').iterdir())
                 assert kept == ['coop.lua.previous', 'dinput8.dll.previous', 'update-state.ini'], 'update folder: %s' % kept
-                left = [f for f in updater_leftovers() if not f.startswith('dinput8.dll.update-old')]
+                # a .previous file the copy already held that the updater never names (another program's backup) is not its leftover
+                own = {'dinput8.dll.previous', 'coop/coop.lua.previous', 'coop/update-state.ini'}
+                left = [f for f in updater_leftovers() if not f.startswith('dinput8.dll.update-old')
+                        and not (f in before and f not in own)]
                 assert not left, 'updater files in the game folder after the update: %s' % left
             subprocess.run(args.stop_command, check=True)
             started = False
