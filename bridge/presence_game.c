@@ -289,6 +289,45 @@ void gear_release(int slot)
 #define blower_off      ((void (*)(BYTE *))0x402f90)
 #define create_object   ((BYTE *(*)(const char *, int, void *, BYTE *, int, float *, float *, const char *, \
                                     DWORD, DWORD, DWORD, DWORD))0x42d360)
+/* The volume pushes every gob it covers, the players included: on the host the volume on a client's Doc pushed the
+ * host's own hero (the owner, 2026-11: the blower must not push players). Doc's own volume skips Doc himself (0x408c00);
+ * the copies built here skip every player's body: the push callback (class 9 slot +8, 0x403470, called by the engine
+ * for each push volume and each moving gob) is wrapped and returns at once for those. Only the volumes built here:
+ * the level's own fans (level 4) push players on purpose. */
+#define PUSH_DESC       ((DWORD *)0x4c2c10)     /* class 9's descriptor */
+#define PUSH_CALLBACK   0x403470
+typedef void (__cdecl *push_cb_t)(BYTE *, BYTE *, void *);
+static push_cb_t push_cb_orig;
+static DWORD push_built[MAX_PLAYERS];   /* handle of the volume built on each puppet's blower */
+int test_blow_players;                  /* [test] blow_players=1 (entities.c): the copies push players too (the old way) */
+
+static int is_player_body(BYTE *g)
+{
+    return g && (g == local_player || puppet_slot(g) >= 0);
+}
+
+static void __cdecl push_cb_hook(BYTE *vol, BYTE *target, void *out)
+{
+    if (!test_blow_players && is_player_body(target)) {
+        DWORD h = gob_handle(gob_slot(vol));
+        int s;
+        for (s = 0; s < MAX_PLAYERS; s++)
+            if (push_built[s] && push_built[s] == h) return;
+    }
+    push_cb_orig(vol, target, out);
+}
+
+static void push_cb_install(void)
+{
+    DWORD old;
+    if (push_cb_orig || PUSH_DESC[2] != PUSH_CALLBACK) return;
+    push_cb_orig = (push_cb_t)PUSH_DESC[2];
+    VirtualProtect(PUSH_DESC, CLASS_SLOTS * 4, PAGE_READWRITE, &old);
+    PUSH_DESC[2] = (DWORD)(uintptr_t)push_cb_hook;
+    VirtualProtect(PUSH_DESC, CLASS_SLOTS * 4, old, &old);
+    logmsg("blower: the copies' push skips players (class 9 slot +8 wrapped)");
+}
+
 static DWORD float_bits(float f)
 {
     DWORD d;
@@ -318,6 +357,8 @@ static void gear_push(int slot, BYTE *item, int blowing)
         if (!b) return;
         logmsg("gear: built the leaf blower's push on player %d's puppet", slot + 1);
     }
+    push_cb_install();
+    push_built[slot] = gob_handle(gob_slot(b));
     info = *(BYTE **)(b + GOB_INFO);
     st = info ? *(BYTE **)(info + 0x40) : NULL;
     if (!st) return;

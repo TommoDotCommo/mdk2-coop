@@ -21,6 +21,10 @@ typedef uint32_t DWORD;
 #define GOB_ORIENTATION 0x24
 #define ANIM_ID_MAX 160
 #define MAX_PATH 260
+#define CLASS_SLOTS 14
+#define __cdecl
+#define PAGE_READWRITE 4
+static int VirtualProtect(void *p, size_t n, DWORD prot, DWORD *old) { (void)p; (void)n; (void)prot; *old = 0; return 1; }
 static BYTE bodies[6][256], infos[6][256], states[6][256], controllers[6][256];
 static DWORD animation[6][5][10], fake_gob_table[GOB_SLOTS * 2];
 static DWORD fake_player_handle, fake_ai_target_handle;

@@ -10,19 +10,25 @@
 #                 listed among the scene's push volumes (the client's: the copy the host builds on its puppet; the
 #                 host's: the game's own), and off again after
 #   blown (host)  the enemy ends at least 5 units further along +x in the host's game, its AI running (the old
-#                 relayed positions nudged it about 4 units, then it walked back to where it stood)
+#                 relayed positions nudged it about 4 units, then it walked back to where it stood); in the host's
+#                 own round, which is the game's unchanged blower, it gets at least 5 units further at some point
 #   blown (other) the same in the client's game
 #   shared        it ends in the same place in both games (within 3 units)
+#   players       last, the client blows at the host's hero standing 5 units ahead: it stays where it is in the
+#                 host's game (within 1.5 units; the blower pushes no player, the owner's call)
 #   MUTANT=noblowsync  the host builds no push volume on a client's Doc ([test] no_blowsync=1): the client checks must fail
+#   MUTANT=blowplayers the host's copy of the client's blower pushes players too ([test] blow_players=1): the players
+#                      check must fail
 # Needs MDK2_N=2, isolated game copies and MDK2_BACKGROUND (see tools/mdk.sh); about 2 minutes.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=2 MDK2_BACKGROUND=1 MDK2_START="3 5"
-case "${MUTANT:-}" in ''|noblowsync) : ;; *) echo 'Unknown blower mutant' >&2; exit 2 ;; esac
+case "${MUTANT:-}" in ''|noblowsync|blowplayers) : ;; *) echo 'Unknown blower mutant' >&2; exit 2 ;; esac
 source "$here/mdk.sh"
 "$here/install.sh" >/dev/null || exit 1
-if [ "${MUTANT:-}" = noblowsync ]; then
-    for i in 1 2; do printf 'no_blowsync=1\r\n' >> "$(mdk_wsl "$(mdk_dir "$i")")/coop/coop.ini"; done      # the file ends in the [test] section
+if [ -n "${MUTANT:-}" ]; then
+    key=no_blowsync; [ "$MUTANT" = blowplayers ] && key=blow_players
+    for i in 1 2; do printf '%s=1\r\n' "$key" >> "$(mdk_wsl "$(mdk_dir "$i")")/coop/coop.ini"; done      # the file ends in the [test] section
 fi
 
 pass=0; fail=0; results=()
@@ -103,13 +109,27 @@ for owner in 2 1; do
     sleep 2
     dump 1 "push_off_$owner"
     check "player $owner: push: switched off again after the blow" push_is "push_off_$owner" "$owner" "0 1"
-    hd=$(python3 -c "print(round(float('${hs[-1]}'.split(',')[0]) - float('$h0'.split(',')[0]), 2))")
-    cd=$(python3 -c "print(round(float('${cs[-1]}'.split(',')[0]) - float('$c0'.split(',')[0]), 2))")
-    check "player $owner: blown (host): $dog ends $hd units further along +x in the host's game, its AI running" ge "$hd" 5
-    check "player $owner: blown (other): $dog ends $cd units further along +x in the client's game" ge "$cd" 5
+    # the client's round counts where the enemy ends (the old relayed push nudged it and it walked back); the host's own
+    # blower is the game's, unchanged, and its enemy sometimes walks back after the blow: that round counts the furthest
+    pick=-1; how=ends; [ "$owner" = 1 ] && { pick=max; how="got at most"; }
+    hd=$(python3 -c "v=[float(x.split(',')[0]) for x in '${hs[*]}'.split()]; print(round((max(v) if '$pick' == 'max' else v[-1]) - float('$h0'.split(',')[0]), 2))")
+    cd=$(python3 -c "v=[float(x.split(',')[0]) for x in '${cs[*]}'.split()]; print(round((max(v) if '$pick' == 'max' else v[-1]) - float('$c0'.split(',')[0]), 2))")
+    check "player $owner: blown (host): $dog $how $hd units further along +x in the host's game, its AI running" ge "$hd" 5
+    check "player $owner: blown (other): $dog $how $cd units further along +x in the client's game" ge "$cd" 5
     check "player $owner: shared: $dog ends in the same place in both games (within 3 units)" agree "$dog" 3 4
+    lua 1 "mdkGobSetPositionXYZ($dog, 45, 63, 0.4)"     # out of the next round's way (an unblown one stood on its spot)
     sleep 3
 done
+# the client blows at the host's hero 5 units ahead of it (no enemy in between): the hero stays put in the host's game
+lua 2 "local d = mdkGetPlayerGob() mdkGobSetPositionXYZ(d, 10, 52, 0.6) coop.Face(d, 1, 0, 0)"
+lua 1 "local d = mdkGetPlayerGob() mdkGobSetPositionXYZ(d, 15, 52, 0.6) coop.Face(d, -1, 0, 0)"
+sleep 2
+p0=$(xy 1 'mdkGetPlayerGob()')
+lua 2 "coop_press_frames(256, 200)"
+far=0
+for i in $(seq 1 8); do sleep .3; d=$(dist "$p0" "$(xy 1 'mdkGetPlayerGob()')"); python3 -c "import sys; sys.exit(0 if $d > $far else 1)" && far=$d; done
+note "players: the host's hero from $p0, moved at most $far units while the client blew at it"
+check "players: the host's hero stays where it is while the client blows at it (moved $far, at most 1.5)" ge 1.5 "$far"
 printf '%s\n' "${results[@]}"
 echo "$pass passed, $fail failed"
 echo "process evidence: $out"

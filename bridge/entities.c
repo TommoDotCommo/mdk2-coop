@@ -202,6 +202,9 @@ void ents_init(void)
     test_no_blowsync = test_background && GetPrivateProfileIntA("test", "no_blowsync", 0, ini) != 0;
     if (test_no_blowsync)
         logmsg("test: the host's copy of a client's leaf blower does not push");
+    test_blow_players = test_background && GetPrivateProfileIntA("test", "blow_players", 0, ini) != 0;
+    if (test_blow_players)
+        logmsg("test: the host's copy of a client's leaf blower pushes players too");
     if (test_no_hpsync)
         logmsg("ents: hp changes without a hit are not sent ([test] no_hpsync=1)");
     if (test_keep_attached)
