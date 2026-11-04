@@ -278,10 +278,6 @@ static void l_coop_event(void)
             event_relay(&e, from);
             continue;
         }
-        if (e.kind == EV_BLOWN) {
-            blown_event(&e, from);      /* the host takes where a client's leaf blower left an enemy */
-            continue;
-        }
         if (e.kind == EV_DIAG) {
             diag_event(&e, from);       /* the desync check and marks (diag.c): Lua never sees them */
             continue;

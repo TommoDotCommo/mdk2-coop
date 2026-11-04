@@ -74,6 +74,13 @@ stayed where the push left it for good. The client now reports where its game le
 (`EV_BLOWN`, throttled to 15 a second) and the host takes that place (`blown_event`) when it is a live enemy near where
 the host has it and the client's Doc stands near it; the host's next enemy snapshot carries it to everyone.
 
+Update (2026-11, owner playtest at level 3 checkpoint 5): that report did not hold against an enemy whose AI runs. It
+carried one frame of the client's push at most 15 times a second, so the host's enemy moved about 4 units and walked
+back, and on the client it leaned and flipped in place (`tools/qa_items.sh` held its enemy still). `EV_BLOWN` is gone:
+the host builds the same push volume on the client's Doc (`create_object("blower", 500, ...)` on the item's "blower"
+bone, as 0x40a770 does), switches it with the item's blow animation as Doc's own code does (0x408b60 / 0x408bb0), and
+its engine does the push (`tools/qa_blower_live.sh`).
+
 A game started at a checkpoint has only the level's starting inventory. A start past a
 jetpack pickup (level 2 checkpoints 6 to 10, level 5 checkpoints 9 and 10, level 8
 checkpoints 6 and 7) now gives each player that jetpack through native collection.

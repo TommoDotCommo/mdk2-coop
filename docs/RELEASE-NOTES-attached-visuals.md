@@ -14,7 +14,7 @@
     from the owner: every peer's flame changes within about 100 ms of the owner's.
   - **Doc's leaf blower** is made when Doc takes it up (the item on his back and
     the puffs of air it throws). It is now built on the puppet the same way and
-    blows when the owner's does. Its push stays the host's, as before.
+    blows when the owner's does.
   - **Kurt's parachute** exists from the start, but its copy on another player's
     screen carried the game's hidden bit (the bit the game also uses for things in a
     room nobody is awake in) while the canopy was open on its owner, when the two

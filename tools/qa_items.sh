@@ -5,10 +5,10 @@
 #   local effect  read from the owner's own game: a glide far slower than a fall; a lift; the enemy blown away
 #   seen by other the other game's copy of the owner: its canopy state and descent; its flight pose and height
 #   shared effect the world matches in both games: the blown enemy is in the same place in the host's and the client's game
-#                 (the client's blower used to move only its own copy, which the host never heard of: EV_BLOWN)
+#                 (the client's blower used to move only its own copy; the host now pushes for it, tools/qa_blower_live.sh)
 # Everything is read back from the game processes (Lua values through each game's own log, the state dumps).
 #   ONLY=chute|jet|blower   one scenario only (default: all three; each reloads its own level)
-#   MUTANT=noblowsync       the client's blower is not reported to the host ([test] no_blowsync=1): the blower scenario must fail
+#   MUTANT=noblowsync       the host builds no push on a client's Doc ([test] no_blowsync=1): the blower scenario must fail
 # Needs MDK2_N=2, isolated game copies and MDK2_BACKGROUND (see tools/mdk.sh); about 6 minutes.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -148,6 +148,10 @@ fi
 # ---- Doc's leaf blower (level 3, checkpoint 6): the blower taken up, fired at an enemy that is held still ----
 if want blower; then
 [ "$cur" = 3 ] || { reload 3 6; cur=3; lua 1 'God(1)'; lua 2 'God(1)'; }
+# A player sent from the bar room to the blower spot crosses the teleporter room on the way in the other game's smoothed
+# copy of it, and that room's entry starts the boss cutscene (l3_teleport.OnEnterRoom), which takes the input: the
+# client's blow was swallowed whenever the cutscene began before it. The scenario needs no cutscene.
+lua 1 'l3_teleport.OnEnterRoom = function(gob) end'; lua 2 'l3_teleport.OnEnterRoom = function(gob) end'
 # the game builds the blower when the item is taken up: give the item, then cycle Doc's left hand (scroll G/F, hand key Q) until it exists
 take_blower() {
     local g=$1 dir i

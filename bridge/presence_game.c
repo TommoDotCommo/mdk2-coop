@@ -273,6 +273,66 @@ void gear_release(int slot)
     }
 }
 
+/* ---- the leaf blower's push, on the host's copy of a client's Doc ----
+ * Taking the blower up (0x40a770) also makes its push volume: create_object("blower", 500, scene, the item, the item's
+ * "blower" bone, no position, no model, 25, 20, 35, 3), its handle kept in Doc's state +0x2c. Doc's blow start
+ * (0x408b60) plays the item's animation 77 and switches the volume on (0x402f30); the stop (0x408bb0) plays 65 and
+ * switches it off (0x402f90); the volume's state word +0 is the switch. The enemies are the host's, and a client's
+ * blowing pushed only its own copies, which follow the host's every frame (they rocked in place). So the host builds the
+ * same volume on the item of a client's Doc and switches it with the item's animation, which the puppet copies from
+ * its owner: the host's engine pushes the enemy (walls, its own reaction) as for the host's own Doc, and the clients
+ * see it move like any other enemy. Named coop_blower: a named gob may become a Lua global, and "blower" is the
+ * host's own Doc's. */
+#define BLOWER_TYPE     500
+#define BLOWER_BLOW     77              /* the item's animation while blowing (65 at rest) */
+#define blower_on       ((void (*)(BYTE *))0x402f30)
+#define blower_off      ((void (*)(BYTE *))0x402f90)
+#define create_object   ((BYTE *(*)(const char *, int, void *, BYTE *, int, float *, float *, const char *, \
+                                    DWORD, DWORD, DWORD, DWORD))0x42d360)
+static DWORD float_bits(float f)
+{
+    DWORD d;
+    memcpy(&d, &f, sizeof(d));
+    return d;
+}
+
+static BYTE *gear_push_volume(BYTE *item)
+{
+    DWORD me = gob_handle(gob_slot(item));
+    int s;
+    for (s = 0; s < GOB_SLOTS; s++) {
+        BYTE *c = GOB_TABLE_AT(s);
+        if (c && c != item && gob_alive(c) && *(DWORD *)(c + GOB_TARGET) == me && gob_type(c) == BLOWER_TYPE) return c;
+    }
+    return NULL;
+}
+
+static void gear_push(int slot, BYTE *item, int blowing)
+{
+    BYTE *b = gear_push_volume(item), *info, *st;
+    if (!b) {
+        int bone = om_bone_find(item, "blower");
+        if (bone < 0) return;
+        b = create_object("coop_blower", BLOWER_TYPE, *(void **)ADDR.main_scene, item, bone, NULL, NULL, NULL,
+                          float_bits(25.0f), float_bits(20.0f), float_bits(35.0f), float_bits(3.0f));
+        if (!b) return;
+        logmsg("gear: built the leaf blower's push on player %d's puppet", slot + 1);
+    }
+    info = *(BYTE **)(b + GOB_INFO);
+    st = info ? *(BYTE **)(info + 0x40) : NULL;
+    if (!st) return;
+    if (blowing && !*(DWORD *)st) blower_on(b);
+    else if (!blowing && *(DWORD *)st) blower_off(b);
+}
+
+/* the switch of the push volume on a blower item: -1 none, 0 off, 1 on */
+static int gear_push_state(BYTE *item)
+{
+    BYTE *b = item ? gear_push_volume(item) : NULL, *info = b ? *(BYTE **)(b + GOB_INFO) : NULL;
+    BYTE *st = info ? *(BYTE **)(info + 0x40) : NULL;
+    return st ? *(DWORD *)st != 0 : -1;
+}
+
 void gear_apply(int slot, BYTE *body, const struct gear_state *s)
 {
     int k;
@@ -329,6 +389,8 @@ void gear_apply(int slot, BYTE *body, const struct gear_state *s)
         }
         gear_subs_left[slot][k] = gear_subs_hidden(g);
         gear_subs_note(slot, k, gear_subs_left[slot][k]);
+        if (k == 1 && role_host && !test_no_blowsync)
+            gear_push(slot, g, v->cur == BLOWER_BLOW);
     }
 }
 
@@ -930,6 +992,18 @@ void presence_dump(FILE *f)
                         s == my_slot ? gs.v[k].subs : gear_subs_left[s][k], (unsigned long)gear_subs_at[s][k]);
             }
             gear_pose_row(f, s + 1, k, body, g);
+            /* the leaf blower's push volume on that item (the owner's own from the game's take-up code, a puppet's
+             * on the host from gear_push): -1 none, 0 off, 1 on */
+            /* the leaf blower's push volume on that item (the owner's own from the game's take-up code, a puppet's on
+             * the host from gear_push): its switch (-1 none, 0 off, 1 on) and whether the scene lists it among the push
+             * volumes the engine applies to moving gobs (scene +0xd4 count, +0xdc handles; 0x449ad0) */
+            if (k == 1) {
+                BYTE *b = gear_push_volume(g), *scene = *(BYTE **)ADDR.main_scene;
+                int n = scene ? *(int *)(scene + 0xd4) : 0, j, listed = 0;
+                DWORD *h = scene ? *(DWORD **)(scene + 0xdc) : NULL;
+                for (j = 0; b && h && j < n; j++) if (h[j] == gob_handle(gob_slot(b))) listed = 1;
+                fprintf(f, "blowerpush %d %d %d\n", s + 1, gear_push_state(g), listed);
+            }
         }
     }
     /* Kurt's canopy child, read the same way (its animation block is already in the canopy rows above) */

@@ -32,10 +32,11 @@ static int types[6] = {100,100,100,202,0,202};
 static int alive[6] = {1,1,1,1,1,1}, in_level[3] = {1,1,1}, life[3];
 static char coop_dir[MAX_PATH] = ".";
 static const char *names[6] = {"p0","p1","p2","enemy","",""};
-static int role_host = 1, have_remote = 1, my_slot, test_background = 1;
+static int role_host = 1, have_remote = 1, my_slot, test_background = 1, test_no_blowsync;
 static int filtered_classes, repositioned;
 static BYTE *local_player = bodies[0], *puppets[3] = {NULL,bodies[1],bodies[2]};
-static struct { DWORD player_handle; } ADDR = {0x5494c8};
+static BYTE *fake_scene;    /* the scene pointer ADDR.main_scene names (no scene: the blower's push is Doc's only) */
+static struct { DWORD player_handle, main_scene; } ADDR = {0x5494c8, 0};
 /* Like the engine table, NULL matches an empty entry (index 6) instead of being rejected. */
 static int gob_slot(BYTE *g) { int i; if(!g) return 6; for(i=0;i<6;i++) if(g==bodies[i]) return i; return -1; }
 static DWORD gob_handle(int i) { return 0x10000u + i; }
@@ -171,6 +172,7 @@ __asm__(
 int main(void)
 {
     struct canopy_state a = {0}, b;
+    ADDR.main_scene = (DWORD)(uintptr_t)&fake_scene;
     float spawn_pos[3] = {2.5f, 0.0f, 0.0f};
     DWORD ret_slot = 0xdeadbeefu;
     int i;

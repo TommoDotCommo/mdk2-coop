@@ -2,6 +2,15 @@
 
 Not final: edit the version, merge into the release's notes file and delete this file when the release is tagged.
 
+## Doc's leaf blower works for every player
+
+- **Blowing enemies as the client moves them.** A client's Doc blew only the copies of the enemies on the client's own
+  screen; the real ones are the host's, so on the host nothing moved, and on the client the enemies leaned and flipped
+  in place while their copies were put back. Herding the aliens into the plant on level 3 only worked for the host.
+  The host now gives the client's Doc the game's own push (the volume the game builds on Doc when he takes the blower
+  up), switched on while that player blows: the host's game pushes the enemy, with its walls and the enemy's own
+  reaction, and every player sees it move. Checked by `tools/qa_blower_live.sh` against a Doganboy whose AI is running.
+
 ## Setup that a stranger can run
 
 - **One file.** Download `MDK2-Coop-Setup.exe` from the release page and double-click it. There is no zip to extract:
