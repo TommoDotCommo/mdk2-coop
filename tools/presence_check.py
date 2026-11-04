@@ -83,6 +83,11 @@ def canopy(dumps, owner, expected):
     assert len({number(d, 'me') for d in dumps}) == len(dumps)
     assert sum(number(d, 'me') == owner for d in dumps) == 1
     assert len({number(d, 'level') for d in dumps}) == 1 and number(dumps[0], 'level') > 0
+    own = [r for r in dumps[[number(d, 'me') for d in dumps].index(owner)].get('canopy', []) if int(r[0]) == owner]
+    assert len(own) == 1 and len(own[0]) == 8, 'missing native canopy'
+    # the owner's own game first: if it did not open the canopy, the copies are not what failed
+    assert int(own[0][2]) == expected, \
+        f'player {owner}\'s own canopy is in animation {own[0][2]}, not {expected}: its own game did not do it'
     samples = []
     for d in dumps:
         rows = [r for r in d.get('canopy', []) if int(r[0]) == owner]
@@ -146,7 +151,7 @@ def gear(dumps, owner, name, expect=None, hidden=0, absent=False, lag=None):
     assert sum(number(d, 'me') == owner for d in dumps) == 1
     assert len({number(d, 'level') for d in dumps}) == 1 and number(dumps[0], 'level') > 0
     bones, subs, poses, changed = set(), {}, {}, {}
-    for d in dumps:
+    for d in sorted(dumps, key=lambda d: number(d, 'me') != owner):     # the owner's own game first
         rows = [r for r in d.get('gear', []) if int(r[0]) == owner and r[1] == name]
         if absent:
             assert not rows, f'{name} of player {owner} still exists in a process'
@@ -156,7 +161,8 @@ def gear(dumps, owner, name, expect=None, hidden=0, absent=False, lag=None):
         assert len(r) == GEAR_FIELDS.get(name, 12), 'truncated gear row'
         assert int(r[2]) == 1, 'visual is not alive'
         assert int(r[4]) == 1, 'visual is not attached to its player body'
-        assert int(r[3]) == hidden, 'visual hidden state is wrong' if hidden == 0 else 'visual is not hidden'
+        assert int(r[3]) == hidden, ('visual hidden state is wrong' if hidden == 0 else 'visual is not hidden') + \
+            (f' on player {owner}\'s own game' if number(d, 'me') == owner else f' on player {number(d, "me")}\'s game')
         assert int(r[5]) >= 0
         bones.add(int(r[5]))
         if expect is not None:

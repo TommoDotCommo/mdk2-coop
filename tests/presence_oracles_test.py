@@ -87,6 +87,22 @@ class PresenceOracles(unittest.TestCase):
         host.pop('canopy')
         with self.assertRaises(AssertionError): oracle.canopy([host,client],2,66)
 
+    def test_canopy_owner_landed_is_not_a_copy_failure(self):
+        # 2026-11-04: player 3 landed on the floor above its start, its own canopy closed (67, chute hidden) and every
+        # copy rightly followed it; the gate blamed the copies. The owner's own game is checked first.
+        host, client = sample('host',1), sample('client',2)
+        for d in host,client: d['canopy'] = [['2','2','66','67','1','.8','0','0']]
+        oracle.canopy([host,client],2,66)
+        for d in host,client: d['canopy'][0][2] = '67'
+        with self.assertRaisesRegex(AssertionError, "player 2's own canopy is in animation 67"):
+            oracle.canopy([host,client],2,66)
+        for d in host,client: d['gear'] = [['2','chute','1','1','1','2']]
+        with self.assertRaisesRegex(AssertionError, "hidden state is wrong on player 2's own game"):
+            oracle.gear([host,client],2,'chute',hidden=0)                # read in the owner's dump first
+        client['gear'][0][3] = '0'
+        with self.assertRaisesRegex(AssertionError, "hidden state is wrong on player 1's game"):
+            oracle.gear([client,host],2,'chute',hidden=0)
+
     def test_gear_is_read_from_every_process(self):
         host, client = sample('host',1), sample('client',2)
         # the item on the pose of the bone the owner's game puts it on (MAX_TORSO, slot 19), read on each body

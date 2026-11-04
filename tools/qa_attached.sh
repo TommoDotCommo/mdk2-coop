@@ -13,6 +13,8 @@
 #   MUTANT=shown   peers leave the canopy's drawn/hidden bit to the game's room handling: must fail
 #   MUTANT=subs    peers leave the item's sub-gobs to the copied animation (the flame comes on late): must fail
 #   MUTANT=gearbone  peers build the items on another bone of the body: must fail
+#   MUTANT=landed  the Kurt owner is put back on the ground while the peers are read, so its own canopy closes (what
+#                  player 3, landing on the floor above its start, did): must fail, on the owner's own game
 #   ONLY=kurt|max|doc  one scenario only (the default runs all three)
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -20,7 +22,7 @@ export MDK2_N=3
 source "$here/mdk.sh"
 scenario=attached
 source "$here/presence_common.sh"
-case "${MUTANT:-}" in ''|gear|canopy|shown|subs|gearbone) ;; *) echo 'Unknown attached mutant' >&2; exit 2 ;; esac
+case "${MUTANT:-}" in ''|gear|canopy|shown|subs|gearbone|landed) ;; *) echo 'Unknown attached mutant' >&2; exit 2 ;; esac
 check_py() { python3 "$here/presence_check.py" "$@"; }
 files() { echo "$out/$1_1.txt" "$out/$1_2.txt" "$out/$1_3.txt"; }
 # settle <tag> <oracle args...> [+ <oracle args...>]: capture until the oracle (every one of them, on the same
@@ -71,8 +73,12 @@ sleep 3
 for owner in 1 2 3; do
     check "kurt $owner: every player is at least 300 units from the others" mdk_assert_far "$owner" "kurt $owner"
     lua "$owner" 'qa_z0=mdkGetPlayerGob().position.z mdkGobSetPositionXYZ(mdkGetPlayerGob(),mdkGetPlayerGob().position.x,mdkGetPlayerGob().position.y,qa_z0+70) coop_press(57,14000)'
-    # the owner holds jump and is lifted back up whenever it comes low, so the canopy stays open until every peer was read
-    hook() { lua "$owner" 'local p=mdkGetPlayerGob() if p.position.z < qa_z0+30 then mdkGobSetPositionXYZ(p,p.position.x,p.position.y,qa_z0+70) end'; }
+    # the owner holds jump and is lifted back up once it has come 12 units down (under 2 s of gliding), so the canopy
+    # stays open until every peer was read. Measured from the top, not the start: player 3's start (z -169.3) is
+    # 39 units below the floor it glides down to (-130.2); lifted only below start+30 it landed there, its own
+    # canopy closed and every copy rightly followed (kurt_open_3, whenever the first reads did not pass in ~4.7 s).
+    hook() { lua "$owner" 'local p=mdkGetPlayerGob() if p.position.z < qa_z0+58 then mdkGobSetPositionXYZ(p,p.position.x,p.position.y,qa_z0+70) end'; }
+    [ "${MUTANT:-}" = landed ] && hook() { lua "$owner" 'local p=mdkGetPlayerGob() mdkGobSetPositionXYZ(p,p.position.x,p.position.y,qa_z0)'; }
     settle "kurt_open_$owner" canopy --owner "$owner" --expect 66 + gear --owner "$owner" --name chute --hidden 0
     hook() { :; }
     lua "$owner" 'coop_press(57,1)'
