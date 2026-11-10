@@ -2,7 +2,7 @@ mdk2-coop @VERSION@ - online co-op for MDK2 HD
 ==============================================
 
 Play MDK2 HD's campaign together: one player hosts, the others join and follow
-the host from level to level. Alpha: expect rough edges.
+the host from level to level. Beta: expect rough edges.
 Project page and bug reports: https://github.com/TommoDotCommo/mdk2-coop
 Code signing policy: https://github.com/TommoDotCommo/mdk2-coop#code-signing-policy
 Privacy: https://github.com/TommoDotCommo/mdk2-coop#privacy
@@ -259,7 +259,7 @@ Known issues
 
 Help test
 ---------
-This is an alpha. These help the most: Steam invites between two different accounts,
+This is a beta. These help the most: Steam invites between two different accounts,
 long sessions over the internet, finishing levels together (puzzles, bosses), and a real
 gamepad, microphone or 3-4 couch players. A session that went well is worth a playtest
 report too.

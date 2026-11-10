@@ -537,7 +537,7 @@ the game-free gates and a short live smoke (see the last section).
   the guard is proven on the planted case only, not on a natural one. A host crash at `+0x570bd` (a tunnel piece
   shot to pieces) is bot-side and fixed by the collateral limit.
 - **Item use:** Doc's item use is replicated to the other games (`EV_ITEMUSED`, `tools/qa_itemused.sh`, with a
-  mutant); see `docs/RELEASE-NOTES-item-use.md`.
+  mutant); see `docs/RELEASE-NOTES-v0.4.0-beta.1.md`.
 
 ### Round 4 (levels 3 and 4, elevators, camera-aimed sniper rounds)
 
@@ -580,7 +580,7 @@ the bot's side). The remaining level 3 and 4 stretches need a person's recording
   level), `tools/campaign_coop.py` (per-step world comparison, lives, care, roles), and
   `tools/qa_flyers.sh` with `tools/flyers_check.py` (the flying-enemy gate, with its `MUTANT=attached`).
 - The client no longer keeps mirrored flying enemies on their parent's bone (see
-  `docs/RELEASE-NOTES-flying-enemies.md`): the "flying enemies drift on clients" finding below
+  `docs/RELEASE-NOTES-v0.4.0-beta.1.md`): the "flying enemies drift on clients" finding below
   predates that fix. `campaign_coop.KNOWN` still lists flyer drift as known, so a regression of the
   fix would not be reported by the bot's comparison; `tools/qa_flyers.sh` is the gate for it.
 

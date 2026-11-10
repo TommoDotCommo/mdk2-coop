@@ -48,7 +48,7 @@ work around that check.
 4. The [release workflow](../.github/workflows/release.yml) builds a pushed `v*` tag (or an existing tag supplied through
    manual dispatch) on GitHub-hosted Linux. It always uploads checked unsigned downloads. Once SignPath is configured,
    approve both signing requests and review the resulting **draft** GitHub release before publishing manually
-   (`--prerelease` for alphas). See [Code signing](LAUNCHER-MAINTENANCE.md#code-signing) for setup, pinned toolchain,
+   (`--prerelease` for alphas and betas). See [Code signing](LAUNCHER-MAINTENANCE.md#code-signing) for setup, pinned toolchain,
    skipped Windows-only gates and reproducibility limits. Local builds are for development; Foundation signing uses CI.
 
 ## Dev harness

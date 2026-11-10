@@ -3,7 +3,7 @@
 Online co-op for **MDK2 HD**. One player hosts, everyone else joins, and you play the campaign together:
 shared enemies, doors, pickups and progress, with going down and being revived instead of dying.
 
-**Status: public alpha.** Every checkpoint of the campaign loads and plays in automated two-player tests,
+**Status: public beta.** Every checkpoint of the campaign loads and plays in automated two-player tests,
 but nobody has finished the whole campaign in co-op yet. Expect rough edges, and please
 [report what breaks](#reporting-a-problem).
 
@@ -329,7 +329,7 @@ over the local network inside your PC and cannot be combined with online play.
 
 ## Help test
 
-This is an alpha, and some things can only be tested by real players. These help the most:
+This is a beta, and some things can only be tested by real players. These help the most:
 
 - **Steam invites between two different accounts**, and joining by lobby ID.
 - **Long sessions over the internet**: an hour or more, with players far apart.
