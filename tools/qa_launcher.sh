@@ -102,6 +102,7 @@ host_name=Dave
 me=PlayerOne
 SEED
 
+rm -rf "$(dir 1)/coop/logs"       # the copy keeps earlier runs' session logs (a crash mutant's too): only this run's count
 # 1. host: pages, friendly fire on, Host with Enter (Play has the focus at first)
 P1=$(start 1); P2=$(start 2); echo "$P1 $P2" > "$MDK2_PIDS"
 check "host: launcher up before the game window"        wait_log 1 "^launcher: shown at 1280x720" 30
@@ -147,8 +148,10 @@ check "host: the client joined from 127.0.0.1"          wait_log 1 "^player 2 jo
 lmode() { tr -d '\r' < "$(dir "$1")/coop/coop.ini" | awk -F= '/^\[/{s=$0} s=="[launcher]" && $1=="mode"{print $2}'; }   # [voice] has a mode too
 check "mode remembered"                                 bash -c "[ '$(lmode 1)' = host ] && [ '$(lmode 2)' = join ]"
 
-# 3. client solo, with a new resolution (settings.lua is shared by all copies: kept and put back)
-settings="$(mdk_wsl "$(powershell.exe -NoProfile -Command '$env:LOCALAPPDATA' | tr -d '\r')")/MDK2HD/settings.lua"
+# 3. client solo, with a new resolution (kept and put back). An isolated copy writes its own profile's settings.lua
+#    (tools/mdk.sh MDK2_SAVE_ISOLATE); without isolation every copy shares the real one.
+if mdk_isolated; then settings="$(mdk_profile 2)/settings.lua"
+else settings="$(mdk_wsl "$(powershell.exe -NoProfile -Command '$env:LOCALAPPDATA' | tr -d '\r')")/MDK2HD/settings.lua"; fi
 cp "$settings" "$out/settings.lua.before"
 mdk_kill; sleep 2
 P2=$(start 2); echo "$P2" > "$MDK2_PIDS.solo"
