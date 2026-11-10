@@ -11,12 +11,19 @@
 #   4. Mute me sends no voice (the host receives none), Unmute sends again
 #   5. the pad: LB/RB change tabs, the D-pad walks the focus to "Start game", A starts the countdown
 #   6. that last lobby is invite only: the game it starts lets the client's game in by the invite's key (net.c)
+#      before any of its player packets, also when the guest's game is up first (the key goes ahead of each one)
 #   tools/qa_host.sh            about 2 minutes, 2 game copies (see tools/mdk.sh)
+#   MUTANT=latekey              the guest's key comes 3 s late ([test] late_key=1): the host refuses its first player
+#                               packet and the last check must fail
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=2
 source "$here/mdk.sh"
+case "${MUTANT:-}" in ''|latekey) : ;; *) echo 'Unknown mutant' >&2; exit 2 ;; esac
 MDK2_BACKGROUND=1 MDK2_LOBBY=1 "$here/install.sh" >/dev/null
+if [ "${MUTANT:-}" = latekey ]; then
+    sed -i '0,/^\[test\]/s//[test]\nlate_key=1/' "$(mdk_wsl "$(mdk_dir 2)")/coop/coop.ini"   # inside the existing section
+fi
 
 pass=0; fail=0; results=()
 out="$here/../local/qa/$(date +%Y%m%d-%H%M%S)-host"; mkdir -p "$out"

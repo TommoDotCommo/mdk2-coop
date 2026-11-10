@@ -5,7 +5,8 @@
 # walk to skip such a handle the way the first one does. The test plants a handle no gob has at the end of the vector.
 #   MDK2_N=1 tools/qa_scene_guard.sh                    guard on: the handle is skipped (counter > 0), the game stays up
 #   MUTANT=unguarded MDK2_N=1 tools/qa_scene_guard.sh   guard taken out (coop_sceneguard(0)): the game must crash at 0x570bd
-# Overhaul build (the fault site was seen there; the bridge checks the code bytes first). About 2 minutes.
+# Either build (the fault was seen in the Overhaul build at +0x570bd; the Steam build has the same code at +0x570dd;
+# the bridge checks the code bytes first). About 2 minutes.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 export MDK2_N=1
@@ -29,7 +30,7 @@ rm -f "$d/coop/note_scene.txt"
 [ "${MUTANT:-}" = unguarded ] && { mdk_crash_expect 1; mdk_cmd "$(mdk_pid 1)" 'coop_sceneguard(0)'; }
 mdk_cmd "$(mdk_pid 1)" 'coop_note("scene", format("planted %d", coop_test_stale_scene(1)))'
 if [ "${MUTANT:-}" = unguarded ]; then
-    check "the game crashed in the scene pass"      wait_for "has 'crash: exception 0xc0000005 at mdk2hd.exe\\+0x570bd'" 40
+    check "the game crashed in the scene pass"      wait_for "has 'crash: exception 0xc0000005 at mdk2hd.exe\\+0x570[bd]d'" 40
     mdk_crash_scan
     check "the process is gone"                     wait_for "! mdk_alive $(mdk_pid 1)" 20
 else

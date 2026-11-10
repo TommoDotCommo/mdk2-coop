@@ -31,6 +31,7 @@
 #endif
 
 static int join_cancelled, version_mismatch, test_legacy_version;
+static int test_late_invite_key;       /* [test] late_key=1: the old behaviour, with the first keys held back 3 s */
 
 #define PLAYER_MAGIC    0x564b444d      /* "MDKV": canopy and equipment (jetpack, leaf blower) visuals; incompatible with older peers */
 #define PACKET_EVENTS   7      /* 7 x 128-byte events + player state fit in one datagram */
@@ -296,7 +297,7 @@ static void load_player_id(void)
     logmsg("player id %08x, name %s", my_id, my_name);
 }
 
-static void invite_key_send(double now);
+static void invite_key_send(double now, int force);
 
 void net_open(const char *ini)
 {
@@ -316,6 +317,7 @@ void net_open(const char *ini)
     role_host = _stricmp(role, "client") != 0;
     sync_anim = GetPrivateProfileIntA("sync", "anim", 1, ini);
     send_hz = GetPrivateProfileIntA("sync", "send_hz", 30, ini);
+    test_late_invite_key = test_background && GetPrivateProfileIntA("test", "late_key", 0, ini);
     ent_hz = GetPrivateProfileIntA("sync", "ent_hz", 15, ini);
     interp_ms = GetPrivateProfileIntA("sync", "interp_ms", 100, ini);
     extrap_ms = GetPrivateProfileIntA("sync", "extrap_ms", 150, ini);
@@ -374,7 +376,7 @@ void net_open(const char *ini)
         l->addr.sin_port = htons((u_short)peer_port);
         l->addr.sin_addr.s_addr = inet_addr(host);
         link_reset(l);
-        invite_key_send(now_ms());      /* an invite-only host's game: the key before the first player packet */
+        invite_key_send(now_ms(), 0);   /* an invite-only host's game: the key before the first player packet */
     }
     logmsg("udp listen %d, role %s%s%s:%d", listen_port, role_host ? "host" : "client",
            role_host ? "" : ", host at ", role_host ? "" : host, role_host ? 0 : peer_port);
@@ -1159,6 +1161,8 @@ void net_send_player(BYTE *gob)
     next_send = (now - next_send > 1000.0 / send_hz) ? now + 1000.0 / send_hz : next_send + 1000.0 / send_hz;
     if (role_host)
         relay_flush();
+    else if (!have_remote && !net_steam && !test_late_invite_key)
+        invite_key_send(now, 1);        /* until the host answers, the key goes ahead of every player packet */
     memset(&p, 0, PACKET_HEAD);
     p.magic = test_legacy_version && role_host ? 0x434b444d : PLAYER_MAGIC;
     p.nonce = nonce;
@@ -1793,14 +1797,21 @@ static int invite_gate_take(const BYTE *buf, int n, const struct sockaddr_in *fr
     return 1;
 }
 
-/* Client: the invite's key to the host's game, twice a second until welcomed, then now and then */
-static void invite_key_send(double now)
+/* Client: the invite's key to the host's game, twice a second until welcomed, then now and then. force: right now,
+ * ahead of a player packet (net_send_player). A guest's game that is up before the host's kept sending player
+ * packets, and the host's first datagram from it was then one of those, not the key: the host refused it once
+ * ("invite only: refused") and the guest logged the invite-only words before it was let in. */
+static void invite_key_send(double now, int force)
 {
     static double next_send;
     uint8_t b[LH_JOIN_KEY_LEN];
     uint32_t key;
-    if (role_host || now < next_send || !links[0].used || !lhost_join_key(&key))
+    if (role_host || (!force && now < next_send) || sock == INVALID_SOCKET || !links[0].used || !lhost_join_key(&key))
         return;
+    if (test_late_invite_key && !next_send) {
+        next_send = now + 3000.0;
+        return;
+    }
     next_send = now + (have_remote ? 5000.0 : 500.0);
     lh_join_key_write(b, key);
     sendto(sock, (const char *)b, sizeof(b), 0, (struct sockaddr *)&links[0].addr, sizeof(links[0].addr));
@@ -1816,7 +1827,7 @@ void net_poll(void)
     if (net_steam) {
         steam_poll();
     } else if (sock != INVALID_SOCKET) {
-        invite_key_send(now);
+        invite_key_send(now, 0);
         for (i = 0; i < 256; i++) {
             fromlen = sizeof(from);
             n = recvfrom(sock, (char *)buf, sizeof(buf), 0, (struct sockaddr *)&from, &fromlen);

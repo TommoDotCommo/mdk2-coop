@@ -102,9 +102,9 @@ check "one value changed: Custom"                       has 1 "^lua: PRESET Cust
 lua 1 'coop_set("game", "dmg_taken", 200)'; sleep 0.5
 lua 1 'mdkDealDamage(coop_dog1, mdkGetPlayerGob(), 7, 2, -1)'; sleep 2   # a size the Doganboys never deal
 check "damage taken 200%: host's player took 14 of a 7 hit" has 1 "^difficulty: coop_dog1 -> .* damage 7 -> 14"
-c1=$(hp_of $L "mdkGetPlayerGob()")
-lua 1 "mdkDealDamage(coop_dog1, coop_gob(\"@p$lastnum\"), 5, 2, -1)"; sleep 2
-check "damage taken 200%: client lost 10 too"           test "$(hp_of $L 'mdkGetPlayerGob()')" = "$((c1 - 10))"
+# read from the client's own log (the hit the host sent it), not from its hp: the Doganboys hit it too in these 2 s
+lua 1 "mdkDealDamage(coop_dog1, coop_gob(\"@p$lastnum\"), 7, 2, -1)"; sleep 2
+check "damage taken 200%: the client took 14 of a 7 hit too" has $L "^event 3 on [^:]*: 14 type 0x2 "
 lua 1 'coop_set("game", "dmg_taken", 50)'; sleep 0.5
 lua 1 'mdkDealDamage(coop_dog1, mdkGetPlayerGob(), 9, 2, -1)'; sleep 2
 check "damage taken 50%: host's player took 4 of a 9 hit" has 1 "^difficulty: coop_dog1 -> .* damage 9 -> 4"

@@ -281,9 +281,13 @@ void setpos_guard_init(void)
  * gob handles twice. The first walk skips a handle the gob table no longer resolves; the second (at +0x570b6) uses the
  * lookup's answer without that check, so a handle left behind by a destroyed gob (a scenery object shot to pieces)
  * is a read of address 0x64 and a crash of the host at mdk2hd.exe+0x570bd. A code cave makes the second walk skip
- * such a handle the way the first one does. */
-#define SCENE_PASS_SITE     0x4570bd
-#define SCENE_GLOBAL        0x5484c0
+ * such a handle the way the first one does. Those addresses are the Overhaul build's; the Steam build has the same
+ * function 0x20 higher (site +0x570dd), as it has the scene update next to it (ADDR.update_scene, 0x457500 against
+ * 0x457520), so the site and the loop's next handle are taken from that address, and the scene from ADDR.main_scene.
+ * (Until v0.4.0-beta.1 the literal Overhaul site left the Steam build without this guard.) */
+#define SCENE_PASS_SITE     (ADDR.update_scene - 0x443)     /* 0x4570bd in the Overhaul build */
+#define SCENE_PASS_NEXT     (ADDR.update_scene - 0x3f5)     /* 0x45710b */
+#define SCENE_GLOBAL        ADDR.main_scene
 #define SCENE_VEC_SIZE      0x80
 #define SCENE_VEC_DATA      0x88
 int scene_guard_on;
@@ -316,10 +320,11 @@ void scene_guard_set(int on)
 void scene_guard_init(void)
 {
     static const BYTE expect[6] = { 0x8b, 0x47, 0x64, 0x83, 0xc4, 0x04 };   /* mov eax,[edi+0x64]; add esp,4 */
+    static const BYTE next[6] = { 0x43, 0x3b, 0x5c, 0x24, 0x14, 0x7c };     /* inc ebx; cmp ebx,[esp+0x14]; jl */
     BYTE *cave;
     DWORD site = SCENE_PASS_SITE;
 
-    if (memcmp((void *)site, expect, 6) != 0) {
+    if (!ADDR.update_scene || memcmp((void *)site, expect, 6) != 0 || memcmp((void *)SCENE_PASS_NEXT, next, 6) != 0) {
         logmsg("scene guard: NOT installed (unexpected code)");
         return;
     }
@@ -334,7 +339,7 @@ void scene_guard_init(void)
     cave[13] = 0xe9; *(DWORD *)(cave + 14) = (site + 6) - (DWORD)(cave + 18);   /* back to cmp [eax+0x60],0 */
     cave[18] = 0xa3; *(DWORD *)(cave + 19) = (DWORD)&scene_stale_last;      /* mov [last],eax */
     cave[23] = 0xff; cave[24] = 0x05; *(DWORD *)(cave + 25) = (DWORD)&scene_stale_skipped;   /* inc [counter] */
-    cave[29] = 0xe9; *(DWORD *)(cave + 30) = 0x45710b - (DWORD)(cave + 34);  /* the loop's next handle */
+    cave[29] = 0xe9; *(DWORD *)(cave + 30) = SCENE_PASS_NEXT - (DWORD)(cave + 34);  /* the loop's next handle */
     memcpy(scene_orig, expect, 6);
     scene_patch[0] = 0xe9;
     *(DWORD *)(scene_patch + 1) = (DWORD)cave - (site + 5);

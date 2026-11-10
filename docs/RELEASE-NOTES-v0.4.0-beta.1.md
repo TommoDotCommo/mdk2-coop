@@ -139,6 +139,8 @@ together; the Join list shows a host on another version greyed out, with its ver
   ignored instead of crashing the game.
 - **A stale object handle in the per-frame scene pass** (a shot-up scenery object, `mdk2hd.exe+0x570bd`) is skipped
   the way the pass's first walk already skips it, instead of crashing the host.
+  The guard was written against the Overhaul build's address; the Steam build has the same code 0x20 higher
+  (`+0x570dd`) and now gets the guard too (before, it was silently off there).
 - Both checks verify the game's code bytes first and stay off on an unrecognised build. Checks: `tools/qa_setpos_guard.sh`
   and `tools/qa_scene_guard.sh`, each with an unguarded mutant that must crash at the same site.
 
@@ -168,6 +170,10 @@ together; the Join list shows a host on another version greyed out, with its ver
   numbers still join.
 - Under the hood: the launcher lobby and the game answer the new CPQ2 probe next to CPQ1, at most 10 replies a
   second per address. New gates: `launcher-join` (offline, 24 mutants), `join-list` (live, two games).
+- **Fix: joining an invite-only game no longer logs a refusal first.** When a guest's game was up before the host's,
+  the host's first packet from it could be a player packet instead of the invite's key: the host refused it once and
+  the guest's log said "This lobby is invite only" before it was let in. The key now goes ahead of every player
+  packet until the host answers (`tools/qa_host.sh`, `MUTANT=latekey` must fail).
 
 ### Hosting that explains itself
 

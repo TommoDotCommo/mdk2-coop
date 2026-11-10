@@ -35,7 +35,19 @@ mdk_kill; sleep 1
 echo "$(mdk_start 1)" > "$MDK2_PIDS"
 check "known build: the Lua hook is installed"         wait_for "grep -q 'lua hook installed' '$log' 2>/dev/null" 45
 check "known build: no unsupported-build notice"       test ! -e "$notice"
+known_build="$(grep -a -m1 '^game build: ' "$log" | tr -d '\r')"
 mdk_kill; sleep 2
+# The fixture below (one byte of the exe changed) works on the Overhaul exe only. The Steam exe so changed logged the
+# unknown build, made no notice within 15 s (the game never asked for DirectInput, which is when the notice is made)
+# and its process ended later without a crash report. A real unknown Steam build is an unchanged exe, which this
+# cannot stand in for: on the Steam build only the known-build half runs, and the rest is reported as skipped.
+if [[ "$known_build" == *Steam* ]]; then
+    printf '%s\n' "${results[@]}"
+    echo "SKIP  unknown build: notice file and message box (the changed-exe fixture does not run on the Steam exe; run on the Overhaul exe)"
+    echo "evidence: $out"
+    echo "$pass passed, $fail failed"
+    [ "$fail" -eq 0 ]; exit
+fi
 
 # 2. patch the copy's exe: change the builtin name by one byte at the file offset of the signature string
 python3 - "$out/original.exe" "$out/patched.exe" <<'PY'
