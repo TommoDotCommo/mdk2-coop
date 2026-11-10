@@ -157,7 +157,8 @@ def main():
             live.command(1, 'page 3')
             live.shot(1, 'updated_about_after_restart')
             if args.unchanged:
-                assert not updater_leftovers(), 'updater files in the game folder after the restart: %s' % updater_leftovers()
+                left = [f for f in updater_leftovers() if not (f in before and f not in own)]      # as above
+                assert not left, 'updater files in the game folder after the restart: %s' % left
             if args.rollback:
                 live.command(1, 'update rollback')
                 live.expect(1, 'real launcher rolls back to the verified backups', timeout=30,

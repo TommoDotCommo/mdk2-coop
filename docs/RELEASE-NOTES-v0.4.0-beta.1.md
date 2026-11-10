@@ -351,3 +351,45 @@ and the glyph switch; `coop-keys` checks the guide's pad lines; live: `pad-layer
   handler when it is unloaded.
 - New offline gates: `setup-core`, `linux-install`, `release-signing`, `update-layout`, `release-package`; new live
   gates: the Setup exe checks in `installer` and `build-message`.
+
+## Verified and not verified
+
+What was run for this release, on one Windows 11 PC with both supported game builds, by `tools/qa_all.py full`
+(`docs/TESTING.md` lists every gate).
+
+**Verified**
+
+- **The whole ladder on the release commit:** 109 gates (41 offline, 68 with running games). One complete run passed
+  105; the other four passed when run again by themselves (see the intermittent ones below). Of the 68 with games, 49 ran
+  on Overhaul copies only, 15 on Steam copies only and 4 on both.
+- **The checkpoint sweep:** two players at all 96 checkpoints of the campaign, 96 of 96 followed and matching, with
+  levels 1 to 3 (to checkpoint 3-6) on the Steam build and the rest on the Overhaul build.
+- **The Steam build end to end, two commits before the release commit:** every gate with games ran on Steam copies in
+  one pass. That pass is what found the scene guard missing on Steam and the invite-key race; both are fixed above and
+  their gates pass on Steam, each with a mutant that fails.
+- **The package:** built by `tools/release.sh` and checked by `tools/check_release_package.py`; Setup installs it into
+  a game copy and the updater moves an older install to a newer one in the `installer` and `updater-live` gates.
+
+**Intermittent, seen while testing**
+
+- `first-enemy`: the level 1 dog's first bite on the host sometimes takes longer than the test's 20 seconds (it failed
+  in three of five runs on the release commit, always that one check; the bites on both joining players, the hp and the
+  script checks passed every time). The dog and the host's hp are the host game's own, so this looks like the test's
+  placement and not co-op, but it was not run down.
+- On the Steam build, `remote-events` and `projectiles` each failed one run in three two commits earlier (a client
+  standing next to the host when it should not, a grenade that did not move) and passed in the final run. Not
+  diagnosed.
+- With 15 or more games running at once, or another heavy program on the PC, tests with timing limits fail in
+  scattered places. The numbers above are from runs on an otherwise idle PC.
+
+**Not verified**
+
+- A clean install on a PC that never had the mod or its tools. Setup was only run on this PC's game copies.
+- Play over the internet between two homes with this exact build. The automated games all run on one PC.
+- Steam Deck, Proton and Linux: `install-linux.sh` is covered offline only.
+- Mod Organizer 2 under its virtual file system; Vortex beyond the offline extension checks.
+- The unknown-build message on a real unknown Steam build: the test's changed executable does not start on the Steam
+  copy, so that half ran on the Overhaul build only.
+- Whether the level 3 boss and level 8 fixes above were needed in v0.3.5-alpha.
+- The campaign sweep with more than two players.
+- Code signing: the files are unsigned.
