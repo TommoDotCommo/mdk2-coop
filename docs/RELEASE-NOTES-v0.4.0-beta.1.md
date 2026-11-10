@@ -133,6 +133,15 @@ together; the Join list shows a host on another version greyed out, with its ver
   `tools/qa_boss3.sh`, whose mutant (no target) fails with the same Lua error. Whether v0.3.5-alpha had it was not
   tested.
 
+### Level 8's opening on a slower client
+
+- **A joining player whose game loads level 8 later than the host's no longer crashes there.** The level opens by
+  scaring the cone creatures, and each one removes itself about two seconds later. When the host's removals arrived
+  before the client's own copy of that script had run, the client's script called into a creature that was already
+  gone (`mdk2hd.exe+0xd055`, reading 0x84). The client now skips a creature that is gone. Seen once, in a checkpoint
+  sweep on a busy machine; checked by `tools/qa_cones.sh`, whose mutant crashes at the same address. Other level
+  scripts with the same shape have not been searched for.
+
 ### Crash guards
 
 - **A position set on a missing object** (a script or test command racing a level change, `mdk2hd.exe+0xdda8`) is

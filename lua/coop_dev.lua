@@ -1164,6 +1164,28 @@ function coop.PsiTargetTick()
     end
 end
 
+-- Level 8 opens with its script scaring every cone creature (Level.ConeScared); each then deletes itself some two
+-- seconds later. The host's deletions reach a client as despawns, and a client whose own intro timer runs later than
+-- that (a slower load) called mdkSetLuaEvent on a creature already gone: the native reads through a null gob.
+function coop.ConeScaredSafe(gob, t)
+    if (not gob or not coop_alive(gob)) then
+        if (not coop.cone_skips) then coop_log("level 8: cone script skipped a creature that is already gone") end
+        coop.cone_skips = (coop.cone_skips or 0) + 1
+        return
+    end
+    coop.cone_orig(gob, t)
+end
+
+function coop.ConeScaredTick()
+    if (coop.level ~= 8 or coop_role() == "host") then return end
+    if (not coop.cone_on) then coop.cone_on = tonumber(coop_get("test", "conesafe", "1")) end
+    if (coop.cone_on == 0) then return end
+    local L = getglobal("Level")
+    if (type(L) ~= "table" or not L.ConeScared or L.ConeScared == coop.ConeScaredSafe) then return end
+    coop.cone_orig = L.ConeScared
+    L.ConeScared = coop.ConeScaredSafe
+end
+
 function coop.HandlerTick()
     local n = 0
     local name, event, slot, arg, kill, arg2 = coop_next_handler()
@@ -1947,6 +1969,7 @@ function coop.Tick()
     coop.HandleEvents()
     coop.HandlerTick()
     coop.PsiTargetTick()
+    coop.ConeScaredTick()
     if (coop.pilot) then coop.PilotTick() end
     if (coop.nav) then coop.NavTick() end
     if (coop.gunner) then coop.GunnerTick() end
