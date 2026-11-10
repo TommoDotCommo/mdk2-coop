@@ -150,8 +150,10 @@ mdk_cmd()   { local d i; d="$(mdk_wsl "$(mdk_dir "$(mdk_inst "$1")")")/coop"
               fi
               return 1; }
 # mdk_press <pid> <code> <count> <holdMs> <gapMs>: code 0-255 scancode, 256 left / 257 right mouse
+# The press is held for its time and for at least two whole frames: on a loaded machine a game draws a frame in more
+# than 80 ms, and a press by time alone then falls between two frames and is lost (no difference at full speed).
 mdk_press() { local n; for n in $(seq 1 "$3"); do
-                  mdk_cmd "$1" "coop_press($2, $4)" || return 1; sleep "$(echo "($4 + $5) / 1000" | bc -l)"; done; }
+                  mdk_cmd "$1" "coop_press_frames($2, 2) coop_press($2, $4)" || return 1; sleep "$(echo "($4 + $5) / 1000" | bc -l)"; done; }
 # mdk_key <pid> <scancode> [count] [holdMs]
 mdk_key()   { if mdk_bg "$1"; then mdk_press "$1" "$2" "${3:-1}" "${4:-80}" 250; else
               powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$MDK2_TOOLS\\key.ps1" -id "$1" -sc "$2" -count "${3:-1}" -hold "${4:-80}"; fi; }
