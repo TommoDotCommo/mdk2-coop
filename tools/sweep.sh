@@ -9,6 +9,7 @@
 #   MDK2_SHARDS=4 tools/sweep.sh   four sets of MDK2_N games side by side, each on its own run of
 #                                  checkpoints (copies 1..4*MDK2_N, ports from MDK2_PORTS or spaced by 16)
 #   MDK2_SHOTS=1 tools/sweep.sh    screenshots at every checkpoint (default: only where a check fails)
+#   MDK2_SWEEP_ACTS=25 tools/sweep.sh 3-11 3-11   25 rounds of actions (about two minutes) at each checkpoint
 # Results: local/sweeps/<date-time>/results.md, plus per checkpoint every game's log slice, state
 # dump with statecheck.py's report (state.txt), screenshots where something failed and any crash
 # dumps. Waits are on conditions, not fixed sleeps, and the games act at the same time: about
@@ -179,6 +180,12 @@ quiet() {
 }
 # act <instance>: that game's part, run in the background for all games at once: walk, fire,
 # (clients) hit something through the gun path, strafe (alternating directions)
+# The key that moves the host on. In background mode it is held for whole frames: an 80 ms press falls between two
+# frames of a game that is drawing slowly (eight copies loading at once), and a lost step leaves the whole run one
+# checkpoint behind.
+step_key() { local p; p=$(mdk_pid 1)
+             if mdk_bg "$p"; then mdk_cmd "$p" "coop_press_frames($1, 3)"; else mdk_key "$p" "$1"; fi; }
+
 act() {
     local i=$1 p; p=$(mdk_pid "$i")
     if [ "$i" = 1 ]; then mdk_cmd "$p" "coop_press(17, 1500)"; sleep 1.5
@@ -203,9 +210,9 @@ for c in $list; do
         for i in $(mdk_seq); do off[$i]=0; done
     else
         if [ "$levels" = 1 ]; then
-            mdk_key "$(mdk_pid 1)" 66                     # F8: first checkpoint of next level
+            step_key 66                                   # F8: first checkpoint of next level
         else
-            mdk_key "$(mdk_pid 1)" 64                     # F6: next checkpoint
+            step_key 64                                   # F6: next checkpoint
         fi
     fi
     first=0
@@ -218,8 +225,10 @@ for c in $list; do
     done
     settled || notes="$notes not settled after 8 s;"
 
-    for i in $(mdk_seq); do act "$i" & done
-    wait
+    for _ in $(seq 1 "${MDK2_SWEEP_ACTS:-1}"); do         # more rounds: stay and fight (a boss needs a minute to show its faults)
+        for i in $(mdk_seq); do act "$i" & done
+        wait
+    done
     quiet || true                                         # enemies may keep shooting: go on after 4 s
     mdk_state "$c" "$dir" > "$dir/state.txt" 2>&1
     # a difference can be momentary (a revive's teleport while the other game still draws the

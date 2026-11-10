@@ -123,6 +123,16 @@ together; the Join list shows a host on another version greyed out, with its ver
   measured at most 97.0 units of drift with the old behaviour (`MUTANT=attached`)
   and at most 3.3 with the fix (91.8 and 9.0 at twice the game speed).
 
+### Level 3's boss on a client
+
+- **A client's scripts no longer stop at the level 3 boss.** The boss picks where its psionic blast lands in its own
+  AI, which only the host's game runs. On a client the blast's script had no target: a Lua error at every blast, no
+  blast on that player's screen, and in one run, after a few of them and two checkpoint restarts, that game's Lua
+  answered every call with "too many nested blocks" through levels 4 and 5. The client now reads the target off where
+  the boss is. Found by leaving the checkpoint sweep at the boss for two minutes instead of seven seconds; checked by
+  `tools/qa_boss3.sh`, whose mutant (no target) fails with the same Lua error. Whether v0.3.5-alpha had it was not
+  tested.
+
 ### Crash guards
 
 - **A position set on a missing object** (a script or test command racing a level change, `mdk2hd.exe+0xdda8`) is

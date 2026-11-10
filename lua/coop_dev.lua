@@ -1134,6 +1134,36 @@ function coop.SharedPickupTick()
     end
 end
 
+-- Level 3's boss chooses where its psionic blast lands in its own AI (Level.BFBPickPsionicDest: it flies to one of three
+-- points and aims at the floor below it), and a client's copy of the boss runs no AI. Its shot handler then placed the
+-- blast with no target: a Lua error at every such shot, no blast on the client's screen, and after some ten of them
+-- the game's Lua refused every call ("too many nested blocks") for the rest of the session. A client reads the target
+-- off the boss's place: the floor point under the nearest of the three. [test] psitarget=0 leaves it out (the old bug). --
+coop.psipoints = { "l3tp_psitarg01", "l3tp_psitarg02", "l3tp_psitarg03" }
+function coop.PsiTargetTick()
+    if (coop.level ~= 3 or coop_role() == "host" or coop_players() < 1) then return end
+    if (not coop.psi_on) then coop.psi_on = tonumber(coop_get("test", "psitarget", "1")) end
+    if (coop.psi_on == 0) then return end
+    local b, pts = getglobal("bfb"), getglobal("points")
+    if (not b or type(b) == "number" or type(b) == "string" or type(pts) ~= "table" or not coop_alive(b)) then return end
+    local pos = b.position
+    if (not pos) then return end
+    local best, bestd, i = nil, nil, 1
+    while (coop.psipoints[i]) do
+        local t = pts[coop.psipoints[i]]
+        if (t) then
+            local dx, dy = t.x - pos.x, t.y - pos.y
+            local d = dx * dx + dy * dy
+            if (not bestd or d < bestd) then best = coop.psipoints[i]; bestd = d end
+        end
+        i = i + 1
+    end
+    if (best and b.psitarget ~= best) then
+        b.psitarget = best
+        coop_log(format("boss: psionic target %s", best))
+    end
+end
+
 function coop.HandlerTick()
     local n = 0
     local name, event, slot, arg, kill, arg2 = coop_next_handler()
@@ -1916,6 +1946,7 @@ function coop.Tick()
     coop_recv()
     coop.HandleEvents()
     coop.HandlerTick()
+    coop.PsiTargetTick()
     if (coop.pilot) then coop.PilotTick() end
     if (coop.nav) then coop.NavTick() end
     if (coop.gunner) then coop.GunnerTick() end
